@@ -1,0 +1,16 @@
+{
+  "id": "mgu-uplink",
+  "kind": "tool",
+  "version": "0.3.4",
+  "title": "Internet uplink",
+  "description": "Internet for selected apps through a USB network adapter",
+  "build": ["make", "target"],
+  "files": [
+    { "path": "mgu-uplink", "from": "build/target/mgu-uplink", "mode": "0755" },
+    { "path": "mgu-uplink.conf", "from": "mgu-uplink.conf", "mode": "0644" }
+  ],
+  "units": [{ "name": "mgu-uplink.service", "from": "mgu-uplink.service" }],
+  "enable": [{ "unit": "mgu-uplink.service", "target": "multi-user.target" }],
+  "recmgr": ["mgu-uplink"],
+  "restart": ["mgu-uplink.service"]
+}

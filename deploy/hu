@@ -1,0 +1,680 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * deploy/hu: the Mac side of the deploy tool. It packs tool artifacts,
+ * assembles the offline USB kit, and runs the on-unit installer
+ * (deploy/unit/mgu-deploy.js) over SSH. deploy/README.md has the details.
+ *
+ *   deploy/hu artifact <dir> --out <dir>      (native/<id>, or deploy)
+ *   deploy/hu kit [--out <dir>] [--tar] [<id>...]
+ *   deploy/hu check [<id>...] [--artifact <file>...]
+ *   deploy/hu install [<id>...] [--artifact <file>...] [--updater-token-file <f>] [--yes]
+ *   deploy/hu status [--json]
+ *   deploy/hu uninstall <id> [--yes]
+ *   deploy/hu restore [name] [--yes]
+ *   deploy/hu backups
+ *   deploy/hu rollback <id> [--yes]
+ *   deploy/hu fallback <on|off|status|migrate> [--yes]
+ *   deploy/hu updater-token [--updater-token-file <f>] [--remove]
+ *   deploy/hu connect [--hold <seconds>] [--cmd <command>]
+ *
+ * Connection, without --host: --wifi (the DIRECT-BMW hotspot), --hu-ip
+ * <addr>, --iface <if>, --lport <port> (2222), --arm-debug [--keep-armed]
+ * (first-time bootstrap only), --assets-dir <dir> (HU_ASSETS_DIR). The
+ * default is ENET when an adapter is present, else the hotspot
+ * (deploy/transport/mgu_connect.py).
+ *
+ * SSH options: --host (HU_HOST) and --port (HU_PORT, 22) name the target
+ * themselves and skip the selection, --user (HU_USER, root), --identity
+ * <key> (HU_IDENTITY), --ssh-opt <o> (repeatable, passed as ssh -o <o>),
+ * --keep-stage. The updater's GitHub token comes from --updater-token-file
+ * or HU_UPDATER_TOKEN_FILE and goes to the unit on ssh's stdin only.
+ *
+ * Exit codes follow mgu-deploy: 0 done, 1 failed, 2 refused or bad usage.
+ */
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
+const cp = require('child_process');
+const { tgz, MTIME } = require('../tools/oap_pack.js');
+
+const REPO = path.resolve(__dirname, '..');
+const UNIT_DIR = path.join(__dirname, 'unit');
+const UNIT_FILES = [
+    { name: 'mgu-deploy.sh', mode: 0o755 },
+    { name: 'mgu-deploy.js', mode: 0o755 },
+    { name: 'fallback_build.js', mode: 0o755 },
+    { name: 'mgu-app-fallback.service', mode: 0o644 }
+];
+/* deploy/component.json, beside the script in the kit and the staging
+ * folder: the deploy tool installs itself under that manifest. */
+const SELF_COMPONENT = { name: 'component.json', mode: 0o644, from: path.join(__dirname, 'component.json') };
+const DEFAULT_KIT = path.join(__dirname, 'out', 'kit');
+const SEMVER = /^\d+\.\d+\.\d+$/;
+const SSH_COMMANDS = ['check', 'install', 'status', 'uninstall', 'rollback', 'restore', 'backups', 'fallback', 'updater-token'];
+const TRANSPORT = path.join(__dirname, 'transport', 'mgu_connect.py');
+const WIFI_HU_IP = '172.16.222.97';
+/* The SSH key and the debug-certificate material, never in this repo. */
+const DEFAULT_ASSETS = path.join(os.homedir(), 'workspaces', 'personal', 'claude-bmw-ecu', 'mgu18', 'tool_analysis', 'cap_assets');
+const ASSET_KEY = 'mgu_ssh_key_rsa.pem';
+const DEFAULT_STATE = path.join(os.homedir(), '.cache', 'mgu-apps');
+/* ssh options for a selected connection: the relay's 127.0.0.1:<lport>
+ * stands for whichever unit answers, so host keys are not pinned. */
+const SELECTED_SSH_OPTS = ['StrictHostKeyChecking=no', 'UserKnownHostsFile=/dev/null', 'LogLevel=ERROR', 'ConnectTimeout=8'];
+
+class Usage extends Error {}
+
+function sha256(buf) {
+    return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+function readJson(file) {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function safeRel(p) {
+    return typeof p === 'string' && p !== '' && !p.startsWith('/') &&
+        !p.split('/').includes('..') && !p.includes('\\');
+}
+
+function mtime() {
+    const epoch = process.env.SOURCE_DATE_EPOCH;
+    if (epoch === undefined || epoch === '') {
+        return MTIME;
+    }
+    if (!/^\d+$/.test(epoch)) {
+        throw new Usage(`SOURCE_DATE_EPOCH is not a number: ${epoch}`);
+    }
+    return Number(epoch);
+}
+
+function byName(a, b) {
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+/* ---- artifact ------------------------------------------------------------------ */
+
+/* Builds and packs the tool in a folder holding its component.json
+ * (native/<id>, or deploy for the deploy tool itself) into
+ * <outDir>/<id>@<version>.tgz: the artifact's component.json (sha256 per
+ * file, units by name), files/<path> and units/<name>, sorted, owner 0:0,
+ * one mtime. */
+function buildArtifact(compDir, outDir) {
+    const dir = path.resolve(compDir);
+    const rel = path.relative(process.cwd(), dir) || '.';
+    const file = path.join(dir, 'component.json');
+    if (!fs.existsSync(file)) {
+        throw new Error(`${rel}: no component.json`);
+    }
+    const c = readJson(file);
+    const id = c.id;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(id || '') || c.kind !== 'tool' || !SEMVER.test(c.version || '')) {
+        throw new Error(`${rel}/component.json: needs an id of a-z, 0-9 and -, kind "tool" and a x.y.z version`);
+    }
+    const buildCmd = Array.isArray(c.build) && c.build.length ? c.build : null;
+    if (buildCmd) {
+        process.stderr.write(`${id}: ${buildCmd.join(' ')} (in ${rel})\n`);
+        const r = cp.spawnSync(buildCmd[0], buildCmd.slice(1), { cwd: dir, stdio: ['ignore', 2, 2] });
+        if (r.status !== 0) {
+            throw new Error(`${id}: build "${buildCmd.join(' ')}" in ${rel} failed (${r.error ? r.error.message : r.signal || `exit ${r.status}`})`);
+        }
+    }
+    const entries = [];
+    const files = (c.files || []).map((f) => {
+        if (!safeRel(f.path) || !/^[0-7]{3,4}$/.test(f.mode || '')) {
+            throw new Error(`${rel}/component.json: bad files[] entry ${JSON.stringify(f)}`);
+        }
+        const from = path.join(dir, f.from || f.path);
+        if (!fs.existsSync(from) || !fs.statSync(from).isFile()) {
+            throw new Error(`${id}: ${path.relative(dir, from)} is missing` +
+                (buildCmd ? ` (built by "${buildCmd.join(' ')}" in ${rel})` : ''));
+        }
+        const data = fs.readFileSync(from);
+        entries.push({ name: `files/${f.path}`, data, mode: parseInt(f.mode, 8) });
+        return { path: f.path, mode: f.mode, sha256: sha256(data) };
+    });
+    const units = (c.units || []).map((u) => {
+        if (!safeRel(u.name) || u.name.includes('/')) {
+            throw new Error(`${rel}/component.json: bad unit name ${u.name}`);
+        }
+        const from = path.join(dir, u.from || u.name);
+        if (!fs.existsSync(from)) {
+            throw new Error(`${id}: unit ${path.relative(dir, from)} is missing`);
+        }
+        entries.push({ name: `units/${u.name}`, data: fs.readFileSync(from), mode: 0o644 });
+        return { name: u.name };
+    });
+    const manifest = {
+        id: c.id,
+        kind: c.kind,
+        version: c.version,
+        title: c.title || c.id,
+        description: c.description || '',
+        files,
+        units,
+        enable: c.enable || [],
+        recmgr: c.recmgr || [],
+        restart: c.restart || []
+    };
+    entries.push({ name: 'component.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), mode: 0o644 });
+    entries.sort(byName);
+    const data = tgz(entries, mtime());
+    fs.mkdirSync(outDir, { recursive: true });
+    const out = path.join(outDir, `${c.id}@${c.version}.tgz`);
+    fs.writeFileSync(out, data);
+    return { id: c.id, kind: 'tool', version: c.version, file: out, sha256: sha256(data) };
+}
+
+/* ---- kit ------------------------------------------------------------------------- */
+
+/* Every releasable component (release/release.js): tools with
+ * native/<id>/component.json, apps with apps/<id>/release.json. */
+function components() {
+    return require('../release/release.js').components(REPO);
+}
+
+function selectComponents(ids) {
+    const all = components();
+    if (!ids.length) {
+        return all;
+    }
+    return ids.map((id) => {
+        const c = all.find((x) => x.id === id);
+        if (!c) {
+            throw new Usage(`no component "${id}" (have: ${all.map((x) => x.id).join(', ')})`);
+        }
+        return c;
+    });
+}
+
+/* An app's artifact is its own build output apps/<id>/<id>@<version>.tgz,
+ * built with its release.json command when it is not there yet. */
+function appArtifact(c) {
+    const file = path.join(REPO, c.artifact);
+    const appDir = path.join(REPO, c.dir);
+    if (!fs.existsSync(file)) {
+        (c.release.local || []).forEach((l) => {
+            const p = path.join(appDir, `${c.id}@${c.version}`, l);
+            if (!fs.existsSync(p)) {
+                throw new Error(`${c.id}: local input ${path.relative(REPO, p)} is missing (see ${c.dir}/README.md); ` +
+                    `then build with: cd ${c.dir} && ${c.release.build}`);
+            }
+        });
+        process.stderr.write(`${c.id}: ${c.release.build} (in ${c.dir})\n`);
+        const r = cp.spawnSync(c.release.build, { cwd: appDir, shell: true, stdio: ['ignore', 2, 2] });
+        if (r.status !== 0 || !fs.existsSync(file)) {
+            throw new Error(`${c.id}: cannot build ${c.artifact}; build it with: cd ${c.dir} && ${c.release.build}`);
+        }
+    }
+    const data = fs.readFileSync(file);
+    return { id: c.id, kind: 'app', version: c.version, file, sha256: sha256(data) };
+}
+
+function buildArtifacts(ids, outDir) {
+    return selectComponents(ids).map((c) => {
+        if (c.kind === 'tool') {
+            return buildArtifact(path.join(REPO, c.dir), outDir);
+        }
+        const a = appArtifact(c);
+        const dest = path.join(outDir, path.basename(a.file));
+        fs.mkdirSync(outDir, { recursive: true });
+        fs.copyFileSync(a.file, dest);
+        return Object.assign(a, { file: dest });
+    });
+}
+
+const KIT_README = `mgu-deploy offline kit
+======================
+
+Installs our head-unit tools and apps from this folder, without a laptop
+connection. Every change is snapshotted first; "restore" puts the stock
+state back.
+
+  mgu-deploy.sh             the installer (runs the unit's /usr/bin/node)
+  mgu-deploy.js             the installer itself
+  fallback_build.js         builds the optional provisioning fallback
+  mgu-app-fallback.service  its boot unit
+  component.json            the installer's own manifest
+  artifacts/                the tools and apps to install
+
+On the unit, as root, with this folder copied from the USB stick to a
+writable place (for example /var/opt/mgu-deploy-kit):
+
+  sh mgu-deploy.sh check        read-only checks of the unit and the artifacts
+  sh mgu-deploy.sh install      install everything in artifacts/
+  sh mgu-deploy.sh status       installed components and pending reboots
+  sh mgu-deploy.sh backups      list snapshots ("stock" is the first one)
+  sh mgu-deploy.sh restore --yes   go back to the stock snapshot
+  sh mgu-deploy.sh updater-token < <file>   the updater's GitHub token, from
+                                a file the owner brings (never in this kit)
+  sh mgu-deploy.sh help
+
+Before installing: the car is parked, on stable power (engine running or
+a battery charger connected), and stays awake until the command finishes.
+Exit status 0 is done, 1 failed and rolled back, 2 refused with nothing
+changed.
+`;
+
+/* The installer's files: deploy/unit/ and deploy/component.json. */
+function kitFiles() {
+    return UNIT_FILES.map((f) => ({ name: f.name, data: fs.readFileSync(path.join(UNIT_DIR, f.name)), mode: f.mode }))
+        .concat([{ name: SELF_COMPONENT.name, data: fs.readFileSync(SELF_COMPONENT.from), mode: SELF_COMPONENT.mode }]);
+}
+
+function cmdKit(opts) {
+    const out = path.resolve(opts.out || DEFAULT_KIT);
+    if (fs.existsSync(out)) {
+        const names = fs.readdirSync(out);
+        if (names.length && !names.includes('mgu-deploy.sh')) {
+            throw new Usage(`${out} exists and is not a kit; choose another --out`);
+        }
+        fs.rmSync(out, { recursive: true, force: true });
+    }
+    const artifactsDir = path.join(out, 'artifacts');
+    const built = buildArtifacts(opts.ids, artifactsDir);
+    kitFiles().forEach((f) => {
+        fs.writeFileSync(path.join(out, f.name), f.data);
+        fs.chmodSync(path.join(out, f.name), f.mode);
+    });
+    fs.writeFileSync(path.join(out, 'README.txt'), KIT_README);
+    console.log(`kit: ${out}`);
+    built.forEach((a) => console.log(`  ${a.sha256}  artifacts/${path.basename(a.file)}`));
+    if (opts.tar) {
+        const top = path.basename(out);
+        const entries = kitFiles().map((f) => ({ name: `${top}/${f.name}`, data: f.data, mode: f.mode }))
+            .concat([{ name: `${top}/README.txt`, data: Buffer.from(KIT_README), mode: 0o644 }])
+            .concat(built.map((a) => ({ name: `${top}/artifacts/${path.basename(a.file)}`, data: fs.readFileSync(a.file), mode: 0o644 })));
+        entries.sort(byName);
+        const data = tgz(entries, mtime());
+        fs.writeFileSync(`${out}.tar.gz`, data);
+        console.log(`  ${sha256(data)}  ${out}.tar.gz`);
+    }
+    return 0;
+}
+
+/* ---- SSH ------------------------------------------------------------------------- */
+
+function shQuote(s) {
+    return `'${String(s).split("'").join("'\\''")}'`;
+}
+
+function sshArgs(opts, tty) {
+    const args = ['-p', String(opts.port)];
+    if (opts.identity) {
+        args.push('-i', opts.identity, '-o', 'IdentitiesOnly=yes',
+            '-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa');
+    }
+    opts.sshOpts.forEach((o) => args.push('-o', o));
+    if (tty) {
+        args.push('-t');
+    }
+    args.push(`${opts.user}@${opts.host}`);
+    return args;
+}
+
+function ssh(opts, remote, spawnOpts) {
+    const tty = !!spawnOpts.tty;
+    const r = cp.spawnSync('ssh', sshArgs(opts, tty).concat([remote]), {
+        input: spawnOpts.input,
+        stdio: spawnOpts.input ? ['pipe', 'inherit', 'inherit'] : 'inherit',
+        maxBuffer: 256 << 20
+    });
+    if (r.error) {
+        throw new Error(`ssh: ${r.error.message}`);
+    }
+    return r.status === null ? 1 : r.status;
+}
+
+/* The updater's token from the given file (or HU_UPDATER_TOKEN_FILE),
+ * read here and sent only on ssh's stdin: never in an argument, the
+ * staging upload, a kit or the output. */
+function tokenData(opts) {
+    const file = opts.tokenFile || process.env.HU_UPDATER_TOKEN_FILE || null;
+    if (!file) {
+        return null;
+    }
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+        throw new Usage(`updater token file not found: ${file}`);
+    }
+    const data = fs.readFileSync(file);
+    if (!data.toString('utf8').trim()) {
+        throw new Usage(`updater token file is empty: ${file}`);
+    }
+    return data;
+}
+
+/* Uploads the installer and the given artifacts into a fresh staging
+ * folder on the unit as one tar stream, runs the command there, and
+ * removes the folder again. The token and the artifacts are read and
+ * built before connecting. */
+async function cmdRemote(command, opts) {
+    let tmp = null;
+    try {
+        const job = prepareRemote(command, opts, (dir) => { tmp = dir; });
+        return await withConnection(opts, (target) => runRemote(job, target));
+    } finally {
+        if (tmp) {
+            fs.rmSync(tmp, { recursive: true, force: true });
+        }
+    }
+}
+
+function prepareRemote(command, opts, keepTmp) {
+    let artifacts = [];
+    const removeToken = command === 'updater-token' && opts.rest.includes('--remove');
+    const token = command === 'install' || (command === 'updater-token' && !removeToken) ? tokenData(opts) : null;
+    if (command === 'updater-token' && !removeToken && !token) {
+        throw new Usage('updater-token needs --updater-token-file <file> (or HU_UPDATER_TOKEN_FILE)');
+    }
+    if (command === 'install' || command === 'check') {
+        const local = opts.artifacts.map((f) => {
+            const file = path.resolve(f);
+            if (!fs.existsSync(file)) {
+                throw new Usage(`artifact not found: ${f}`);
+            }
+            return { file, name: path.basename(file) };
+        });
+        if (opts.ids.length || (command === 'install' && !local.length)) {
+            const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'mgu-hu-'));
+            keepTmp(tmp);
+            buildArtifacts(opts.ids, tmp).forEach((a) => local.push({ file: a.file, name: path.basename(a.file) }));
+        }
+        const names = new Set();
+        artifacts = local.filter((a) => !names.has(a.name) && names.add(a.name));
+    }
+    return { command, token, artifacts, rest: opts.rest };
+}
+
+function runRemote(job, opts) {
+    const { command, token, artifacts } = job;
+    const stage = `/var/opt/mgu-deploy-kit-${process.pid}`;
+    const entries = kitFiles()
+        .concat(artifacts.map((a) => ({ name: `artifacts/${a.name}`, data: fs.readFileSync(a.file), mode: 0o644 })));
+    entries.sort(byName);
+    const args = job.rest.slice();
+    artifacts.forEach((a) => args.push('--artifact', `${stage}/artifacts/${a.name}`));
+    const q = shQuote(stage);
+    const upload = ssh(opts, `rm -rf ${q} && mkdir -p ${q} && tar -xzf - -C ${q}`, { input: tgz(entries, MTIME) });
+    if (upload !== 0) {
+        console.error(`hu: could not stage the installer at ${stage} on ${opts.host}:${opts.port} (exit ${upload})`);
+        return 1;
+    }
+    let status = 1;
+    try {
+        const tty = process.stdin.isTTY && process.stdout.isTTY;
+        const run = (cmd, cmdArgs, input) => {
+            const st = ssh(opts, ['sh', `${stage}/mgu-deploy.sh`, cmd].concat(cmdArgs).map(shQuote).join(' '),
+                input ? { input } : { tty });
+            if (st === 255) {
+                console.error(`hu: ssh to ${opts.host}:${opts.port} failed`);
+                return 1;
+            }
+            return st;
+        };
+        if (command === 'updater-token' && token) {
+            status = run('updater-token', [], token);
+        } else {
+            status = run(command, args, null);
+            if (status === 0 && command === 'install' && token) {
+                status = run('updater-token', [], token);
+            }
+        }
+    } finally {
+        if (opts.keepStage) {
+            console.error(`hu: staging folder kept at ${stage}`);
+        } else if (ssh(opts, `rm -rf ${q}`, {}) !== 0) {
+            console.error(`hu: could not remove ${stage} on the unit`);
+        }
+    }
+    return status;
+}
+
+/* ---- connection ------------------------------------------------------------------ */
+
+class Failed extends Error {
+    constructor(message, code) {
+        super(message);
+        this.code = code;
+    }
+}
+
+function assetsDir(opts) {
+    return path.resolve(opts.assetsDir || process.env.HU_ASSETS_DIR || DEFAULT_ASSETS);
+}
+
+/* The key for a selected connection: --identity, else the assets' key. */
+function selectedIdentity(opts) {
+    if (opts.identity) {
+        return opts.identity;
+    }
+    const dir = assetsDir(opts);
+    const key = path.join(dir, ASSET_KEY);
+    if (!fs.existsSync(key)) {
+        throw new Usage(`no SSH key for the unit: ${key} does not exist. The key and the debug-certificate ` +
+            `material are not kept in this repository; pass --assets-dir <dir> (or HU_ASSETS_DIR) holding ` +
+            `${ASSET_KEY} (and asset_03.bin, asset_04.bin for --arm-debug), or --identity <key>. ` +
+            `Looked in ${dir}${opts.assetsDir || process.env.HU_ASSETS_DIR ? '' : ' (the default)'}.`);
+    }
+    return key;
+}
+
+/* Starts deploy/transport/mgu_connect.py and waits for its READY line;
+ * it holds the ENET relay (and an armed session) until its stdin closes. */
+function openLink(opts) {
+    const args = ['-B', TRANSPORT, 'open', '--lport', String(opts.lport), '--assets', assetsDir(opts),
+        '--state-dir', process.env.HU_STATE_DIR || DEFAULT_STATE];
+    if (opts.wifi) args.push('--wifi');
+    if (opts.huIp) args.push('--hu-ip', opts.huIp);
+    if (opts.iface) args.push('--iface', opts.iface);
+    if (opts.armDebug) args.push('--arm-debug');
+    if (opts.keepArmed) args.push('--keep-armed');
+    const child = cp.spawn('python3', args, { stdio: ['pipe', 'pipe', 'inherit'] });
+    let exited = null;
+    const done = new Promise((resolve) => child.on('close', (code, signal) => {
+        exited = { code, signal };
+        resolve(exited);
+    }));
+    const close = () => {
+        if (exited) {
+            return done;
+        }
+        child.stdin.end();
+        const timer = setTimeout(() => child.kill('SIGKILL'), 60000);
+        return done.finally(() => clearTimeout(timer));
+    };
+    return new Promise((resolve, reject) => {
+        let out = '';
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (d) => {
+            out += d;
+            const m = /^READY (\S+) (\d+) (\S+) (.*)$/m.exec(out);
+            if (m) {
+                child.stdout.removeAllListeners('data');
+                child.stdout.resume();
+                resolve({ host: m[1], port: m[2], huIp: m[3], via: m[4], holds: m[4] !== 'wifi', close });
+            }
+        });
+        child.on('error', (e) => reject(new Failed(`python3: ${e.message}`, 1)));
+        done.then((x) => reject(new Failed(`no connection to the unit (${path.relative(REPO, TRANSPORT)} ` +
+            `${x.signal ? `killed by ${x.signal}` : `exit ${x.code}`})`, x.code === 2 ? 2 : 1)));
+    });
+}
+
+/* Runs fn with the SSH target: --host/--port as given, else the
+ * connection mgu_connect.py selects, held for the duration of fn. */
+async function withConnection(opts, fn) {
+    if (opts.explicitHost) {
+        const ignored = ['wifi', 'huIp', 'iface', 'armDebug', 'keepArmed'].filter((k) => opts[k]);
+        if (ignored.length) {
+            console.error(`hu: --host/--port name the target; ${ignored.join(', ')} not used`);
+        }
+        return fn(Object.assign({}, opts, { holds: false }));
+    }
+    const identity = selectedIdentity(opts);
+    const link = await openLink(opts);
+    try {
+        return await fn(Object.assign({}, opts, {
+            host: link.host, port: link.port, identity, holds: link.holds,
+            sshOpts: opts.sshOpts.concat(SELECTED_SSH_OPTS)
+        }));
+    } finally {
+        await link.close();
+    }
+}
+
+function shWord(s) {
+    return /^[\w@%+=:,./-]+$/.test(s) ? s : shQuote(s);
+}
+
+/* deploy/hu connect: open the connection, print the ssh command line that
+ * reaches root on the unit, then run --cmd, or hold the relay --hold
+ * seconds (default: until interrupted). */
+function cmdConnect(opts) {
+    return withConnection(opts, async (t) => {
+        console.log(['ssh'].concat(sshArgs(t, false)).map(shWord).join(' '));
+        if (opts.cmd !== null) {
+            const st = ssh(t, opts.cmd, {});
+            if (st === 255) {
+                console.error(`hu: ssh to ${t.host}:${t.port} failed`);
+            }
+            return st;
+        }
+        if (!t.holds) {
+            return 0;
+        }
+        console.error(`hu: holding the connection ${opts.hold !== null ? `${opts.hold} s` : 'until interrupted (Ctrl-C)'}`);
+        await new Promise((resolve) => {
+            const timer = opts.hold !== null ? setTimeout(resolve, opts.hold * 1000) : null;
+            process.once('SIGINT', () => {
+                clearTimeout(timer);
+                resolve();
+            });
+        });
+        return 0;
+    });
+}
+
+/* ---- command line ---------------------------------------------------------------- */
+
+const USAGE = fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').slice(3)
+    .map((l) => l.replace(/^ \* ?/, '')).join('\n').trimEnd();
+
+/* Driver options are taken out; everything else stays in order in
+ * opts.pass for the command itself. */
+function parse(argv) {
+    const opts = {
+        command: argv[0], pass: [], sshOpts: [], out: null, tar: false, keepStage: false,
+        host: process.env.HU_HOST || WIFI_HU_IP,
+        port: process.env.HU_PORT || '22',
+        explicitHost: !!(process.env.HU_HOST || process.env.HU_PORT),
+        user: process.env.HU_USER || 'root',
+        identity: process.env.HU_IDENTITY || null,
+        tokenFile: null,
+        wifi: false, huIp: null, iface: null, lport: '2222', armDebug: false, keepArmed: false,
+        assetsDir: null, hold: null, cmd: null
+    };
+    const value = (i, flag) => {
+        if (i >= argv.length) {
+            throw new Usage(`${flag} needs a value`);
+        }
+        return argv[i];
+    };
+    for (let i = 1; i < argv.length; i += 1) {
+        const a = argv[i];
+        if (a === '--host') { opts.host = value(++i, a); opts.explicitHost = true; }
+        else if (a === '--port') { opts.port = value(++i, a); opts.explicitHost = true; }
+        else if (a === '--wifi') opts.wifi = true;
+        else if (a === '--hu-ip') opts.huIp = value(++i, a);
+        else if (a === '--iface') opts.iface = value(++i, a);
+        else if (a === '--lport') opts.lport = value(++i, a);
+        else if (a === '--arm-debug') opts.armDebug = true;
+        else if (a === '--keep-armed') opts.keepArmed = true;
+        else if (a === '--assets-dir') opts.assetsDir = value(++i, a);
+        else if (a === '--hold') opts.hold = value(++i, a);
+        else if (a === '--cmd') opts.cmd = value(++i, a);
+        else if (a === '--user') opts.user = value(++i, a);
+        else if (a === '--identity') opts.identity = value(++i, a);
+        else if (a === '--ssh-opt') opts.sshOpts.push(value(++i, a));
+        else if (a === '--keep-stage') opts.keepStage = true;
+        else if (a === '--out') opts.out = value(++i, a);
+        else if (a === '--tar') opts.tar = true;
+        else if (a === '--artifact') opts.pass.push(a, value(++i, a));
+        else if (a === '--updater-token-file') opts.tokenFile = value(++i, a);
+        else opts.pass.push(a);
+    }
+    /* install and check: bare words are local component ids to build,
+     * --artifact names local files; other flags go to the unit. */
+    opts.ids = [];
+    opts.artifacts = [];
+    opts.rest = [];
+    for (let i = 0; i < opts.pass.length; i += 1) {
+        const a = opts.pass[i];
+        if (a === '--artifact') opts.artifacts.push(opts.pass[++i]);
+        else if (a.startsWith('--')) opts.rest.push(a);
+        else opts.ids.push(a);
+    }
+    if (opts.armDebug && (opts.wifi || opts.huIp)) {
+        throw new Usage('--arm-debug runs over ENET and reads the HU IP itself; drop --wifi/--hu-ip');
+    }
+    if (opts.keepArmed && !opts.armDebug) {
+        throw new Usage('--keep-armed applies to --arm-debug only');
+    }
+    if (!/^\d+$/.test(opts.lport)) {
+        throw new Usage(`--lport needs a port number: ${opts.lport}`);
+    }
+    if (opts.hold !== null && !/^\d+$/.test(opts.hold)) {
+        throw new Usage(`--hold needs a number of seconds: ${opts.hold}`);
+    }
+    if ((opts.hold !== null || opts.cmd !== null) && opts.command !== 'connect') {
+        throw new Usage('--hold and --cmd apply to connect only');
+    }
+    return opts;
+}
+
+async function main(argv) {
+    const opts = parse(argv);
+    const cmd = opts.command;
+    if (!cmd || cmd === 'help' || cmd === '--help') {
+        console.log(USAGE);
+        return 0;
+    }
+    if (cmd === 'connect') {
+        if (opts.pass.length) {
+            throw new Usage(`connect takes no ${opts.pass[0]}`);
+        }
+        return cmdConnect(opts);
+    }
+    if (cmd === 'artifact') {
+        if (opts.ids.length !== 1 || !opts.out) {
+            throw new Usage('usage: deploy/hu artifact <dir with component.json> --out <dir>');
+        }
+        const a = buildArtifact(opts.ids[0], path.resolve(opts.out));
+        console.log(`${a.file}\n${a.sha256}`);
+        return 0;
+    }
+    if (cmd === 'kit') {
+        if (opts.tokenFile) {
+            throw new Usage('a kit never carries the updater token; set it over SSH (deploy/hu updater-token) ' +
+                'or on the unit (sh mgu-deploy.sh updater-token < <file>)');
+        }
+        return cmdKit(opts);
+    }
+    if (cmd === 'install' || cmd === 'check') {
+        return cmdRemote(cmd, opts);
+    }
+    if (SSH_COMMANDS.includes(cmd)) {
+        if (opts.artifacts.length) {
+            throw new Usage('--artifact applies to install and check only');
+        }
+        return cmdRemote(cmd, Object.assign(opts, { ids: [], artifacts: [], rest: opts.pass }));
+    }
+    throw new Usage(`unknown command ${cmd}\n${USAGE}`);
+}
+
+main(process.argv.slice(2)).then((code) => {
+    process.exitCode = code;
+}, (e) => {
+    console.error(`hu: ${e.message}`);
+    process.exitCode = e instanceof Usage ? 2 : e instanceof Failed ? e.code : 1;
+});

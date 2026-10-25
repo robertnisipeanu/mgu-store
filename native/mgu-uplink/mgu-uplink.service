@@ -1,0 +1,15 @@
+[Unit]
+Description=Internet for selected apps through a USB network adapter (mgu-uplink)
+RequiresMountsFor=/var/opt
+After=local-fs.target
+
+[Service]
+ExecStart=/var/opt/mgu-uplink/current/mgu-uplink run -c /var/opt/mgu-uplink/current/mgu-uplink.conf
+Restart=always
+RestartSec=5
+# The unit's system.conf sends stdout to null by default; mgu-uplink logs there.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

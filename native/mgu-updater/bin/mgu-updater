@@ -1,0 +1,68 @@
+#!/bin/sh
+# Main process of mgu-updater.service: runs the updater from
+# /var/opt/mgu-updater/current and keeps the service up across its updates,
+# so recmgr never sees the service stop.
+#  - exit 75: a new version is in place (current points at it); start it.
+#  - While $D/trial exists the running version is on trial. The updater
+#    deletes trial once it works (updater.js commitTrial: its network
+#    path and the deploy tool; only the deploy tool for a local install). If it exits first, or has not
+#    deleted it within TRIAL_S seconds, current goes back to the version
+#    trial names (if that version is still on disk) and that one starts;
+#    the failed version is removed, and $D/rolled-back names it for the Store.
+#  - Any other exit: start again after 5 s.
+# The shell keeps the script it runs open, so it runs a copy in /run: an
+# open file of a version folder deleted meanwhile (an update or a reinstall
+# prunes it) would fail the read-only remount of /var/opt at shutdown.
+RUN=/run/mgu-updater
+if [ "$0" != "$RUN/supervisor" ]; then
+    mkdir -p "$RUN" && cp "$0" "$RUN/supervisor.new" && mv "$RUN/supervisor.new" "$RUN/supervisor" &&
+        exec /bin/sh "$RUN/supervisor"
+fi
+D=${MGU_UPDATER_DIR:-/var/opt/mgu-updater}
+NODE=${NODE:-/usr/bin/node}
+TRIAL=$D/trial
+TRIAL_S=${TRIAL_S:-360}
+
+rollback() {
+    prev=$(cat "$TRIAL")
+    failed=$(readlink "$D/current")
+    if [ -z "$prev" ] || ! (cd "$D" && [ -f "$prev/updater.js" ]); then
+        rm -f "$TRIAL"
+        echo "mgu-updater: the new version did not come up and '$prev' is not on disk; keeping $failed"
+        return 1
+    fi
+    "$NODE" -e 'const fs = require("fs"); const [, d, to] = process.argv;
+        try { fs.unlinkSync(d + "/current.rollback"); } catch (e) {}
+        fs.symlinkSync(to, d + "/current.rollback");
+        fs.renameSync(d + "/current.rollback", d + "/current");' "$D" "$prev" &&
+        rm -f "$TRIAL" &&
+        case $failed in versions/[0-9]*) [ "${failed##*/}" = "${prev##*/}" ] || rm -rf "${D:?}/$failed" ;; esac &&
+        echo "${failed##*/}" > "$D/rolled-back" &&
+        echo "mgu-updater: the new version did not come up; back to $prev"
+}
+
+child= watcher=
+trap '[ -n "$child" ] && kill $child; exit 0' TERM INT
+while :; do
+    "$NODE" "$D/current/updater.js" daemon &
+    child=$!
+    if [ -f "$TRIAL" ]; then
+        ( i=0
+          while [ $i -lt "$TRIAL_S" ] && [ -f "$TRIAL" ] && kill -0 $child 2>/dev/null; do
+              sleep 1; i=$((i + 1))
+          done
+          [ -f "$TRIAL" ] && kill $child 2>/dev/null ) &
+        watcher=$!
+    fi
+    wait $child
+    code=$?
+    child=
+    [ -n "$watcher" ] && kill $watcher 2>/dev/null
+    watcher=
+    [ $code -eq 75 ] && continue
+    if [ -f "$TRIAL" ]; then
+        rollback || sleep 5
+        continue
+    fi
+    sleep 5
+done

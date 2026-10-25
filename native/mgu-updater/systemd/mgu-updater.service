@@ -1,0 +1,15 @@
+[Unit]
+Description=mgu-updater: installs and updates our apps and tools from the published catalog
+RequiresMountsFor=/var/opt
+After=local-fs.target
+
+[Service]
+# The supervisor stays up across the updater's own updates (bin/mgu-updater).
+ExecStart=/var/opt/mgu-updater/current/mgu-updater
+Restart=always
+RestartSec=5
+# The unit's system.conf sends stdout to null by default; the updater logs there.
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target

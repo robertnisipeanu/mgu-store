@@ -1,0 +1,12 @@
+[Unit]
+Description=mgu-deploy provisioning fallback for our apps
+Before=oapcontroller.service app-privacy.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '/usr/bin/node /var/opt/mgu-deploy/current/fallback_build.js /usr/lib/oap-mainapp/src/main.js /var/opt/mgu-deploy/main.js /var/opt/public/oap/oap_12201/data/custom_apps.json || exit 0; if [ -f /var/opt/app-privacy/current/patch_mainapp.js ]; then /usr/bin/node /var/opt/app-privacy/current/patch_mainapp.js apply --main /var/opt/mgu-deploy/main.js --json >/dev/null || exit 0; fi; mount --bind /var/opt/mgu-deploy/main.js /usr/lib/oap-mainapp/src/main.js'
+ExecStop=/bin/sh -c 'umount /usr/lib/oap-mainapp/src/main.js || true'
+
+[Install]
+WantedBy=multi-user.target

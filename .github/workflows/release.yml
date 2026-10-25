@@ -1,0 +1,88 @@
+# Publishes new versions of our apps and tools to this repository's
+# (private) GitHub Releases, with a signed catalog.json the car's updater
+# reads (release/README.md). Push a v* tag, or run it by hand with the
+# component ids to publish (empty: every component).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      components:
+        description: Component ids to publish, space-separated (empty publishes every component)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Actions are pinned to commits: each runs in the job that later holds the
+# signing key.
+jobs:
+  publish:
+    # main and v* tags only: work-in-progress branches do not publish
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # SOURCE_DATE_EPOCH comes from each component's last commit
+          fetch-depth: 0
+          # publishing talks to the API through GH_TOKEN, not git
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.12.0
+
+      # tool builds: mgu-uplink and raluca-car (Go; raluca-car's go.mod needs
+      # 1.27), display-bridge and raluca-car (zig 0.15, pyelftools for check-target)
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.27.2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.15.2
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq clang python3-pyelftools
+
+      - name: Build inputs git does not carry (DOOM1.WAD)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/inputs"
+          gh release download build-inputs -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/inputs"
+          echo "MGU_LOCAL_INPUTS=$RUNNER_TEMP/inputs" >> "$GITHUB_ENV"
+
+      - name: Signing key
+        env:
+          KEY: ${{ secrets.CATALOG_SIGNING_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/catalog-signing-key.pem"
+          echo "MGU_SIGNING_KEY=$RUNNER_TEMP/catalog-signing-key.pem" >> "$GITHUB_ENV"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MGU_PUBLISH: github:${{ github.repository }}
+          COMPONENTS: ${{ inputs.components }}
+          # host C builds (display-bridge in DOOM's harness) are -Werror and
+          # clang-clean; Ubuntu's gcc fortify warnings fail them
+          CC: clang
+        run: node release/release.js publish $COMPONENTS
+
+      - name: Published catalog
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MGU_PUBLISH: github:${{ github.repository }}
+        run: node release/release.js list
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/catalog-signing-key.pem"

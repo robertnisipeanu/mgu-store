@@ -1,0 +1,359 @@
+{
+  "schemaVersion": "1.3.0",
+  "containers": {
+    "1": {
+      "type": "state",
+      "name": "ST_OnlineApps_Store",
+      "components": {
+        "10": {
+          "type": "title",
+          "name": "ST_OnlineApps_Store_Title",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "SID_STORE_TITLE",
+                "type": "StringId"
+              }
+            }
+          ]
+        },
+        "20": {
+          "type": "label",
+          "name": "storeStatus",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 0,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Store",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "21": {
+          "type": "button",
+          "name": "storeCheck",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Check for updates",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "22": {
+          "type": "progressBar",
+          "name": "storeProgress",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 0,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "TextLeft": {
+                "value": "",
+                "type": "Text"
+              },
+              "TextRight": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "23": {
+          "type": "button",
+          "name": "storeNavApps",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text1stCol": {
+                "value": "Apps",
+                "type": "Text"
+              },
+              "Text2ndCol": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "24": {
+          "type": "button",
+          "name": "storeNavTools",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text1stCol": {
+                "value": "Head-unit tools",
+                "type": "Text"
+              },
+              "Text2ndCol": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "25": {
+          "type": "button",
+          "name": "storeRestart",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Restart head unit",
+                "type": "Text"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "2": {
+      "type": "state",
+      "name": "ST_OnlineApps_StoreApps",
+      "properties": {
+        "ParentState": {
+          "value": 1,
+          "type": "UInt"
+        }
+      },
+      "components": {
+        "11": {
+          "type": "title",
+          "name": "ST_OnlineApps_StoreApps_Title",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Apps",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "40": {
+          "type": "button",
+          "name": "storeAppList",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text1stCol": {
+                "value": "",
+                "type": "Text"
+              },
+              "Text2ndCol": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "3": {
+      "type": "state",
+      "name": "ST_OnlineApps_StoreTools",
+      "properties": {
+        "ParentState": {
+          "value": 1,
+          "type": "UInt"
+        }
+      },
+      "components": {
+        "12": {
+          "type": "title",
+          "name": "ST_OnlineApps_StoreTools_Title",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Head-unit tools",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "60": {
+          "type": "button",
+          "name": "storeToolList",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text1stCol": {
+                "value": "",
+                "type": "Text"
+              },
+              "Text2ndCol": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "4": {
+      "type": "state",
+      "name": "ST_OnlineApps_StoreRestart",
+      "properties": {
+        "ParentState": {
+          "value": 1,
+          "type": "UInt"
+        }
+      },
+      "components": {
+        "13": {
+          "type": "title",
+          "name": "ST_OnlineApps_StoreRestart_Title",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Restart head unit?",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "80": {
+          "type": "button",
+          "name": "storeRestartCancel",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Cancel",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "81": {
+          "type": "button",
+          "name": "storeRestartConfirm",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Restart",
+                "type": "Text"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

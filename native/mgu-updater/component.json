@@ -1,0 +1,20 @@
+{
+  "id": "mgu-updater",
+  "kind": "tool",
+  "version": "0.1.4",
+  "title": "Updater",
+  "description": "Installs and updates our apps and head-unit tools from the published catalog",
+  "files": [
+    { "path": "mgu-updater", "from": "bin/mgu-updater", "mode": "0755" },
+    { "path": "updater.js", "from": "js/updater.js", "mode": "0644" },
+    { "path": "catalog.js", "from": "js/catalog.js", "mode": "0644" },
+    { "path": "client.js", "from": "js/client.js", "mode": "0644" },
+    { "path": "fetch.js", "from": "js/fetch.js", "mode": "0644" },
+    { "path": "updater.conf", "from": "updater.conf", "mode": "0644" },
+    { "path": "catalog-key.pub.pem", "from": "catalog-key.pub.pem", "mode": "0644" }
+  ],
+  "units": [{ "name": "mgu-updater.service", "from": "systemd/mgu-updater.service" }],
+  "enable": [{ "unit": "mgu-updater.service", "target": "multi-user.target" }],
+  "recmgr": ["mgu-updater"],
+  "restart": []
+}

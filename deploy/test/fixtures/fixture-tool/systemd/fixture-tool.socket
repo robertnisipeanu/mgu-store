@@ -1,0 +1,8 @@
+[Unit]
+Description=fixture tool socket
+
+[Socket]
+ListenStream=/dev/shm/fixture-tool.sock
+
+[Install]
+WantedBy=sockets.target

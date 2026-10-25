@@ -1,0 +1,15 @@
+[Unit]
+Description=app-privacy: keep our apps out of oap-mainapp's backend reporting
+RequiresMountsFor=/var/opt
+After=local-fs.target
+Before=oapcontroller.service
+
+[Service]
+# Applies the patch when a head-unit software update has replaced the
+# bundles; a no-op otherwise. Always exits 0 (recmgr: WhitelistExitSuccess).
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/node /var/opt/app-privacy/current/patch_mainapp.js boot
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,67 @@
+{
+  "proxies": {
+    "de.bmw.infotainment.telematic.oapcontroller.OAPController": "*",
+    "de.bmw.infotainment.hmi.remote.RemoteHmi": "*",
+    "de.bmw.infotainment.hmi.remote.RemoteHmiApplication": "*",
+    "de.bmw.infotainment.hmi.entrypoint.EntryPoint": "*",
+    "de.bmw.infotainment.hmi.entrypoint.EntryPointManager": "*",
+    "de.bmw.infotainment.hmi.resourcemanagement.ResourceManager": "*",
+    "de.bmw.infotainment.hmi.resourcemanagement.ResourceBundle": "*",
+    "de.bmw.infotainment.hmi.resourcemanagement.StringBundle": "*",
+    "de.bmw.infotainment.telematic.oap.PrivateEntryPoint": {
+      "instances": [
+        "${userId}"
+      ],
+      "methods": [
+        "registerEntryPoint",
+        "unregisterEntryPoint",
+        "setSelected",
+        "setAvailability"
+      ]
+    },
+    "de.bmw.infotainment.telematic.oap.AppBookmarks": {
+      "instances": [
+        "${userId}"
+      ],
+      "methods": [
+        "registerBookmark"
+      ]
+    },
+    "de.bmw.infotainment.telematic.oap.WakeUpOnDemand": {
+      "instances": [
+        "${userId}"
+      ],
+      "methods": [
+        "registerParticipant",
+        "unregisterParticipant"
+      ]
+    },
+    "de.bmw.infotainment.telematic.oap.WodControl": {
+      "instances": "${userId}",
+      "methods": [
+        "offerService",
+        "stopOfferingService"
+      ]
+    },
+    "de.bmw.infotainment.telematic.provisioning.Provisioning": {
+      "instances": "1",
+      "broadcasts": [
+        "provisioningDataJSON"
+      ],
+      "methods": [
+        "getValueJSON",
+        "setFilterForProvisioningData"
+      ]
+    },
+    "de.bmw.infotainment.vehicle.Vehicle": "*",
+    "de.bmw.infrastructure.EnvironmentalInformation": "*",
+    "de.bmw.infotainment.certification.Certification": "*"
+  },
+  "services": {
+    "de.bmw.infotainment.telematic.oap.AppStatus": {
+      "instances": [
+        "${userId}"
+      ]
+    }
+  }
+}
