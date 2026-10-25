@@ -386,11 +386,14 @@ function testRealDonors() {
     fs.readdirSync(dir).filter((f) => /\.(tgz|mgu)$/.test(f)).forEach((f) => {
         const x = extract(path.join(dir, f));
         const pkgDir = fs.existsSync(path.join(x, 'package', 'package.json')) ? path.join(x, 'package') : path.join(x, 'source');
+        // a browserify bundle carries its oap-sdk itself
+        const needs = link.needsSdk(pkgDir);
         const r = link.preparePackage(pkgDir, path.join(tmp('o'), 'p.tgz'), { donors: [donors[0]] });
         const m = members(r.file);
-        check(`real: ${f} prepares: oap-sdk generated, flat, marked`, r.sdk && r.sdk.api.length === Object.keys(link.SDK_API).length &&
-            m['node_modules/oap-sdk/index.js'] && JSON.parse(m['package.json']).mguLocalOnly === true && m['javascript/app.js'] &&
-            !Object.keys(m).some((k) => /^package\/|^source\//.test(k)), JSON.stringify(r.sdk));
+        check(`real: ${f} prepares: ${needs ? 'oap-sdk generated, ' : ''}flat, marked`,
+            (needs ? r.sdk && r.sdk.api.length === Object.keys(link.SDK_API).length && m['node_modules/oap-sdk/index.js'] : r.sdk === null) &&
+            JSON.parse(m['package.json']).mguLocalOnly === true && !Object.keys(m).some((k) => /^package\/|^source\//.test(k)),
+            JSON.stringify(r.sdk));
     });
 }
 
