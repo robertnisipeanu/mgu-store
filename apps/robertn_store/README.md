@@ -22,8 +22,10 @@ login-cancel, web), which carry the secret the updater leaves in the app's data 
 | `DOOM` · `Failed, retry` | try again (the status line names the error) |
 
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,
-`Checking for updates`, `Restarting`, the last error, `Updater not
-running`), a **Check for updates** button, a progress bar for the running
+`Checking for updates`, `Restarting`, the last error; `Restart the head
+unit to finish setup` while the updater has not run since the Store was
+installed, which after the install kit is until the next start; `Updater
+not running` once it has), a **Check for updates** button, a progress bar for the running
 install (hidden when none runs), the rows **Apps** and **Head-unit tools**,
 each showing its running install, `Failed` or its number of updates,
 **Sources** (`Sign in` or `Error` when a source needs it), **Phone access**
@@ -124,15 +126,15 @@ tools/test_qr.js           the QR pictures (decoded back with zbarimg when insta
 tools/test_speller.js      src/speller.js against a fake use case factory
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater and speller
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.4.0/       staged package tree (no javascript/app.js)
+robertn_store@0.4.1/       staged package tree (no javascript/app.js)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.4.0.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.4.0.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.4.1.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.4.1.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js &&
     node tools/test_speller.js && node tools/test_store.js
 ```

@@ -236,8 +236,14 @@ writes the kit's token for the `mgu-store` source when there is one, and
 prints `status`. Newer installed tools (including deploy) and apps are
 skipped, and sources/token seeding still runs. Same-version tool payloads
 are kept, and same-version apps are not built again. Normal app installs
-retain their downgrade refusal. Its exit status is the deploy tool's. After it, every update comes
-through the Store.
+retain their downgrade refusal. Its exit status is the deploy tool's.
+recmgr reads its list only at boot, so a freshly installed updater (and
+uplink) is left for the head unit's next start (a normal ignition cycle):
+while `mgu-updater.service` (or, with `--with-uplink`, `mgu-uplink.service`)
+is not active, the last line is `Restart the head unit to finish setup (the
+next ignition cycle does it): the updater will run from then on.`, and the
+Store's status line reads `Restart the head unit to finish setup` until
+then. After that, every update comes through the Store.
 
 Before installing, the car is parked, on stable power (engine running or a
 charger connected), and stays awake until the command finishes.
@@ -499,12 +505,15 @@ The app manager installs our apps itself.
   back to `false`.
 
 **In place.** The fallback copy of `main.js` carries a hook through which
-the running manager installs or updates one app itself, with the calls it
-makes at start: `install(<id>)`, or `update(<id>, "PLATFORM")`, which takes
-the newer preinstalled package. Either one stops and starts only that app:
-an update stops it, replaces its source, generates its SOME/IP interfaces
-and ACL again and registers it again, which inserts its tile again. The
-manager, the other apps and their tiles keep running; there is no bounce.
+the running manager installs, updates or uninstalls one app itself, with
+the calls it makes at start: `install(<id>)`, or `update(<id>, "PLATFORM")`,
+which takes the newer preinstalled package, and `uninstall(<id>)`, the call
+its backend's removal makes. Each one touches only that app: an update
+stops it, replaces its source, generates its SOME/IP interfaces and ACL
+again and registers it again, which inserts its tile again; an uninstall
+stops it, drops its SOME/IP permissions, unregisters it, which takes its
+tile off the HMI, and removes its registry entry and folders. The manager,
+the other apps and their tiles keep running; there is no bounce.
 
 - Once MainApp has initialized, the hook writes
   `oap_12201/data/mgu-deploy-inplace.json` with the manager's pid and start.
@@ -513,7 +522,8 @@ manager, the other apps and their tiles keep running; there is no bounce.
   written, so it runs the copy bound now. A manager younger than the bounce
   minimum gets until then to write it, which a bounce would wait for anyway.
 - The request is `/var/opt/mgu-deploy/inplace/request.json`, root's, 0644 in
-  a 0755 folder: `{id, app, version, action: "install"|"update", notAfter}`.
+  a 0755 folder: `{id, app, version, action: "install"|"update"|"uninstall",
+  notAfter}`.
   The hook reads it each second, only from a folder and file owned by root
   (or the manager) that no group or other user can write, and takes it
   until `notAfter` (20 s, `MGU_DEPLOY_INPLACE_ACK_MS`). It answers in its
@@ -552,12 +562,21 @@ manager, the other apps and their tiles keep running; there is no bounce.
   fails like a bounced install that is not done (exit 1, rolled back), with
   no bounce, which could cut the manager's install short.
 
-`uninstall <id>` removes the app from `custom_apps.json` and then its
-registry entry, home and preinstalled packages, rebuilds the fallback copy,
-and bounces the manager once, so the manager neither reinstalls the app in
-between nor asks the backend for it. It also removes the app's npm cache
-entries and clears its quota. The manager's own ACL, UI and status records
-for the uid stay; anything left behind is listed.
+`uninstall <id>` removes the app from `custom_apps.json` first, so the
+manager does not install it again meanwhile, then asks the running manager
+to uninstall it in place (above), which takes its tile off the HMI at once.
+The uninstall is done when the hook says `done`. Then whatever the manager
+left goes: the registry entry, the home, the preinstalled packages; the
+fallback copy is rebuilt (written only when its bytes change), the app's
+npm cache entries are removed and its quota cleared. When the manager did
+not uninstall it (no manager running, no hook, the request not taken,
+refused or failed, not done within 10 minutes, or the manager restarted),
+the installer says why, removes the same files and bounces the manager
+once, under the spacing above, so the manager neither reinstalls the app in
+between nor asks the backend for it; the manager's own ACL, UI and status
+records for the uid then stay, and the tile stays on the HMI until the head
+unit's next start. Anything left behind is listed. The snapshot and the
+rollback on a failure are the same either way.
 
 ### Source packages
 
@@ -843,14 +862,16 @@ unchanged, tool layout, pruning and idempotence, pending reboots, restarts
 with their health check and the rollback after a crash loop, `rollback`,
 app-privacy as a tool, the fresh-install and update flows through the
 simulated manager, bounce spacing, per-artifact transactions, the stock
-restore, `status --json`, the fallback, the in-place install and update
-(the copy built from `fixtures/main.js`, its hook run by `fake_inplace.js`
-as the running manager: installs and updates with no bounce, the request's
-rules, the bounce instead after a failed, refused or untaken request, a
+restore, `status --json`, the fallback, the in-place install, update and
+uninstall (the copy built from `fixtures/main.js`, its hook run by
+`fake_inplace.js` as the running manager: installs, updates and uninstalls
+with no bounce, the request's rules, the bounce instead after a failed, refused or untaken request, a
 restarted manager or a copy written after the manager started, no bounce
 for an app the manager installs by itself during the bounce's wait or
-while the manager is still installing, or updates by itself before the request, and the copy built without the hook when its anchor is
-missing), the retired
+while the manager is still installing, or updates by itself before the request, an uninstall
+the manager fails, does not take or does not finish in time removed through
+the bounce, one with no manager running removed with no bounce, and the copy
+built without the hook when its anchor is missing), the retired
 installer's leftovers (detection, the migration through an update and an uninstall and of
 `AppManagement.js` alone, an unmarked app the retired edit lists keeping its
 tile, its rollback after a failure before and after its bounce and when a
@@ -860,7 +881,8 @@ unit and through `deploy/hu`), source packages built against the made-up
 donor in `tools/test/synthetic_donor.js` (installed, not built again, no
 donor refused), packages built elsewhere (npm format, `.mgu`, unmarked,
 oap-sdk generated, no donor refused), the internet drop-ins, `sdk-donor`,
-and the install kit with `install.sh` run against a fake root (twice).
+and the install kit with `install.sh` run against a fake root (twice: the
+restart line while the updater is not running, none once it is).
 `tools/test/run.js` builds and runs linked and module-mode apps against
 that donor; with `MGU_TEST_DONORS` and `MGU_TEST_THIRDPARTY` it also
 checks real donors and third-party packages on the machine (never part of
@@ -883,6 +905,8 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
 - The in-place install and update on the car (proven in the emulator): the
   running manager installing with the other apps up, its trigger_service
   check at each install, and only that app stopping and starting.
+- The in-place uninstall on the car (proven in the emulator): the
+  tile leaving the HMI at once and the other apps staying up.
 - oapcontroller's crash counting and alive window on the car (proven in the
   emulator; the 60 s spacing covers it, with room for a slower start).
 - recmgr's rules: an entry counts once it was in the list at boot; a stopped,

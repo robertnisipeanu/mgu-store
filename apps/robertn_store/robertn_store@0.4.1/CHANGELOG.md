@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+With no updater to reach and none run since the Store was installed (no
+secret in its data folder: the state the install kit leaves until the head
+unit's next start), the status line reads `Restart the head unit to finish
+setup`; `Updater not running` once the updater has run.
+
 ## 0.4.0
 
 The Store lists the components of every source the updater reads. Sources

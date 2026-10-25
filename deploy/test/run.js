@@ -1055,6 +1055,53 @@ function testInplace() {
         late.root.managerLog().includes('install second_app 1.0.0 uid 13002 in place') && Date.now() - t0 < 4000, lr.out);
 }
 
+/* Uninstall through the running manager's own uninstall (its tile goes at
+ * once), or else the bounce: not confirmed, or no manager running. */
+function testInplaceUninstall() {
+    const custom = (root) => readJsonOrNull(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`)) || {};
+    const gone = (root) => !fs.existsSync(root.entry('fixture_app')) && !fs.existsSync(root.home(13001)) &&
+        !fs.existsSync(root.preinstalled('fixture_app', '1.0.0')) && !('fixture_app' in custom(root)) &&
+        !('fixture_app' in (root.state().apps || {}));
+    const { root, mgr } = inplaceRoot();
+    const stockEntry = fs.readFileSync(root.entry('stock_app'));
+    const u = root.run(['uninstall', 'fixture_app', '--yes']);
+    check('in-place uninstall: the running manager\'s own uninstall, no bounce', u.status === 0 &&
+        root.kills().length === 1 && root.managerLog().includes('uninstall fixture_app uid 13001 in place') &&
+        u.out.includes(`fixture_app uninstalled in place by the app manager (pid ${mgr.pid})`) &&
+        !u.out.includes('through a bounce') && !u.out.includes('ACL/UI/status records'),
+    `${u.out}\n${root.managerLog().join('\n')}`);
+    check('in-place uninstall: the app\'s entry, home, package, custom_apps entry and deploy state are gone', gone(root),
+        JSON.stringify(custom(root)));
+    check('in-place uninstall: the hook answered done, the manager kept running, the stock app is untouched',
+        (inplaceStatus(root) || {}).state === 'done' && (inplaceStatus(root) || {}).action === 'uninstall' &&
+        root.managerLog().includes('hook mgu-deploy in-place uninstall fixture_app: done') &&
+        root.managerPid() === mgr.pid && mgr.exitCode === null && fs.readFileSync(root.entry('stock_app')).equals(stockEntry) &&
+        !fs.existsSync(root.p('var/opt/mgu-deploy/inplace/request.json')), root.managerLog().join('\n'));
+    check('in-place uninstall: a snapshot is taken as before',
+        fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).some((b) => b.endsWith('-uninstall')));
+
+    [['failed', 'fail', {}, 'the app manager failed the in-place uninstall (FAKE_FAILURE)'],
+        ['not taken', 'deaf', { MGU_DEPLOY_INPLACE_ACK_MS: '500' }, 'the app manager did not take the request within 1s'],
+        ['not done in time', 'hang', { MGU_DEPLOY_WATCH_TIMEOUT_MS: '500' }, 'the app manager did not uninstall fixture_app in place within 1s']
+    ].forEach(([what, mode, extra, why]) => {
+        const c = inplaceRoot(mode, { minUp: 1 });
+        const r = c.root.run(['uninstall', 'fixture_app', '--yes'], extra);
+        const k = c.root.kills();
+        check(`in-place uninstall ${what}: removed, then one bounce, spaced`, r.status === 0 &&
+            r.out.includes(`uninstalling fixture_app through a bounce: ${why}`) && k.length === 2 && k[1].at - k[0].at >= 1000 &&
+            r.out.includes('ACL/UI/status records') && gone(c.root), `${r.out}\n${JSON.stringify(k)}`);
+    });
+
+    const down = inplaceRoot();
+    down.mgr.kill('SIGKILL');
+    fs.writeFileSync(`${down.root.R}.mgr.pid`, '');
+    const d = down.root.run(['uninstall', 'fixture_app', '--yes']);
+    check('in-place uninstall: with no manager running, removed with no request and no bounce', d.status === 0 &&
+        d.out.includes('uninstalling fixture_app through a bounce: no app manager is running') &&
+        d.out.includes('nothing to bounce') && down.root.kills().length === 1 && !d.out.includes('asking the running app manager') &&
+        gone(down.root), d.out);
+}
+
 /* An app custom_apps.json lists that runs from an unmarked package (the
  * retired installer's) goes on app-privacy's override list at the next
  * app install; entries already there stay, a marked app is not added. */
@@ -1121,6 +1168,9 @@ function testInplaceHook() {
         JSON.stringify(expired));
     const bad = ask({ id: 'h3', app: '../x', action: 'install' }) || {};
     check('in-place hook: a malformed app id is refused', bad.state === 'refused' && bad.error === 'malformed', JSON.stringify(bad));
+    const unreg = ask({ id: 'h5', app: 'nope', action: 'uninstall' }) || {};
+    check('in-place hook: uninstalling an app that is not registered is refused', unreg.state === 'refused' &&
+        unreg.error === 'not registered', JSON.stringify(unreg));
     const dup = ask({ id: 'h4', app: 'stock_app', action: 'install' }) || {};
     check('in-place hook: installing a registered app is refused', dup.state === 'refused' && dup.error === 'already registered',
         JSON.stringify(dup));
@@ -2426,13 +2476,19 @@ function testKit() {
     check('kit: install.sh installs the tools and builds and installs the Store', r.status === 0 &&
         ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every(has) &&
         r.out.includes('built robertn_store'), r.out.slice(-3000));
+    check('kit: install.sh ends saying a restart finishes setup while the updater is not running',
+        r.out.endsWith('\nRestart the head unit to finish setup (the next ignition cycle does it): the updater will run from then on.\n'),
+        r.out.slice(-1000));
     check('kit: install.sh seeds the sources and the mgu-store token, root\'s alone',
         fs.existsSync(root.p('var/opt/mgu-updater/sources.json')) && mode(root.p('var/opt/mgu-updater/sources.json')) === 0o600 &&
         fs.readFileSync(root.p('var/opt/mgu-updater/credentials/mgu-store'), 'utf8') === TOKEN && !r.out.includes(TOKEN));
     check('kit: install.sh leaves no staging copy', !fs.readdirSync(root.p('var/opt')).some((n) => /^mgu-deploy-kit-/.test(n)));
+    // the updater running since the next start
+    fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'active\n');
     r = sh();
     check('kit: install.sh again changes nothing installed', r.status === 0 && r.out.includes('robertn_store') &&
         r.out.includes('already installed') && r.out.includes('updater sources kept') && !r.out.includes('built robertn_store'), r.out.slice(-3000));
+    check('kit: with the updater running, install.sh asks for no restart', !r.out.includes('Restart the head unit'), r.out.slice(-1000));
     // An older kit keeps every newer component and still seeds updater state.
     const nextDir = fs.mkdtempSync(path.join(T, 'next-deploy-'));
     hu(['artifact', deployCopy(NEXT), '--out', nextDir]);
@@ -2487,6 +2543,7 @@ const SUITES = [
     testFallback,
     testInplace,
     testInplaceHook,
+    testInplaceUninstall,
     testLocalOnlyListed,
     testHealth,
     testRollback,

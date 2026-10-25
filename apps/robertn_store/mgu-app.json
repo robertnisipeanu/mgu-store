@@ -1,9 +1,18 @@
 {
   "schema": 1,
   "id": "robertn_store",
-  "version": "0.4.0",
-  "tree": "robertn_store@0.4.0",
-  "modules": ["src/store.js", "src/store_view.js", "lib/client.js", "src/qr.js", "src/qrcodegen.js",
-    "src/speller.js"],
-  "sdk": ["oap-sdk/src/core/OnlineApp.js", "oap-sdk/src/logging/logging"]
+  "version": "0.4.1",
+  "tree": "robertn_store@0.4.1",
+  "modules": [
+    "src/store.js",
+    "src/store_view.js",
+    "lib/client.js",
+    "src/qr.js",
+    "src/qrcodegen.js",
+    "src/speller.js"
+  ],
+  "sdk": [
+    "oap-sdk/src/core/OnlineApp.js",
+    "oap-sdk/src/logging/logging"
+  ]
 }

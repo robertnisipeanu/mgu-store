@@ -8,7 +8,9 @@
 # the Store (a source package, built here against an app already on the
 # unit), with --with-uplink also the internet uplink, then seeds the
 # updater's sources and, when the kit carries a token, the mgu-store
-# source's token. Newer installed apps and tools are kept.
+# source's token. Newer installed apps and tools are kept. recmgr reads its
+# list only at boot, so a freshly installed updater (and uplink) starts at
+# the head unit's next start; the last line then says so.
 set -e
 KIT=$(cd "$(dirname "$0")" && pwd)
 # the deploy tool's own overrides (deploy/test runs this against a fake root)
@@ -44,3 +46,12 @@ if [ -f "$STAGE/token" ]; then
     sh "$STAGE/mgu-deploy.sh" updater-token --source mgu-store < "$STAGE/token"
 fi
 sh "$VAR_OPT/mgu-deploy/mgu-deploy.sh" status
+SYSTEMCTL=${MGU_DEPLOY_SYSTEMCTL:-systemctl}
+down=
+"$SYSTEMCTL" is-active mgu-updater.service >/dev/null 2>&1 || down="the updater"
+if [ -n "$uplink" ] && ! "$SYSTEMCTL" is-active mgu-uplink.service >/dev/null 2>&1; then
+    down="${down:+$down and }the uplink"
+fi
+if [ -n "$down" ]; then
+    echo "Restart the head unit to finish setup (the next ignition cycle does it): $down will run from then on."
+fi
