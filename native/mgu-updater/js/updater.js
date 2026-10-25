@@ -1348,6 +1348,20 @@ class Updater {
             .then(() => this.syncWebUrl(true));
     }
 
+    /* The Store has a data folder without the secret in it. */
+    storeSecretGone() {
+        const store = this.storeData();
+        if (!store) {
+            return false;
+        }
+        try {
+            fs.lstatSync(path.join(store.data, 'updater-secret'));
+            return false;
+        } catch (e) {
+            return e.code === 'ENOENT';
+        }
+    }
+
     /* The Store's uid and data folder, or null while it has none. groups:
      * the folder's group, and the groups of oap_root and the folder above
      * it, through which every app reaches its home (mgu_persist, 0710 and
@@ -1755,8 +1769,9 @@ class Updater {
             // commits without the catalog (trial-local, commitTrial).
             const current = path.join(this.conf.tool_root, SELF, 'current');
             setInterval(() => {
-                // the Store installed or reinstalled under another uid gets the secret
-                if (storeUid(this.conf) !== this.storeSecretUid) {
+                // the Store installed or reinstalled gets the secret: under another
+                // uid, or emptied by MainApp (its crash recovery reinstalls an app)
+                if (storeUid(this.conf) !== this.storeSecretUid || this.storeSecretGone()) {
                     this.writeSecrets();
                 }
                 let target;

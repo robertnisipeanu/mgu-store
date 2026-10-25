@@ -460,11 +460,13 @@ class Store extends OnlineApp {
         this._closeState(S.login);
     }
 
-    /* The source Remove confirm step's Remove: back to the Sources list. */
+    /* The source Remove confirm step's Remove: back to the source's page,
+     * which closes itself once the source is gone (_renderSource). Closing
+     * both states here leaves the closed page in the HMI's BACK history. */
     _removeSource() {
         const src = this._source(this._sourceId);
         this._note(null);
-        this._closeState(S.sourceRemove).then(() => this._closeState(S.source));
+        this._closeState(S.sourceRemove);
         if (src && sourceActions(src).remove) {
             logger.info(`remove source ${src.id}`);
             this._privileged({ op: 'source-remove', id: src.id });
@@ -681,6 +683,12 @@ class Store extends OnlineApp {
 
     _renderSource(src) {
         const actions = src ? sourceActions(src) : {};
+        const sources = this._connected && this._st && this._st.sources;
+        // a removed source, or a stick pulled out: back to the Sources list
+        if (!src && Array.isArray(sources) && this._visibleStates.has(S.source)) {
+            this._visibleStates.delete(S.source);
+            this._closeState(S.source);
+        }
         if (src) {
             this._set(C.srcStatus, 'Text1stCol', sourceLabel(src), 'Text');
             this._set(C.srcStatus, 'Text2ndCol', sourceState(src), 'Text');

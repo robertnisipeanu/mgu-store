@@ -479,8 +479,10 @@ right secret, `"error":"forbidden"`. The direct answer to a request
 writes them, as the reader's own 0400 file, to the Store's data folder
 (`<oap_root>/oap_<uid>/data/updater-secret`, the uid from MainApp's
 registry entry for `store_app`; written by a child running as that uid, so
-a link there leads nowhere it could not write itself; written again when
-the Store's uid changes) and to `web_secret` for the phone page (`web_uid`).
+a link there leads nowhere it could not write itself, with the Store's group
+and the apps' group of `oap_root`; written again within 15 s when the Store's
+uid changes or the file is gone, as after MainApp's crash recovery reinstalls
+the Store) and to `web_secret` for the phone page (`web_uid`).
 Every OAP app can reach the socket; only these two can change sources or
 credentials, sign in, remove components or read journals. While the
 phone page is on, `web-url` beside `updater-secret` holds its hotspot

@@ -1464,6 +1464,14 @@ function testSources(certs) {
                 (wst.mode & 0o777) === 0o400 && fs.readFileSync(conf.web_secret, 'utf8') === u.secret);
             ok('secret: 32 random bytes per start', /^[0-9a-f]{64}$/.test(u.secret) && new Updater({ state_dir: state }).secret !== u.secret);
             secret = fs.readFileSync(file, 'utf8');
+            ok('secret: the Store\'s copy is seen as present', u.storeSecretGone() === false);
+            fs.unlinkSync(file);
+            ok('secret: ...and as gone once its data folder is emptied (MainApp\'s crash recovery)', u.storeSecretGone() === true);
+            return u.writeSecrets();
+        })
+        .then(() => {
+            const file = path.join(storeData, 'updater-secret');
+            ok('secret: written again, the same', fs.readFileSync(file, 'utf8') === secret && !u.storeSecretGone());
             return Promise.all([ask(sock, { op: 'source-add', type: 'github', repo: 'a/b' }),
                 ask(sock, { op: 'source-remove', id: 'second', secret: 'f'.repeat(64) }),
                 ask(sock, { op: 'token-set', source: 'private', token: 'x', secret: secret.slice(1) })]);
