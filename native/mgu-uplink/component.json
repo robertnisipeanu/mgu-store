@@ -4,6 +4,8 @@
   "version": "0.3.4",
   "title": "Internet uplink",
   "description": "Internet for selected apps through a USB network adapter",
+  "optional": true,
+  "uninstallable": true,
   "build": ["make", "target"],
   "files": [
     { "path": "mgu-uplink", "from": "build/target/mgu-uplink", "mode": "0755" },

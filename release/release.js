@@ -62,11 +62,31 @@ function appTitle(stagedDir) {
 }
 
 /* An app's id is also the name provisioning knows it by, and provisioning's
- * own section for an id wins over the fallback. New app ids carry this
- * prefix; these ids predate it. */
+ * own section for an id wins over the fallback: our app ids carry this
+ * prefix. */
 const APP_ID_PREFIX = 'robertn_';
-const UNPREFIXED_APP_IDS = ['component_showcase', 'display_bridge_demo', 'doom', 'draw_gallery',
-    'extended_dashboard', 'raluca', 'vehicle_control'];
+
+/* The catalog fields beyond schema 1 (release/README.md), from an app's
+ * release.json or a tool's component.json. */
+function catalogFields(from, where) {
+    const out = {};
+    if (from.requires !== undefined) {
+        if (!from.requires || typeof from.requires !== 'object' ||
+            !Object.keys(from.requires).every((id) => SEMVER.test(from.requires[id]))) {
+            throw new Error(`${where}: "requires" maps component ids to x.y.z versions`);
+        }
+        out.requires = from.requires;
+    }
+    ['optional', 'uninstallable'].forEach((k) => {
+        if (from[k] !== undefined && from[k] !== true) {
+            throw new Error(`${where}: "${k}" is true or absent`);
+        }
+        if (from[k]) {
+            out[k] = true;
+        }
+    });
+    return out;
+}
 
 /* Every releasable component in a repo tree (the working tree or an export). */
 function components(root = REPO) {
@@ -92,11 +112,17 @@ function components(root = REPO) {
         if (pkg.mguLocalOnly !== true) {
             throw new Error(`apps/${id}: ${staged[0]}/package.json lacks "mguLocalOnly": true`);
         }
-        if (!id.startsWith(APP_ID_PREFIX) && UNPREFIXED_APP_IDS.indexOf(id) < 0) {
-            throw new Error(`apps/${id}: a new app id starts with ${APP_ID_PREFIX} (release/README.md)`);
+        if (!id.startsWith(APP_ID_PREFIX)) {
+            throw new Error(`apps/${id}: an app id starts with ${APP_ID_PREFIX} (release/README.md)`);
         }
         const release = readJson(releaseFile);
-        out.push({
+        // with mgu-app.json the artifact is the source package, built on the unit
+        const manifestFile = path.join(dir, 'mgu-app.json');
+        const manifest = fs.existsSync(manifestFile) ? readJson(manifestFile) : null;
+        if (manifest && (manifest.id !== id || manifest.version !== version || manifest.tree !== staged[0])) {
+            throw new Error(`apps/${id}/mgu-app.json names ${manifest.id}@${manifest.version} (tree ${manifest.tree}), not ${staged[0]}`);
+        }
+        out.push(Object.assign({
             id,
             kind: 'app',
             version,
@@ -104,9 +130,11 @@ function components(root = REPO) {
             title: appTitle(stagedDir),
             description: pkg.description || '',
             release,
-            shipped: [`apps/${id}/${id}@${version}`],
-            artifact: `apps/${id}/${id}@${version}.tgz`
-        });
+            build: manifest ? 'unit' : null,
+            shipped: [`apps/${id}/${id}@${version}`].concat(manifest ?
+                [`apps/${id}/mgu-app.json`].concat(manifest.modules.map((m) => `apps/${id}/${m}`)) : []),
+            artifact: `apps/${id}/${id}@${version}${manifest ? '.src' : ''}.tgz`
+        }, catalogFields(release, `apps/${id}/release.json`)));
     });
     const tool = (dir, id, shipped) => {
         const file = path.join(root, dir, 'component.json');
@@ -117,26 +145,27 @@ function components(root = REPO) {
         if (c.id !== id || c.kind !== 'tool' || !SEMVER.test(c.version || '')) {
             throw new Error(`${dir}/component.json: needs id "${id}", kind "tool" and a x.y.z version`);
         }
-        out.push({
+        out.push(Object.assign({
             id,
             kind: 'tool',
             version: c.version,
             dir,
             title: c.title || id,
             description: c.description || '',
+            build: null,
             // source files that carry the version too, as VERSION = 'x.y.z'
             versionFiles: c.versionFiles || [],
             shipped,
             artifact: null
-        });
+        }, catalogFields(c, `${dir}/component.json`)));
     };
     fs.readdirSync(path.join(root, 'native')).sort().forEach((id) => {
         const dir = `native/${id}`;
         tool(dir, id, [dir, `:(exclude,glob)${dir}/*.md`, `:(exclude)${dir}/test`]);
     });
-    // The deploy tool: its artifact is deploy/unit/ under deploy/component.json
-    // (deploy/README.md, "The deploy tool as a tool").
-    tool('deploy', 'mgu-deploy', ['deploy/unit', 'deploy/component.json']);
+    // The deploy tool: its artifact is deploy/unit/ and the linker and packer
+    // under deploy/component.json (deploy/README.md, "The deploy tool as a tool").
+    tool('deploy', 'mgu-deploy', ['deploy/unit', 'deploy/component.json', 'tools/oap_link.js', 'tools/oap_pack.js']);
     return out;
 }
 
@@ -170,31 +199,14 @@ function exportHead() {
     return dir;
 }
 
-/* Inputs git does not carry (e.g. DOOM1.WAD), copied from the working tree:
- * paths in an app's release.json "local" are relative to its staged tree. */
-function copyLocalInputs(c, exportDir) {
-    (c.release && c.release.local || []).forEach((rel) => {
-        const staged = `${c.id}@${c.version}`;
-        const tree = path.join(REPO, c.dir, staged, rel);
-        // in CI they come from the private build-inputs release, by file name
-        const inputs = process.env.MGU_LOCAL_INPUTS && path.join(process.env.MGU_LOCAL_INPUTS, path.basename(rel));
-        const from = fs.existsSync(tree) || !inputs ? tree : inputs;
-        const to = path.join(exportDir, c.dir, staged, rel);
-        if (!fs.existsSync(from)) {
-            throw new Error(`${c.id}: local input ${path.relative(REPO, tree)} is missing` +
-                (inputs ? ` (looked for ${path.basename(rel)} from the build-inputs release too)` : ` (see ${c.dir}/README.md)`));
-        }
-        fs.mkdirSync(path.dirname(to), { recursive: true });
-        fs.copyFileSync(from, to);
-    });
-}
-
 function buildOne(c, exportDir) {
     // A private TMPDIR: app harnesses keep scratch files there by uid, which
     // concurrent builds and harness runs would otherwise share. Short, as
     // harnesses put Unix sockets in it (104 bytes on macOS).
     const tmp = fs.mkdtempSync('/tmp/mgu-rel-');
     const env = Object.assign({}, process.env, { SOURCE_DATE_EPOCH: sourceEpoch(c), TMPDIR: tmp });
+    // a release build is the source package alone, whatever donor the machine has
+    delete env.MGU_SDK_DONOR;
     try {
         return buildIn(c, exportDir, env);
     } finally {
@@ -205,7 +217,6 @@ function buildOne(c, exportDir) {
 function buildIn(c, exportDir, env) {
     let artifact;
     if (c.kind === 'app') {
-        copyLocalInputs(c, exportDir);
         const r = cp.spawnSync(c.release.build, { cwd: path.join(exportDir, c.dir), env, shell: true,
             stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20 });
         if (r.status !== 0) {
@@ -234,8 +245,10 @@ function buildIn(c, exportDir, env) {
     return artifact;
 }
 
+/* A catalog entry (schema 2): the artifact is always <id>@<version>.tgz;
+ * "build": "unit" marks a source package. */
 function catalogEntry(c, file) {
-    return {
+    const entry = {
         id: c.id,
         kind: c.kind,
         title: c.title,
@@ -243,6 +256,15 @@ function catalogEntry(c, file) {
         version: c.version,
         artifact: { name: path.basename(file), size: fs.statSync(file).size, sha256: sha256(file) }
     };
+    if (c.build) {
+        entry.build = c.build;
+    }
+    ['requires', 'optional', 'uninstallable'].forEach((k) => {
+        if (c[k] !== undefined) {
+            entry[k] = c[k];
+        }
+    });
+    return entry;
 }
 
 /* Builds the selected components of HEAD into outDir; returns their catalog
@@ -268,7 +290,7 @@ function build(ids, outDir, failed) {
                 failed.push(`${c.id}@${c.version} does not build: ${e.message}`);
                 return;
             }
-            const dest = path.join(outDir, path.basename(file));
+            const dest = path.join(outDir, `${c.id}@${c.version}.tgz`);
             fs.copyFileSync(file, dest);
             const entry = catalogEntry(c, dest);
             console.log(`${entry.artifact.sha256.slice(0, 12)} ${entry.artifact.size} bytes`);
@@ -285,12 +307,12 @@ function build(ids, outDir, failed) {
     }
 }
 
-function writeCatalog(entries, dir, requireSignature) {
-    const catalog = publishTarget.sign({
-        schema: 1,
+function writeCatalog(entries, dir) {
+    const catalog = {
+        schema: 2,
         commit: git(['rev-parse', 'HEAD']),
         components: entries.slice().sort((a, b) => a.id.localeCompare(b.id))
-    }, requireSignature);
+    };
     const file = path.join(dir, 'catalog.json');
     fs.writeFileSync(file, JSON.stringify(catalog, null, 2) + '\n');
     return file;
@@ -403,7 +425,7 @@ function cmdBump(id, version) {
     const newToken = `${id}@${version}`;
     const files = filesNaming(oldToken);
     git(['mv', path.join(c.dir, oldToken), path.join(c.dir, newToken)]);
-    // untracked files (local inputs such as DOOM1.WAD) move along
+    // untracked files move along
     moveLeftovers(path.join(REPO, c.dir, oldToken), path.join(REPO, c.dir, newToken));
     files.forEach((f) => {
         const p = path.join(REPO, f.split(oldToken).join(newToken));
@@ -411,6 +433,12 @@ function cmdBump(id, version) {
     });
     // The version fields inside the staged tree; build.json is rewritten by the build.
     const staged = path.join(REPO, c.dir, newToken);
+    const manifest = path.join(REPO, c.dir, 'mgu-app.json');
+    if (fs.existsSync(manifest)) {
+        const j = readJson(manifest);
+        j.version = version;
+        fs.writeFileSync(manifest, JSON.stringify(j, null, 2) + '\n');
+    }
     [['package.json', (j) => { j.version = version; }],
         ['npm-shrinkwrap.json', (j) => { j.version = version; }],
         [path.join('rhmiData', 'application.json'), (j) => { j.application.version = version; }]
@@ -430,11 +458,9 @@ function cmdPublish(ids, dryRun) {
     if (git(['status', '--porcelain', '--untracked-files=no'])) {
         throw new Error('commit first: publish builds HEAD and records its commit in the catalog');
     }
-    // before anything is built or uploaded: the target is private, publishing
-    // to it runs in GitHub Actions, and the signing key is there and matches
-    // the key the updater checks with (a dry run checks a key it is given)
+    // before anything is built or uploaded: the target is private and
+    // publishing to it runs in GitHub Actions
     publishTarget.preflight(dryRun);
-    publishTarget.sign({}, publishTarget.forTheCar && !dryRun);
     const published = publishTarget.published() || { components: [] };
     // a run from a commit older than the published catalog's (a re-run of an
     // old tag) would take back what later commits published
@@ -480,7 +506,7 @@ function cmdPublish(ids, dryRun) {
         e.artifact.url = publishTarget.uploadArtifact(e, path.join(staging, e.artifact.name));
         current.set(e.id, e);
     });
-    const catalogFile = writeCatalog([...current.values()], staging, publishTarget.forTheCar);
+    const catalogFile = writeCatalog([...current.values()], staging);
     publishTarget.uploadCatalog(catalogFile);
     console.log(`catalog published to ${publishTarget.describe()}`);
 }
