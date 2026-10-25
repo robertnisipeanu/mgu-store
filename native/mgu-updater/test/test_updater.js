@@ -388,7 +388,7 @@ function testShipped() {
         !fs.readdirSync(ROOT).some((f) => /\.pem$/.test(f)));
     ok('shipped: sources, credentials, the build uid and the secrets have their places',
         conf.sources === '/var/opt/mgu-updater/sources.json' && conf.credentials_dir === '/var/opt/mgu-updater/credentials' &&
-        conf.build_uid === '12995' && conf.web_uid === '12991' && conf.web_gid === '12202' && conf.web_port === '8470' &&
+        conf.build_uid === '12995' && conf.web_uid === '12996' && conf.web_gid === '12202' && conf.web_port === '8470' &&
         conf.web_iface === 'wlan_bridge' && conf.web_secret === '/run/mgu-updater/web-secret' &&
         conf.usb_roots === '/media' && conf.store_app === 'robertn_store' && 'github_client_id' in conf);
 }
@@ -474,7 +474,7 @@ function testTar() {
                 threw = /too long/.test(e.message);
             }
             ok('tar: a name ustar cannot hold is refused, not cut short', threw);
-            return require('../js/build').runBuild({ conf: { build_uid: '12990', build_gid: '12990', fetch_uid: '12990', web_uid: '12991',
+            return require('../js/build').runBuild({ conf: { build_uid: '12990', build_gid: '12990', fetch_uid: '12990', web_uid: '12996',
                 state_dir: path.join(T, 'nobuild') }, entry: { id: 'x', version: '1.0.0', script: { node: 'b.js', args: [] } }, files: [], donor: '', log: () => {} })
                 .then(() => false, (e) => /not a uid of the builds' own/.test(e.message));
         })
@@ -1426,7 +1426,7 @@ function testSources(certs) {
         github_api: API, github_web: GH_WEB, github_client_id: 'Iv1.test', builtin_repo: 'robertnisipeanu/mgu-store',
         fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
         build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
-        mounts, usb_roots: media, web_secret: path.join(M, 'run', 'web-secret'), web_uid: '12991', web_gid: '12202',
+        mounts, usb_roots: media, web_secret: path.join(M, 'run', 'web-secret'), web_uid: '12996', web_gid: '12202',
         socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
         bootstrap_check_s: '6', privacy_tool: '', reboot: ''
     };
@@ -1450,7 +1450,7 @@ function testSources(certs) {
                 fst.isFile() && fst.uid === 13050 && (fst.mode & 0o777) === 0o400 && fs.readFileSync(file, 'utf8') === u.secret &&
                 fs.readFileSync(path.join(M, 'victim'), 'utf8') === 'untouched');
             const wst = fs.statSync(conf.web_secret);
-            ok('secret: the phone page\'s copy is the web uid\'s 0400 file', wst.uid === 12991 && wst.gid === 12202 &&
+            ok('secret: the phone page\'s copy is the web uid\'s 0400 file', wst.uid === 12996 && wst.gid === 12202 &&
                 (wst.mode & 0o777) === 0o400 && fs.readFileSync(conf.web_secret, 'utf8') === u.secret);
             ok('secret: 32 random bytes per start', /^[0-9a-f]{64}$/.test(u.secret) && new Updater({ state_dir: state }).secret !== u.secret);
             secret = fs.readFileSync(file, 'utf8');

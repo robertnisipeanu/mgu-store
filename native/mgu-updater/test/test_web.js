@@ -12,7 +12,7 @@ const path = require('path');
 const http = require('http');
 const assert = require('assert');
 
-const WEB_UID = 12991;
+const WEB_UID = 12996;
 const WEB_GID = 12202;
 const PORT = 8470;
 
