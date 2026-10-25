@@ -73,7 +73,7 @@ them:
 | Layout | Where | Components |
 |---|---|---|
 | catalog | a `catalog` release's `catalog.json` asset (`release/README.md`), the https URL, `catalog.json` in a folder | schema 1 or 2 entries; artifact URLs absolute or relative to the catalog |
-| releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description"}}}`), else the installed app's en_GB entry-point text, else the id; always apps |
+| releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description"}}}`), else the installed app's en_GB entry-point text, else the id; always apps, each `uninstallable` |
 | repo tree | `mgu-repo.json` at a repo's or folder's root, at one commit | see below |
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog
@@ -180,7 +180,7 @@ any name, flat or with npm's `package/` prefix, is an app with the id and
 version of its own `package.json` and the title of its en_GB entry-point
 text, else its `productName`, else its name; the newest of an id wins, a
 package whose `package.json` has `mguService` (a root service, not an app)
-is left out, and its sha256 is taken as it is listed. It installs as
+is left out, and its sha256 is taken as it is listed. Each can be removed (`uninstallable`). It installs as
 `<id>@<version>.tgz` (or `.mgu`). Sticks are only read: no link is followed (a folder or file
 reached through one is not there), only regular files, every size bounded.
 

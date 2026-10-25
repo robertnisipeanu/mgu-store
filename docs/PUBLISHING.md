@@ -54,6 +54,7 @@ The simplest: build as you do, and upload the packages to a GitHub Release.
   be published without SDK code in it.
 - Every release, newest first, counts (drafts and prereleases do not); the
   newest version of each id wins.
+- The owner can remove every app of this layout from the Store.
 - Titles: an optional release asset **`mgu-store.json`**,
   `{"apps": {"<id>": {"title": "…", "description": "…"}}}`; without it
   the Store shows the id until the app is installed, then its en_GB

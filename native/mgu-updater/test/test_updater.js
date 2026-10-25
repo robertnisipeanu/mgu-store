@@ -1488,6 +1488,7 @@ function testSources(certs) {
             ok('releases: the newest package of each id, drafts and prereleases left out, the .tgz over the .mgu',
                 comp('rel_app').version === '1.1.0' && comp('rel_app').title === 'Release App' && comp('mgu_only').version === '0.1.0' &&
                 comp('mgu_only').title === 'mgu_only' && src('rel').components === 2, JSON.stringify([comp('rel_app'), comp('mgu_only')]));
+            ok('releases: every app can be removed', comp('rel_app').uninstallable === true && comp('mgu_only').uninstallable === true);
             ok('repo: a branch lists its components, with their revision, leaving out what cannot be used and saying why',
                 comp('p_app').revision === c1.slice(0, 7) && comp('t_tool').version === '1.0.0' && comp('b_ok').title === 'Built here' &&
                 comp('b_slow').version === '1.0.0' && !comp('bad_tool').id && /bad_tool: .*no build step/.test(src('branchy').error || ''),
@@ -1778,6 +1779,7 @@ function testSources(certs) {
                         comp('oap-appmanager').version === '1.0.9' && comp('oap-appmanager').title === 'Apps' &&
                         comp('flat_app').title === 'Flat' && comp('loose_mgu').version === '0.2.0' && comp('oap-appmanager').source === 'usb:STICK/oap',
                         JSON.stringify(st().components.filter((c) => /usb:STICK\/oap/.test(c.source))));
+                    ok('usb oap/: every app can be removed', comp('flat_app').uninstallable === true && comp('loose_mgu').uninstallable === true);
                     ok('usb oap/: root-service packages, links and files that are not packages are left out',
                         !comp('mgu-renderd').id && comp('rel_app').source === 'rel' && src('usb:STICK/oap').components === 3 &&
                         /broken\.tgz/.test(src('usb:STICK/oap').error || '') && !/renderer|README|linked/.test(src('usb:STICK/oap').error || ''),

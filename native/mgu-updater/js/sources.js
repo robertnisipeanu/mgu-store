@@ -546,7 +546,9 @@ function githubReader(s, ctx) {
                     id: n.id, kind: 'app', version: n.version,
                     title: typeof t.title === 'string' ? t.title : undefined,
                     description: typeof t.description === 'string' ? t.description : undefined,
-                    artifact: { name: n.asset.name, size: n.asset.size, sha256: null, url: n.asset.url }
+                    artifact: { name: n.asset.name, size: n.asset.size, sha256: null, url: n.asset.url },
+                    // nothing in this layout can say so, and an app is always safe to remove
+                    uninstallable: true
                 });
             })
         }));
@@ -752,7 +754,8 @@ function looseReader(root, ctx) {
                         title: title || (typeof pkg.productName === 'string' && pkg.productName) || pkg.name,
                         description: typeof pkg.description === 'string' ? pkg.description : '',
                         artifact: { name: `${pkg.name}@${pkg.version}.${ext}`, url: name, size: data.length,
-                            sha256: crypto.createHash('sha256').update(data).digest('hex') }
+                            sha256: crypto.createHash('sha256').update(data).digest('hex') },
+                        uninstallable: true
                     }));
                 })
                 .catch((err) => {
