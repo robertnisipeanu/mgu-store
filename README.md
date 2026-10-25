@@ -39,10 +39,10 @@ sh /path/to/kit/install.sh [--with-uplink]
 It installs the deploy tool, app-privacy, the updater, the Store (built on
 the unit) and, with `--with-uplink`, the internet uplink; it seeds the
 updater's sources with this repository and writes its token. The updater
-(and the uplink) start at the head unit's next start, so its last line is
-`Restart the head unit to finish setup`; the next ignition cycle does it,
-and until then the Store's status line says the same. Running it again is
-safe. `deploy/hu install --updater-token-file <file>` does the
+(and the uplink) start at the head unit's next start: while they are not
+running, its last line says `Restart the head unit to finish setup`, which
+the next ignition cycle does, and until then the Store's status line says
+the same. Running it again is safe. `deploy/hu install --updater-token-file <file>` does the
 same over SSH. After that every update, and every other source, comes
 through the Store. deploy/README.md ("The install kit") has the details.
 

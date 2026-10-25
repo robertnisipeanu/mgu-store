@@ -1077,7 +1077,7 @@ function testInplaceUninstall() {
         root.managerLog().includes('hook mgu-deploy in-place uninstall fixture_app: done') &&
         root.managerPid() === mgr.pid && mgr.exitCode === null && fs.readFileSync(root.entry('stock_app')).equals(stockEntry) &&
         !fs.existsSync(root.p('var/opt/mgu-deploy/inplace/request.json')), root.managerLog().join('\n'));
-    check('in-place uninstall: a snapshot is taken as before',
+    check('in-place uninstall: a snapshot is taken',
         fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).some((b) => b.endsWith('-uninstall')));
 
     [['failed', 'fail', {}, 'the app manager failed the in-place uninstall (FAKE_FAILURE)'],
@@ -1091,6 +1091,16 @@ function testInplaceUninstall() {
             r.out.includes(`uninstalling fixture_app through a bounce: ${why}`) && k.length === 2 && k[1].at - k[0].at >= 1000 &&
             r.out.includes('ACL/UI/status records') && gone(c.root), `${r.out}\n${JSON.stringify(k)}`);
     });
+
+    // a home whose package.json names another app stays, and the manager is not asked to remove it
+    const foreign = inplaceRoot();
+    const fpkg = path.join(foreign.root.home(13001), 'source', 'package.json');
+    fs.writeFileSync(fpkg, JSON.stringify({ name: 'other_app', version: '1.0.0' }));
+    const fr = foreign.root.run(['uninstall', 'fixture_app', '--yes']);
+    check('in-place uninstall: a home not provably the app\'s is kept, no request, one bounce', fr.status === 0 &&
+        !fr.out.includes('asking the running app manager') && fr.out.includes("through a bounce: its home is not provably fixture_app's") &&
+        fr.out.includes('left in place: not provably') && fs.existsSync(fpkg) && !fs.existsSync(foreign.root.entry('fixture_app')) &&
+        foreign.root.kills().length === 2, fr.out);
 
     const down = inplaceRoot();
     down.mgr.kill('SIGKILL');

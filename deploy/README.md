@@ -564,18 +564,21 @@ the other apps and their tiles keep running; there is no bounce.
 
 `uninstall <id>` removes the app from `custom_apps.json` first, so the
 manager does not install it again meanwhile, then asks the running manager
-to uninstall it in place (above), which takes its tile off the HMI at once.
+to uninstall it in place (above), which takes its tile off the HMI at once,
+unless its home's `package.json` does not name the app (the home then stays,
+listed as a leftover, and the manager is not asked to remove it).
 The uninstall is done when the hook says `done`. Then whatever the manager
 left goes: the registry entry, the home, the preinstalled packages; the
 fallback copy is rebuilt (written only when its bytes change), the app's
 npm cache entries are removed and its quota cleared. When the manager did
-not uninstall it (no manager running, no hook, the request not taken,
-refused or failed, not done within 10 minutes, or the manager restarted),
-the installer says why, removes the same files and bounces the manager
-once, under the spacing above, so the manager neither reinstalls the app in
-between nor asks the backend for it; the manager's own ACL, UI and status
-records for the uid then stay, and the tile stays on the HMI until the head
-unit's next start. Anything left behind is listed. The snapshot and the
+not uninstall it (no hook, the request not taken, refused or failed, not
+done within 10 minutes, the manager restarted, or a home not provably the
+app's), the installer says why, removes the same files and bounces the
+manager once, under the spacing above, so the manager neither reinstalls
+the app in between nor asks the backend for it; the manager's own ACL, UI
+and status records for the uid then stay, and the tile stays on the HMI
+until the head unit's next start. With no manager running there is nothing
+to ask and nothing to bounce. Anything left behind is listed. The snapshot and the
 rollback on a failure are the same either way.
 
 ### Source packages

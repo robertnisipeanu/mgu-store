@@ -1828,7 +1828,9 @@ function uninstallApp(id, state) {
     var ownDir = !!(pkg && pkg.name === id), leftovers = [];
     say('uninstalling app ' + id + ' (uid ' + uid + ')');
     if (customAppsRemove(id)) say('removed ' + id + ' from ' + customAppsFile());
-    var r = uninstallInPlace(id, pkg && typeof pkg.version === 'string' ? pkg.version : null);
+    /* the manager's uninstall removes the uid's folders, so only a home that is provably the app's */
+    var r = ownDir ? uninstallInPlace(id, typeof pkg.version === 'string' ? pkg.version : null)
+        : { why: 'its home is not provably ' + id + "'s" };
     rmrf(appEntryFile(id));
     rmrf(appEntryFile(id) + '.tmp');
     if (ownDir) rmrf(home);
