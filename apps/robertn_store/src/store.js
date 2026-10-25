@@ -150,6 +150,8 @@ class Store extends OnlineApp {
         this._rows = { app: [], tool: [], source: [] };
         this._sizing = {};              // lists whose row count is being set
         this._sourceId = null;          // the source whose page is open
+        this._removingSource = null;    // the source this Store asked the updater to remove
+        this._removalRefused = false;
         this._removeId = null;          // the component the Remove confirm step names
         /* The sign-in this app started: waiting until the updater reports it
          * pending, or the updater's refusal. */
@@ -185,6 +187,11 @@ class Store extends OnlineApp {
                 this._render();
             } else if (forOp === 'source-add' || forOp === 'source-remove') {
                 this._note({ kind: 'refused', op: forOp, error: String(msg) });
+                // the refusal shows on Sources
+                if (forOp === 'source-remove') {
+                    this._removalRefused = true;
+                    this._leaveRemovedSource();
+                }
             }
         });
 
@@ -461,15 +468,29 @@ class Store extends OnlineApp {
     }
 
     /* The source Remove confirm step's Remove: back to the source's page,
-     * which closes itself once the source is gone (_renderSource). Closing
-     * both states here leaves the closed page in the HMI's BACK history. */
+     * which closes itself once the updater has removed the source or refused
+     * to (_leaveRemovedSource). Closing both states here leaves the closed
+     * page in the HMI's BACK history. */
     _removeSource() {
         const src = this._source(this._sourceId);
         this._note(null);
         this._closeState(S.sourceRemove);
         if (src && sourceActions(src).remove) {
             logger.info(`remove source ${src.id}`);
-            this._privileged({ op: 'source-remove', id: src.id });
+            this._removingSource = src.id;
+            // not sent (no secret yet): back to Sources as on a refusal
+            this._removalRefused = !this._privileged({ op: 'source-remove', id: src.id });
+        }
+    }
+
+    /* Closes the page of the source being removed, as the top state, once it
+     * shows; _render calls it again when the page becomes visible. */
+    _leaveRemovedSource() {
+        if (this._removingSource && this._removingSource === this._sourceId && this._visibleStates.has(S.source)) {
+            this._removingSource = null;
+            this._removalRefused = false;
+            this._visibleStates.delete(S.source);
+            this._closeState(S.source);
         }
     }
 
@@ -683,11 +704,8 @@ class Store extends OnlineApp {
 
     _renderSource(src) {
         const actions = src ? sourceActions(src) : {};
-        const sources = this._connected && this._st && this._st.sources;
-        // a removed source, or a stick pulled out: back to the Sources list
-        if (!src && Array.isArray(sources) && this._visibleStates.has(S.source)) {
-            this._visibleStates.delete(S.source);
-            this._closeState(S.source);
+        if ((!src && this._connected) || this._removalRefused) {
+            this._leaveRemovedSource();
         }
         if (src) {
             this._set(C.srcStatus, 'Text1stCol', sourceLabel(src), 'Text');

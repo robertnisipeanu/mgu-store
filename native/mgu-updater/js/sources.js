@@ -547,7 +547,7 @@ function githubReader(s, ctx) {
                     title: typeof t.title === 'string' ? t.title : undefined,
                     description: typeof t.description === 'string' ? t.description : undefined,
                     artifact: { name: n.asset.name, size: n.asset.size, sha256: null, url: n.asset.url },
-                    // nothing in this layout can say so, and an app is always safe to remove
+                    // nothing in this layout can say so: the owner removes what it installed
                     uninstallable: true
                 });
             })

@@ -180,9 +180,10 @@ any name, flat or with npm's `package/` prefix, is an app with the id and
 version of its own `package.json` and the title of its en_GB entry-point
 text, else its `productName`, else its name; the newest of an id wins, a
 package whose `package.json` has `mguService` (a root service, not an app)
-is left out, and its sha256 is taken as it is listed. Each can be removed (`uninstallable`). It installs as
-`<id>@<version>.tgz` (or `.mgu`). Sticks are only read: no link is followed (a folder or file
-reached through one is not there), only regular files, every size bounded.
+is left out, and its sha256 is taken as it is listed. Each can be removed
+(`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`). Sticks
+are only read: no link is followed (a folder or file reached through one is
+not there), only regular files, every size bounded.
 
 **First start.** Without `sources.json` the updater writes one
 (`js/migrate.js`): the built-in source, and on a unit the mgu-apps updater

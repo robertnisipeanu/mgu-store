@@ -242,7 +242,7 @@ function testModuleMode() {
     const acl = JSON.parse(members(pr.file)['permissions.json'].toString());
     check('permissions: a missing ACL table is added empty, the entries kept', pr.permissions.join(' ') === 'masterRegistrationTable' &&
         JSON.stringify(acl.masterAccessTable) === JSON.stringify([entry]) && JSON.stringify(acl.masterRegistrationTable) === '[]', JSON.stringify(acl));
-    check('permissions: none added when both are there', br.permissions.length === 2 && vr.permissions.length === 2 &&
+    check('permissions: both added to a package without permissions.json, none when both are there', br.permissions.length === 2 && vr.permissions.length === 2 &&
         link.preparePackage(perm, path.join(tmp('out'), 'p2.tgz'), { donors: [] }).permissions.length === 0);
     const e = throws(() => link.preparePackage(thirdParty(), path.join(tmp('out'), 'n.tgz'), { donors: [] }));
     check('module: no donor fails before anything is packed', e && e.noDonor && /no donor holds the oap-sdk core/.test(e.message), e && e.message);
