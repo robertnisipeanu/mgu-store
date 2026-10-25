@@ -16,9 +16,12 @@
  *   web.state()      -> { enabled, urls, error }, for the state stream. urls:
  *                       the hotspot addresses being served
  *                       ("http://172.16.222.97:8470/"), without the token.
- *   web.accessUrls() -> the same URLs with "#t=<token>": for the Store's QR
- *                       code, in a privileged reply only. Every OAP app reads
- *                       the state stream and can reach 127.0.0.1:8470.
+ *   web.accessUrls() -> the same URLs with "#t=<token>", for the Store's QR
+ *                       code: the reply to {"op":"web-access","secret"} is
+ *                       {"type":"web-access","urls":web.accessUrls()}. Every
+ *                       OAP app reads the state stream and can reach
+ *                       127.0.0.1:8470, so the token is never in it; the
+ *                       Store asks again whenever state's web.urls change.
  *   web.journal(unit, lines, cb) -> cb(err, text): `journalctl -u <unit> -n
  *                       <lines> --no-pager`, for the privileged `logs` op;
  *                       unit one of web.UNITS, lines clamped to 1..1000.
@@ -49,7 +52,7 @@
  *   GET  /api/logs?src=<s>     {text}; s: "updater" (log_file) or one of UNITS
  *   POST /api/op               {op,...}: one of OPS, sent to the updater with
  *                              the web secret; {ok:true} or {error}
- * A client with 10 failed tokens in a minute gets 429 for the rest of it.
+ * A client with 10 wrong tokens in a minute gets 429 for the rest of it.
  *
  * Updater socket requests carry "rid"; the updater's direct reply to a
  * request (state, error or logs) carries the same rid.
@@ -312,28 +315,24 @@ const FAIL_WINDOW_MS = 60000;
 const RETRY_MS = 5000;
 const ASK_MS = 20000;
 
-/* Requests the page may send, each reduced to the fields it may carry. */
+/* Requests the page may send, each reduced to the fields it may carry; the
+ * updater checks their values. */
 const str = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max;
-/* releases | tags | branch:<git branch name> */
-const channelOk = (c) => c === 'releases' || c === 'tags' || (str(c, 256) &&
-    /^branch:[A-Za-z0-9._\/-]+$/.test(c) && !/\.\.|\/\/|^branch:[\/.-]|[\/.]$|\.lock$/.test(c));
 const OPS = {
     'source-add': (b) => {
-        if (b.type === 'github' && /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(b.repo) &&
-            !/\/\.{1,2}$/.test(b.repo) &&
-            channelOk(b.channel)) {
+        if (b.type === 'github' && str(b.repo, 256) && str(b.channel, 256)) {
             return { type: 'github', repo: b.repo, channel: b.channel };
         }
-        if (b.type === 'https' && str(b.url, 2048) && /^https:\/\/[^\s]+$/.test(b.url)) {
+        if (b.type === 'https' && str(b.url, 2048)) {
             return { type: 'https', url: b.url };
         }
         return null;
     },
-    'source-remove': (b) => (str(b.id, 200) ? { id: b.id } : null),
-    'login-start': (b) => (str(b.source, 200) ? { source: b.source } : null),
+    'source-remove': (b) => (str(b.id, 256) ? { id: b.id } : null),
+    'login-start': (b) => (str(b.source, 256) ? { source: b.source } : null),
     'login-cancel': () => ({}),
-    'token-set': (b) => (str(b.source, 200) && str(b.token, 4096) ? { source: b.source, token: b.token.trim() } : null),
-    'token-clear': (b) => (str(b.source, 200) ? { source: b.source } : null)
+    'token-set': (b) => (str(b.source, 256) && str(b.token, 4096) ? { source: b.source, token: b.token.trim() } : null),
+    'token-clear': (b) => (str(b.source, 256) ? { source: b.source } : null)
 };
 
 function serve() {
@@ -517,7 +516,9 @@ function serve() {
             return;
         }
         if (!authorised(req)) {
-            failed(ip);
+            if (req.headers.authorization) {
+                failed(ip); // a wrong token; a request without one guesses nothing
+            }
             json(res, 401, { error: 'scan the code in the Store' });
             return;
         }
@@ -928,7 +929,7 @@ a{color:var(--acc)}
 </body></html>
 `;
 
-module.exports = { setEnabled, state, accessUrls, journal, UNITS, OPS, _interfaces: () => os.networkInterfaces() };
+module.exports = { setEnabled, state, accessUrls, journal, UNITS, _interfaces: () => os.networkInterfaces() };
 
 if (require.main === module && process.argv[2] === 'serve') {
     serve();

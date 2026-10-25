@@ -192,7 +192,10 @@ on and off (privileged `web` op) and shows its QR code.
   digests in constant time; without it the page says *Scan the code in the
   Store*. 10 wrong tokens from one address in a minute lock that address
   out for the rest of the minute. The state stream's `web.urls` carry no
-  token (every OAP app reads that stream and can reach 127.0.0.1:8470).
+  token: every OAP app reads that stream and can reach 127.0.0.1:8470. The
+  Store gets the QR URLs with the privileged `{"op":"web-access","secret"}`
+  → `{"type":"web-access","urls":["http://172.16.222.97:8470/#t=…"]}`,
+  asked again whenever `web.urls` change.
 - **Firewall.** The unit's `ip filter` input chain (firewalldz) drops what
   it does not accept. While the page is on, one rule at its top accepts
   it: `iifname "wlan_bridge" tcp dport 8470 accept comment
@@ -201,8 +204,9 @@ on and off (privileged `web` op) and shows its QR code.
   Replies leave through the output chain's established accept.
 - **Requests.** The server talks to the socket with the web secret
   (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
-  `source-add`, `source-remove`, `token-set`, `token-clear`, `login-start`
-  and `login-cancel`, each with only its own fields checked for shape.
+  `source-add` (`github` or `https` only), `source-remove`, `token-set`,
+  `token-clear`, `login-start` and `login-cancel`, each with only its own
+  string fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
   is the daemon's own regular file; the journals of `mgu-updater`,
   `mgu-uplink` and `mgu-app-fallback` (the deploy tool's unit; its own

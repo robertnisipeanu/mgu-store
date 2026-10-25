@@ -281,10 +281,8 @@ test('requests the page cannot make are refused before the updater', () => {
     const bad = [
         { op: 'web', enable: false }, { op: 'reboot' }, { op: 'install', id: 'doom' },
         { op: 'source-add', type: 'github', repo: 'a/b' },
-        { op: 'source-add', type: 'github', repo: 'a/b', channel: 'branch:../x' },
-        { op: 'source-add', type: 'github', repo: '../b', channel: 'tags' },
-        { op: 'source-add', type: 'github', repo: 'a/..', channel: 'tags' },
-        { op: 'source-add', type: 'https', url: 'http://x.org/c.json' },
+        { op: 'source-add', type: 'github', repo: 'a/b', channel: 3 },
+        { op: 'source-add', type: 'https' },
         { op: 'source-add', type: 'file', path: '/' }, { op: 'token-set', source: 'x' }, { op: 'toString' }, ['x']];
     return Promise.all(bad.map((body) => post('/api/op', { token, body }))).then((rs) => {
         rs.forEach((r) => assert.strictEqual(r.status, 400, r.text));
@@ -365,14 +363,20 @@ test('re-enabling rotates the token', () => {
         });
 });
 
-test('10 wrong tokens in a minute: 429, the right one too', () => {
+test('10 wrong tokens in a minute: 429, the right one too; requests without one do not count', () => {
     const tries = []; // the old token above was the first
+    for (let i = 0; i < 12; i++) {
+        tries.push(get('/api/state'));
+    }
     for (let i = 0; i < 9; i++) {
         tries.push(get('/api/state', { token: 'cd'.repeat(16) }));
     }
     return Promise.all(tries).then((rs) => {
         rs.forEach((r) => assert.strictEqual(r.status, 401));
         return get('/api/state', { token });
+    }).then((r) => {
+        assert.strictEqual(r.status, 429);
+        return get('/api/state');
     }).then((r) => {
         assert.strictEqual(r.status, 429);
         return get('/api/state', { token }, HOT); // another client address
