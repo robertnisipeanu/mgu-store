@@ -71,9 +71,9 @@ and, while on, shows the QR code of the page's access URL (with its token)
 and the URL as text, and the page's error. The updater leaves the access
 URL in the app's data folder (`data/web-url`, one line, owner the app's
 uid, 0400) while the page is on; it is read again on every render, and
-every second while Phone access is open and on. Without
-it the page shows no QR code, only the token-free address the state
-reports (`web.urls[0]`) as text.
+every second while Phone access is open and on. Without it the page shows
+no QR code, only the token-free address the state reports (`web.urls[0]`)
+as text.
 
 QR codes are written to `/dev/shm/robertn_store_qr_<uid>/` (0755, files
 0644), where the HMI can read them, a new file per text, and removed when
