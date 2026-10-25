@@ -166,6 +166,58 @@ which no BMW unit hooks, and it stops the services by their `KillSignal`
   as a unit still up 3 minutes later: `rebootError` is `the head unit did
   not restart`. `rebootError` stays until the next catalog check.
 
+## Phone page
+
+A page the car serves to a phone on its hotspot (`js/web.js`): the
+sources with their channel and status, the components with installed and
+catalog versions (and the short commit of a branch build), what is being
+installed, errors, and the logs. On it the owner adds a GitHub source
+(owner/repo with Releases, a branch or Tags) or a catalog URL, removes
+one, pastes or clears a source's token, and starts a GitHub sign-in (the
+code and the link show on the page). Off by default; the Store turns it
+on and off (privileged `web` op) and shows its QR code.
+
+- **Server.** A child of the daemon, `node web.js serve`, as `web_uid`
+  12991 and `web_gid` 12202 (`tm_oap_app`, the socket's group) with no
+  other groups, on `web_port` 8470 at `127.0.0.1` and at `web_iface`'s
+  (`wlan_bridge`, the hotspot: 172.16.222.97) IPv4 address while it has
+  one, looked up every 5 s. It exits when the daemon does. It serves the
+  page and three API paths, nothing from disk but the updater log; a
+  request body is at most 16 KiB.
+- **Access.** Each enable makes a new 128-bit token; the QR URL is
+  `http://<hotspot address>:8470/#t=<token>`. The fragment never reaches
+  the server: the page keeps the token in sessionStorage, drops it from the
+  address bar and sends `Authorization: Bearer` (no cookies, so no
+  cross-site request carries it). The server gets it on stdin and compares
+  digests in constant time; without it the page says *Scan the code in the
+  Store*. 10 wrong tokens from one address in a minute lock that address
+  out for the rest of the minute. The state stream's `web.urls` carry no
+  token (every OAP app reads that stream and can reach 127.0.0.1:8470).
+- **Firewall.** The unit's `ip filter` input chain (firewalldz) drops what
+  it does not accept. While the page is on, one rule at its top accepts
+  it: `iifname "wlan_bridge" tcp dport 8470 accept comment
+  "mgu-updater-web"`, checked every 30 s and put back after a ruleset load.
+  Every start and every on/off first removes rules with that comment.
+  Replies leave through the output chain's established accept.
+- **Requests.** The server talks to the socket with the web secret
+  (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
+  `source-add`, `source-remove`, `token-set`, `token-clear`, `login-start`
+  and `login-cancel`, each with only its own fields checked for shape.
+  Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
+  is the daemon's own regular file; the journals of `mgu-updater`,
+  `mgu-uplink` and `mgu-app-fallback` (the deploy tool's unit; its own
+  runs log as `deploy:` lines in `log_file`) through the privileged `logs`
+  op, since the journal is not readable to the web uid:
+  `{"op":"logs","unit","lines","secret"}` → `{"type":"logs","unit","text"}`
+  (`journalctl -u <unit> -n <lines> --no-pager`, those three units only,
+  1–1000 lines). Requests carry `rid`; the daemon's direct reply to one
+  (state, error or logs) carries it back.
+
+`test/test_web.js` (`docker run --rm -v "$PWD:/w:ro" -w /w
+node:8.16.2-stretch node test/test_web.js`) runs the server as the web
+uid against a stand-in socket, `nft` and `journalctl`, with the
+container's address as the hotspot's.
+
 ## Configuration
 
 `updater.conf` (in the version folder) holds the defaults;
