@@ -705,6 +705,7 @@ function op(body) {
 function channelLabel(c) {
   if (c === 'releases') { return 'Releases'; }
   if (c === 'tags') { return 'Tags'; }
+  if (c === 'branch') { return 'Branch'; }
   return /^branch:/.test(c) ? 'Branch ' + c.slice(7) : c;
 }
 function confirmRemove(s) {

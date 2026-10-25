@@ -116,7 +116,8 @@ For a repository that publishes source only, the unit builds every app.
 
 The source's **channel** picks the revision: `releases` (above),
 `branch:<name>` (the branch's head commit; every new commit is a new
-revision, shown as its short sha when the version is unchanged) or `tags`
+revision, shown as its short sha when the version is unchanged), `branch`
+(the same on the repository's default branch) or `tags`
 (the highest semver tag: `v1.2.3`, `1.2.3` or `<id>@1.2.3`). The unit reads
 `mgu-repo.json` at that commit and fetches the repository's tarball at it.
 A plain checkout copied to a USB stick works the same way (no revision).
