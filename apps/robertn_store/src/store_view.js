@@ -180,5 +180,51 @@ function phoneAddress(web, fileText) {
     return { qr: '', text: (web.urls && web.urls[0]) || '' };
 }
 
-module.exports = { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+/* ---- adding a source ---- */
+
+/* As the updater checks them (native/mgu-updater/js/sources.js). */
+const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
+const BRANCH = /^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$/;
+const HTTPS = /^https:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/\S*)?$/i;
+const GITHUB_URL = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i;
+
+/* The source typed in the speller: { type: 'github', repo } for owner/repo
+ * (or a github.com address of a repo), { type: 'https', url } for an https
+ * address, null for anything else. */
+function parseSource(text) {
+    const t = String(text || '').trim();
+    const gh = GITHUB_URL.exec(t);
+    const repo = gh ? gh[1] : t;
+    if (REPO.test(repo)) {
+        return { type: 'github', repo };
+    }
+    return HTTPS.test(t) && t.length <= 2048 ? { type: 'https', url: t } : null;
+}
+
+/* The channel for the chooser's Releases / Tags / Branch; a branch typed
+ * empty is the repo's default branch ("branch"), one that is not a branch
+ * name is null. */
+function channelOf(choice, branchText) {
+    if (choice !== 'branch') {
+        return choice;
+    }
+    const b = String(branchText || '').trim();
+    if (!b) {
+        return 'branch';
+    }
+    return BRANCH.test(b) && b.indexOf('..') < 0 && !/\/$|\.lock$/.test(b) ? `branch:${b}` : null;
+}
+
+/* The Sources page's status line. */
+function sourcesMessage(m) {
+    switch (m.kind) {
+    case 'invalid-source': return `Not a repo or https address: ${m.text}`;
+    case 'invalid-branch': return `Not a branch name: ${m.text}`;
+    case 'speller': return `Text entry failed: ${m.error}`;
+    case 'refused': return `${m.op === 'source-remove' ? 'Remove' : 'Add source'} failed: ${m.error}`;
+    default: return '';
+    }
+}
+
+module.exports = { parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneAddress };

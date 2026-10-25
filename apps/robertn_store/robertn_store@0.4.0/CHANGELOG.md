@@ -4,12 +4,14 @@
 
 The Store lists the components of every source the updater reads. Sources
 lists each source with its status; a source's page shows its channel,
-account and component count, signs in with GitHub (a QR code of the sign-in page with
-the code beside it) and removes the source after a confirm step. Phone
-access turns the updater's phone page on or off and shows its access URL,
-which the updater leaves in the app's data folder, as a QR code; Add source
-opens it. A component the catalog marks
-`uninstallable` is removed from its row after a confirm step. Privileged
+account and component count, signs in with GitHub (a QR code of the
+sign-in page with the code beside it) and removes the source after a
+confirm step. Add source opens the HMI's speller for owner/repo or an https
+address; a GitHub repo then gets its channel: Releases, Tags or Branch.
+Phone access turns the updater's phone page on or off and shows its access
+URL, which the updater leaves in the app's data folder, as a QR code. A
+component the catalog marks `uninstallable` is removed from its row after a
+confirm step. Privileged
 requests carry the secret the updater leaves in the app's data folder. A
 branch's new commit at the same version shows as `Update <revision>`, and a
 build on the unit as `Building`.

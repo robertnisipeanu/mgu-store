@@ -13,8 +13,10 @@
  *   3  ST_OnlineApps_StoreTools        one list, a row per head-unit tool
  *   4  ST_OnlineApps_StoreRestart      the confirm step of Restart head unit:
  *                                      Cancel (focused first) and Restart
- *   5  ST_OnlineApps_StoreSources      one list, a row (name | status) per
- *                                      source, and Add source
+ *   5  ST_OnlineApps_StoreSources      a status line, one list, a row (name |
+ *                                      status) per source, Add source (the
+ *                                      HMI's speller, src/speller.js) and
+ *                                      Phone access
  *   6  ST_OnlineApps_StoreSource       one source: its name and status, Channel,
  *                                      Account, Components, its error, Sign in
  *                                      with GitHub, Remove
@@ -25,6 +27,8 @@
  *   8  ST_OnlineApps_StoreSourceRemove the confirm step of a source's Remove
  *   9  ST_OnlineApps_StoreRemove       the confirm step of a component's Remove:
  *                                      its name, Cancel, Remove
+ *  31  ST_OnlineApps_StoreChannel      the channel of a GitHub source being
+ *                                      added: its repo, Releases, Tags, Branch
  *  30  ST_OnlineApps_StorePhone        Phone access: On/Off, the page's QR code,
  *                                      its address, its error
  *
@@ -77,8 +81,10 @@ function list(id, name, titleId, title, listName, listId) {
 }
 
 const SOURCES = state(5, 'ST_OnlineApps_StoreSources', 14, 'Sources', MAIN.id, [
+    label(29, 'storeSourcesStatus'),
     { id: 82, type: 'button', widget: ROW, name: 'storeSourceList', focusable: 3, rows: TWO_COLS },
-    button(83, 'storeSourceAdd', 'Add source')
+    button(83, 'storeSourceAdd', 'Add source'),
+    button(39, 'storeSourcePhone', 'Phone access')
 ]);
 
 const SOURCE = state(6, 'ST_OnlineApps_StoreSource', 15, 'Source', SOURCES.id, [
@@ -116,6 +122,12 @@ const STATES = [
         label(97, 'storeRemoveName'),
         button(98, 'storeRemoveCancel', 'Cancel'),
         button(99, 'storeRemoveConfirm', 'Remove')
+    ]),
+    state(31, 'ST_OnlineApps_StoreChannel', 34, 'Channel', SOURCES.id, [
+        label(35, 'storeAddRepo'),
+        button(36, 'storeChannelReleases', 'Releases'),
+        button(37, 'storeChannelTags', 'Tags'),
+        button(38, 'storeChannelBranch', 'Branch')
     ]),
     state(30, 'ST_OnlineApps_StorePhone', 19, 'Phone access', MAIN.id, [
         row(130, 'storePhoneToggle', 'Phone access'),

@@ -7,7 +7,7 @@
  */
 const assert = require('assert');
 const { rowState, rowAction, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
-    sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneAddress } = require('../src/store_view.js');
+    sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneAddress, parseSource, channelOf, sourcesMessage } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
@@ -20,7 +20,41 @@ const login = (o) => Object.assign({ source: 'mgu-apps', url: 'https://github.co
 const web = (o) => Object.assign({ enabled: true, error: null, urls: ['http://172.16.222.97:8470/'] }, o);
 const TOKEN_URL = 'http://172.16.222.97:8470/#t=0123abcd';
 const address = (w, file) => JSON.stringify(phoneAddress(w, file));
+const parsed = (text) => JSON.stringify(parseSource(text));
 const cases = [
+    [parsed('robertnisipeanu/mgu-apps'), '{"type":"github","repo":"robertnisipeanu/mgu-apps"}'],
+    [parsed('  Owner-1/repo.name_x  '), '{"type":"github","repo":"Owner-1/repo.name_x"}'],
+    [parsed('https://github.com/owner/repo'), '{"type":"github","repo":"owner/repo"}'],
+    [parsed('github.com/owner/repo.git/'), '{"type":"github","repo":"owner/repo"}'],
+    [parsed('HTTPS://WWW.GITHUB.COM/owner/repo'), '{"type":"github","repo":"owner/repo"}'],
+    [parsed('https://example.org/repo/catalog.json'), '{"type":"https","url":"https://example.org/repo/catalog.json"}'],
+    [parsed('https://example.org:8443/c.json?x=1'), '{"type":"https","url":"https://example.org:8443/c.json?x=1"}'],
+    [parsed('http://example.org/catalog.json'), 'null'],
+    [parsed('https://exa mple.org/c.json'), 'null'],
+    [parsed('owner/repo/extra'), 'null'],
+    [parsed('-owner/repo'), 'null'],
+    [parsed('owner'), 'null'],
+    [parsed('owner/re po'), 'null'],
+    [parsed(''), 'null'],
+    [parsed(`a/${'r'.repeat(101)}`), 'null'],
+    [parsed('https://github.com/owner'), '{"type":"https","url":"https://github.com/owner"}'],
+    [channelOf('releases'), 'releases'],
+    [channelOf('tags'), 'tags'],
+    [channelOf('branch', ''), 'branch'],
+    [channelOf('branch', '   '), 'branch'],
+    [channelOf('branch', ' main '), 'branch:main'],
+    [channelOf('branch', 'feature/x-1.2'), 'branch:feature/x-1.2'],
+    [channelOf('branch', 'a..b'), null],
+    [channelOf('branch', 'feature/'), null],
+    [channelOf('branch', 'x.lock'), null],
+    [channelOf('branch', '-x'), null],
+    [channelOf('branch', 'a b'), null],
+    [sourcesMessage({ kind: 'invalid-source', text: 'foo' }), 'Not a repo or https address: foo'],
+    [sourcesMessage({ kind: 'invalid-branch', text: 'a..b' }), 'Not a branch name: a..b'],
+    [sourcesMessage({ kind: 'speller', error: 'use case factory timed out' }), 'Text entry failed: use case factory timed out'],
+    [sourcesMessage({ kind: 'refused', op: 'source-add', error: 'owner/repo is already a source' }),
+        'Add source failed: owner/repo is already a source'],
+    [sourcesMessage({ kind: 'refused', op: 'source-remove', error: 'forbidden' }), 'Remove failed: forbidden'],
     [rowState(row({}), null), 'Update 1.0.1'],
     [rowState(row({ status: 'available', installed: null }), null), 'Install 1.0.1'],
     [rowState(row({ status: 'installed', installed: '1.0.1' }), null), 'Installed 1.0.1'],

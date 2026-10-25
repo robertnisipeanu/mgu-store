@@ -435,6 +435,50 @@
             }
           ]
         },
+        "29": {
+          "type": "label",
+          "name": "storeSourcesStatus",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 0,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "39": {
+          "type": "button",
+          "name": "storeSourcePhone",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Phone access",
+                "type": "Text"
+              }
+            }
+          ]
+        },
         "82": {
           "type": "button",
           "name": "storeSourceList",
@@ -1100,6 +1144,124 @@
             {
               "Text": {
                 "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "31": {
+      "type": "state",
+      "name": "ST_OnlineApps_StoreChannel",
+      "properties": {
+        "ParentState": {
+          "value": 5,
+          "type": "UInt"
+        }
+      },
+      "components": {
+        "34": {
+          "type": "title",
+          "name": "ST_OnlineApps_StoreChannel_Title",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Channel",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "35": {
+          "type": "label",
+          "name": "storeAddRepo",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 0,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "36": {
+          "type": "button",
+          "name": "storeChannelReleases",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Releases",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "37": {
+          "type": "button",
+          "name": "storeChannelTags",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Tags",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "38": {
+          "type": "button",
+          "name": "storeChannelBranch",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Branch",
                 "type": "Text"
               }
             }

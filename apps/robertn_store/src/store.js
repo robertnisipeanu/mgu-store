@@ -10,7 +10,7 @@
  * installed, has an update, or failed), "reboot" (Restart head unit, once
  * confirmed), and the privileged ones, which carry the secret the updater
  * leaves in this app's data folder: "uninstall" (a removable installed
- * component, once confirmed), "source-remove", "login-start" /
+ * component, once confirmed), "source-add", "source-remove", "login-start" /
  * "login-cancel" (GitHub sign-in of a source) and "web" (Phone access on or
  * off).
  *
@@ -24,11 +24,14 @@
  *   Vehicle control             Installed 1.0.0
  *   Extended dashboard          42%               (downloading)
  *
- * Sources lists each source with its status and opens its page (Channel,
- * Account, Components, Sign in with GitHub, Remove). The head unit has no
- * text entry, so a source is added on the phone page (Add source opens
- * Phone access) or by plugging in a USB stick, whose sources the updater
- * lists by itself.
+ * Sources has a status line (a source typed wrong, the updater's refusal to
+ * add or remove one), lists each source with its status and opens its page
+ * (Channel, Account, Components, Sign in with GitHub, Remove). Add source
+ * opens the HMI's speller (src/speller.js) for owner/repo or an https
+ * address; a GitHub repo then gets its channel (Releases, Tags, or Branch,
+ * whose name is typed in the speller too; empty: the default branch). A USB
+ * stick's sources the updater lists by itself. Phone access is linked from
+ * Sources too.
  *
  * An app install runs in place, or else restarts MainApp's app processes,
  * this one included; the updater carries on, and the Store shows the result
@@ -43,9 +46,10 @@ const OnlineApp = require('oap-sdk/src/core/OnlineApp.js');
 const logging = require('oap-sdk/src/logging/logging');
 const { UpdaterClient } = require('./client.js');
 const { qrPng } = require('./qr.js');
+const { spell } = require('./speller.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState,
-    phoneAddress } = require('./store_view.js');
+    phoneAddress, parseSource, channelOf, sourcesMessage } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 
@@ -72,7 +76,8 @@ const S = {
     login: 'ST_OnlineApps_StoreLogin',
     sourceRemove: 'ST_OnlineApps_StoreSourceRemove',
     remove: 'ST_OnlineApps_StoreRemove',
-    phone: 'ST_OnlineApps_StorePhone'
+    phone: 'ST_OnlineApps_StorePhone',
+    channel: 'ST_OnlineApps_StoreChannel'
 };
 const LISTS = {
     app: { state: 'ST_OnlineApps_StoreApps', nav: 'storeNavApps', list: 'storeAppList' },
@@ -82,7 +87,9 @@ const KINDS = Object.keys(LISTS);
 const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress', restart: 'storeRestart',
     navSources: 'storeNavSources', navPhone: 'storeNavPhone',
     restartCancel: 'storeRestartCancel', restartConfirm: 'storeRestartConfirm',
-    sourceList: 'storeSourceList', sourceAdd: 'storeSourceAdd',
+    sourcesStatus: 'storeSourcesStatus', sourceList: 'storeSourceList', sourceAdd: 'storeSourceAdd',
+    sourcePhone: 'storeSourcePhone', addRepo: 'storeAddRepo', channelReleases: 'storeChannelReleases',
+    channelTags: 'storeChannelTags', channelBranch: 'storeChannelBranch',
     srcStatus: 'storeSrcStatus', srcChannel: 'storeSrcChannel', srcAccount: 'storeSrcAccount', srcComponents: 'storeSrcComponents',
     srcError: 'storeSrcError', srcSignIn: 'storeSrcSignIn', srcRemove: 'storeSrcRemove',
     loginQr: 'storeLoginQr', loginCode: 'storeLoginCode', loginUrl: 'storeLoginUrl',
@@ -147,6 +154,10 @@ class Store extends OnlineApp {
         /* The sign-in this app started: waiting until the updater reports it
          * pending, or the updater's refusal. */
         this._login = { waiting: false, refusal: null };
+        this._lastOp = null;            // the last request sent, which a reply without its op answers
+        this._adding = null;            // the GitHub source whose channel the chooser asks for
+        this._spellSeq = 0;             // only the latest speller's text counts
+        this._sourcesNote = '';         // the Sources page's status line
         this._qr = { login: { key: null, file: null, chain: Promise.resolve() },
             phone: { key: null, file: null, chain: Promise.resolve() } };
         this._st = null;
@@ -164,12 +175,16 @@ class Store extends OnlineApp {
             this._connected = false;
             this._render();
         });
-        this._client.on('reply-error', (msg) => {
-            logger.warn(`updater refused: ${msg}`);
-            // replies come in request order, and the sign-in page sends nothing else
-            if (this._login.waiting) {
+        this._client.on('reply-error', (msg, op) => {
+            // replies come in request order, so one without its op answers the last request
+            const forOp = op || this._lastOp;
+            this._lastOp = null;
+            logger.warn(`updater refused ${forOp}: ${msg}`);
+            if (forOp === 'login-start' && this._login.waiting) {
                 this._login = { waiting: false, refusal: String(msg) };
                 this._render();
+            } else if (forOp === 'source-add' || forOp === 'source-remove') {
+                this._note({ kind: 'refused', op: forOp, error: String(msg) });
             }
         });
 
@@ -244,7 +259,7 @@ class Store extends OnlineApp {
             }
         });
         removeStaleQr();
-        this._bind(C.check, () => this._client.check());
+        this._bind(C.check, () => this._send({ op: 'check' }));
         this._bind(C.restart, () => this._openState(S.restart));
         this._bind(C.restartCancel, () => this._closeState(S.restart));
         this._bind(C.restartConfirm, () => this._restart());
@@ -256,7 +271,11 @@ class Store extends OnlineApp {
         this._bind(C.removeConfirm, () => this._remove());
         this._bind(C.navSources, () => this._openState(S.sources));
         this._bind(C.sourceList, (row) => this._onSource(row));
-        this._bind(C.sourceAdd, () => this._openState(S.phone));
+        this._bind(C.sourceAdd, () => this._addSource());
+        this._bind(C.sourcePhone, () => this._openState(S.phone));
+        this._bind(C.channelReleases, () => this._chooseChannel('releases'));
+        this._bind(C.channelTags, () => this._chooseChannel('tags'));
+        this._bind(C.channelBranch, () => this._chooseChannel('branch'));
         this._bind(C.srcSignIn, () => this._signIn());
         this._bind(C.srcRemove, () => this._openState(S.sourceRemove));
         this._bind(C.srcRemoveCancel, () => this._closeState(S.sourceRemove));
@@ -330,7 +349,7 @@ class Store extends OnlineApp {
     _restart() {
         this._closeState(S.restart);
         logger.info('restart head unit');
-        this._client.reboot();
+        this._send({ op: 'reboot' });
     }
 
     /* Sends a request that needs the updater's secret; without the secret
@@ -341,7 +360,12 @@ class Store extends OnlineApp {
             logger.warn(`${req.op}: no updater secret in ${SECRET_FILE}`);
             return false;
         }
-        return this._client.send(Object.assign({}, req, { secret }));
+        return this._send(Object.assign({}, req, { secret }));
+    }
+
+    _send(req) {
+        this._lastOp = req.op;
+        return this._client.send(req);
     }
 
     _bind(name, handler) {
@@ -393,7 +417,7 @@ class Store extends OnlineApp {
         const action = rowAction(row, this._st.busy);
         if (action === 'install') {
             logger.info(`install ${row.id} ${row.version}`);
-            this._client.install(row.id);
+            this._send({ op: 'install', id: row.id });
         } else if (action === 'remove') {
             this._removeId = row.id;
             this._openState(S.remove);
@@ -439,10 +463,88 @@ class Store extends OnlineApp {
     /* The source Remove confirm step's Remove: back to the Sources list. */
     _removeSource() {
         const src = this._source(this._sourceId);
+        this._note(null);
         this._closeState(S.sourceRemove).then(() => this._closeState(S.source));
         if (src && sourceActions(src).remove) {
             logger.info(`remove source ${src.id}`);
             this._privileged({ op: 'source-remove', id: src.id });
+        }
+    }
+
+    _note(m) {
+        this._sourcesNote = m ? sourcesMessage(m) : '';
+        this._render();
+    }
+
+    /* The speller's text; null when the driver left it without OK or it
+     * could not be opened (the status line says so); undefined when a newer
+     * speller replaced it. */
+    _spell(title) {
+        const seq = ++this._spellSeq;
+        return spell(this, title).catch((err) => {
+            logger.warn(`speller: ${err && err.message}`);
+            if (seq === this._spellSeq) {
+                this._note({ kind: 'speller', error: err && err.message });
+            }
+            return null;
+        }).then((text) => (seq === this._spellSeq ? text : undefined));
+    }
+
+    /* Add source: owner/repo goes on to the channel chooser, an https
+     * address is added as it is; leaving the speller sends nothing. */
+    _addSource() {
+        this._adding = null;
+        this._note(null);
+        this._spell('Add source').then((text) => {
+            const typed = (text || '').trim();
+            if (!typed) {
+                return;
+            }
+            const source = parseSource(typed);
+            if (!source) {
+                this._note({ kind: 'invalid-source', text: typed });
+            } else if (source.type === 'https') {
+                this._sendSource(source);
+            } else {
+                this._adding = source;
+                this._openState(S.channel);
+            }
+        });
+    }
+
+    _chooseChannel(choice) {
+        const source = this._adding;
+        if (!source) {
+            return;
+        }
+        const done = (channel) => {
+            this._adding = null;
+            this._closeState(S.channel);
+            if (channel) {
+                this._sendSource(Object.assign({ channel }, source));
+            }
+        };
+        if (choice !== 'branch') {
+            done(choice);
+            return;
+        }
+        this._spell('Branch').then((text) => {
+            if (text === undefined || this._adding !== source) {
+                return;
+            }
+            const channel = text === null ? null : channelOf('branch', text);
+            if (text !== null && !channel) {
+                this._note({ kind: 'invalid-branch', text: text.trim() });
+            }
+            done(channel);
+        });
+    }
+
+    _sendSource(source) {
+        logger.info(`add source ${source.type === 'github' ? source.repo : '(https)'}` +
+            `${source.channel ? ` on ${source.channel}` : ''}`);
+        if (!this._privileged(Object.assign({ op: 'source-add' }, source))) {
+            this._note({ kind: 'refused', op: 'source-add', error: 'no updater secret' });
         }
     }
 
@@ -569,7 +671,10 @@ class Store extends OnlineApp {
         this._show(C.navPhone, !!web);
         this._renderList(C.sourceList, (sources || []).map((s) => [sourceLabel(s), sourceState(s)]));
         this._rows.source = (sources || []).map((s) => s.id);
-        this._show(C.sourceAdd, !!web);
+        this._text(C.sourcesStatus, this._sourcesNote);
+        this._show(C.sourceAdd, !!sources);
+        this._show(C.sourcePhone, !!web);
+        this._text(C.addRepo, this._adding ? this._adding.repo : '');
         this._renderSource(this._source(this._sourceId));
         this._renderLogin(connected ? st.login : null);
         this._renderPhone(web);
@@ -733,7 +838,7 @@ class Store extends OnlineApp {
             this._render();
             if (this._connected) {
                 // opening the Store is a good moment to look
-                this._client.check();
+                this._send({ op: 'check' });
             }
         }
         if (!this._initialized || !this._appStatusService) {

@@ -9,8 +9,8 @@
  *  1. Build javascript/app.js: a browserify-style bundle that links the app
  *     entry (src/store.js, module 10000), its texts (src/store_view.js,
  *     10001), mgu-updater's socket client (native/mgu-updater/js/client.js,
- *     10002) and the QR code PNG writer (src/qr.js 10003, src/qrcodegen.js
- *     10004) against the oap-sdk
+ *     10002), the QR code PNG writer (src/qr.js 10003, src/qrcodegen.js
+ *     10004) and the HMI speller (src/speller.js, 10005) against the oap-sdk
  *     modules carried in the shared SDK bundle (sdk/oap_sdk_bundle.js,
  *     oap-sdk 24.10.2). The donor is split without executing it: the
  *     browserify prelude is evaluated with a capture function in place of
@@ -45,7 +45,8 @@ const APP_MODULES = [
     path.join(HERE, 'src', 'store_view.js'),
     path.join(UPDATER_JS, 'client.js'),
     path.join(HERE, 'src', 'qr.js'),
-    path.join(HERE, 'src', 'qrcodegen.js')
+    path.join(HERE, 'src', 'qrcodegen.js'),
+    path.join(HERE, 'src', 'speller.js')
 ];
 
 function captureRegistry(bundlePath) {

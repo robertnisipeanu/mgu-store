@@ -5,8 +5,8 @@ state, the progress of the running install, the sources and the phone page.
 It is the screen of [mgu-updater](../../native/mgu-updater/README.md),
 which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
-privileged ones (uninstall, source-remove, login-start, login-cancel,
-web), which carry the secret the updater leaves in the app's data folder
+privileged ones (uninstall, source-add, source-remove, login-start,
+login-cancel, web), which carry the secret the updater leaves in the app's data folder
 (`data/updater-secret`, read again for every request).
 
 | Row (`LT_Button_1Row_2Col7030_2Text`) | Press |
@@ -44,9 +44,12 @@ already restarting the unit, and with an updater older than 0.1.4.
 
 ## Sources
 
-**Sources** lists one row per source, its label and status: `OK`, `USB`
-(a source on a plugged-in USB stick), `Checking`, `Sign in`, `Error`,
-`Offline`; then **Add source**. A source's page shows its label and
+**Sources** has a status line (a source typed wrong, the updater's refusal
+to add or remove one, a speller that could not open; hidden otherwise),
+one row per source, its label and status: `OK`, `USB` (a source on a
+plugged-in USB stick), `Checking`, `Sign in`, `Error`, `Offline`; then
+**Add source** and **Phone access** (the phone page, for tokens and logs).
+A source's page shows its label and
 status, **Channel** (`Releases`, `Branch <name>`, `Tags`), **Account**
 (the signed-in GitHub login), **Components** (how many it lists), its
 error, **Sign in with GitHub** (GitHub sources) and **Remove** (with a
@@ -59,10 +62,23 @@ it, the code and the page's address as text, the status (`Waiting for
 sign-in`, `Code expired`, `Sign-in failed: …`) and **Cancel**. The page
 closes itself once signed in.
 
-The head unit has no text entry, so a source is added on the phone page:
-**Add source** opens **Phone access**. A USB stick holding a catalog or a
-repo tree appears in the list by itself
-([mgu-updater](../../native/mgu-updater/README.md)).
+**Add source** opens the HMI's own full-screen speller (`src/speller.js`,
+the free-text speller use case `02076b22-…` that x_call uses; the
+manifest's usecasemanagement proxies let the app open it), titled *Add
+source*. The text confirmed with OK, trimmed, is:
+
+- `owner/repo` (or a `github.com/owner/repo` address): the **Channel**
+  page, showing the repo, with **Releases**, **Tags** and **Branch**.
+  Branch opens the speller again, titled *Branch*; empty is the repo's
+  default branch (`channel: "branch"`). The choice sends `source-add`
+  (`type: "github"`, `repo`, `channel`: `releases`, `tags`, `branch:<name>`
+  or `branch`) and returns to Sources.
+- an `https://…` address: `source-add` with `type: "https"`, `url`.
+- anything else: `Not a repo or https address: …` on the status line.
+
+Leaving a speller without OK (or OK with nothing typed) returns to Sources
+and sends nothing. A USB stick holding a catalog or a repo tree appears in
+the list by itself ([mgu-updater](../../native/mgu-updater/README.md)).
 
 ## Phone access
 
@@ -94,11 +110,14 @@ src/store.js               the app (bundle module 10000)
 src/store_view.js          its texts from the updater's state (10001)
 src/qr.js                  QR code PNG with a caption (10003)
 src/qrcodegen.js           Project Nayuki's QR Code generator 1.5.0 (10004, src/LICENSE-qrcodegen.txt)
+src/speller.js             the HMI's free-text speller (10005)
 tools/gen_rhmi.js          application.xml + uiDescription.json from one table
 tools/build.js             RHMI, bundle (+ native/mgu-updater/js/client.js, 10002), node --check, build.json, tgz
 tools/test_view.js         the texts for every row, source, sign-in and phone state, offline
 tools/test_rhmi.js         the generated RHMI files' structure and the names src/store.js binds
 tools/test_qr.js           the QR pictures (decoded back with zbarimg when installed)
+tools/test_speller.js      src/speller.js against a fake use case factory
+tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater and speller
 tools/make_icon.py         the 140x140 tile icon
 robertn_store@0.4.0/       staged package tree
 ```
@@ -107,6 +126,7 @@ robertn_store@0.4.0/       staged package tree
 
 ```sh
 cd apps/robertn_store
-node tools/build.js && node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js
+node tools/build.js && node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js &&
+    node tools/test_speller.js && node tools/test_store.js
 # robertn_store@0.4.0.tgz
 ```
