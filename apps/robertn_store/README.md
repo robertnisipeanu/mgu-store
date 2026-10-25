@@ -41,18 +41,33 @@ on, and the Store shows the result when it is opened again.
 ## Layout
 
 ```
+mgu-app.json               the source package's manifest: tree, modules, oap-sdk names
 src/store.js               the app (bundle module 10000)
 src/store_view.js          its texts from the updater's state (10001)
+lib/client.js              mgu-updater's socket client (10002), copied by tools/build.js
 tools/gen_rhmi.js          application.xml + uiDescription.json from one table
-tools/build.js             RHMI, bundle (+ native/mgu-updater/js/client.js, 10002), node --check, build.json, tgz
+tools/build.js             RHMI, lib/client.js, the source package, and given a donor the OAP tgz
 tools/test_view.js         the texts for every row state, offline
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.3.2/       staged package tree
+robertn_store@0.3.2/       staged package tree (no javascript/app.js)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js && node tools/test_view.js     # robertn_store@0.3.2.tgz
+node tools/build.js && node tools/test_view.js     # robertn_store@0.3.2.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.3.2.tgz (MGU_SDK_DONOR)
 ```
+
+The published artifact is the source package: `mgu-app.json`, the modules
+and the staged tree. The deploy tool on the unit links it against the
+oap-sdk of an app already there and installs the result
+(deploy/README.md, "Source packages"); the folder itself is that package,
+so a source following a branch builds it straight from a checkout
+(`mgu-repo.json`). With a donor on the build machine (an OAP app's tgz or
+`javascript/app.js`, never committed) the build writes the same OAP tgz
+the unit builds, for the emulator: the modules linked against the donor's
+oap-sdk modules with its module ids, `node --check`, `javascript/build.json`.
+`lib/client.js` is committed: run the build after
+`native/mgu-updater/js/client.js` changes and commit the copy.

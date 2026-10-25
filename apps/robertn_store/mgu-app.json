@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "id": "robertn_store",
+  "version": "0.3.2",
+  "tree": "robertn_store@0.3.2",
+  "modules": ["src/store.js", "src/store_view.js", "lib/client.js"],
+  "sdk": ["oap-sdk/src/core/OnlineApp.js", "oap-sdk/src/logging/logging"]
+}
