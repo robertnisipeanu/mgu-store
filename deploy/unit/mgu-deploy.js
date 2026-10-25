@@ -948,7 +948,8 @@ function prepareApp(a, stage) {
             r = linker().preparePackage(a.pkgDir, out, { donors: unitDonors() });
             say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +
                 (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : '') +
-                (r.shrinkwrap ? ', npm-shrinkwrap.json added' : ''));
+                (r.shrinkwrap ? ', npm-shrinkwrap.json added' : '') +
+                (r.permissions.length ? ', ' + r.permissions.join(' and ') + ' added to permissions.json' : ''));
         }
     } catch (e) {
         throw refuse(a.file + ': cannot ' + (a.prepare === 'build' ? 'build ' : 'prepare ') + a.id + ' ' + a.version +

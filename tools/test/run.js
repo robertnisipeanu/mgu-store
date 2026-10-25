@@ -214,7 +214,7 @@ function testModuleMode() {
     check('module: package.json marked local-only, the package flat with every file',
         JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).mguLocalOnly === true &&
         Object.keys(members(out)).sort().join(' ') ===
-        'javascript/app.js javascript/kit/mgu.js node_modules/oap-sdk/index.js node_modules/oap-sdk/package.json package.json');
+        'javascript/app.js javascript/kit/mgu.js node_modules/oap-sdk/index.js node_modules/oap-sdk/package.json package.json permissions.json');
     check('module: no longer needed once generated', !link.needsSdk(pkg));
 
     const vendored = thirdParty({ vendored: true });
@@ -233,6 +233,17 @@ function testModuleMode() {
     check('shrinkwrap: one without dependencies is added, which MainApp installs from', br.shrinkwrap === true && br.sdk === null &&
         sw.name === 'b' && sw.version === '1.0.0' && sw.lockfileVersion === 1 && JSON.stringify(sw.dependencies) === '{}', JSON.stringify(sw));
     check('shrinkwrap: none for a package with node_modules/', vr.shrinkwrap === false && !members(vr.file)['npm-shrinkwrap.json']);
+    const entry = { uid: '${APPNAME}', domain: 'd', interfaceName: 'i/I', operation: '*' };
+    const perm = tmp('perm');
+    write(path.join(perm, 'package.json'), JSON.stringify({ name: 'p', version: '1.0.0' }));
+    write(path.join(perm, 'javascript', 'app.js'), '/* x */\n');
+    write(path.join(perm, 'permissions.json'), JSON.stringify({ masterAccessTable: [entry] }));
+    const pr = link.preparePackage(perm, path.join(tmp('out'), 'p.tgz'), { donors: [] });
+    const acl = JSON.parse(members(pr.file)['permissions.json'].toString());
+    check('permissions: a missing ACL table is added empty, the entries kept', pr.permissions.join(' ') === 'masterRegistrationTable' &&
+        JSON.stringify(acl.masterAccessTable) === JSON.stringify([entry]) && JSON.stringify(acl.masterRegistrationTable) === '[]', JSON.stringify(acl));
+    check('permissions: none added when both are there', br.permissions.length === 2 && vr.permissions.length === 2 &&
+        link.preparePackage(perm, path.join(tmp('out'), 'p2.tgz'), { donors: [] }).permissions.length === 0);
     const e = throws(() => link.preparePackage(thirdParty(), path.join(tmp('out'), 'n.tgz'), { donors: [] }));
     check('module: no donor fails before anything is packed', e && e.noDonor && /no donor holds the oap-sdk core/.test(e.message), e && e.message);
     const sd = link.sdkDonor([path.join(T, 'none.tgz'), donorTgz]);

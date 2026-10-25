@@ -599,6 +599,9 @@ An OAP package from another repository installs as it is published:
 - without `node_modules/` or `npm-shrinkwrap.json`, an `npm-shrinkwrap.json`
   without dependencies is added: the manager installs such a package only
   through one, and the package carries what it runs on;
+- `permissions.json` gets the ACL tables it lacks of the two the manager's
+  `aclManager.js` reads (`masterAccessTable`, `masterRegistrationTable`),
+  empty: without either the manager fails the install;
 - when its own javascript calls `require('oap-sdk')` (a browserify bundle
   resolves its requires itself) and it has no `node_modules/oap-sdk`, that
   module is generated from the first donor holding the oap-sdk core

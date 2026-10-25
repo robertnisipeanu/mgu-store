@@ -643,12 +643,42 @@ function needsShrinkwrap(pkgDir) {
     return !fs.existsSync(path.join(pkgDir, 'node_modules')) && !fs.existsSync(path.join(pkgDir, 'npm-shrinkwrap.json'));
 }
 
+/* MainApp's aclManager.js reads both tables of an app's permissions.json
+ * and fails the install when either is missing. */
+const ACL_TABLES = ['masterAccessTable', 'masterRegistrationTable'];
+
+/* Adds the ACL tables permissions.json lacks, empty; returns their names.
+ * One that does not parse as an object is left as it is. */
+function completePermissions(pkgDir) {
+    const file = path.join(pkgDir, 'permissions.json');
+    let acl = {};
+    if (fs.existsSync(file)) {
+        try {
+            acl = JSON.parse(fs.readFileSync(file, 'utf8'));
+        } catch (e) {
+            return [];
+        }
+        if (!acl || typeof acl !== 'object' || Array.isArray(acl)) {
+            return [];
+        }
+    }
+    const missing = ACL_TABLES.filter((t) => !Array.isArray(acl[t]));
+    if (missing.length) {
+        missing.forEach((t) => {
+            acl[t] = [];
+        });
+        fs.writeFileSync(file, JSON.stringify(acl, null, 2) + '\n');
+    }
+    return missing;
+}
+
 /* An OAP package folder (pkgDir is changed) as the flat tgz the head unit
  * installs: "mguLocalOnly": true in its package.json, node_modules/oap-sdk
  * generated when needsSdk(), an npm-shrinkwrap.json without dependencies
  * when needsShrinkwrap() (the package carries what it runs on; nothing is
- * fetched from npm), and every file packed (tools/oap_pack.js format). An
- * oap-sdk the package ships stays as it is. */
+ * fetched from npm), the ACL tables permissions.json lacks added empty, and
+ * every file packed (tools/oap_pack.js format). An oap-sdk the package
+ * ships stays as it is. */
 function preparePackage(pkgDir, outFile, opts) {
     opts = opts || {};
     let sdk = null;
@@ -673,10 +703,11 @@ function preparePackage(pkgDir, outFile, opts) {
         fs.writeFileSync(path.join(pkgDir, 'npm-shrinkwrap.json'), JSON.stringify({ name: pkg.name, version: pkg.version,
             lockfileVersion: 1, requires: true, dependencies: {} }, null, 2) + '\n');
     }
+    const permissions = completePermissions(pkgDir);
     stampPackage(pkgDir);
     fs.writeFileSync(outFile, tgz(filesBelow(pkgDir).map((name) =>
         ({ name, data: fs.readFileSync(path.join(pkgDir, name)), mode: 0o644 })), MTIME));
-    return { file: outFile, sdk, shrinkwrap };
+    return { file: outFile, sdk, shrinkwrap, permissions };
 }
 
 function rmrf(p) {
