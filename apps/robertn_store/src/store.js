@@ -43,7 +43,7 @@ const logging = require('oap-sdk/src/logging/logging');
 const { UpdaterClient } = require('./client.js');
 const { qrPng } = require('./qr.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
-    sourcesState, sourceActions, sourceAccount, loginStatus, loginCode, phoneState,
+    sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState,
     phoneUrl } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
@@ -78,7 +78,7 @@ const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress
     navSources: 'storeNavSources', navPhone: 'storeNavPhone',
     restartCancel: 'storeRestartCancel', restartConfirm: 'storeRestartConfirm',
     sourceList: 'storeSourceList', sourceAdd: 'storeSourceAdd',
-    srcStatus: 'storeSrcStatus', srcAccount: 'storeSrcAccount', srcComponents: 'storeSrcComponents',
+    srcStatus: 'storeSrcStatus', srcChannel: 'storeSrcChannel', srcAccount: 'storeSrcAccount', srcComponents: 'storeSrcComponents',
     srcError: 'storeSrcError', srcSignIn: 'storeSrcSignIn', srcRemove: 'storeSrcRemove',
     loginQr: 'storeLoginQr', loginCode: 'storeLoginCode', loginUrl: 'storeLoginUrl',
     loginStatus: 'storeLoginStatus', loginCancel: 'storeLoginCancel',
@@ -554,11 +554,13 @@ class Store extends OnlineApp {
         if (src) {
             this._set(C.srcStatus, 'Text1stCol', sourceLabel(src), 'Text');
             this._set(C.srcStatus, 'Text2ndCol', sourceState(src), 'Text');
+            this._set(C.srcChannel, 'Text2ndCol', sourceChannel(src), 'Text');
             this._set(C.srcAccount, 'Text2ndCol', sourceAccount(src), 'Text');
             this._set(C.srcComponents, 'Text2ndCol',
                 typeof src.components === 'number' ? String(src.components) : '', 'Text');
         }
         this._show(C.srcStatus, !!src);
+        this._show(C.srcChannel, !!(src && sourceChannel(src)));
         this._show(C.srcAccount, !!(src && sourceAccount(src)));
         this._show(C.srcComponents, !!src);
         this._text(C.srcError, src && src.error ? String(src.error) : '');

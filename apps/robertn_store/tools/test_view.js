@@ -7,7 +7,7 @@
  */
 const assert = require('assert');
 const { rowState, rowAction, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
-    sourceAccount, loginStatus, loginCode, phoneState, phoneUrl } = require('../src/store_view.js');
+    sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneUrl } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
@@ -39,6 +39,12 @@ const cases = [
     [rowAction(row({}), { id: 'doom', phase: 'download' }), null],
     [rowAction(row({ queued: true }), null), null],
     [rowState(row({}), { id: 'doom', phase: 'build' }), 'Building'],
+    [rowState(row({ version: '1.0.0', revision: 'a1b2c3d' }), null), 'Update a1b2c3d'],
+    [rowState(row({ revision: 'a1b2c3d' }), null), 'Update 1.0.1'],
+    [rowState(row({ version: '1.0.0', revision: null }), null), 'Update 1.0.0'],
+    [rowState(row({ status: 'installed', installed: '1.0.1', revision: 'a1b2c3d' }), null), 'Installed 1.0.1'],
+    [rowState(row({ status: 'available', installed: null, revision: 'a1b2c3d' }), null), 'Install 1.0.1'],
+    [groupState([row({ version: '1.0.0', revision: 'a1b2c3d' })], null), '1 update'],
     [rowState(row({ status: 'installed' }), { id: 'doom', phase: 'uninstall' }), 'Removing'],
     [rowState(row({ kind: 'tool', optional: true, status: 'available', installed: null }), null), 'Install 1.0.1'],
     [rowAction(row({ kind: 'tool', optional: true, status: 'available', installed: null }), null), 'install'],
@@ -68,6 +74,12 @@ const cases = [
     [JSON.stringify(sourceActions(src({ id: 'mgu-store', builtin: true }))), '{"signIn":true,"remove":false}'],
     [JSON.stringify(sourceActions(src({ type: 'https' }))), '{"signIn":false,"remove":true}'],
     [JSON.stringify(sourceActions(src({ type: 'file', usb: true }))), '{"signIn":false,"remove":false}'],
+    [sourceChannel(src({ channel: 'releases' })), 'Releases'],
+    [sourceChannel(src({ channel: 'branch:main' })), 'Branch main'],
+    [sourceChannel(src({ channel: 'branch:feature/x' })), 'Branch feature/x'],
+    [sourceChannel(src({ channel: 'tags' })), 'Tags'],
+    [sourceChannel(src({})), ''],
+    [sourceChannel(src({ channel: 'other' })), ''],
     [sourceAccount(src({ auth: { kind: 'github', login: 'robertnisipeanu' } })), 'robertnisipeanu'],
     [sourceAccount(src({})), ''],
     [loginStatus(null, 'mgu-apps'), 'Starting'],

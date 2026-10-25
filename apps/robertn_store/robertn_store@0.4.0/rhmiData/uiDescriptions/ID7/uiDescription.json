@@ -513,6 +513,32 @@
             }
           ]
         },
+        "28": {
+          "type": "button",
+          "name": "storeSrcChannel",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text1stCol": {
+                "value": "Channel",
+                "type": "Text"
+              },
+              "Text2ndCol": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
         "84": {
           "type": "button",
           "name": "storeSrcStatus",

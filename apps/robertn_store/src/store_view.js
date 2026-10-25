@@ -31,7 +31,7 @@ function rowState(row, busy) {
         return 'Failed, retry';
     }
     switch (row.status) {
-    case 'update': return `Update ${row.version}`;
+    case 'update': return `Update ${row.revision && row.version === row.installed ? row.revision : row.version}`;
     case 'available': return `Install ${row.version}`;
     default: return row.pendingReboot ? 'Restart pending' : `Installed ${row.installed}`;
     }
@@ -125,6 +125,15 @@ function sourceActions(src) {
     };
 }
 
+/* A GitHub source's channel: releases, a branch's head, or the newest tag. */
+function sourceChannel(src) {
+    const channel = src.channel || '';
+    if (channel.indexOf('branch:') === 0) {
+        return `Branch ${channel.slice(7)}`;
+    }
+    return { releases: 'Releases', tags: 'Tags' }[channel] || '';
+}
+
 function sourceAccount(src) {
     return (src.auth && src.auth.login) || '';
 }
@@ -163,4 +172,4 @@ function phoneUrl(web) {
 }
 
 module.exports = { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
-    sourcesState, sourceActions, sourceAccount, loginStatus, loginCode, phoneState, phoneUrl };
+    sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneUrl };

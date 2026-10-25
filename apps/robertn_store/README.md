@@ -12,6 +12,7 @@ web), which carry the secret the updater leaves in the app's data folder
 | Row (`LT_Button_1Row_2Col7030_2Text`) | Press |
 |---|---|
 | `DOOM` · `Update 1.0.1` | update to the catalog version |
+| `Raluca` · `Update a1b2c3d` | update to a branch's new commit (same version, new revision) |
 | `Display bridge demo` · `Install 1.0.0` | install |
 | `Network driver` · `Install 0.2.0` | install (an optional component) |
 | `Vehicle control` · `Installed 1.0.0` | nothing; *Remove?* when the catalog marks it `uninstallable` |
@@ -46,10 +47,11 @@ already restarting the unit, and with an updater older than 0.1.4.
 **Sources** lists one row per source, its label and status: `OK`, `USB`
 (a source on a plugged-in USB stick), `Checking`, `Sign in`, `Error`,
 `Offline`; then **Add source**. A source's page shows its label and
-status, **Account** (the signed-in GitHub login), **Components** (how many
-it lists), its error, **Sign in with GitHub** (GitHub sources) and
-**Remove** (with a confirm step, *Remove source?*; not for the Store's
-own source or a USB source).
+status, **Channel** (`Releases`, `Branch <name>`, `Tags`), **Account**
+(the signed-in GitHub login), **Components** (how many it lists), its
+error, **Sign in with GitHub** (GitHub sources) and **Remove** (with a
+confirm step, *Remove source?*; not for the Store's own source or a USB
+source).
 
 **Sign in with GitHub** starts the updater's GitHub device sign-in and opens
 its page: the QR code of the sign-in page with the code drawn large beside

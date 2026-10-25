@@ -15,9 +15,9 @@
  *                                      Cancel (focused first) and Restart
  *   5  ST_OnlineApps_StoreSources      one list, a row (name | status) per
  *                                      source, and Add source
- *   6  ST_OnlineApps_StoreSource       one source: its name and status, Account,
- *                                      Components, its error, Sign in with
- *                                      GitHub, Remove
+ *   6  ST_OnlineApps_StoreSource       one source: its name and status, Channel,
+ *                                      Account, Components, its error, Sign in
+ *                                      with GitHub, Remove
  *   7  ST_OnlineApps_StoreLogin        GitHub sign-in: the QR code of the
  *                                      sign-in page with the code beside it,
  *                                      the code and page as text, the status,
@@ -83,6 +83,7 @@ const SOURCES = state(5, 'ST_OnlineApps_StoreSources', 14, 'Sources', MAIN.id, [
 
 const SOURCE = state(6, 'ST_OnlineApps_StoreSource', 15, 'Source', SOURCES.id, [
     row(84, 'storeSrcStatus', 'Source'),
+    row(28, 'storeSrcChannel', 'Channel'),
     row(85, 'storeSrcAccount', 'Account'),
     row(86, 'storeSrcComponents', 'Components'),
     label(89, 'storeSrcError'),

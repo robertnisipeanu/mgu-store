@@ -123,6 +123,10 @@
                 <property id="2" value="1"/>
                 <property id="3" value="3"/>
             </component>
+            <component id="28" type="button" widget="LT_Button_1Row_2Col7030_2Text">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
             <component id="85" type="button" widget="LT_Button_1Row_2Col7030_2Text">
                 <property id="2" value="1"/>
                 <property id="3" value="3"/>
