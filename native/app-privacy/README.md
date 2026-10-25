@@ -10,9 +10,8 @@ updated and diagnosed exactly as before.
 
 Every app this repository builds says so itself: its `package.json`
 carries `"mguLocalOnly": true`. `tools/oap_pack.js`, which every app build
-packs with, stamps it into the staged tree before packing, through
-`stampPackage` in `patch_mainapp.js`, so the marker is inside every tgz we
-produce and lands in the installed `oap_<uid>/source/package.json`.
+packs with, stamps it into the staged tree before packing, so the marker
+is inside every tgz we produce and lands in the installed `oap_<uid>/source/package.json`.
 
 The patched manager decides at runtime, per app: it reads the app's
 registry entry (`/var/opt/public/oap/oap_12201/data/apps/<appId>.json`)

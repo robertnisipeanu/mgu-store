@@ -11,8 +11,8 @@ reporting with no per-app bookkeeping.
 
 An app is ours when the `package.json` inside its tgz has
 `"mguLocalOnly": true`. `tools/oap_pack.js`, which every app build in this
-repository packs with, stamps it into the staged tree before packing
-(`stampPackage` from `native/app-privacy/patch_mainapp.js`), and
+repository packs with (on the build machine and, for a source package, on
+the unit), stamps it into the staged tree before packing, and
 `release/release.js` refuses to publish an app without it.
 
 ```json
