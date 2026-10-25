@@ -792,8 +792,8 @@ class Updater {
      * the list changed; new ones are read. */
     scanUsb() {
         const found = sourcesLib.usbSources(this.conf.mounts || '/proc/mounts', String(this.conf.usb_roots || '/media').split(/[\s,]+/).filter(Boolean))
-            .map((u) => ({ id: u.id, type: 'usb', label: u.label, root: u.root }));
-        const key = (l) => l.map((u) => `${u.id}\0${u.root}`).join('\n');
+            .map((u) => Object.assign({ id: u.id, type: 'usb', label: u.label, root: u.root }, u.loose ? { loose: true } : {}));
+        const key = (l) => l.map((u) => `${u.id}\0${u.root}\0${!!u.loose}`).join('\n');
         if (key(found) === key(this.usb)) {
             return false;
         }

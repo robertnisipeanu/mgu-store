@@ -12,6 +12,9 @@
  *              (an app as a source package, a tool as a tool kit);
  *  - releases  a GitHub repo with neither: its releases' assets named
  *              <id>@<x.y.z>.tgz or .mgu, the newest version of each id.
+ *  - loose     a USB stick's oap/ folder of app packages under any name
+ *              (the community App Manager's), each read for its own
+ *              package.json.
  *
  * Network reads go through `net` (the updater's Fetcher: fetch.js as the
  * fetch uid). A GitHub token goes to the API host (api.github.com) only, an
@@ -642,7 +645,15 @@ function usbSources(mountsFile, roots) {
         const label = path.basename(mp);
         const isSource = (rel) => isFileInside(mp, rel ? `${rel}/catalog.json` : 'catalog.json') ||
             isFileInside(mp, rel ? `${rel}/mgu-repo.json` : 'mgu-repo.json');
-        const add = (rel) => out.push({ id: `usb:${label}${rel ? `/${rel}` : ''}`, label: `${label}${rel ? `/${rel}` : ''}`, root: rel ? path.join(mp, rel) : mp });
+        const add = (rel, loose) => out.push(Object.assign({ id: `usb:${label}${rel ? `/${rel}` : ''}`,
+            label: `${label}${rel ? `/${rel}` : ''}`, root: rel ? path.join(mp, rel) : mp }, loose ? { loose: true } : {}));
+        const isDir = (rel) => {
+            try {
+                return fs.lstatSync(path.join(mp, rel)).isDirectory();
+            } catch (e) {
+                return false;
+            }
+        };
         try {
             if (isSource('')) {
                 add('');
@@ -650,17 +661,97 @@ function usbSources(mountsFile, roots) {
             if (isSource('mgu-repo')) {
                 add('mgu-repo');
             }
-            const sub = path.join(mp, 'mgu-repo');
-            if (fs.lstatSync(sub).isDirectory()) {
-                fs.readdirSync(sub).sort().slice(0, 64).forEach((name) => {
+            if (isDir('mgu-repo')) {
+                fs.readdirSync(path.join(mp, 'mgu-repo')).sort().slice(0, 64).forEach((name) => {
                     if (!SKIP(name) && isSource(`mgu-repo/${name}`)) {
                         add(`mgu-repo/${name}`);
                     }
                 });
             }
-        } catch (e) { /* not readable, or no mgu-repo/ */ }
+            // the community App Manager's folder of packages
+            if (isDir('oap') && fs.readdirSync(path.join(mp, 'oap')).some((n) => LOOSE.test(n) && isFileInside(mp, `oap/${n}`))) {
+                add('oap', true);
+            }
+        } catch (e) { /* not readable */ }
     });
     return out;
+}
+
+/* ---- loose packages (a stick's oap/) --------------------------------------------- */
+
+const LOOSE = /^[^.].*\.(tgz|tar\.gz|mgu)$/i;
+
+/* An app package's package.json and en_GB entry-point text, from its
+ * members: an OAP tgz flat or under package/, or an .mgu (source/,
+ * rhmiData/ beside it). */
+function packageInfo(members) {
+    const byName = new Map(members.map((m) => [m.name.replace(/^\.\//, ''), m.data]));
+    const base = ['package/', '', 'source/'].find((b) => byName.has(`${b}package.json`));
+    if (base === undefined) {
+        throw new Error('no package.json');
+    }
+    const pkg = parseJson(byName.get(`${base}package.json`), 'package.json');
+    let title = null;
+    try {
+        const rhmi = base === 'source/' ? 'rhmiData/' : `${base}rhmiData/`;
+        const app = parseJson(byName.get(`${rhmi}application.json`), 'application.json').application;
+        const textId = app.entryPoints && app.entryPoints[0] && app.entryPoints[0].textId;
+        const groups = (app.variantGroups || []).map((g) => String(g.stringsPath || '').replace(/^\.\//, ''));
+        ['variantGroups/Common/texts'].concat(groups).some((dir) => {
+            const t = byName.get(`${rhmi}${dir}/en_GB.json`);
+            const text = t && textId && parseJson(t, 'en_GB.json')[textId];
+            title = typeof text === 'string' && text ? text : null;
+            return !!title;
+        });
+    } catch (e) { /* no entry-point text */ }
+    return { pkg, title };
+}
+
+/* A stick's oap/ folder: each package file (any name, .tgz, .tar.gz or
+ * .mgu) one app, its id, version and title from the package itself; the
+ * newest of an id wins; root-service packages (mguService) are left out.
+ * sha256 is taken as the listing reads the file. */
+function looseReader(root, ctx) {
+    const list = () => {
+        const skipped = [];
+        const newest = new Map();
+        // regular files only: a link is not followed
+        return fs.readdirSync(root).filter((n) => LOOSE.test(n) && isFileInside(root, n)).sort().slice(0, 256).reduce((p, name) => p.then(() => {
+            let data;
+            return Promise.resolve()
+                .then(() => {
+                    data = readInside(root, name, ctx.maxRepoBytes);
+                    return tar.untgz(data, ctx.maxBuildBytes);
+                })
+                .then((members) => {
+                    const { pkg, title } = packageInfo(members);
+                    if (pkg.mguService !== undefined) {
+                        return;
+                    }
+                    if (!ID.test(pkg.name || '') || !catalogLib.SEMVER.test(pkg.version || '')) {
+                        throw new Error('package.json needs a lower-case name and an x.y.z version');
+                    }
+                    const have = newest.get(pkg.name);
+                    if (have && catalogLib.compareVersions(pkg.version, have.version) <= 0) {
+                        return;
+                    }
+                    const ext = /\.mgu$/i.test(name) ? 'mgu' : 'tgz';
+                    newest.set(pkg.name, catalogLib.checkExtras({
+                        id: pkg.name, kind: 'app', version: pkg.version,
+                        title: title || (typeof pkg.productName === 'string' && pkg.productName) || pkg.name,
+                        description: typeof pkg.description === 'string' ? pkg.description : '',
+                        artifact: { name: `${pkg.name}@${pkg.version}.${ext}`, url: name, size: data.length,
+                            sha256: crypto.createHash('sha256').update(data).digest('hex') }
+                    }));
+                })
+                .catch((err) => {
+                    skipped.push(`${name}: ${err.message}`);
+                });
+        }), Promise.resolve()).then(() => ({ mode: 'catalog', commit: null, skipped,
+            components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) }));
+    };
+    const folder = folderReader(root, ctx);
+    return { network: false, catalog: list, artifact: folder.artifact, files: folder.files };
 }
 
 /* ---- one source --------------------------------------------------------------------- */
@@ -675,6 +766,9 @@ function reader(s, ctx) {
     if (s.type === 'https') {
         return httpsReader(s, ctx);
     }
+    if (s.type === 'usb' && s.loose) {
+        return looseReader(s.root, ctx);
+    }
     return folderReader(s.type === 'usb' ? s.root : s.path, ctx);
 }
 
@@ -684,5 +778,5 @@ function label(s) {
 
 module.exports = {
     load, save, checkStored, Credentials, reader, label, usbSources, mountPoints,
-    repoCatalog, packComponent, subtree, readInside, walkInside, authError, REPO, CHANNEL, TOKEN, PACKAGE
+    repoCatalog, packComponent, subtree, packageInfo, readInside, walkInside, authError, REPO, CHANNEL, TOKEN, PACKAGE
 };

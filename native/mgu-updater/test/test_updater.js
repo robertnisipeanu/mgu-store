@@ -1702,6 +1702,29 @@ function testSources(certs) {
             const spaced = path.join(media, 'My Stick');
             mkdirp(path.join(spaced, 'mgu-repo', 'one'));
             publish(path.join(spaced, 'mgu-repo', 'one'), [entry(appTgz(path.join(spaced, 'mgu-repo', 'one'), 'usb_app', '0.1.0'), 'app', 'From USB')]);
+            // the App Manager's folder: packages under any name, npm package/ prefix or flat, .mgu, a root service
+            const oapDir = path.join(stick, 'oap');
+            mkdirp(oapDir);
+            const pkgTgz = (file, prefix, pkg, rhmi) => {
+                const d = path.join(T, 'src', `loose-${path.basename(file)}`);
+                const top = prefix ? path.join(d, 'package') : d;
+                mkdirp(path.join(top, 'rhmiData', 'variantGroups', 'Common', 'texts'));
+                fs.writeFileSync(path.join(top, 'package.json'), JSON.stringify(pkg));
+                if (rhmi) {
+                    fs.writeFileSync(path.join(top, 'rhmiData', 'application.json'), JSON.stringify({ application: {
+                        name: pkg.name, entryPoints: [{ textId: 'SID_TITLE' }], variantGroups: [{ stringsPath: './variantGroups/Common/texts' }] } }));
+                    fs.writeFileSync(path.join(top, 'rhmiData', 'variantGroups', 'Common', 'texts', 'en_GB.json'), JSON.stringify({ SID_TITLE: rhmi }));
+                }
+                cp.execFileSync('tar', ['-czf', file, '-C', d, prefix ? 'package' : '.']);
+            };
+            pkgTgz(path.join(oapDir, 'App Manager v1.0.9.tgz'), true, { name: 'oap-appmanager', version: '1.0.9', productName: 'App Manager' }, 'Apps');
+            pkgTgz(path.join(oapDir, 'older-manager.tar.gz'), true, { name: 'oap-appmanager', version: '1.0.2' }, null);
+            pkgTgz(path.join(oapDir, 'flat.TGZ'), false, { name: 'flat_app', version: '2.0.0', productName: 'Flat' }, null);
+            pkgTgz(path.join(oapDir, 'renderer.tgz'), true, { name: 'mgu-renderd', version: '1.0.0', mguService: { unit: 'x' } }, null);
+            fs.copyFileSync(mgu('loose_mgu', '0.2.0'), path.join(oapDir, 'thing.mgu'));
+            fs.writeFileSync(path.join(oapDir, 'README.txt'), 'not a package');
+            fs.writeFileSync(path.join(oapDir, 'broken.tgz'), 'not gzip');
+            fs.symlinkSync(path.join(relDir, 'rel_app@1.0.0.tgz'), path.join(oapDir, 'linked.tgz'));
             const evil = path.join(media, 'EVIL');
             mkdirp(evil);
             fs.writeFileSync(path.join(M, 'elsewhere.json'), JSON.stringify({ schema: 1, components: [] }));
@@ -1715,12 +1738,29 @@ function testSources(certs) {
                 .then(() => installed('usb_tool'))
                 .then(() => ask(sock, { op: 'install', id: 'usb_app' }))
                 .then(() => installed('usb_app'))
-                .then(() => before);
+                .then(() => until(st, () => src('usb:STICK/oap').status === 'ok', 20000, 'the oap folder read'))
+                .then(() => {
+                    ok('usb oap/: each package by its own package.json, the newest of an id, titles from rhmiData else productName',
+                        comp('oap-appmanager').version === '1.0.9' && comp('oap-appmanager').title === 'Apps' &&
+                        comp('flat_app').title === 'Flat' && comp('loose_mgu').version === '0.2.0' && comp('oap-appmanager').source === 'usb:STICK/oap',
+                        JSON.stringify(st().components.filter((c) => /usb:STICK\/oap/.test(c.source))));
+                    ok('usb oap/: root-service packages, links and files that are not packages are left out',
+                        !comp('mgu-renderd').id && comp('rel_app').source === 'rel' && src('usb:STICK/oap').components === 3 &&
+                        /broken\.tgz/.test(src('usb:STICK/oap').error || '') && !/renderer|README|linked/.test(src('usb:STICK/oap').error || ''),
+                        JSON.stringify(src('usb:STICK/oap')));
+                    fs.writeFileSync(deployLog, '');
+                    return ask(sock, { op: 'install', id: 'oap-appmanager' });
+                })
+                .then(() => installed('oap-appmanager'))
+                .then(() => {
+                    ok('usb oap/: a package installs under its id and version', /oap-appmanager@1\.0\.9\.tgz --yes/.test(deployed()[0]), deployed()[0]);
+                    return before;
+                });
         })
         .then((before) => {
             const usb = st().sources.filter((x) => x.usb);
             ok('usb: a stick\'s root and mgu-repo/<name> are sources; a link is not followed',
-                usb.map((x) => x.id).join() === 'usb:My Stick/mgu-repo/one,usb:STICK' &&
+                usb.map((x) => x.id).join() === 'usb:My Stick/mgu-repo/one,usb:STICK,usb:STICK/oap' &&
                 /leak_tool: leak: not a folder/.test(src('usb:STICK').error || '') && !usb.some((x) => /EVIL/.test(x.id)), JSON.stringify(usb));
             ok('usb: a repo-tree tool and a catalog app install from them', comp('usb_tool').installed === '0.3.0' && comp('usb_app').installed === '0.1.0' &&
                 comp('usb_tool').source === 'usb:STICK');

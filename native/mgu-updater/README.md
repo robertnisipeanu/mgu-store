@@ -164,7 +164,14 @@ reads `/proc/mounts` (`mounts`) for mount points directly under
 `usb_roots`. On each, the root, `mgu-repo/` and `mgu-repo/<name>/` that
 hold `catalog.json` or `mgu-repo.json` are sources `usb:<label>[/<path>]`,
 until the stick goes. A checkout copied to a stick reads as its repo tree
-(no revision). Sticks are only read: no link is followed (a folder or file
+(no revision). A stick's `oap/` folder (the community App Manager's) is
+source `usb:<label>/oap`: each `*.tgz`, `*.tar.gz` or `*.mgu` in it, under
+any name, flat or with npm's `package/` prefix, is an app with the id and
+version of its own `package.json` and the title of its en_GB entry-point
+text, else its `productName`, else its name; the newest of an id wins, a
+package whose `package.json` has `mguService` (a root service, not an app)
+is left out, and its sha256 is taken as it is listed. It installs as
+`<id>@<version>.tgz` (or `.mgu`). Sticks are only read: no link is followed (a folder or file
 reached through one is not there), only regular files, every size bounded.
 
 **First start.** Without `sources.json` the updater writes one
