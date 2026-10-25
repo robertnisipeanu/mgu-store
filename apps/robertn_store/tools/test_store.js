@@ -101,10 +101,16 @@ class OnlineApp extends EventEmitter {
         return spellerAnswers[0] instanceof Error ? Promise.reject(spellerAnswers.shift()) : Promise.resolve(fakeFactory());
     }
 }
+let socketUp = true;
 class Client extends EventEmitter {
     connect() {}
     close() {}
-    send(req) { sent.push(req); return true; }
+    send(req) {
+        if (socketUp) {
+            sent.push(req);
+        }
+        return socketUp;
+    }
 }
 const quiet = { info() {}, warn() {}, error() {} };
 const stubs = {
@@ -238,6 +244,17 @@ function run() {
     }).then(() => {
         eq(sent.map(secretless), [{ op: 'source-add', type: 'https', url: 'https://example.org/repo/catalog.json' }]);
         eq(states, [], 'no chooser for https');
+
+        // the updater went away while the speller was up
+        reset();
+        socketUp = false;
+        spellerAnswers.push('https://example.org/c.json');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        socketUp = true;
+        eq(sent, []);
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Add source failed: updater not running');
 
         // Back in the first speller, OK with nothing typed
         reset();

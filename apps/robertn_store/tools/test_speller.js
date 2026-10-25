@@ -8,7 +8,7 @@
  *   node tools/test_speller.js
  */
 const assert = require('assert');
-const { spell, SPELLER_USE_CASE } = require('../src/speller.js');
+const { spell } = require('../src/speller.js');
 
 function params(entries) {
     const m = new Map(entries);
@@ -62,7 +62,7 @@ cases.push((() => {
     });
     return spell(f.app, 'Add source').then((text) => {
         assert.strictEqual(text, 'owner/repo ');
-        assert.deepStrictEqual(f.log.created, [SPELLER_USE_CASE]);
+        assert.deepStrictEqual(f.log.created, ['02076b22-d19b-4aef-9e8c-0d7305d8b88c']);
         assert.strictEqual(f.log.started.token, 'tok-1');
         assert.strictEqual(f.log.started.startParameters.get(4), 'Add source');
         assert.deepStrictEqual(f.log.unsubscribed, [7]);

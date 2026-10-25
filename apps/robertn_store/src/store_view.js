@@ -182,15 +182,15 @@ function phoneAddress(web, fileText) {
 
 /* ---- adding a source ---- */
 
-/* As the updater checks them (native/mgu-updater/js/sources.js). */
+/* As mgu-updater's sources.js checks them. */
 const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
 const BRANCH = /^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$/;
-const HTTPS = /^https:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/\S*)?$/i;
+const HTTPS = /^https:\/\/[^/\s]+\/\S*$/;
 const GITHUB_URL = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i;
 
 /* The source typed in the speller: { type: 'github', repo } for owner/repo
  * (or a github.com address of a repo), { type: 'https', url } for an https
- * address, null for anything else. */
+ * address with a path (the scheme in lower case), null for anything else. */
 function parseSource(text) {
     const t = String(text || '').trim();
     const gh = GITHUB_URL.exec(t);
@@ -198,7 +198,8 @@ function parseSource(text) {
     if (REPO.test(repo)) {
         return { type: 'github', repo };
     }
-    return HTTPS.test(t) && t.length <= 2048 ? { type: 'https', url: t } : null;
+    const url = t.replace(/^https:\/\//i, 'https://');
+    return HTTPS.test(url) && url.length <= 2048 ? { type: 'https', url } : null;
 }
 
 /* The channel for the chooser's Releases / Tags / Branch; a branch typed

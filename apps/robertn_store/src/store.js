@@ -490,8 +490,6 @@ class Store extends OnlineApp {
         }).then((text) => (seq === this._spellSeq ? text : undefined));
     }
 
-    /* Add source: owner/repo goes on to the channel chooser, an https
-     * address is added as it is; leaving the speller sends nothing. */
     _addSource() {
         this._adding = null;
         this._note(null);
@@ -544,7 +542,8 @@ class Store extends OnlineApp {
         logger.info(`add source ${source.type === 'github' ? source.repo : '(https)'}` +
             `${source.channel ? ` on ${source.channel}` : ''}`);
         if (!this._privileged(Object.assign({ op: 'source-add' }, source))) {
-            this._note({ kind: 'refused', op: 'source-add', error: 'no updater secret' });
+            const error = readSecret() ? 'updater not running' : 'no updater secret';
+            this._note({ kind: 'refused', op: 'source-add', error });
         }
     }
 
