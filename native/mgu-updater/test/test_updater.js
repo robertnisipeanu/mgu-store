@@ -388,7 +388,7 @@ function testShipped() {
         !fs.readdirSync(ROOT).some((f) => /\.pem$/.test(f)));
     ok('shipped: sources, credentials, the build uid and the secrets have their places',
         conf.sources === '/var/opt/mgu-updater/sources.json' && conf.credentials_dir === '/var/opt/mgu-updater/credentials' &&
-        conf.build_uid === '12992' && conf.web_uid === '12991' && conf.web_gid === '12202' && conf.web_port === '8470' &&
+        conf.build_uid === '12995' && conf.web_uid === '12991' && conf.web_gid === '12202' && conf.web_port === '8470' &&
         conf.web_iface === 'wlan_bridge' && conf.web_secret === '/run/mgu-updater/web-secret' &&
         conf.usb_roots === '/media' && conf.store_app === 'robertn_store' && 'github_client_id' in conf);
 }
@@ -474,7 +474,11 @@ function testTar() {
                 threw = /too long/.test(e.message);
             }
             ok('tar: a name ustar cannot hold is refused, not cut short', threw);
-        });
+            return require('../js/build').runBuild({ conf: { build_uid: '12990', build_gid: '12990', fetch_uid: '12990', web_uid: '12991',
+                state_dir: path.join(T, 'nobuild') }, entry: { id: 'x', version: '1.0.0', script: { node: 'b.js', args: [] } }, files: [], donor: '', log: () => {} })
+                .then(() => false, (e) => /not a uid of the builds' own/.test(e.message));
+        })
+        .then((refused) => ok('build: refused with a build_uid another part uses (it is killed wholesale)', refused && !fs.existsSync(path.join(T, 'nobuild'))));
 }
 
 /* ---- fetch.js ----------------------------------------------------------------- */
@@ -1420,7 +1424,7 @@ function testSources(certs) {
         sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
         store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
         github_api: API, github_web: GH_WEB, github_client_id: 'Iv1.test', builtin_repo: 'robertnisipeanu/mgu-store',
-        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12992', build_gid: '12992',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
         build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
         mounts, usb_roots: media, web_secret: path.join(M, 'run', 'web-secret'), web_uid: '12991', web_gid: '12202',
         socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
@@ -1652,7 +1656,7 @@ function testSources(certs) {
             const reg = JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', 'b_ok.json')));
             const pkg = JSON.parse(fs.readFileSync(path.join(oap, `oap_${reg.userId}`, 'source', 'package.json')));
             ok('build: the repo\'s script runs as the build uid in a copy of the repo, with the donor, and its package installs',
-                comp('b_ok').status === 'installed' && pkg.uid === 12992 && pkg.donor === '// the SDK donor bundle\n' &&
+                comp('b_ok').status === 'installed' && pkg.uid === 12995 && pkg.donor === '// the SDK donor bundle\n' &&
                 /\/state\/build-[0-9a-f]+\/repo$/.test(pkg.cwd), JSON.stringify([comp('b_ok').error, pkg]));
             return ask(sock, { op: 'install', id: 'b_fail' });
         })
@@ -1666,7 +1670,7 @@ function testSources(certs) {
         .then(() => {
             let left = '';
             try {
-                left = sh('pgrep -u 12992 || true').trim();
+                left = sh('pgrep -u 12995 || true').trim();
             } catch (e) { /* none */ }
             ok('build: a script past build_timeout_s is stopped, its processes too', /took longer than 3 s/.test(comp('b_slow').error) && left === '',
                 `${comp('b_slow').error} ${left}`);
@@ -1682,7 +1686,7 @@ function testSources(certs) {
             return ask(sock, { op: 'install', id: 'b_detach' }).then(() => installed('b_detach'));
         })
         .then(() => {
-            ok('build: a process the script leaves running outside its group is killed', sh('pgrep -u 12992 || true').trim() === '');
+            ok('build: a process the script leaves running outside its group is killed', sh('pgrep -u 12995 || true').trim() === '');
             // tags, and a repo without releases, added through the socket
             return Promise.all([priv({ op: 'source-add', type: 'github', repo: 'third/tagged', channel: 'tags' }),
                 priv({ op: 'source-add', type: 'github', repo: 'third/plain' }),

@@ -14,7 +14,7 @@ second one. On the Store's request it also restarts the head unit.
  fetch.js ──► state/dl-<random>/<file>                (a folder root made for this download, the fetch uid's)
         │
  updater.js (root): read it (no links, regular file, bounded), check its size + sha256,
-        │            pack a repo-tree component, or run the repo's build script as uid 12992 (build.js)
+        │            pack a repo-tree component, or run the repo's build script as uid 12995 (build.js)
         │            write the checked bytes to state/verified/ (root only)
         ▼
  /var/opt/mgu-deploy/mgu-deploy.sh install --artifact <file> --yes   (runs current/)
@@ -114,7 +114,8 @@ commit). Without one: `releases` when the repo has a release, else
   `state/origins.json` records the commit installed.
 
 **Building on the unit.** `build.node` runs under this Node as
-`build_uid` 12992 (no account, in none of the uplink's lists: no network),
+`build_uid` 12995 (no account, in none of the uplink's lists: no network;
+no other service may run as it),
 in a copy of the repo in `state/build-<random>/repo` that only it can
 write, with `MGU_SDK_DONOR` (the donor bundle `mgu-deploy.sh sdk-donor
 --json` names, read-only), `MGU_OUT` (an empty folder) and `HOME`/`TMPDIR`
@@ -381,7 +382,8 @@ each request, and whenever it changes (at most every 250 ms):
   commit a branch would install; `size` null where the source states none.
 - `busy.phase`: `download`, `build` (a source package or a repo's build
   script), `verify`, `install`, `uninstall`, or `check` (a tool the
-  updater runs on, "Tools the updater runs on").
+  updater runs on, "Tools the updater runs on"); `busy.op`: `install` or
+  `uninstall`.
 - `sources`: stored ones in order, then USB media; `channel` is a GitHub
   source's channel in use; `auth` is null without a credential; `error`
   of an `ok` source names the components it left out.

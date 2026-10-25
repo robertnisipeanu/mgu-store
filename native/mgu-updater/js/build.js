@@ -63,6 +63,10 @@ function runBuild(opts) {
     const maxBytes = Number(conf.build_max_bytes);
     const timeoutMs = Number(conf.build_timeout_s) * 1000;
     const asRoot = process.getuid() === 0;
+    // every process of the build uid is killed: it must be the builds' alone
+    if (!(uid >= 1000) || [conf.fetch_uid, conf.web_uid].map(Number).indexOf(uid) >= 0) {
+        return Promise.reject(new Error(`build_uid ${conf.build_uid} is not a uid of the builds' own`));
+    }
     const dir = path.join(conf.state_dir, `build-${crypto.randomBytes(6).toString('hex')}`);
     const repo = path.join(dir, 'repo');
     const out = path.join(dir, 'out');

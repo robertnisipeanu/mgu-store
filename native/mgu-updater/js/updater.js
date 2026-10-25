@@ -869,12 +869,19 @@ class Updater {
         return steps;
     }
 
-    /* Queues item unless the same is queued or running; returns why it
-     * cannot be queued (the other operation on that id is), or null. */
-    enqueue(item) {
+    /* Why item cannot be queued (the other operation on that id is queued
+     * or running), or null. */
+    conflict(item) {
         const same = this.queue.find((q) => q.id === item.id) || (this.busy && this.busy.id === item.id ? { op: this.busy.op || 'install' } : null);
-        if (same) {
-            return same.op === item.op ? null : `${item.id}: ${same.op === 'uninstall' ? 'a removal' : 'an install'} is queued or running`;
+        return same && same.op !== item.op ? `${item.id}: ${same.op === 'uninstall' ? 'a removal' : 'an install'} is queued or running` : null;
+    }
+
+    /* Queues item unless the same is queued or running; returns why it
+     * cannot be queued, or null. */
+    enqueue(item) {
+        const refused = this.conflict(item);
+        if (refused || this.queue.some((q) => q.id === item.id) || (this.busy && this.busy.id === item.id)) {
+            return refused;
         }
         delete this.errors[item.id];
         this.queue.push(item);
@@ -905,11 +912,13 @@ class Updater {
             steps = [self];
             this.errors[id] = `needs a newer ${SELF}: it installs first, then ${id} can be installed`;
         }
-        const refused = steps.map((s) => this.enqueue({ op: 'install', id: s.id, source: s.source })).filter(Boolean)[0];
-        this.changed();
+        const items = steps.map((s) => ({ op: 'install', id: s.id, source: s.source }));
+        const refused = items.map((i) => this.conflict(i)).filter(Boolean)[0];
         if (refused) {
             return refused;
         }
+        items.forEach((i) => this.enqueue(i));
+        this.changed();
         if (!this.busy) {
             this.next();
         }
@@ -1366,9 +1375,8 @@ class Updater {
             }
             // the Store reads the file when a state arrives: one goes out once it is written
             return writeAs(path.join(store.data, 'web-url'), url ? `${url}\n` : '', store.uid, store.gid)
-                .catch((e) => console.log(`web-url: ${e.message}`))
                 .then(() => this.changed());
-        });
+        }).catch((e) => console.log(`web-url: ${e.message}`));
         return this.webUrlQueue;
     }
 
