@@ -208,7 +208,9 @@ function ghApi(req, res, auth) {
     } else if (rest.indexOf('/contents/') === 0) {
         const tree = repo.trees[u.searchParams.get('ref')];
         const f = tree && tree[decodeURIComponent(rest.slice('/contents/'.length))];
-        send(f ? 200 : 404, f ? f[0] : { message: 'Not Found' });
+        // the raw media type gets the bytes; anything else the JSON object around them, as GitHub does
+        const rawWanted = /^application\/vnd\.github(\.v3)?\.raw/.test(req.headers.accept || '');
+        send(f ? 200 : 404, !f ? { message: 'Not Found' } : rawWanted ? f[0] : { type: 'file', encoding: 'base64', content: f[0].toString('base64') });
     } else if (rest.indexOf('/tarball/') === 0) {
         const sha = rest.slice('/tarball/'.length);
         send(302, '', { Location: `https://codeload.github.com:${HTTPS_PORT}/${m[1]}/legacy.tar.gz/${sha}` });
@@ -463,7 +465,16 @@ function testTar() {
             ok('tar: a member naming .. is refused', refused);
             return tar.untgz(require('zlib').gzipSync(Buffer.alloc(4 << 20)), 1 << 20).then(() => false, (e) => /more than/.test(e.message));
         })
-        .then((refused) => ok('tar: an archive that unpacks past the limit is refused', refused));
+        .then((refused) => {
+            ok('tar: an archive that unpacks past the limit is refused', refused);
+            let threw = false;
+            try {
+                tar.tgz([{ name: `${'x'.repeat(160)}/${'y'.repeat(20)}`, data: Buffer.from('z'), mode: 0o644 }], 1);
+            } catch (e) {
+                threw = /too long/.test(e.message);
+            }
+            ok('tar: a name ustar cannot hold is refused, not cut short', threw);
+        });
 }
 
 /* ---- fetch.js ----------------------------------------------------------------- */
@@ -1339,7 +1350,8 @@ function testSources(certs) {
         "if (mode === 'fail') { console.log('failing on purpose'); process.exit(3); }",
         "if (mode === 'slow') { setInterval(() => {}, 1000); }",
         "if (mode === 'escape') { fs.writeFileSync(where, 'x'); }",
-        "if (mode === 'ok') {",
+        "if (mode === 'detach') { cp.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'inherit' }).unref(); }",
+        "if (mode === 'ok' || mode === 'detach') {",
         "  const app = JSON.parse(fs.readFileSync(path.join('apps', id, 'app.json'), 'utf8'));",
         "  const dir = path.join(process.env.TMPDIR, 'pkg'); fs.mkdirSync(dir);",
         "  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: id, version: app.version,",
@@ -1358,6 +1370,7 @@ function testSources(certs) {
             { id: 'b_fail', kind: 'app', path: 'apps/b_fail', build: { node: 'tools/build.js', args: ['fail', 'b_fail'] } },
             { id: 'b_slow', kind: 'app', path: 'apps/b_slow', build: { node: 'tools/build.js', args: ['slow', 'b_slow'] } },
             { id: 'b_escape', kind: 'app', path: 'apps/b_escape', build: { node: 'tools/build.js', args: ['escape', 'b_escape', path.join(M, 'outside', 'x')] } },
+            { id: 'b_detach', kind: 'app', path: 'apps/b_detach', build: { node: 'tools/build.js', args: ['detach', 'b_detach'] } },
             { id: 'bad_tool', kind: 'tool', path: 'native/bad_tool' }
         ] }),
         'apps/p_app/mgu-app.json': JSON.stringify({ schema: 1, id: 'p_app', version: pVersion, title: 'Package app', tree: `p_app@${pVersion}`, modules: ['src/p.js'], sdk: [] }),
@@ -1371,6 +1384,7 @@ function testSources(certs) {
         'apps/b_fail/app.json': JSON.stringify({ id: 'b_fail', version: '1.0.0' }),
         'apps/b_slow/package.json': JSON.stringify({ name: 'b_slow', version: '1.0.0' }),
         'apps/b_escape/app.json': JSON.stringify({ id: 'b_escape', version: '1.0.0' }),
+        'apps/b_detach/app.json': JSON.stringify({ id: 'b_detach', version: '1.0.0' }),
         'tools/build.js': buildJs
     });
     ghRepo('third/branchy');
@@ -1665,6 +1679,10 @@ function testSources(certs) {
                 comp('b_escape').error);
             ok('build: build folders are removed afterwards', fs.readdirSync(state).filter((n) => /^build-/.test(n)).length === 0,
                 fs.readdirSync(state).join(' '));
+            return ask(sock, { op: 'install', id: 'b_detach' }).then(() => installed('b_detach'));
+        })
+        .then(() => {
+            ok('build: a process the script leaves running outside its group is killed', sh('pgrep -u 12992 || true').trim() === '');
             // tags, and a repo without releases, added through the socket
             return Promise.all([priv({ op: 'source-add', type: 'github', repo: 'third/tagged', channel: 'tags' }),
                 priv({ op: 'source-add', type: 'github', repo: 'third/plain' }),
@@ -1877,6 +1895,23 @@ function testMigration() {
     fs.writeFileSync(path.join(D, 'updater.local.conf'), 'first_check_s = 30\n');
     u = new Updater(conf({}));
     ok('migrate: without a catalog line the old default (mgu-apps) is the second source', u.stored.map((x) => x.id).join() === 'mgu-store,mgu-apps');
+    // a sources.json this version cannot read (a newer one's) is not overwritten
+    const newer = JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: 'robertnisipeanu/mgu-store', builtin: true },
+        { id: 'future', type: 'ipfs', cid: 'x' }] });
+    fs.writeFileSync(path.join(D, 'sources.json'), newer);
+    u = new Updater(conf({}));
+    let refused = null;
+    try {
+        refused = u.handle({ op: 'source-add', type: 'github', repo: 'a/b', secret: u.secret });
+    } catch (e) {
+        refused = e.message;
+    }
+    ok('sources: a sources.json that cannot be read is left as it is', /cannot be read/.test(refused || '') &&
+        fs.readFileSync(path.join(D, 'sources.json'), 'utf8') === newer && u.stored.length === 1, refused);
+    // one operation per id at a time
+    u.queue.push({ op: 'install', id: 'foo' });
+    ok('queue: a removal of an id with an install queued is refused, not dropped', /an install is queued/.test(u.enqueue({ op: 'uninstall', id: 'foo' }) || '') &&
+        u.enqueue({ op: 'install', id: 'foo' }) === null && u.queue.length === 1);
     return Promise.resolve();
 }
 

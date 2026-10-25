@@ -122,14 +122,20 @@ in its own folder. It must leave exactly `<id>@<version>.tgz` in
 `MGU_OUT`, which goes to the deploy tool like a release package (an
 `oap-sdk` module generated for it there when it requires one). It is
 stopped past `build_timeout_s` (600) or once its folder holds more than
-`build_max_bytes` (200 MB); its output goes to the log as `build <id>:`
-lines; the folder is emptied as the build uid afterwards.
+`build_max_bytes` (200 MB); every process of the build uid is killed
+before a build and after it, so nothing a script leaves running reaches
+the next one; its output goes to the log as `build <id>:` lines; the
+folder is emptied as the build uid afterwards. An install asked for while
+a removal of the same component waits (or the other way round) is
+refused.
 
 **Ids.** Component ids are global on the unit. An id two sources list is
 shown once, from the source that installed it (`state/origins.json`), else
 from the first source in order (USB media last). `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
-same source if it has one at least that version, else from any;
+same source if it has one at least that version, else from any (a
+newer updater installs alone: it restarts into its new version, which ends
+the queue, and the component is asked for again after);
 `optional` components are listed but never counted as updates unless
 installed; `uninstallable` ones can be removed (Store, phone page), through
 `mgu-deploy.sh uninstall <id> --yes`, unless something installed requires
@@ -155,8 +161,9 @@ the account from `/user`. An expiring token is renewed from its refresh
 token before the source is read. The App: *Enable Device Flow* on,
 repository permission *Contents: Read-only* (Metadata comes with it),
 installed on the repos the car reads; its client id goes in
-`github_client_id`. Requests to `github.com` carry the client id and the
-device code only.
+`github_client_id`. Requests to `github.com` carry the client id with the
+device code, or with the refresh token on a renewal; never an access
+token.
 
 **USB media.** udisks mounts a stick at `/media/<label>` and nothing
 announces it, so every `usb_poll_s` (5 s) and on each check the updater

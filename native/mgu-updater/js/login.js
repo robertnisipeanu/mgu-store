@@ -5,7 +5,8 @@
  * and the address; the owner enters the code on a phone; the token the flow
  * ends with becomes the source's credential. Every request goes through the
  * updater's fetcher (fetch.js as the fetch uid). github.com gets the client
- * id and the device code only; the token goes to the API host (/user).
+ * id with the device code, or with the refresh token when an expired token
+ * is renewed; the access token goes to the API host only (/user).
  * Node 8.
  */
 const { URL } = require('url');

@@ -419,8 +419,9 @@ function missing(err) {
 
 /* Every reader has: network (it needs the internet); catalog() -> { mode,
  * channel, commit, components, skipped }; artifact(entry, onProgress) -> a
- * catalog or releases entry's bytes; files(commit, onProgress) -> the repo's
- * files ({ name, data, mode }) for a repo-tree entry. */
+ * catalog or releases entry's bytes; files(commit, onProgress, under) -> the
+ * repo's files ({ name relative to the repo root, data, mode }) for a
+ * repo-tree entry, those under the folder `under` when it is given. */
 
 /* A folder source: catalog.json or mgu-repo.json at root. */
 function folderReader(root, ctx) {
@@ -448,7 +449,8 @@ function folderReader(root, ctx) {
             }
             return Promise.resolve().then(() => readInside(root, url.replace(/^\.\//, ''), entry.artifact.size));
         },
-        files: () => Promise.resolve().then(() => walkInside(root, '', ctx.maxBuildBytes))
+        files: (commit, onProgress, under) => Promise.resolve().then(() => walkInside(root, under || '', ctx.maxBuildBytes)
+            .map((f) => (under ? Object.assign(f, { name: `${under}/${f.name}` }) : f)))
     };
 }
 
@@ -494,6 +496,8 @@ function githubReader(s, ctx) {
     const json = (url, name) => ctx.net.get(url, headers(url, 'application/vnd.github+json'), name, 4 << 20)
         .then((b) => parseJson(b, url));
     const raw = (url, name, max, onProgress) => ctx.net.get(url, headers(url, 'application/octet-stream'), name, max, onProgress);
+    // a file's own bytes from the contents API (else it answers with JSON around them)
+    const content = (url, name, max) => ctx.net.get(url, headers(url, 'application/vnd.github.raw+json'), name, max);
     const encode = (rel) => rel.split('/').map(encodeURIComponent).join('/');
 
     const fromCatalog = (release) => {
@@ -550,7 +554,7 @@ function githubReader(s, ctx) {
         if (!/^[0-9a-f]{40}$/.test(sha || '')) {
             throw new Error('no commit to read');
         }
-        const readFile = (rel) => raw(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, path.posix.basename(rel), SMALL)
+        const readFile = (rel) => content(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, path.posix.basename(rel), SMALL)
             .catch((e) => {
                 throw Object.assign(e, { missing: e.status === 404 });
             });
@@ -599,11 +603,11 @@ function githubReader(s, ctx) {
                 releasesList(1).then((r) => (r.length ? 'releases' : `branch:${repo.default_branch || 'main'}`))))
             .then((channel) => onChannel(channel).then((c) => Object.assign(c, { channel }))),
         artifact: (entry, onProgress) => raw(entry.artifact.url, entry.artifact.name, entry.artifact.size, onProgress),
-        files: (commit, onProgress) => raw(`${repoUrl}/tarball/${commit}`, `${s.repo.replace('/', '-')}.tgz`, ctx.maxRepoBytes, onProgress)
+        files: (commit, onProgress, under) => raw(`${repoUrl}/tarball/${commit}`, `${s.repo.replace('/', '-')}.tgz`, ctx.maxRepoBytes, onProgress)
             .then((buf) => tar.untgz(buf, ctx.maxBuildBytes))
             // the tarball's one top folder (<owner>-<repo>-<sha>/) is left off
             .then((members) => members.map((m) => ({ name: m.name.slice(m.name.indexOf('/') + 1), data: m.data, mode: m.mode }))
-                .filter((m) => m.name && !m.name.split('/').some(SKIP)))
+                .filter((m) => m.name && !m.name.split('/').some(SKIP) && (!under || m.name.indexOf(`${under}/`) === 0)))
     };
 }
 

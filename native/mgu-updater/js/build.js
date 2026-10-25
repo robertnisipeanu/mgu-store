@@ -11,8 +11,11 @@
  *   MGU_OUT        an empty folder, where it leaves <id>@<version>.tgz
  * HOME and TMPDIR point into its folder too. It is stopped past
  * build_timeout_s, or once its folder holds more than build_max_bytes.
- * Root reads the result only as a regular file inside MGU_OUT, bounded, and
- * removes the folder's contents as the build uid.
+ * Every process of the build uid is killed before a build starts (and
+ * before root hands it the repo copy) and after it ends, so nothing a
+ * script left running, in its process group or not, reaches the next
+ * build. Root reads the result only as a regular file inside MGU_OUT,
+ * bounded, and removes the folder's contents as the build uid.
  */
 const fs = require('fs');
 const path = require('path');
@@ -37,6 +40,20 @@ function usage(dir) {
     }
 }
 
+/* Kills every process of the build uid (kill(-1) as that uid, which spares
+ * only the caller). Not as root (tests): there is no build uid then. */
+function killAll(uid, gid) {
+    if (process.getuid() !== 0) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        const k = cp.spawn(process.execPath, ['-e', 'try { process.kill(-1, "SIGKILL"); } catch (e) { /* none */ }'],
+            { uid, gid, stdio: 'ignore', env: {} });
+        k.on('error', () => resolve());
+        k.on('close', () => resolve());
+    });
+}
+
 /* opts: { conf, entry, files: [{ name, data, mode }] (the repo, relative to
  * its root), donor, log }. Resolves with the package's bytes. */
 function runBuild(opts) {
@@ -51,7 +68,7 @@ function runBuild(opts) {
     const out = path.join(dir, 'out');
     const tmp = path.join(dir, 'tmp');
     const name = `${entry.id}@${entry.version}.tgz`;
-    const retire = () => new Promise((resolve) => {
+    const retire = () => killAll(uid, gid).then(() => new Promise((resolve) => {
         const rm = cp.spawn('rm', ['-rf', repo, out, tmp], Object.assign({ stdio: 'ignore' }, asRoot ? { uid, gid } : {}));
         rm.on('error', () => resolve());
         rm.on('close', () => {
@@ -62,8 +79,8 @@ function runBuild(opts) {
             });
             resolve();
         });
-    });
-    return Promise.resolve()
+    }));
+    return killAll(uid, gid)
         .then(() => {
             const script = entry.script.node;
             if (!files.some((f) => f.name === script)) {
@@ -109,6 +126,7 @@ function runBuild(opts) {
                         try {
                             process.kill(-child.pid, 'SIGKILL');
                         } catch (e) { /* gone */ }
+                        killAll(uid, gid);
                     }
                 };
                 const timer = setTimeout(() => stop(`took longer than ${conf.build_timeout_s} s`), timeoutMs);
@@ -122,20 +140,23 @@ function runBuild(opts) {
                     clearInterval(watch);
                     reject(err);
                 });
-                child.on('close', (code, signal) => {
+                // exit, not close: a process the script started may hold its output open
+                child.on('exit', (code, signal) => {
                     clearTimeout(timer);
                     clearInterval(watch);
-                    // whatever the script left running in its group
+                    // whatever the script left running, before root reads MGU_OUT
                     try {
                         process.kill(-child.pid, 'SIGKILL');
                     } catch (e) { /* gone */ }
-                    if (stopped) {
-                        reject(new Error(`the build ${stopped}`));
-                    } else if (code !== 0) {
-                        reject(new Error(`the build failed (${signal || `exit ${code}`})`));
-                    } else {
-                        resolve();
-                    }
+                    killAll(uid, gid).then(() => {
+                        if (stopped) {
+                            reject(new Error(`the build ${stopped}`));
+                        } else if (code !== 0) {
+                            reject(new Error(`the build failed (${signal || `exit ${code}`})`));
+                        } else {
+                            resolve();
+                        }
+                    });
                 });
             });
         })

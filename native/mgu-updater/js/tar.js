@@ -8,7 +8,9 @@
  *       unpacks to more than maxBytes or names a path with `..` or `/` first
  *   tgz(entries, mtime) -> Buffer
  *       entries ({ name, data, mode }) as a gzipped ustar archive in the given
- *       order, owner 0:0, one mtime (tools/oap_pack.js writes the same)
+ *       order, owner 0:0, one mtime (tools/oap_pack.js writes the same);
+ *       throws for a name ustar cannot hold (over 100 bytes after the last
+ *       '/' that leaves at most 155 before it)
  */
 const zlib = require('zlib');
 
@@ -132,7 +134,17 @@ function header(name, size, mode, mtime) {
     let prefix = '';
     let base = name;
     if (Buffer.byteLength(name) > 100) {
-        const cut = name.lastIndexOf('/', 155);
+        // the split at a '/' with at most 155 bytes before it and 100 after
+        let cut = -1;
+        for (let i = name.indexOf('/'); i >= 0; i = name.indexOf('/', i + 1)) {
+            if (Buffer.byteLength(name.slice(0, i)) <= 155 && Buffer.byteLength(name.slice(i + 1)) <= 100) {
+                cut = i;
+                break;
+            }
+        }
+        if (cut < 0) {
+            throw new Error(`${name}: too long a path to pack`);
+        }
         prefix = name.slice(0, cut);
         base = name.slice(cut + 1);
     }

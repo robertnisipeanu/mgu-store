@@ -869,12 +869,16 @@ class Updater {
         return steps;
     }
 
+    /* Queues item unless the same is queued or running; returns why it
+     * cannot be queued (the other operation on that id is), or null. */
     enqueue(item) {
-        if ((this.busy && this.busy.id === item.id) || this.queue.some((q) => q.id === item.id)) {
-            return;
+        const same = this.queue.find((q) => q.id === item.id) || (this.busy && this.busy.id === item.id ? { op: this.busy.op || 'install' } : null);
+        if (same) {
+            return same.op === item.op ? null : `${item.id}: ${same.op === 'uninstall' ? 'a removal' : 'an install'} is queued or running`;
         }
         delete this.errors[item.id];
         this.queue.push(item);
+        return null;
     }
 
     /* Queues an install of id, after the requirements it lacks. */
@@ -894,8 +898,18 @@ class Updater {
             this.changed();
             return null;
         }
-        steps.forEach((s) => this.enqueue({ op: 'install', id: s.id, source: s.source }));
+        // the updater installs last and restarts into its new version, which
+        // ends the queue: what needs it waits for that, asked for again
+        const self = steps.find((s) => s.id === SELF);
+        if (self && id !== SELF) {
+            steps = [self];
+            this.errors[id] = `needs a newer ${SELF}: it installs first, then ${id} can be installed`;
+        }
+        const refused = steps.map((s) => this.enqueue({ op: 'install', id: s.id, source: s.source })).filter(Boolean)[0];
         this.changed();
+        if (refused) {
+            return refused;
+        }
         if (!this.busy) {
             this.next();
         }
@@ -923,7 +937,10 @@ class Updater {
         if (needs) {
             return `${needs.entry.title} needs ${id}`;
         }
-        this.enqueue({ op: 'uninstall', id });
+        const refused = this.enqueue({ op: 'uninstall', id });
+        if (refused) {
+            return refused;
+        }
         this.changed();
         if (!this.busy) {
             this.next();
@@ -1029,7 +1046,8 @@ class Updater {
         if (!entry.path) {
             return rt.reader.artifact(entry, progress);
         }
-        return rt.reader.files(entry.commit, progress).then((files) => {
+        // a build script needs the whole repo; packing, the component's folder
+        return rt.reader.files(entry.commit, progress, entry.script ? null : entry.path).then((files) => {
             if (!entry.script) {
                 return sourcesLib.packComponent(entry, sourcesLib.subtree(files, entry.path));
             }
@@ -1049,7 +1067,7 @@ class Updater {
             this.errors[id] = 'no longer in its source';
             return Promise.resolve(false);
         }
-        this.busy = { id, phase: 'download', progress: 0, total: entry.artifact.size || null };
+        this.busy = { id, op: 'install', phase: 'download', progress: 0, total: entry.artifact.size || null };
         this.changed();
         console.log(`${id}@${entry.version}: download from ${item.source}${entry.revision ? ` at ${entry.revision}` : ''}` +
             `${entry.artifact.size ? ` (${entry.artifact.size} bytes)` : ''}`);
@@ -1134,7 +1152,7 @@ class Updater {
     /* Removes a component through the deploy tool's uninstall. */
     uninstall(item) {
         const id = item.id;
-        this.busy = { id, phase: 'uninstall' };
+        this.busy = { id, op: 'uninstall', phase: 'uninstall' };
         this.changed();
         console.log(`${id}: uninstall`);
         return this.deployTool(['uninstall', id, '--yes'])
@@ -1335,19 +1353,23 @@ class Updater {
      * file), for the QR code; otherwise there is none. force: write it
      * again even when the address is the same (the Store's uid changed). */
     syncWebUrl(force) {
-        const url = web && this.webEnabled ? web.accessUrls().find((u) => !/^https?:\/\/(127\.|localhost)/.test(u)) || null : null;
-        if (url === this.webUrl && !force) {
-            return Promise.resolve();
-        }
-        this.webUrl = url;
-        const store = this.storeData();
-        if (!store) {
-            return Promise.resolve();
-        }
-        // the Store reads the file when a state arrives: one goes out once it is written
-        return writeAs(path.join(store.data, 'web-url'), url ? `${url}\n` : '', store.uid, store.gid)
-            .catch((e) => console.log(`web-url: ${e.message}`))
-            .then(() => this.changed());
+        // one write at a time, each with the address as it is when it runs
+        this.webUrlQueue = (this.webUrlQueue || Promise.resolve()).then(() => {
+            const url = web && this.webEnabled ? web.accessUrls().find((u) => !/^https?:\/\/(127\.|localhost)/.test(u)) || null : null;
+            if (url === this.webUrl && !force) {
+                return undefined;
+            }
+            this.webUrl = url;
+            const store = this.storeData();
+            if (!store) {
+                return undefined;
+            }
+            // the Store reads the file when a state arrives: one goes out once it is written
+            return writeAs(path.join(store.data, 'web-url'), url ? `${url}\n` : '', store.uid, store.gid)
+                .catch((e) => console.log(`web-url: ${e.message}`))
+                .then(() => this.changed());
+        });
+        return this.webUrlQueue;
     }
 
     /* The phone page on or off (web.js); its changes re-send the state. */
@@ -1364,10 +1386,14 @@ class Updater {
         return a.length === b.length && crypto.timingSafeEqual(a, b);
     }
 
+    /* Writes the stored sources; refused while sources.json could not be
+     * read, so the sources in it are not lost (a newer version's file). */
     saveSources(list) {
+        if (this.sourcesError) {
+            throw new Error(`sources.json cannot be read (${this.sourcesError}); it is left as it is`);
+        }
         sourcesLib.save(this.conf.sources, list);
         this.stored = list;
-        this.sourcesError = null;
     }
 
     sourceAdd(req) {
