@@ -1339,7 +1339,10 @@ function testSources(certs) {
         mkdirp(path.join(src, 'source'));
         fs.writeFileSync(path.join(src, 'meta.json'), JSON.stringify({ id, version, title: id, kit: 1 }));
         fs.writeFileSync(path.join(src, 'source', 'package.json'), JSON.stringify({ name: id, version }));
-        sh(`tar -czf ${path.join(relDir, `${id}@${version}.mgu`)} -C ${src} meta.json source`);
+        mkdirp(path.join(src, 'rhmiData', 'variantGroups', 'Common', 'texts'));
+        fs.writeFileSync(path.join(src, 'rhmiData', 'application.json'), JSON.stringify({ application: { name: id, entryPoints: [{ textId: 'SID_T' }] } }));
+        fs.writeFileSync(path.join(src, 'rhmiData', 'variantGroups', 'Common', 'texts', 'en_GB.json'), JSON.stringify({ SID_T: `${id} entry` }));
+        sh(`tar -czf ${path.join(relDir, `${id}@${version}.mgu`)} -C ${src} meta.json source rhmiData`);
         return path.join(relDir, `${id}@${version}.mgu`);
     };
     ghRepo('third/rel', { releases: [
@@ -1606,6 +1609,8 @@ function testSources(certs) {
         .then(() => installed('mgu_only'))
         .then(() => {
             ok('releases: an .mgu goes to the deploy tool as it is', /mgu_only@0\.1\.0\.mgu --yes/.test(deployed()[1]));
+            ok('releases: an installed app without a listed title shows its entry point\'s en_GB text', comp('mgu_only').title === 'mgu_only entry',
+                comp('mgu_only').title);
             fs.writeFileSync(deployLog, '');
             return ask(sock, { op: 'install', id: 'p_app' });
         })

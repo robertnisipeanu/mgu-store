@@ -249,11 +249,12 @@ function readAppJson(file) {
 }
 
 /* The en_GB text of an installed app's first entry point, or null. */
-function appTitle(source) {
+function appTitle(home) {
     try {
-        const app = readAppJson(path.join(source, 'rhmiData', 'application.json')).application;
+        // MainApp keeps an installed app's RHMI in its home, the texts as strings/<language>.json
+        const app = readAppJson(path.join(home, 'rhmiData', 'application.json')).application;
         const textId = app.entryPoints && app.entryPoints[0] && app.entryPoints[0].textId;
-        const text = textId && readAppJson(path.join(source, 'rhmiData', 'variantGroups', 'Common', 'texts', 'en_GB.json'))[textId];
+        const text = textId && readAppJson(path.join(home, 'rhmiData', 'strings', 'en_GB.json'))[textId];
         return typeof text === 'string' && text ? text : null;
     } catch (e) {
         return null;
@@ -267,12 +268,12 @@ function installedApp(conf, id, wantTitle) {
     const oap = conf.oap_root;
     try {
         const entry = readJson(path.join(oap, `oap_${conf.mainapp_uid}`, 'data', 'apps', `${id}.json`));
-        const source = path.join(oap, `oap_${entry.userId}`, 'source');
-        const pkg = readAppJson(path.join(source, 'package.json'));
+        const home = path.join(oap, `oap_${entry.userId}`);
+        const pkg = readAppJson(path.join(home, 'source', 'package.json'));
         if (pkg.name !== id) {
             return null;
         }
-        const title = wantTitle ? appTitle(source) : null;
+        const title = wantTitle ? appTitle(home) : null;
         return Object.assign({ id, kind: 'app', version: pkg.version }, title ? { title } : {});
     } catch (e) {
         return null;
