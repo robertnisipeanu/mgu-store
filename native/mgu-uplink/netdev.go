@@ -1,24 +1,21 @@
 package main
 
-// usbUplink is a USB network adapter the unit's kernel drives: it appears as
-// an Ethernet interface under its driver's name (eth1, ...). Open renames it
-// to Ifname, so the rules, firewall and files apps read name the same
-// interface on every unit and in the emulator, and Close gives the name back.
+// Kernel-driven USB network adapters: an adapter the kernel has a driver
+// for appears as an Ethernet interface under its driver's name (eth1, ...).
+// The uplink renames it to Ifname, so the rules, firewall and files apps
+// read name the same interface on every unit and in the emulator, and
+// gives the name back when it lets go.
 //
 // The unit's kernel has the asix, ax88179_178a and smsc95xx USB Ethernet
-// drivers only. An adapter needing cdc_ether, cdc_ncm or rndis_host (most LTE
-// sticks in their default mode) gets no interface there; it is found on
-// kernels that have those drivers.
+// drivers only. An adapter needing cdc_ether, cdc_ncm or rndis_host (LTE
+// sticks, Android phones) gets no interface there; the usbfs uplinks drive
+// those (cdc.go).
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/vishvananda/netlink"
 )
 
 // usbNetDrivers are the USB Ethernet drivers an adapter is taken from when
@@ -29,38 +26,6 @@ var usbNetDrivers = map[string]bool{
 }
 
 const sysClassNet = "/sys/class/net"
-
-type usbUplink struct {
-	device string // VID:PID, or "" for any adapter on a usbNetDrivers driver
-	record string
-}
-
-func (u *usbUplink) String() string {
-	if u.device != "" {
-		return "usb:" + u.device
-	}
-	return "usb"
-}
-
-func (u *usbUplink) Open(ctx context.Context) (Link, error) {
-	waiting := false
-	for {
-		if names := usbNetdevs(sysClassNet, u.device); len(names) > 0 {
-			if link, err := netlink.LinkByName(names[0]); err == nil {
-				return openLink(link, Ifname, u.record)
-			}
-		}
-		if !waiting {
-			logf("waiting for a USB network adapter (%s)", u)
-			waiting = true
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-}
 
 // usbNetdevs lists the Ethernet interfaces under sys (/sys/class/net) that
 // belong to a USB adapter: the one with VID:PID device, or with device "" any
@@ -106,4 +71,16 @@ func usbNetdevs(sys, device string) []string {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// netdevDevice names the USB device behind interface ifname for status.json.
+func netdevDevice(sys, ifname string) statusDevice {
+	intf, _ := filepath.EvalSymlinks(filepath.Join(sys, ifname, "device"))
+	dev := filepath.Dir(intf)
+	name := strings.TrimSpace(sysValue(readSysctl(filepath.Join(dev, "manufacturer"))) + " " +
+		sysValue(readSysctl(filepath.Join(dev, "product"))))
+	if name == "" {
+		name = ifname
+	}
+	return statusDevice{Kind: "usb", Name: name}
 }

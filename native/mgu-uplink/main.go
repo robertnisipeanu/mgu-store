@@ -1,15 +1,16 @@
-// mgu-uplink: internet for chosen apps through a USB network adapter, and for
-// nothing else on the unit.
+// mgu-uplink: internet for chosen apps through a USB network adapter, an LTE
+// stick or a USB-tethered phone, and for nothing else on the unit.
 //
 // The service brings up the adapter's interface, gets an address from the
 // adapter by DHCP and routes only the configured uids through it, in a routing
 // table and firewall table of its own; the unit's own routes, default route
 // and resolver stay as they are. A stop removes everything it added. See
 // uplink.go for the uplink seam, netcfg.go for the routing, firewall.go for
-// the firewall and state.go for the files apps read.
+// the firewall, state.go for the files apps read and devstatus.go for
+// status.json.
 //
-//	mgu-uplink run [-c <config>] [-uplink usb|usbecm|netdev:<ifname>]   the service
-//	mgu-uplink status [-c <config>]  lease, rules, uplink table, firewall, routes per uid
+//	mgu-uplink run [-c <config>] [-uplink auto|usb|usbecm|rndis|ncm|iphone|netdev:<ifname>]   the service
+//	mgu-uplink status [-c <config>]  device state, lease, rules, uplink table, firewall, routes per uid
 //	mgu-uplink clean [-c <config>]   remove what a killed run left behind
 //	mgu-uplink --version
 //	mgu-uplink bound|renew|deconfig|leasefail|nak   udhcpc's hook, run by the service
@@ -29,7 +30,7 @@ func logf(format string, a ...interface{}) {
 }
 
 const usage = `usage:
-  mgu-uplink run [-c <config>] [-uplink usb|usbecm|netdev:<ifname>]
+  mgu-uplink run [-c <config>] [-uplink auto|usb|usbecm|rndis|ncm|iphone|netdev:<ifname>]
   mgu-uplink status [-c <config>]
   mgu-uplink clean [-c <config>]
   mgu-uplink --version`
@@ -59,7 +60,7 @@ func command(name string, args []string) int {
 	path := fs.String("c", defaultConfig, "config file")
 	spec := ""
 	if name == "run" {
-		fs.StringVar(&spec, "uplink", "", "usb, usbecm or netdev:<ifname>, in place of the config's uplink")
+		fs.StringVar(&spec, "uplink", "", uplinkChoices+", in place of the config's uplink")
 	}
 	if err := fs.Parse(args); err != nil {
 		return 2

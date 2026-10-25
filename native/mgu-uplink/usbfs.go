@@ -22,6 +22,7 @@ const (
 	usbdevfsControl          = 0xc0185500 // USBDEVFS_CONTROL, _IOWR('U', 0, struct ctrltransfer)
 	usbdevfsBulk             = 0xc0185502 // USBDEVFS_BULK, _IOWR('U', 2, struct bulktransfer)
 	usbdevfsClearHalt        = 0x80045515 // USBDEVFS_CLEAR_HALT, _IOR('U', 21, unsigned int)
+	usbdevfsSetConfiguration = 0x80045505 // USBDEVFS_SETCONFIGURATION, _IOR('U', 5, unsigned int)
 )
 
 type usbfsCtrlTransfer struct {
@@ -78,7 +79,7 @@ func (d *usbDevice) ioctlUint(req uintptr, val uint32) error {
 
 func (d *usbDevice) claimInterface(iface int) error {
 	if err := d.ioctlUint(usbdevfsClaimInterface, uint32(iface)); err != nil {
-		return fmt.Errorf("claim interface %d on %s: %v", iface, d.path, err)
+		return fmt.Errorf("claim interface %d on %s: %w", iface, d.path, err)
 	}
 	return nil
 }
@@ -91,6 +92,15 @@ func (d *usbDevice) setInterface(iface, alt int) error {
 	si := usbfsSetInterface{interfac: uint32(iface), altsetting: uint32(alt)}
 	if _, err := d.ioctl(usbdevfsSetInterface, unsafe.Pointer(&si)); err != nil {
 		return fmt.Errorf("set interface %d alt %d on %s: %v", iface, alt, d.path, err)
+	}
+	return nil
+}
+
+// setConfiguration selects configuration value. The kernel refuses (EBUSY)
+// while a driver or another process holds an interface of the current one.
+func (d *usbDevice) setConfiguration(value int) error {
+	if err := d.ioctlUint(usbdevfsSetConfiguration, uint32(value)); err != nil {
+		return fmt.Errorf("set configuration %d on %s: %w", value, d.path, err)
 	}
 	return nil
 }
@@ -144,4 +154,39 @@ func isUSBGone(err error) bool {
 		return true
 	}
 	return false
+}
+
+// usbPipe is a pair of bulk endpoints of one open device.
+type usbPipe struct {
+	dev       *usbDevice
+	in, out   byte
+	outPacket int // bulk OUT wMaxPacketSize
+}
+
+// write sends b as one transfer, clearing a stall once. With zlp, a
+// transfer that is a whole number of packets is ended by a zero-length
+// packet, which usbfs does not add by itself.
+func (p usbPipe) write(b []byte, zlp bool) error {
+	for attempt := 0; ; attempt++ {
+		_, err := p.dev.bulk(p.out, b, 5000)
+		if err == nil {
+			break
+		}
+		if err == syscall.EPIPE && attempt == 0 {
+			p.dev.clearHalt(p.out)
+			continue
+		}
+		return err
+	}
+	if zlp && p.outPacket > 0 && len(b)%p.outPacket == 0 {
+		if _, err := p.dev.bulk(p.out, nil, 1000); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// read runs one IN transfer into buf.
+func (p usbPipe) read(buf []byte, timeoutMS uint32) (int, error) {
+	return p.dev.bulk(p.in, buf, timeoutMS)
 }

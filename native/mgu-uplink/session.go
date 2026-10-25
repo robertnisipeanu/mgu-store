@@ -28,10 +28,12 @@ type service struct {
 	uids    []int
 	byApp   map[string]int
 	missing []string
-	link    Link
-	lease   *Lease
-	dhcp    *dhcpClient
-	lastErr string
+	// badDropIns are the drop-in entries last logged as ignored.
+	badDropIns string
+	link       Link
+	lease      *Lease
+	dhcp       *dhcpClient
+	lastErr    string
 }
 
 type openResult struct {
@@ -75,10 +77,13 @@ func runService(c config, up Uplink) error {
 		return fmt.Errorf("hook socket: %v", err)
 	}
 	s := &service{cfg: c, up: up, self: self}
+	statusInit(c.statusFile())
+	setStatus(nil, stateSearching, "")
 	// shutdown before closing the socket: udhcpc reports its release on it.
 	defer func() {
 		s.shutdown()
 		conn.Close()
+		statusClear(c.statusFile())
 	}()
 	logf("mgu-uplink %s: uplink %s, apps %v, uids %v, table %d, rules %d-%d",
 		version, up, c.Apps, c.UIDs, c.Table, c.Pref, c.Pref+rulePrefs-1)
@@ -115,12 +120,14 @@ func runService(c config, up Uplink) error {
 			opening = false
 			if r.err != nil {
 				logf("open %s: %v", up, r.err)
+				setStatus(nil, stateError, r.err.Error())
 				reopen = time.After(3 * time.Second)
 				continue
 			}
 			s.link = r.link
 			linkDone = r.link.Done()
 			logf("uplink up: %s", r.link)
+			s.publishStatus()
 			dhcpDone = s.startDHCP()
 			if dhcpDone == nil {
 				restartDHCP = time.After(5 * time.Second)
@@ -131,6 +138,8 @@ func runService(c config, up Uplink) error {
 		case <-linkDone:
 			logf("uplink down: %s: %v", s.link, s.link.Err())
 			s.detach()
+			setLinkNote("")
+			setStatus(nil, stateSearching, "")
 			linkDone, dhcpDone, restartDHCP = nil, nil, nil
 			reopen = time.After(2 * time.Second)
 		case <-dhcpDone:
@@ -242,6 +251,13 @@ func (s *service) reconcile(force bool) {
 	if uidsChanged {
 		logf("allowed uids %v (apps %v; not installed: %v)", uids, byApp, missing)
 	}
+	if _, _, bad := dropIns(c); strings.Join(bad, ", ") != s.badDropIns {
+		s.badDropIns = strings.Join(bad, ", ")
+		if s.badDropIns != "" {
+			logf("ignored drop-in entries: %s", s.badDropIns)
+		}
+	}
+	s.publishStatus()
 	s.uids, s.byApp, s.missing = uids, byApp, missing
 
 	var errs []string
@@ -290,6 +306,24 @@ func (s *service) guarded() string {
 	return Ifname
 }
 
+// publishStatus writes status.json for an open link: online with a lease,
+// connecting without. While no link is open the uplink's Open reports.
+func (s *service) publishStatus() {
+	if s.link == nil {
+		return
+	}
+	var dev *statusDevice
+	if d, ok := s.link.(deviceLink); ok {
+		dd := d.device()
+		dev = &dd
+	}
+	if s.lease != nil {
+		setStatus(dev, stateOnline, "")
+	} else {
+		setStatus(dev, stateConnecting, "")
+	}
+}
+
 func hasAddress(link netlink.Link, ip string) bool {
 	addrs, _ := netlink.AddrList(link, netlink.FAMILY_V4)
 	for _, a := range addrs {
@@ -310,7 +344,8 @@ func cleanup(c config) {
 		clearAddress(l.Interface, l.IP, l.Prefix)
 	}
 	syncAppState(c, nil, nil)
-	deleteECMVethPair()
+	deleteVethPair()
 	restoreLinkState(c.linkFile())
+	os.Remove(c.statusFile())
 	os.Remove(c.hookSocket())
 }
