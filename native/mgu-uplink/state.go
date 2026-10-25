@@ -36,10 +36,14 @@ type Lease struct {
 	Updated   string   `json:"updated"`
 }
 
-// resolveUIDs maps the configured app names through the OAP manager's
-// uids.txt ("<uid>=<app>" per line; a reinstall can assign a new uid) and adds
-// the static uids. Names not installed yet are returned as missing.
+// resolveUIDs maps the configured and dropped-in app names through the OAP
+// manager's uids.txt ("<uid>=<app>" per line; a reinstall can assign a new
+// uid) and adds the static and dropped-in uids. Names not installed yet are
+// returned as missing.
 func resolveUIDs(c config) (uids []int, byApp map[string]int, missing []string) {
+	dUIDs, dApps, _ := dropIns(c)
+	c.Apps = union(c.Apps, dApps)
+	c.UIDs = union(c.UIDs, dUIDs)
 	byApp = map[string]int{}
 	b, _ := os.ReadFile(c.uidsFile())
 	for _, line := range strings.Split(string(b), "\n") {

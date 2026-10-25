@@ -1413,7 +1413,7 @@ class Updater {
                 return 'repo must be <owner>/<repo>';
             }
             if (req.channel !== undefined && req.channel !== null && !sourcesLib.CHANNEL.test(req.channel)) {
-                return 'channel must be releases, tags or branch:<name>';
+                return 'channel must be releases, tags, branch or branch:<name>';
             }
             if (this.stored.some((s) => s.type === 'github' && s.repo.toLowerCase() === req.repo.toLowerCase())) {
                 return `${req.repo} is already a source`;

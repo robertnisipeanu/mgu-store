@@ -1,5 +1,5 @@
 [Unit]
-Description=Internet for selected apps through a USB network adapter (mgu-uplink)
+Description=Internet for selected apps through a USB adapter, LTE stick or phone (mgu-uplink)
 RequiresMountsFor=/var/opt
 After=local-fs.target
 

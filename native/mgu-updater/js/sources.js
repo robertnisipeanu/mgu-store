@@ -32,7 +32,7 @@ const tar = require('./tar');
 const ID = catalogLib.ID;
 const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
 const PACKAGE = /^([a-z0-9][a-z0-9_-]{0,63})@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\.(tgz|mgu)$/;
-const CHANNEL = /^(releases|tags|branch:[A-Za-z0-9._][A-Za-z0-9._\/-]{0,199})$/;
+const CHANNEL = /^(releases|tags|branch|branch:[A-Za-z0-9._][A-Za-z0-9._\/-]{0,199})$/;
 const TOKEN = /^[\x21-\x7e]{1,1024}$/;
 const SMALL = 1 << 20; // a JSON file of a source: catalog part, mgu-repo.json, component.json
 // Packed components carry one fixed mtime: the same tree gives the same bytes.
@@ -83,7 +83,7 @@ function checkStored(s) {
         throw new Error(`source ${s.id}: repo must be <owner>/<repo>`);
     }
     if (s.channel !== undefined && !(s.type === 'github' && CHANNEL.test(s.channel))) {
-        throw new Error(`source ${s.id}: channel must be releases, tags or branch:<name>, for a github source`);
+        throw new Error(`source ${s.id}: channel must be releases, tags, branch or branch:<name>, for a github source`);
     }
     if (s.type === 'https' && !/^https:\/\/[^/\s]+\/\S*$/.test(s.url || '')) {
         throw new Error(`source ${s.id}: url must be https://`);
@@ -312,7 +312,7 @@ function repoCatalog(readFile, commit, revision) {
                 return list;
             }
             seen.add(rc.id);
-            const scripted = rc.kind === 'app' && rc.build !== undefined;
+            const scripted = rc.kind === 'app' && rc.build !== undefined && rc.build !== 'unit';
             const names = rc.kind === 'tool' ? ['component.json'] : scripted ? ['app.json', 'package.json'] : ['mgu-app.json'];
             return Promise.resolve()
                 .then(() => {
@@ -482,6 +482,7 @@ const SEMVER_TAG = /^(?:v|[a-z0-9][a-z0-9_-]{0,63}@)?((?:0|[1-9]\d*)\.(?:0|[1-9]
  *  releases       the `catalog` release's catalog.json, else the packages
  *                 attached to its releases (releases layout);
  *  branch:<name>  mgu-repo.json at the branch's head commit;
+ *  branch         the same, on the repo's default branch;
  *  tags           mgu-repo.json at the highest x.y.z tag (v1.2.3, 1.2.3, <id>@1.2.3).
  * No channel: releases when the repo has a release, else its default branch. */
 function githubReader(s, ctx) {
@@ -599,8 +600,11 @@ function githubReader(s, ctx) {
             .catch((err) => {
                 throw err.status === 401 || err.status === 404 ? authError(err.message) : err;
             })
-            .then((repo) => (s.channel ? Promise.resolve(s.channel) :
-                releasesList(1).then((r) => (r.length ? 'releases' : `branch:${repo.default_branch || 'main'}`))))
+            .then((repo) => {
+                const branch = `branch:${repo.default_branch || 'main'}`;
+                return s.channel ? (s.channel === 'branch' ? branch : s.channel) :
+                    releasesList(1).then((r) => (r.length ? 'releases' : branch));
+            })
             .then((channel) => onChannel(channel).then((c) => Object.assign(c, { channel }))),
         artifact: (entry, onProgress) => raw(entry.artifact.url, entry.artifact.name, entry.artifact.size, onProgress),
         files: (commit, onProgress, under) => raw(`${repoUrl}/tarball/${commit}`, `${s.repo.replace('/', '-')}.tgz`, ctx.maxRepoBytes, onProgress)

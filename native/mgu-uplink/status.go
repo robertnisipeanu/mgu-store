@@ -4,8 +4,10 @@ package main
 // neither policy rules nor per-uid routes, so this is how to check them there.
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"github.com/vishvananda/netlink"
@@ -16,6 +18,21 @@ import (
 var statusProbe = net.IPv4(1, 1, 1, 1)
 
 func status(c config) {
+	if b, err := os.ReadFile(c.statusFile()); err == nil {
+		var st uplinkStatus
+		if json.Unmarshal(b, &st) == nil {
+			line := "uplink: " + st.State
+			if st.Device != nil {
+				line += fmt.Sprintf(", %s %s", st.Device.Kind, st.Device.Name)
+			}
+			if st.Error != nil {
+				line += ": " + *st.Error
+			}
+			fmt.Println(line)
+		}
+	} else {
+		fmt.Println("uplink: service not running")
+	}
 	if l := readLease(c.leaseFile()); l != nil {
 		fmt.Printf("online: %s %s/%d via %s, dns %s, lease %ds from %s\n",
 			l.Interface, l.IP, l.Prefix, l.Router, strings.Join(l.DNS, " "), l.LeaseSec, l.Updated)
