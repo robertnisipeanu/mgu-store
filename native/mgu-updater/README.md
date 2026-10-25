@@ -73,7 +73,7 @@ them:
 | Layout | Where | Components |
 |---|---|---|
 | catalog | a `catalog` release's `catalog.json` asset (`release/README.md`), the https URL, `catalog.json` in a folder | schema 1 or 2 entries; artifact URLs absolute or relative to the catalog |
-| releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description"}}}`), else the installed app's en_GB entry-point text, else the id; always apps |
+| releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description"}}}`), else the installed app's en_GB entry-point text, else the id; always apps, each `uninstallable` |
 | repo tree | `mgu-repo.json` at a repo's or folder's root, at one commit | see below |
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog
@@ -180,9 +180,10 @@ any name, flat or with npm's `package/` prefix, is an app with the id and
 version of its own `package.json` and the title of its en_GB entry-point
 text, else its `productName`, else its name; the newest of an id wins, a
 package whose `package.json` has `mguService` (a root service, not an app)
-is left out, and its sha256 is taken as it is listed. It installs as
-`<id>@<version>.tgz` (or `.mgu`). Sticks are only read: no link is followed (a folder or file
-reached through one is not there), only regular files, every size bounded.
+is left out, and its sha256 is taken as it is listed. Each can be removed
+(`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`). Sticks
+are only read: no link is followed (a folder or file reached through one is
+not there), only regular files, every size bounded.
 
 **First start.** Without `sources.json` the updater writes one
 (`js/migrate.js`): the built-in source, and on a unit the mgu-apps updater
@@ -326,7 +327,7 @@ A page the car serves to a phone on its hotspot (`js/web.js`): the
 sources with their channel and status, the components with installed and
 catalog versions (and the short commit of a branch build), what is being
 installed, errors, and the logs. On it the owner adds a GitHub source
-(owner/repo with Releases, a branch or Tags) or a catalog URL, removes
+(owner/repo with Releases, a branch, the default branch when none is named, or Tags) or a catalog URL, removes
 one, pastes or clears a source's token, and starts a GitHub sign-in (the
 code and the link show on the page). Off by default; the Store turns it
 on and off (privileged `web` op) and shows its QR code.
@@ -479,8 +480,10 @@ right secret, `"error":"forbidden"`. The direct answer to a request
 writes them, as the reader's own 0400 file, to the Store's data folder
 (`<oap_root>/oap_<uid>/data/updater-secret`, the uid from MainApp's
 registry entry for `store_app`; written by a child running as that uid, so
-a link there leads nowhere it could not write itself; written again when
-the Store's uid changes) and to `web_secret` for the phone page (`web_uid`).
+a link there leads nowhere it could not write itself, with the Store's group
+and the apps' group of `oap_root`; written again within 15 s when the Store's
+uid changes or the file is gone, as after MainApp's crash recovery reinstalls
+the Store) and to `web_secret` for the phone page (`web_uid`).
 Every OAP app can reach the socket; only these two can change sources or
 credentials, sign in, remove components or read journals. While the
 phone page is on, `web-url` beside `updater-secret` holds its hotspot

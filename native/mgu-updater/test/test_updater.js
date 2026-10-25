@@ -213,6 +213,11 @@ function ghApi(req, res, auth) {
         send(f ? 200 : 404, !f ? { message: 'Not Found' } : rawWanted ? f[0] : { type: 'file', encoding: 'base64', content: f[0].toString('base64') });
     } else if (rest.indexOf('/tarball/') === 0) {
         const sha = rest.slice('/tarball/'.length);
+        // GitHub refuses a tarball request that accepts only application/octet-stream
+        if (/^application\/octet-stream$/.test(req.headers.accept || '')) {
+            send(415, { message: 'Unsupported \'Accept\' header' });
+            return;
+        }
         send(302, '', { Location: `https://codeload.github.com:${HTTPS_PORT}/${m[1]}/legacy.tar.gz/${sha}` });
     } else {
         send(404, { message: 'Not Found' });
@@ -1289,7 +1294,9 @@ function testSources(certs) {
     fs.writeFileSync(path.join(oap, 'oap_12201', 'data', 'apps', 'robertn_store.json'), JSON.stringify({ userId: 13050 }));
     const storeData = path.join(oap, 'oap_13050', 'data');
     mkdirp(storeData);
-    sh(`chown -R 13050:13050 ${path.join(oap, 'oap_13050')}`);
+    // the unit's modes: apps reach oap_root only through its group (mgu_persist), their home through their own
+    sh(`chown 0:903 ${oap} && chmod 0710 ${oap} && chown 12201:13050 ${path.join(oap, 'oap_13050')} ${storeData} && ` +
+        `chmod 0750 ${path.join(oap, 'oap_13050')} && chmod 0770 ${storeData}`);
     fs.writeFileSync(path.join(M, 'victim'), 'untouched');
     fs.symlinkSync(path.join(M, 'victim'), path.join(storeData, 'updater-secret'));
     sh(`chown -h 13050:13050 ${path.join(storeData, 'updater-secret')}`);
@@ -1337,7 +1344,10 @@ function testSources(certs) {
         mkdirp(path.join(src, 'source'));
         fs.writeFileSync(path.join(src, 'meta.json'), JSON.stringify({ id, version, title: id, kit: 1 }));
         fs.writeFileSync(path.join(src, 'source', 'package.json'), JSON.stringify({ name: id, version }));
-        sh(`tar -czf ${path.join(relDir, `${id}@${version}.mgu`)} -C ${src} meta.json source`);
+        mkdirp(path.join(src, 'rhmiData', 'variantGroups', 'Common', 'texts'));
+        fs.writeFileSync(path.join(src, 'rhmiData', 'application.json'), JSON.stringify({ application: { name: id, entryPoints: [{ textId: 'SID_T' }] } }));
+        fs.writeFileSync(path.join(src, 'rhmiData', 'variantGroups', 'Common', 'texts', 'en_GB.json'), JSON.stringify({ SID_T: `${id} entry` }));
+        sh(`tar -czf ${path.join(relDir, `${id}@${version}.mgu`)} -C ${src} meta.json source rhmiData`);
         return path.join(relDir, `${id}@${version}.mgu`);
     };
     ghRepo('third/rel', { releases: [
@@ -1454,6 +1464,14 @@ function testSources(certs) {
                 (wst.mode & 0o777) === 0o400 && fs.readFileSync(conf.web_secret, 'utf8') === u.secret);
             ok('secret: 32 random bytes per start', /^[0-9a-f]{64}$/.test(u.secret) && new Updater({ state_dir: state }).secret !== u.secret);
             secret = fs.readFileSync(file, 'utf8');
+            ok('secret: the Store\'s copy is seen as present', u.storeSecretGone() === false);
+            fs.unlinkSync(file);
+            ok('secret: ...and as gone once its data folder is emptied (MainApp\'s crash recovery)', u.storeSecretGone() === true);
+            return u.writeSecrets();
+        })
+        .then(() => {
+            const file = path.join(storeData, 'updater-secret');
+            ok('secret: written again, the same', fs.readFileSync(file, 'utf8') === secret && !u.storeSecretGone());
             return Promise.all([ask(sock, { op: 'source-add', type: 'github', repo: 'a/b' }),
                 ask(sock, { op: 'source-remove', id: 'second', secret: 'f'.repeat(64) }),
                 ask(sock, { op: 'token-set', source: 'private', token: 'x', secret: secret.slice(1) })]);
@@ -1478,6 +1496,7 @@ function testSources(certs) {
             ok('releases: the newest package of each id, drafts and prereleases left out, the .tgz over the .mgu',
                 comp('rel_app').version === '1.1.0' && comp('rel_app').title === 'Release App' && comp('mgu_only').version === '0.1.0' &&
                 comp('mgu_only').title === 'mgu_only' && src('rel').components === 2, JSON.stringify([comp('rel_app'), comp('mgu_only')]));
+            ok('releases: every app can be removed', comp('rel_app').uninstallable === true && comp('mgu_only').uninstallable === true);
             ok('repo: a branch lists its components, with their revision, leaving out what cannot be used and saying why',
                 comp('p_app').revision === c1.slice(0, 7) && comp('t_tool').version === '1.0.0' && comp('b_ok').title === 'Built here' &&
                 comp('b_slow').version === '1.0.0' && !comp('bad_tool').id && /bad_tool: .*no build step/.test(src('branchy').error || ''),
@@ -1604,6 +1623,8 @@ function testSources(certs) {
         .then(() => installed('mgu_only'))
         .then(() => {
             ok('releases: an .mgu goes to the deploy tool as it is', /mgu_only@0\.1\.0\.mgu --yes/.test(deployed()[1]));
+            ok('releases: an installed app without a listed title shows its entry point\'s en_GB text', comp('mgu_only').title === 'mgu_only entry',
+                comp('mgu_only').title);
             fs.writeFileSync(deployLog, '');
             return ask(sock, { op: 'install', id: 'p_app' });
         })
@@ -1766,6 +1787,7 @@ function testSources(certs) {
                         comp('oap-appmanager').version === '1.0.9' && comp('oap-appmanager').title === 'Apps' &&
                         comp('flat_app').title === 'Flat' && comp('loose_mgu').version === '0.2.0' && comp('oap-appmanager').source === 'usb:STICK/oap',
                         JSON.stringify(st().components.filter((c) => /usb:STICK\/oap/.test(c.source))));
+                    ok('usb oap/: every app can be removed', comp('flat_app').uninstallable === true && comp('loose_mgu').uninstallable === true);
                     ok('usb oap/: root-service packages, links and files that are not packages are left out',
                         !comp('mgu-renderd').id && comp('rel_app').source === 'rel' && src('usb:STICK/oap').components === 3 &&
                         /broken\.tgz/.test(src('usb:STICK/oap').error || '') && !/renderer|README|linked/.test(src('usb:STICK/oap').error || ''),

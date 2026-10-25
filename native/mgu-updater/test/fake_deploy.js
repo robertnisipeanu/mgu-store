@@ -149,5 +149,17 @@ if (fs.existsSync(path.join(tmp, 'component.json'))) {
     mkdirp(path.join(oap, `oap_${uid}`, 'source'));
     fs.writeFileSync(reg, JSON.stringify({ userId: uid }));
     fs.writeFileSync(path.join(oap, `oap_${uid}`, 'source', 'package.json'), JSON.stringify(pkg));
+    // MainApp's layout of the app's RHMI: rhmiData/ in its home, its texts as strings/<language>.json
+    const rhmi = ['rhmiData', 'package/rhmiData', 'source/rhmiData'].map((d) => path.join(tmp, d))
+        .find((d) => fs.existsSync(path.join(d, 'application.json')));
+    if (rhmi) {
+        const home = path.join(oap, `oap_${uid}`, 'rhmiData');
+        mkdirp(path.join(home, 'strings'));
+        fs.copyFileSync(path.join(rhmi, 'application.json'), path.join(home, 'application.json'));
+        const texts = path.join(rhmi, 'variantGroups', 'Common', 'texts', 'en_GB.json');
+        if (fs.existsSync(texts)) {
+            fs.copyFileSync(texts, path.join(home, 'strings', 'en_GB.json'));
+        }
+    }
     console.log(`${pkg.name} ${pkg.version} installed`);
 }

@@ -214,7 +214,7 @@ function testModuleMode() {
     check('module: package.json marked local-only, the package flat with every file',
         JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).mguLocalOnly === true &&
         Object.keys(members(out)).sort().join(' ') ===
-        'javascript/app.js javascript/kit/mgu.js node_modules/oap-sdk/index.js node_modules/oap-sdk/package.json package.json');
+        'javascript/app.js javascript/kit/mgu.js node_modules/oap-sdk/index.js node_modules/oap-sdk/package.json package.json permissions.json');
     check('module: no longer needed once generated', !link.needsSdk(pkg));
 
     const vendored = thirdParty({ vendored: true });
@@ -226,6 +226,24 @@ function testModuleMode() {
     write(path.join(bundled, 'package.json'), JSON.stringify({ name: 'b', version: '1.0.0' }));
     write(path.join(bundled, 'javascript', 'app.js'), '/* x */\n' + donor.bundle().replace('require("oap-sdk/src/core/OnlineApp.js")', 'require("oap-sdk")'));
     check('module: a browserify bundle resolves its own requires', !link.needsSdk(bundled));
+    check('shrinkwrap: a package with neither node_modules/ nor npm-shrinkwrap.json needs one', link.needsShrinkwrap(bundled) &&
+        !link.needsShrinkwrap(vendored));
+    const br = link.preparePackage(bundled, path.join(tmp('out'), 'b.tgz'), { donors: [] });
+    const sw = JSON.parse(members(br.file)['npm-shrinkwrap.json'].toString());
+    check('shrinkwrap: one without dependencies is added, which MainApp installs from', br.shrinkwrap === true && br.sdk === null &&
+        sw.name === 'b' && sw.version === '1.0.0' && sw.lockfileVersion === 1 && JSON.stringify(sw.dependencies) === '{}', JSON.stringify(sw));
+    check('shrinkwrap: none for a package with node_modules/', vr.shrinkwrap === false && !members(vr.file)['npm-shrinkwrap.json']);
+    const entry = { uid: '${APPNAME}', domain: 'd', interfaceName: 'i/I', operation: '*' };
+    const perm = tmp('perm');
+    write(path.join(perm, 'package.json'), JSON.stringify({ name: 'p', version: '1.0.0' }));
+    write(path.join(perm, 'javascript', 'app.js'), '/* x */\n');
+    write(path.join(perm, 'permissions.json'), JSON.stringify({ masterAccessTable: [entry] }));
+    const pr = link.preparePackage(perm, path.join(tmp('out'), 'p.tgz'), { donors: [] });
+    const acl = JSON.parse(members(pr.file)['permissions.json'].toString());
+    check('permissions: a missing ACL table is added empty, the entries kept', pr.permissions.join(' ') === 'masterRegistrationTable' &&
+        JSON.stringify(acl.masterAccessTable) === JSON.stringify([entry]) && JSON.stringify(acl.masterRegistrationTable) === '[]', JSON.stringify(acl));
+    check('permissions: both added to a package without permissions.json, none when both are there', br.permissions.length === 2 && vr.permissions.length === 2 &&
+        link.preparePackage(perm, path.join(tmp('out'), 'p2.tgz'), { donors: [] }).permissions.length === 0);
     const e = throws(() => link.preparePackage(thirdParty(), path.join(tmp('out'), 'n.tgz'), { donors: [] }));
     check('module: no donor fails before anything is packed', e && e.noDonor && /no donor holds the oap-sdk core/.test(e.message), e && e.message);
     const sd = link.sdkDonor([path.join(T, 'none.tgz'), donorTgz]);
@@ -368,11 +386,14 @@ function testRealDonors() {
     fs.readdirSync(dir).filter((f) => /\.(tgz|mgu)$/.test(f)).forEach((f) => {
         const x = extract(path.join(dir, f));
         const pkgDir = fs.existsSync(path.join(x, 'package', 'package.json')) ? path.join(x, 'package') : path.join(x, 'source');
+        // a browserify bundle carries its oap-sdk itself
+        const needs = link.needsSdk(pkgDir);
         const r = link.preparePackage(pkgDir, path.join(tmp('o'), 'p.tgz'), { donors: [donors[0]] });
         const m = members(r.file);
-        check(`real: ${f} prepares: oap-sdk generated, flat, marked`, r.sdk && r.sdk.api.length === Object.keys(link.SDK_API).length &&
-            m['node_modules/oap-sdk/index.js'] && JSON.parse(m['package.json']).mguLocalOnly === true && m['javascript/app.js'] &&
-            !Object.keys(m).some((k) => /^package\/|^source\//.test(k)), JSON.stringify(r.sdk));
+        check(`real: ${f} prepares: ${needs ? 'oap-sdk generated, ' : ''}flat, marked`,
+            (needs ? r.sdk && r.sdk.api.length === Object.keys(link.SDK_API).length && m['node_modules/oap-sdk/index.js'] : r.sdk === null) &&
+            JSON.parse(m['package.json']).mguLocalOnly === true && !Object.keys(m).some((k) => /^package\/|^source\//.test(k)),
+            JSON.stringify(r.sdk));
     });
 }
 

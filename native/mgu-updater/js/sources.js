@@ -497,6 +497,9 @@ function githubReader(s, ctx) {
     const json = (url, name) => ctx.net.get(url, headers(url, 'application/vnd.github+json'), name, 4 << 20)
         .then((b) => parseJson(b, url));
     const raw = (url, name, max, onProgress) => ctx.net.get(url, headers(url, 'application/octet-stream'), name, max, onProgress);
+    // the tarball endpoint redirects to codeload for its JSON media type; octet-stream is refused (415)
+    const tarball = (commit, onProgress) => ctx.net.get(`${repoUrl}/tarball/${commit}`, headers(repoUrl, 'application/vnd.github+json'),
+        `${s.repo.replace('/', '-')}.tgz`, ctx.maxRepoBytes, onProgress);
     // a file's own bytes from the contents API (else it answers with JSON around them)
     const content = (url, name, max) => ctx.net.get(url, headers(url, 'application/vnd.github.raw+json'), name, max);
     const encode = (rel) => rel.split('/').map(encodeURIComponent).join('/');
@@ -543,7 +546,9 @@ function githubReader(s, ctx) {
                     id: n.id, kind: 'app', version: n.version,
                     title: typeof t.title === 'string' ? t.title : undefined,
                     description: typeof t.description === 'string' ? t.description : undefined,
-                    artifact: { name: n.asset.name, size: n.asset.size, sha256: null, url: n.asset.url }
+                    artifact: { name: n.asset.name, size: n.asset.size, sha256: null, url: n.asset.url },
+                    // nothing in this layout can say so: the owner removes what it installed
+                    uninstallable: true
                 });
             })
         }));
@@ -607,7 +612,7 @@ function githubReader(s, ctx) {
             })
             .then((channel) => onChannel(channel).then((c) => Object.assign(c, { channel }))),
         artifact: (entry, onProgress) => raw(entry.artifact.url, entry.artifact.name, entry.artifact.size, onProgress),
-        files: (commit, onProgress, under) => raw(`${repoUrl}/tarball/${commit}`, `${s.repo.replace('/', '-')}.tgz`, ctx.maxRepoBytes, onProgress)
+        files: (commit, onProgress, under) => tarball(commit, onProgress)
             .then((buf) => tar.untgz(buf, ctx.maxBuildBytes))
             // the tarball's one top folder (<owner>-<repo>-<sha>/) is left off
             .then((members) => members.map((m) => ({ name: m.name.slice(m.name.indexOf('/') + 1), data: m.data, mode: m.mode }))
@@ -749,7 +754,8 @@ function looseReader(root, ctx) {
                         title: title || (typeof pkg.productName === 'string' && pkg.productName) || pkg.name,
                         description: typeof pkg.description === 'string' ? pkg.description : '',
                         artifact: { name: `${pkg.name}@${pkg.version}.${ext}`, url: name, size: data.length,
-                            sha256: crypto.createHash('sha256').update(data).digest('hex') }
+                            sha256: crypto.createHash('sha256').update(data).digest('hex') },
+                        uninstallable: true
                     }));
                 })
                 .catch((err) => {

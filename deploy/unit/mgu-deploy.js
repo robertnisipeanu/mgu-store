@@ -838,7 +838,8 @@ function validateArtifact(file, stage) {
     var list = run(CFG.tar, ['-tzf', file], { allowFail: true });
     if (list.status !== 0) throw refuse('unreadable tgz: ' + file);
     list.stdout.split('\n').forEach(function (n) {
-        if (n && !safeRel(n.replace(/\/$/, ''))) throw refuse('unsafe path in ' + file + ': ' + n);
+        // "./": the archive's own root, as tar -C <dir> . packs it
+        if (n && n !== './' && !safeRel(n.replace(/\/$/, ''))) throw refuse('unsafe path in ' + file + ': ' + n);
     });
     var dir = path.join(stage, 'a' + Math.floor(Math.random() * 1e9));
     mkdirp(dir);
@@ -947,7 +948,9 @@ function prepareApp(a, stage) {
         } else {
             r = linker().preparePackage(a.pkgDir, out, { donors: unitDonors() });
             say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +
-                (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : ''));
+                (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : '') +
+                (r.shrinkwrap ? ', npm-shrinkwrap.json added' : '') +
+                (r.permissions.length ? ', ' + r.permissions.join(' and ') + ' added to permissions.json' : ''));
         }
     } catch (e) {
         throw refuse(a.file + ': cannot ' + (a.prepare === 'build' ? 'build ' : 'prepare ') + a.id + ' ' + a.version +

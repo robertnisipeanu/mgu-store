@@ -2259,6 +2259,15 @@ function testThirdParty() {
     const r3 = root.run(['install', '--artifact', plain, '--yes']);
     check('third party: an unmarked flat package is marked and installed', r3.status === 0 && r3.out.includes('marked local-only') &&
         JSON.parse(untarBuf(fs.readFileSync(root.preinstalled('plain_app', '1.0.0')))['package.json']).mguLocalOnly === true, r3.out);
+    const dotDir = fs.mkdtempSync(path.join(T, 'dot-'));
+    const dotTree = path.join(dotDir, 'tree');
+    fs.mkdirSync(dotTree);
+    cp.execFileSync('tar', ['-xzf', appArtifact('dot_app', '1.0.0', false), '-C', dotTree]);
+    const dot = path.join(dotDir, 'dot_app@1.0.0.tgz');
+    cp.execFileSync('tar', ['-czf', dot, '-C', dotTree, '.']);
+    const r5 = root.run(['install', '--artifact', dot, '--yes']);
+    check('third party: one packed with tar -C <dir> . (members under ./) installs', tarList(dot).indexOf('./') >= 0 && r5.status === 0 &&
+        root.status().components.some((x) => x.id === 'dot_app' && x.version === '1.0.0'), r5.out);
     const ours = appArtifact('ours_app', '1.0.0', true);
     const r4 = root.run(['install', '--artifact', ours, '--yes']);
     check('third party: one of ours installs byte for byte', r4.status === 0 && !r4.out.includes('prepared') &&

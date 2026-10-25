@@ -249,11 +249,12 @@ function readAppJson(file) {
 }
 
 /* The en_GB text of an installed app's first entry point, or null. */
-function appTitle(source) {
+function appTitle(home) {
     try {
-        const app = readAppJson(path.join(source, 'rhmiData', 'application.json')).application;
+        // MainApp keeps an installed app's RHMI in its home, the texts as strings/<language>.json
+        const app = readAppJson(path.join(home, 'rhmiData', 'application.json')).application;
         const textId = app.entryPoints && app.entryPoints[0] && app.entryPoints[0].textId;
-        const text = textId && readAppJson(path.join(source, 'rhmiData', 'variantGroups', 'Common', 'texts', 'en_GB.json'))[textId];
+        const text = textId && readAppJson(path.join(home, 'rhmiData', 'strings', 'en_GB.json'))[textId];
         return typeof text === 'string' && text ? text : null;
     } catch (e) {
         return null;
@@ -267,12 +268,12 @@ function installedApp(conf, id, wantTitle) {
     const oap = conf.oap_root;
     try {
         const entry = readJson(path.join(oap, `oap_${conf.mainapp_uid}`, 'data', 'apps', `${id}.json`));
-        const source = path.join(oap, `oap_${entry.userId}`, 'source');
-        const pkg = readAppJson(path.join(source, 'package.json'));
+        const home = path.join(oap, `oap_${entry.userId}`);
+        const pkg = readAppJson(path.join(home, 'source', 'package.json'));
         if (pkg.name !== id) {
             return null;
         }
-        const title = wantTitle ? appTitle(source) : null;
+        const title = wantTitle ? appTitle(home) : null;
         return Object.assign({ id, kind: 'app', version: pkg.version }, title ? { title } : {});
     } catch (e) {
         return null;
@@ -488,24 +489,28 @@ function storeUid(conf) {
     }
 }
 
-/* Writes text to file as uid:gid, 0400, by rename, in a child running as
- * that uid (no text: removes file): a link in a folder the uid owns leads
- * the write nowhere it could not write itself. */
-const WRITE_AS = 'const fs = require("fs"); const f = process.argv[1]; let s = "";' +
+/* Writes text to file as uid:gid with groups as its only other groups, 0400,
+ * by rename, in a child that takes those ids before it touches the file (no
+ * text: removes file): a link in a folder the uid owns leads the write
+ * nowhere it could not write itself. spawn's own uid option would leave the
+ * child no supplementary groups. */
+const WRITE_AS = 'const fs = require("fs"); const f = process.argv[1]; const ids = process.argv[2] && JSON.parse(process.argv[2]);' +
+    'if (ids) { process.setgroups(ids.groups); process.setgid(ids.gid); process.setuid(ids.uid); } let s = "";' +
     'process.stdin.on("data", (d) => { s += d; }); process.stdin.on("end", () => {' +
     'if (!s) { try { fs.unlinkSync(f); } catch (e) { if (e.code !== "ENOENT") throw e; } return; }' +
     'const t = `${f}.${process.pid}`; try { fs.unlinkSync(t); } catch (e) {}' +
     'const fd = fs.openSync(t, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o400);' +
     'fs.writeSync(fd, s); fs.closeSync(fd); fs.renameSync(t, f); });';
 
-function writeAs(file, text, uid, gid) {
+function writeAs(file, text, uid, gid, groups) {
     return new Promise((resolve, reject) => {
-        const child = cp.spawn(process.execPath, ['-e', WRITE_AS, file],
-            Object.assign({ stdio: ['pipe', 'ignore', 'pipe'], env: {} }, process.getuid() === 0 ? { uid, gid } : {}));
+        const ids = process.getuid() === 0 ? [JSON.stringify({ uid, gid, groups: groups || [gid] })] : [];
+        const child = cp.spawn(process.execPath, ['-e', WRITE_AS, file].concat(ids), { stdio: ['pipe', 'ignore', 'pipe'], env: {} });
         let err = '';
         child.stderr.on('data', (d) => { err += d; });
         child.on('error', reject);
-        child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(err.trim().split('\n').pop() || `exit ${code}`))));
+        // the thrown error's own line, not the stack under it
+        child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(err.split('\n').find((l) => /^\w*Error\b/.test(l)) || `exit ${code}`))));
         child.stdin.end(text);
     });
 }
@@ -1335,7 +1340,7 @@ class Updater {
             return Promise.resolve();
         }
         this.storeSecretUid = store.uid;
-        return writeAs(path.join(store.data, 'updater-secret'), this.secret, store.uid, store.gid)
+        return writeAs(path.join(store.data, 'updater-secret'), this.secret, store.uid, store.gid, store.groups)
             .catch((e) => {
                 this.storeSecretUid = null;
                 console.log(`store secret: ${e.message}`);
@@ -1343,7 +1348,24 @@ class Updater {
             .then(() => this.syncWebUrl(true));
     }
 
-    /* The Store's uid and data folder, or null while it has none. */
+    /* The Store has a data folder without the secret in it. */
+    storeSecretGone() {
+        const store = this.storeData();
+        if (!store) {
+            return false;
+        }
+        try {
+            fs.lstatSync(path.join(store.data, 'updater-secret'));
+            return false;
+        } catch (e) {
+            return e.code === 'ENOENT';
+        }
+    }
+
+    /* The Store's uid and data folder, or null while it has none. groups:
+     * the folder's group, and the groups of oap_root and the folder above
+     * it, through which every app reaches its home (mgu_persist, 0710 and
+     * 0770 on the unit); root's group never. */
     storeData() {
         const uid = storeUid(this.conf);
         if (!uid) {
@@ -1351,7 +1373,10 @@ class Updater {
         }
         const data = path.join(this.conf.oap_root, `oap_${uid}`, 'data');
         try {
-            return { uid, gid: fs.statSync(data).gid, data };
+            const gid = fs.statSync(data).gid;
+            const groups = [path.dirname(this.conf.oap_root), this.conf.oap_root].map((d) => fs.statSync(d).gid).concat(gid)
+                .filter((g, i, all) => g !== 0 && all.indexOf(g) === i);
+            return { uid, gid, groups, data };
         } catch (e) {
             return null; // the Store has no data folder yet
         }
@@ -1374,7 +1399,7 @@ class Updater {
                 return undefined;
             }
             // the Store reads the file when a state arrives: one goes out once it is written
-            return writeAs(path.join(store.data, 'web-url'), url ? `${url}\n` : '', store.uid, store.gid)
+            return writeAs(path.join(store.data, 'web-url'), url ? `${url}\n` : '', store.uid, store.gid, store.groups)
                 .then(() => this.changed());
         }).catch((e) => console.log(`web-url: ${e.message}`));
         return this.webUrlQueue;
@@ -1744,8 +1769,9 @@ class Updater {
             // commits without the catalog (trial-local, commitTrial).
             const current = path.join(this.conf.tool_root, SELF, 'current');
             setInterval(() => {
-                // the Store installed or reinstalled under another uid gets the secret
-                if (storeUid(this.conf) !== this.storeSecretUid) {
+                // the Store installed or reinstalled gets the secret: under another
+                // uid, or emptied by MainApp (its crash recovery reinstalls an app)
+                if (storeUid(this.conf) !== this.storeSecretUid || this.storeSecretGone()) {
                     this.writeSecrets();
                 }
                 let target;
