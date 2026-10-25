@@ -78,7 +78,8 @@ them:
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog
 release, else the releases layout), `branch:<name>` (`mgu-repo.json` at
-the branch's head commit; each commit is a revision), `tags`
+the branch's head commit; each commit is a revision), `branch` (the same,
+on the repo's default branch), `tags`
 (`mgu-repo.json` at the highest `v1.2.3`, `1.2.3` or `<id>@1.2.3` tag's
 commit). Without one: `releases` when the repo has a release, else
 `branch:<default branch>`. The state shows the channel in use.
@@ -92,9 +93,10 @@ commit). Without one: `releases` when the repo has a release, else
   { "id": "my-tool", "kind": "tool", "path": "native/my-tool", "uninstallable": true } ] }
 ```
 
-- An app with `mgu-app.json` in its folder is a **source package**: the
-  folder packed as it is (`mgu-app.json` at the root), built and installed
-  by the deploy tool (phase `build`).
+- An app with `mgu-app.json` in its folder (no `build`, or `"build":
+  "unit"`) is a **source package**: the folder packed as it is
+  (`mgu-app.json` at the root), built and installed by the deploy tool
+  (phase `build`).
 - An app with `build.node` is built by the repo's own script (below); its
   version and title come from `app.json`, else `package.json`, in its
   folder.

@@ -1368,7 +1368,7 @@ function testSources(certs) {
         files: [{ path: 't.sh', from: 'bin/t.sh', mode: '0755' }], units: [{ name: 't.service', from: 'systemd/t.service' }], internet: true };
     const branchFiles = (pVersion) => ({
         'mgu-repo.json': JSON.stringify({ schema: 1, components: [
-            { id: 'p_app', kind: 'app', path: 'apps/p_app', uninstallable: true },
+            { id: 'p_app', kind: 'app', path: 'apps/p_app', build: 'unit', uninstallable: true },
             { id: 't_tool', kind: 'tool', path: 'native/t_tool' },
             { id: 'b_ok', kind: 'app', path: 'apps/b_ok', build: { node: 'tools/build.js', args: ['ok', 'b_ok'] } },
             { id: 'b_fail', kind: 'app', path: 'apps/b_fail', build: { node: 'tools/build.js', args: ['fail', 'b_fail'] } },
@@ -1416,7 +1416,7 @@ function testSources(certs) {
         { id: 'second', type: 'file', path: second },
         { id: 'private', type: 'github', repo: 'owner/private' },
         { id: 'rel', type: 'github', repo: 'third/rel' },
-        { id: 'branchy', type: 'github', repo: 'third/branchy', channel: 'branch:main' },
+        { id: 'branchy', type: 'github', repo: 'third/branchy', channel: 'branch' },
         { id: 'hp', type: 'https', url: `https://updates.test:${HTTPS_PORT}/private/catalog.json` }
     ] }));
     fs.writeFileSync(path.join(pub, 'catalog.json'), JSON.stringify({ schema: 1, components: [] }));
