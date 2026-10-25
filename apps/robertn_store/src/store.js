@@ -660,7 +660,7 @@ class Store extends OnlineApp {
         }
         const st = this._st;
         const connected = this._connected && !!st;
-        this._set(C.status, 'Text', connected ? statusLine(st, true) : statusLine(null, false), 'Text');
+        this._set(C.status, 'Text', connected ? statusLine(st, true) : statusLine(null, false, !!readSecret()), 'Text');
         this._set(C.check, 'Text', connected && st.catalog.checking ? 'Checking' : 'Check for updates', 'Text');
 
         const busy = connected ? st.busy : null;

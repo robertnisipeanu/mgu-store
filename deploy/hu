@@ -247,8 +247,9 @@ function buildArtifacts(list, outDir, optionalDir) {
 const KIT_README = `mgu-store install kit
 =====================
 
-Installs the Store on the head unit from this folder. After it, every
-update comes through the Store.
+Installs the Store on the head unit from this folder. The updater starts
+at the head unit's next start (the next ignition cycle), which finishes
+setup; after it, every update comes through the Store.
 
   install.sh                the installer: sh install.sh [--with-uplink]
   mgu-deploy.sh, .js        the deploy tool (runs the unit's /usr/bin/node)

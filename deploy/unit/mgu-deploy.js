@@ -42,7 +42,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.2.1';
+var VERSION = '0.2.2';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -1565,8 +1565,8 @@ function watchInstall(a) {
 
 /* ---- in-place install ----------------------------------------------------- */
 /* The fallback copy's hook (fallback_build.js) has the running manager
- * install or update one app on request: INPLACE_REQUEST, root's, {id, app,
- * version, action, notAfter}. The manager answers in its status file with
+ * install, update or uninstall one app on request: INPLACE_REQUEST, root's,
+ * {id, app, version, action, notAfter}. The manager answers in its status file with
  * that id (running, then done or failed; or refused) and takes no request
  * after notAfter. */
 
@@ -1612,13 +1612,13 @@ function inplaceTrace(st, app) {
     var s = function (t) { var d = Math.round((t - t0) / 1000); return (d < 0 ? '' : '+') + d + 's'; };
     var mine = function (k) {
         return tr.ops.filter(function (o) {
-            return o.k === k && o.app === app && (o.m === 'install' || o.m === 'update') && o.t >= t0 - 1000;
+            return o.k === k && o.app === app && ['install', 'update', 'uninstall'].indexOf(o.m) >= 0 && o.t >= t0 - 1000;
         }).pop();
     };
     var q = mine('q'), run = mine('run');
     if (!q) out.push('not yet handed to the installer');
     else if (!run) out.push('in the installer\'s queue since ' + s(q.t));
-    else out.push('installing since ' + s(run.t) + (run.end ? ', ended ' + s(run.end) + (run.err ? ' (' + run.err + ')' : '') : ''));
+    else out.push((run.m === 'uninstall' ? 'uninstalling' : 'installing') + ' since ' + s(run.t) + (run.end ? ', ended ' + s(run.end) + (run.err ? ' (' + run.err + ')' : '') : ''));
     tr.ops.filter(function (o) { return o.app !== app && o.k === 'run' && (!o.end || o.end >= t0); }).forEach(function (o) {
         out.push(o.m + ' ' + o.app + ' ' + (o.end ? 'ran until ' + s(o.end) : 'running for ' +
             Math.round((now - o.t) / 1000) + 's') + (o.err ? ' (' + o.err + ')' : ''));
@@ -1637,6 +1637,24 @@ function inplaceAnswer(id) {
     var st = readJsonOrNull(inplaceStatusFile());
     return st && st.request === id ? st : null;
 }
+/* Writes the request and waits for the manager to take it: { pid, id, st }
+ * with its first answer, or { why } when no running manager has the hook
+ * or it did not take the request by notAfter. */
+function inplaceAsk(app, version, action) {
+    var m = inplaceManager();
+    if (!m.pid) return { why: m.why };
+    var id = process.pid + '-' + Date.now(), notAfter = Date.now() + CFG.inplaceAckMs, st = null;
+    say('asking the running app manager (pid ' + m.pid + ') to ' + action + ' ' + app + (version ? ' ' + version : '') + ' in place');
+    mkdirp(INPLACE_DIR, 0o755);
+    try {
+        writeAtomic(INPLACE_REQUEST, JSON.stringify({ id: id, app: app, version: version, action: action,
+            notAfter: notAfter }) + '\n', 0o644);
+        /* the manager takes it by notAfter or never */
+        while (!(st = inplaceAnswer(id)) && Date.now() < notAfter + 3000) sleepMs(Math.min(CFG.watchPollMs, 250));
+    } finally { rmrf(INPLACE_REQUEST); }
+    if (!st) return { why: 'the app manager did not take the request within ' + Math.round(CFG.inplaceAckMs / 1000) + 's' };
+    return { pid: m.pid, id: id, st: st };
+}
 /* { uid } when the running manager installed or updated it in place.
  * { why } when the manager never had the install in hand, so a bounce is
  * safe: no hook, the request not taken, refused or failed, or the manager
@@ -1646,19 +1664,9 @@ function inplaceAnswer(id) {
  * bounce: no bounce, which could cut the manager's install short. A moment
  * with no manager in ps is not a restart. */
 function installInPlace(a, existing) {
-    var m = inplaceManager();
-    if (!m.pid) return { why: m.why };
-    var action = existing ? 'update' : 'install', id = process.pid + '-' + Date.now();
-    var notAfter = Date.now() + CFG.inplaceAckMs, poll = Math.min(CFG.watchPollMs, 1000), st = null;
-    say('asking the running app manager (pid ' + m.pid + ') to ' + action + ' ' + a.id + ' ' + a.version + ' in place');
-    mkdirp(INPLACE_DIR, 0o755);
-    try {
-        writeAtomic(INPLACE_REQUEST, JSON.stringify({ id: id, app: a.id, version: a.version, action: action,
-            notAfter: notAfter }) + '\n', 0o644);
-        /* the manager takes it by notAfter or never */
-        while (!(st = inplaceAnswer(id)) && Date.now() < notAfter + 3000) sleepMs(Math.min(poll, 250));
-    } finally { rmrf(INPLACE_REQUEST); }
-    if (!st) return { why: 'the app manager did not take the request within ' + Math.round(CFG.inplaceAckMs / 1000) + 's' };
+    var action = existing ? 'update' : 'install', q = inplaceAsk(a.id, a.version, action);
+    if (!q.pid) return { why: q.why };
+    var m = { pid: q.pid }, id = q.id, st = q.st, poll = Math.min(CFG.watchPollMs, 1000);
     var waited = 0, doneAt = null, t0 = Date.now(), reported = t0, s, cur;
     var secs = function () { return Math.round((Date.now() - t0) / 1000) + 's'; };
     for (;;) {
@@ -1773,10 +1781,45 @@ function cleanNpmCache(id) {
         });
     });
 }
-/* The fallback stops listing the app before anything else goes, and the
- * one bounce comes last, so the manager never sees the app listed
- * without its package (it would ask the backend for it) nor reinstalls
- * it in between. */
+/* The running manager's own uninstall, through the fallback copy's hook:
+ * it stops the app, unregisters it, which takes its tile off the HMI at
+ * once, and removes its folders. { done } once the hook says done; { why }
+ * when the manager did not uninstall it: no hook, the request not taken,
+ * refused or failed, not done in time, or the manager restarted. */
+function uninstallInPlace(id, version) {
+    var q = inplaceAsk(id, version, 'uninstall');
+    if (!q.pid) return { why: q.why };
+    var st = q.st, waited = 0, t0 = Date.now(), reported = t0, poll = Math.min(CFG.watchPollMs, 1000), cur;
+    var secs = function () { return Math.round((Date.now() - t0) / 1000) + 's'; };
+    for (;;) {
+        if (st.state === 'running' && Date.now() - reported >= CFG.inplaceReportMs) {
+            reported = Date.now();
+            say('the app manager is on it (' + secs() + '): ' + inplaceTrace(st, id));
+        }
+        cur = managerPid();
+        if (cur && cur !== q.pid) return { why: 'the app manager restarted during the in-place uninstall' };
+        if (st.state === 'failed' || st.state === 'done') {
+            say('the app manager ' + st.state + ' after ' + secs() + ': ' + inplaceTrace(st, id));
+        }
+        if (st.state === 'refused' || st.state === 'failed') {
+            return { why: 'the app manager ' + st.state + ' the in-place uninstall' + (st.error ? ' (' + st.error + ')' : '') };
+        }
+        if (st.state === 'done') {
+            say(id + ' uninstalled in place by the app manager (pid ' + q.pid + ')');
+            return { done: true };
+        }
+        if (waited >= CFG.watchTimeoutMs) {
+            return { why: 'the app manager did not uninstall ' + id + ' in place within ' + Math.round(CFG.watchTimeoutMs / 1000) + 's' };
+        }
+        sleepMs(poll); waited += poll;
+        st = inplaceAnswer(q.id) || st;
+    }
+}
+/* The fallback stops listing the app before anything else goes, so the
+ * manager does not install it again meanwhile. The running manager then
+ * uninstalls it in place; whatever it leaves goes after. Without that, one
+ * bounce comes last, so the manager never sees the app listed without its
+ * package (it would ask the backend for it) nor reinstalls it in between. */
 function uninstallApp(id, state) {
     var entry = readJsonOrNull(appEntryFile(id));
     if (!entry || !entry.userId) throw refuse(id + ': no registry entry');
@@ -1785,6 +1828,9 @@ function uninstallApp(id, state) {
     var ownDir = !!(pkg && pkg.name === id), leftovers = [];
     say('uninstalling app ' + id + ' (uid ' + uid + ')');
     if (customAppsRemove(id)) say('removed ' + id + ' from ' + customAppsFile());
+    /* the manager's uninstall removes the uid's folders, so only a home that is provably the app's */
+    var r = ownDir ? uninstallInPlace(id, typeof pkg.version === 'string' ? pkg.version : null)
+        : { why: 'its home is not provably ' + id + "'s" };
     rmrf(appEntryFile(id));
     rmrf(appEntryFile(id) + '.tmp');
     if (ownDir) rmrf(home);
@@ -1801,8 +1847,11 @@ function uninstallApp(id, state) {
         var owned = filesOwnedBy(uid);
         if (owned) leftovers.push('files still owned by uid ' + uid + ' (e.g. ' + owned + ')');
     }
-    leftovers.push('uid ' + uid + ': the manager\'s own ACL/UI/status records for it stay in place');
-    bounceManager();
+    if (!r.done) {
+        leftovers.push('uid ' + uid + ': the manager\'s own ACL/UI/status records for it stay in place');
+        say('uninstalling ' + id + ' through a bounce: ' + r.why);
+        bounceManager();
+    }
     if (fs.existsSync(appEntryFile(id))) throw fail('registry entry still present');
     if (ownDir && fs.existsSync(home)) throw fail('app home still present');
     if (state.apps) delete state.apps[id];

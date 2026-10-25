@@ -4,12 +4,12 @@
  * tests: node fake_inplace.js <fallback copy>. It becomes the running
  * manager (its pid in $FAKE_MGR_PIDFILE and $FAKE_MGR_PIDFILE.inplace,
  * /proc/<pid>/stat started now) and runs the copy's start() with an
- * appManager whose install and update are fake_manager.js's, an
+ * appManager whose install, update and uninstall are fake_manager.js's, an
  * appRegistry that reads the registry entries, and a logger writing to
  * $FAKE_MGR_LOG. It runs until killed (a bounce kills it).
  *
- * $FAKE_INPLACE: "fail" rejects every install and update, "hang" never
- * settles them, "refuse" has the registry name every app (an install is
+ * $FAKE_INPLACE: "fail" rejects every install, update and uninstall, "hang"
+ * never settles them, "refuse" has the registry name every app (an install is
  * refused), "self" starts installing an app custom_apps.json lists by
  * itself when the hook first looks it up, registered but without its
  * installationSource, which it sets 1.5 s later (the hook refuses the
@@ -75,8 +75,8 @@ const settle = (fn) => {
     }
     return delay(100).then(fn);
 };
-/* The installer, as MainApp's AppManagerStub: install and update are
- * queued, and run through _callMethod in an AppManagement child that
+/* The installer, as MainApp's AppManagerStub: install, update and
+ * uninstall are queued, and run through _callMethod in an AppManagement child that
  * _fork starts ($FAKE_INPLACE_FORK_MS). */
 let stubQueue = Promise.resolve();
 const work = {
@@ -85,6 +85,9 @@ const work = {
     }),
     update: (id, mechanism) => settle(() => {
         if (mechanism !== 'PLATFORM' || !fake.update(id, ' in place')) throw new Error(`no update for ${id}`);
+    }),
+    uninstall: (id) => settle(() => {
+        if (!fake.uninstall(id, ' in place')) throw Object.assign(new Error(`${id} not installed`), { reason: 'APP_NOT_INSTALLED' });
     }),
     other: () => delay(Number(env.FAKE_INPLACE_AHEAD_MS || 0))
 };
@@ -105,7 +108,7 @@ const stub = {
         return this._fork().then(() => work[m](id, ...args));
     }
 };
-['install', 'update', 'other'].forEach((m) => {
+['install', 'update', 'uninstall', 'other'].forEach((m) => {
     stub[m] = function (id, ...args) {
         const p = stubQueue.then(() => this._callMethod(m, id, ...args));
         stubQueue = p.catch(() => {});
@@ -124,7 +127,8 @@ const appManager = {
             stub.other('stock_app');
         }
         return stub.update(id, mechanism);
-    }
+    },
+    uninstall: (id) => stub.uninstall(id)
 };
 const logger = { info: (m) => fake.log(`hook ${m}`) };
 setInterval(() => {}, 1 << 30);

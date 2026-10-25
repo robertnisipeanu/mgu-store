@@ -35,8 +35,8 @@
  * Every step is appended to $FAKE_MGR_LOG, one line each, the kill with
  * its time in ms and the app homes present at that moment.
  *
- * install(id) and update(id) are the manager's install and update of one
- * app, for fake_inplace.js.
+ * install(id), update(id) and uninstall(id) are the manager's install,
+ * update and uninstall of one app, for fake_inplace.js.
  */
 const fs = require('fs');
 const path = require('path');
@@ -117,6 +117,19 @@ function update(id, how) {
     return true;
 }
 
+/* The uninstall of a registered app: its entry, its home and its
+ * uids.txt line go; whether it was registered. */
+function uninstall(id, how) {
+    const e = entries().find((x) => x.id === id);
+    if (!e || !e.entry || !e.entry.userId) return false;
+    fs.rmSync(home(e.entry.userId), { recursive: true, force: true });
+    fs.unlinkSync(e.file);
+    const uids = path.join(mgr, 'security', 'uids.txt');
+    fs.writeFileSync(uids, fs.readFileSync(uids, 'utf8').split('\n').filter((l) => l !== `${e.entry.userId}=${id}`).join('\n'));
+    log(`uninstall ${id} uid ${e.entry.userId}${how || ''}`);
+    return true;
+}
+
 function bounce() {
     const old = Number(fs.readFileSync(env.FAKE_MGR_PIDFILE, 'utf8'));
     const killsBefore = () => (fs.existsSync(env.FAKE_MGR_LOG) ? fs.readFileSync(env.FAKE_MGR_LOG, 'utf8') : '')
@@ -190,5 +203,5 @@ function bounce() {
     });
 }
 
-module.exports = { install, update, log };
+module.exports = { install, update, uninstall, log };
 if (require.main === module) bounce();

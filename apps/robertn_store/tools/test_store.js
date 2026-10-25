@@ -148,6 +148,11 @@ const eq = (got, want, msg) => { checks += 1; assert.deepStrictEqual(got, want, 
 function run() {
     return app._setupRhmi().then(() => {
         app._setVisible(true);
+        // no updater yet, and it has not run since this Store was installed: no secret
+        app._client.emit('down');
+        return tick();
+    }).then(() => {
+        eq(last(/storeStatus\.\d*\.?Text/).split('=')[1], 'Restart the head unit to finish setup');
         // an updater without sources or web
         app._client.emit('state', Object.assign({}, base, { components: [comp({})] }));
         return tick();
@@ -170,6 +175,14 @@ function run() {
         eq(sent, [], 'nothing sent without the secret');
         eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Add source failed: no updater secret');
         fs.writeFileSync(path.join(DATA, 'updater-secret'), 'deadbeef\n');
+        // the updater has run and is unreachable now
+        app._client.emit('down');
+        return tick();
+    }).then(() => {
+        eq(last(/storeStatus\.\d*\.?Text/).split('=')[1], 'Updater not running');
+        app._client.emit('state', ST);
+        return tick();
+    }).then(() => {
 
         // owner/repo, then Releases
         reset();

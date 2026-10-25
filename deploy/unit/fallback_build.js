@@ -19,8 +19,9 @@
  *
  * It also carries the in-place install hook (inplaceSource): once MainApp
  * has initialized, the running manager installs or updates one app from
- * its preinstalled package on request, through its own install() or
- * update(), so only that app stops and starts. The request file defaults
+ * its preinstalled package, or uninstalls one, on request, through its own
+ * install(), update() or uninstall(), so only that app stops and starts
+ * (or stops and goes, its tile with it). The request file defaults
  * to /var/opt/mgu-deploy/inplace/request.json; the manager answers in
  * mgu-deploy-inplace.json beside custom_apps.json.
  *
@@ -61,15 +62,16 @@ var HOOK = 'if(isMainapp&&section===mainAppSection){' +
 /* Runs in the app manager once MainApp has initialized, with main.js's own
  * appManager (AppManagementController), appRegistry and logger. It writes
  * the status file {pid, start, at, state: "ready"} and polls the request
- * file each second. A request, {id, app, action: "install"|"update",
+ * file each second. A request, {id, app, action: "install"|"update"|"uninstall",
  * notAfter}, counts only in a folder and file owned by root (or the
  * manager) that no group or other user can write. One runs at a time:
  * the status file answers it with its id, "running" and then "done" or
  * "failed"; "refused" when it is past notAfter, malformed, or the app's
  * registration does not match the action. It runs the manager's own
- * install(app), or update(app, "PLATFORM"), which takes a newer package
- * from preinstalled_apps; both stop and start only that app. Nothing in
- * it throws into the manager.
+ * install(app), update(app, "PLATFORM"), which takes a newer package from
+ * preinstalled_apps, or uninstall(app), which stops the app, unregisters
+ * it (its tile goes) and removes its folders; each touches only that app.
+ * Nothing in it throws into the manager.
  *
  * It also traces the manager's installer (AppManagerStub, appManager's
  * own appManager): each install, update or uninstall it queues ("q") and
@@ -113,11 +115,12 @@ function inplaceSource(requestPath, statusPath) {
         'if(!r||"string"!=typeof r.id||r.id===last)return;last=r.id;' +
         'if(!(Date.now()<=r.notAfter))return tell(r,"refused","expired");' +
         'if("string"!=typeof r.app||!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(r.app)||' +
-        '"install"!==r.action&&"update"!==r.action)return tell(r,"refused","malformed");' +
+        '"install"!==r.action&&"update"!==r.action&&"uninstall"!==r.action)return tell(r,"refused","malformed");' +
         'if(!registry.getById(r.app)!==("install"===r.action))' +
         'return tell(r,"refused","install"===r.action?"already registered":"not registered");' +
         'busy=!0,reqOps.length=0,tell(r,"running");' +
-        'Promise.resolve().then(()=>"update"===r.action?mgr.update(r.app,"PLATFORM"):mgr.install(r.app))' +
+        'Promise.resolve().then(()=>"update"===r.action?mgr.update(r.app,"PLATFORM"):' +
+        '"uninstall"===r.action?mgr.uninstall(r.app):mgr.install(r.app))' +
         '.then(()=>{busy=!1,tell(r,"done")},e=>{busy=!1,tell(r,"failed",String(e&&(e.reason||e.message)||e))})};' +
         'put({state:"ready"}),setInterval(()=>{try{poll(),busy&&cur&&put(Object.assign({trace:trace()},cur))}catch(e){}},1e3)' +
         '})(appManager,appRegistry,logger)}catch(e){}' + INPLACE_MARK + ';';
