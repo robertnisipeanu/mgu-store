@@ -2,14 +2,18 @@
 'use strict';
 /**
  * Stand-in for the deploy tool's on-unit script in the updater tests:
- *   fake_deploy.js install --artifact <file.tgz> --yes
+ *   fake_deploy.js install --artifact <file> --yes
+ *   fake_deploy.js uninstall <id> --yes
  *   fake_deploy.js rollback <id> --yes
  *   fake_deploy.js status --json
+ *   fake_deploy.js sdk-donor --json       { path: $FAKE_DONOR }
  * A tool artifact (component.json at the root) lands in
  * $TOOL_ROOT/<id>/versions/<version>/ with `current` switched by rename,
  * and only the new version and the one `current` pointed to before remain;
- * an app is recorded the way MainApp records one ($OAP_ROOT/oap_12201
- * registry entry plus the app's source/package.json). Every call is logged
+ * an app (package.json at the root or under package/, a source package's
+ * mgu-app.json, an .mgu's meta.json) is recorded the way MainApp records
+ * one: an $OAP_ROOT/oap_12201 registry entry naming its uid (one per app)
+ * and that uid's source/package.json. Every call is logged
  * to $FAKE_DEPLOY_LOG; while $FAKE_DEPLOY_LOG.fail exists, install exits
  * with the status it holds, giving "test failure <status>" as its reason.
  * $FAKE_DEPLOY_LOG.pending lists ids (one per line) reported under
@@ -79,6 +83,31 @@ if (cmd === 'rollback') {
     console.log(`${path.basename(root)} back to ${other}`);
     process.exit(0);
 }
+if (cmd === 'sdk-donor') {
+    if (!process.env.FAKE_DONOR) {
+        process.stderr.write('mgu-deploy: no donor bundle on this unit\n');
+        process.exit(1);
+    }
+    console.log(JSON.stringify({ path: process.env.FAKE_DONOR }));
+    process.exit(0);
+}
+if (cmd === 'uninstall') {
+    const id = process.argv[3];
+    if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.fail`)) {
+        process.stderr.write('mgu-deploy: test failure\n');
+        process.exit(1);
+    }
+    const reg = path.join(process.env.OAP_ROOT, 'oap_12201', 'data', 'apps', `${id}.json`);
+    if (fs.existsSync(reg)) {
+        const uid = JSON.parse(fs.readFileSync(reg, 'utf8')).userId;
+        fs.unlinkSync(reg);
+        cp.execFileSync('rm', ['-rf', path.join(process.env.OAP_ROOT, `oap_${uid}`, 'source')]);
+    } else {
+        cp.execFileSync('rm', ['-rf', path.join(process.env.TOOL_ROOT, id)]);
+    }
+    console.log(`${id} removed`);
+    process.exit(0);
+}
 if (cmd === 'status') {
     const pending = (process.env.FAKE_PENDING || '').split(',').filter(Boolean).concat(pendingIds());
     console.log(JSON.stringify({ components: [], pending_reboot: pending.map((id) => ({ id, reason: 'test' })) }));
@@ -108,11 +137,17 @@ if (fs.existsSync(path.join(tmp, 'component.json'))) {
     uplinkRuns(root);
     console.log(`${c.id} ${c.version} installed`);
 } else {
-    const pkg = JSON.parse(fs.readFileSync(path.join(tmp, 'package.json'), 'utf8'));
+    const read = (p) => JSON.parse(fs.readFileSync(path.join(tmp, p), 'utf8'));
+    const own = ['package.json', 'package/package.json', 'mgu-app.json', 'meta.json'].find((p) => fs.existsSync(path.join(tmp, p)));
+    const m = read(own);
+    const pkg = Object.assign({}, m, { name: m.name || m.id, version: m.version, built: own === 'mgu-app.json', from: own });
     const oap = process.env.OAP_ROOT;
-    mkdirp(path.join(oap, 'oap_12201', 'data', 'apps'));
-    mkdirp(path.join(oap, 'oap_13000', 'source'));
-    fs.writeFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${pkg.name}.json`), JSON.stringify({ userId: 13000 }));
-    fs.copyFileSync(path.join(tmp, 'package.json'), path.join(oap, 'oap_13000', 'source', 'package.json'));
+    const apps = path.join(oap, 'oap_12201', 'data', 'apps');
+    mkdirp(apps);
+    const reg = path.join(apps, `${pkg.name}.json`);
+    const uid = fs.existsSync(reg) ? JSON.parse(fs.readFileSync(reg, 'utf8')).userId : 13000 + fs.readdirSync(apps).length;
+    mkdirp(path.join(oap, `oap_${uid}`, 'source'));
+    fs.writeFileSync(reg, JSON.stringify({ userId: uid }));
+    fs.writeFileSync(path.join(oap, `oap_${uid}`, 'source', 'package.json'), JSON.stringify(pkg));
     console.log(`${pkg.name} ${pkg.version} installed`);
 }

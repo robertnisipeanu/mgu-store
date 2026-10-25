@@ -1,21 +1,22 @@
 'use strict';
 /**
- * mgu-updater: installs and updates our apps and head-unit tools from the
- * published catalog, and serves the Store app. Node 8, as root.
+ * mgu-updater: installs, updates and removes apps and head-unit tools from
+ * its sources, and serves the Store app and the phone page. Node 8, as root.
  *
  *   node updater.js daemon              the service (started by the mgu-updater supervisor)
- *   node updater.js status [--json]     installed versions against the catalog
- *   node updater.js check               fetch the catalog now
- *   node updater.js install <id>        install <id>, or update it to the catalog's version
+ *   node updater.js status [--json]     installed versions against the sources
+ *   node updater.js check               read every source now
+ *   node updater.js install <id>        install <id>, or update it to its source's version
  *
- * The daemon reads the catalog through the source in updater.conf, compares
- * it with what is installed (apps: MainApp's registry; tools:
- * /var/opt/<id>/current/component.json), downloads an artifact through an
- * unprivileged child (fetch.js) and installs it with the deploy tool's
- * `install --artifact`, the same path every install takes. Updating itself,
- * it hands over to the new version through the supervisor, which returns to
- * the previous one if the new one does not come up (README.md). On the
- * Store's request it restarts the head unit with the `reboot` command.
+ * The daemon reads its sources (sources.json, USB media; sources.js),
+ * compares what they list with what is installed (apps: MainApp's
+ * registry; tools: /var/opt/<id>/current/component.json), downloads through
+ * an unprivileged child (fetch.js), builds what a repo builds on the unit
+ * (build.js) and installs with the deploy tool's `install --artifact`, the
+ * same path every install takes. Updating itself, it hands over to the new
+ * version through the supervisor, which returns to the previous one if the
+ * new one does not come up (README.md). On the Store's request it restarts
+ * the head unit with the `reboot` command.
  */
 const fs = require('fs');
 const net = require('net');
@@ -25,7 +26,13 @@ const cp = require('child_process');
 const util = require('util');
 const { URL } = require('url');
 const catalogLib = require('./catalog');
+const sourcesLib = require('./sources');
+const { DeviceLogin } = require('./login');
+const { migrate } = require('./migrate');
+const { runBuild, cleanBuilds } = require('./build');
 const { UpdaterClient } = require('./client');
+
+const ID = catalogLib.ID;
 
 const HERE = __dirname;
 const SELF = 'mgu-updater';
@@ -60,7 +67,7 @@ function loadConf() {
     const conf = readConf(file, {});
     readConf(process.env.MGU_UPDATER_CONF || conf.local_conf || '/var/opt/mgu-updater/updater.local.conf', conf);
     // relative paths in either file are relative to updater.conf
-    ['public_key', 'ca_file'].forEach((k) => {
+    ['ca_file'].forEach((k) => {
         if (conf[k]) {
             conf[k] = path.resolve(path.dirname(file), conf[k]);
         }
@@ -225,14 +232,48 @@ function groupId(name) {
 
 /* ---- what is installed -------------------------------------------------- */
 
+/* A small JSON file of an app's own tree, read without following a link. */
+function readAppJson(file) {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    try {
+        const st = fs.fstatSync(fd);
+        if (!st.isFile() || st.size > 262144) {
+            throw new Error(`${file}: not a small file`);
+        }
+        const buf = Buffer.alloc(st.size);
+        fs.readSync(fd, buf, 0, st.size, 0);
+        return JSON.parse(buf.toString('utf8'));
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+/* The en_GB text of an installed app's first entry point, or null. */
+function appTitle(source) {
+    try {
+        const app = readAppJson(path.join(source, 'rhmiData', 'application.json')).application;
+        const textId = app.entryPoints && app.entryPoints[0] && app.entryPoints[0].textId;
+        const text = textId && readAppJson(path.join(source, 'rhmiData', 'variantGroups', 'Common', 'texts', 'en_GB.json'))[textId];
+        return typeof text === 'string' && text ? text : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 /* An app is installed when MainApp's registry names its uid and that uid's
- * source tree holds its package.json. */
-function installedApp(conf, id) {
+ * source tree holds its package.json. wantTitle: also its entry point's
+ * en_GB text, for a source that names none. */
+function installedApp(conf, id, wantTitle) {
     const oap = conf.oap_root;
     try {
         const entry = readJson(path.join(oap, `oap_${conf.mainapp_uid}`, 'data', 'apps', `${id}.json`));
-        const pkg = readJson(path.join(oap, `oap_${entry.userId}`, 'source', 'package.json'));
-        return pkg.name === id ? { id, kind: 'app', version: pkg.version } : null;
+        const source = path.join(oap, `oap_${entry.userId}`, 'source');
+        const pkg = readAppJson(path.join(source, 'package.json'));
+        if (pkg.name !== id) {
+            return null;
+        }
+        const title = wantTitle ? appTitle(source) : null;
+        return Object.assign({ id, kind: 'app', version: pkg.version }, title ? { title } : {});
     } catch (e) {
         return null;
     }
@@ -359,8 +400,14 @@ class Fetcher {
         }
     }
 
-    /* Downloads url; resolves with its bytes. */
     get(url, headers, name, maxBytes, onProgress) {
+        return this.request({ url, headers, name, maxBytes, onProgress });
+    }
+
+    /* Downloads url (method GET, or POST with body); resolves with its bytes.
+     * A failure carries the HTTP status as err.status when the server answered. */
+    request(job) {
+        const { url, headers, name, maxBytes, onProgress } = job;
         const lease = readLease(this.conf);
         if (!lease.online) {
             return Promise.reject(new Error('no internet (the uplink is down)'));
@@ -406,10 +453,12 @@ class Fetcher {
                         reject(err);
                     }
                 } else {
-                    reject(new Error(result && result.error || 'download failed'));
+                    reject(Object.assign(new Error(result && result.error || 'download failed'),
+                        result && result.status ? { status: result.status } : {}));
                 }
             });
-            child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, ca: this.ca }));
+            child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, ca: this.ca,
+                method: job.method || 'GET', body: job.body }));
         }).then((bytes) => {
             this.retire(dir);
             return bytes;
@@ -420,78 +469,65 @@ class Fetcher {
     }
 }
 
-/* ---- catalog sources -------------------------------------------------------- */
+/* ---- the daemon ----------------------------------------------------------- */
 
-/* github:<owner>/<repo>: GitHub Releases (release/publish.js), read with
- * the token in token_file. https://…/catalog.json: a static host, artifact
- * URLs relative to it. file:///…/catalog.json: a local folder. */
-function makeSource(conf, fetcher) {
-    const ua = { 'User-Agent': `mgu-updater/${selfVersion()}` };
-    const spec = conf.catalog;
-    const token = () => (conf.token_file && fs.existsSync(conf.token_file) ?
-        fs.readFileSync(conf.token_file, 'utf8').trim() : '');
-    const text = (buf) => buf.toString('utf8');
-    if (/^file:\/\//.test(spec)) {
-        const file = new URL(spec).pathname;
-        return {
-            catalogText: () => Promise.resolve().then(() => fs.readFileSync(file, 'utf8')),
-            artifact: (entry) => Promise.resolve().then(() =>
-                fs.readFileSync(path.resolve(path.dirname(file), entry.artifact.url || entry.artifact.name)))
-        };
+const SELF_SOURCE_ID = 'mgu-store';
+// Requests only the Store and the phone page may make (they hold the secret).
+const PRIVILEGED = ['uninstall', 'source-add', 'source-remove', 'login-start', 'login-cancel', 'token-set', 'token-clear', 'web', 'logs'];
+
+/* The phone page (web.js, README.md "Phone page"), when this version has it. */
+let web = fs.existsSync(path.join(HERE, 'web.js')) ? require('./web') : null;
+
+/* The Store's uid, from MainApp's registry, or null while it is not installed. */
+function storeUid(conf) {
+    try {
+        const uid = readJson(path.join(conf.oap_root, `oap_${conf.mainapp_uid}`, 'data', 'apps', `${conf.store_app}.json`)).userId;
+        return Number.isInteger(uid) && uid > 0 ? uid : null;
+    } catch (e) {
+        return null;
     }
-    if (/^https:\/\//.test(spec)) {
-        return {
-            catalogText: () => fetcher.get(spec, ua, 'catalog.json', 4 << 20).then(text),
-            artifact: (entry, onProgress) => fetcher.get(new URL(entry.artifact.url || entry.artifact.name, spec).toString(),
-                ua, entry.artifact.name, entry.artifact.size, onProgress)
-        };
-    }
-    const gh = /^github:([\w.-]+\/[\w.-]+)$/.exec(spec);
-    if (gh) {
-        const api = (accept) => Object.assign({ Accept: accept, Authorization: `Bearer ${token()}` }, ua);
-        // the token goes to api.github.com only
-        const assetHeaders = (url) => (new URL(url).hostname === 'api.github.com' ?
-            api('application/octet-stream') : ua);
-        return {
-            catalogText: () => fetcher.get(`https://api.github.com/repos/${gh[1]}/releases/tags/catalog`,
-                api('application/vnd.github+json'), 'release.json', 1 << 20)
-                .then((buf) => {
-                    const asset = (JSON.parse(text(buf)).assets || []).find((a) => a.name === 'catalog.json');
-                    if (!asset) {
-                        throw new Error('the catalog release has no catalog.json');
-                    }
-                    return fetcher.get(asset.url, api('application/octet-stream'), 'catalog.json', 4 << 20);
-                })
-                .then(text),
-            artifact: (entry, onProgress) => fetcher.get(entry.artifact.url, assetHeaders(entry.artifact.url),
-                entry.artifact.name, entry.artifact.size, onProgress)
-        };
-    }
-    throw new Error(`catalog = ${spec}: use github:<owner>/<repo>, https://…/catalog.json or file:///…/catalog.json`);
 }
 
-/* ---- the daemon ----------------------------------------------------------- */
+/* Writes text to file as uid:gid, 0400, by rename, in a child running as
+ * that uid (no text: removes file): a link in a folder the uid owns leads
+ * the write nowhere it could not write itself. */
+const WRITE_AS = 'const fs = require("fs"); const f = process.argv[1]; let s = "";' +
+    'process.stdin.on("data", (d) => { s += d; }); process.stdin.on("end", () => {' +
+    'if (!s) { try { fs.unlinkSync(f); } catch (e) { if (e.code !== "ENOENT") throw e; } return; }' +
+    'const t = `${f}.${process.pid}`; try { fs.unlinkSync(t); } catch (e) {}' +
+    'const fd = fs.openSync(t, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o400);' +
+    'fs.writeSync(fd, s); fs.closeSync(fd); fs.renameSync(t, f); });';
+
+function writeAs(file, text, uid, gid) {
+    return new Promise((resolve, reject) => {
+        const child = cp.spawn(process.execPath, ['-e', WRITE_AS, file],
+            Object.assign({ stdio: ['pipe', 'ignore', 'pipe'], env: {} }, process.getuid() === 0 ? { uid, gid } : {}));
+        let err = '';
+        child.stderr.on('data', (d) => { err += d; });
+        child.on('error', reject);
+        child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(err.trim().split('\n').pop() || `exit ${code}`))));
+        child.stdin.end(text);
+    });
+}
 
 class Updater {
     constructor(conf) {
         this.conf = conf;
         this.version = selfVersion();
         this.fetcher = new Fetcher(conf);
-        this.source = makeSource(conf, this.fetcher);
-        // A key that cannot be read refuses every catalog.
-        this.publicKey = null;
-        this.keyError = null;
-        if (conf.public_key) {
-            try {
-                this.publicKey = fs.readFileSync(conf.public_key, 'utf8');
-            } catch (e) {
-                this.keyError = `public key ${conf.public_key} unreadable`;
-            }
-        }
-        this.catalogFile = path.join(conf.state_dir, 'catalog.json');
-        this.catalog = null;
-        this.checkedAt = null;
-        this.catalogError = null;
+        this.credentials = new sourcesLib.Credentials(conf.credentials_dir || path.join(conf.state_dir, 'credentials'));
+        this.ctx = {
+            net: this.fetcher,
+            credentials: this.credentials,
+            version: this.version,
+            githubApi: conf.github_api || 'https://api.github.com',
+            maxRepoBytes: Number(conf.repo_max_bytes) || 64 << 20,
+            maxBuildBytes: Number(conf.build_max_bytes) || 200 << 20
+        };
+        this.stored = [];
+        this.usb = [];
+        this.src = new Map();
+        this.origins = {};
         this.busy = null;
         this.queue = [];
         this.errors = {};
@@ -502,50 +538,183 @@ class Updater {
         this.sendTimer = null;
         this.rebooting = false;
         this.rebootError = null;
-        try {
-            if (this.keyError) {
-                throw new Error(this.keyError);
+        this.secret = crypto.randomBytes(32).toString('hex');
+        this.storeSecretUid = null;
+        this.webUrl = null;
+        this.webEnabled = false;
+        this.login = new DeviceLogin({
+            net: this.fetcher,
+            clientId: conf.github_client_id || '',
+            web: conf.github_web || 'https://github.com',
+            api: this.ctx.githubApi,
+            version: this.version,
+            changed: () => this.changed(),
+            log: (l) => console.log(l),
+            done: (id, token, meta) => {
+                if (this.stored.some((s) => s.id === id)) {
+                    this.credentials.set(id, token, meta);
+                    this.checkSource(id);
+                }
             }
-            this.catalog = catalogLib.parse(fs.readFileSync(this.catalogFile, 'utf8'), this.publicKey);
-            this.checkedAt = fs.statSync(this.catalogFile).mtime.getTime();
-        } catch (e) {
-            this.catalog = null;
+        });
+        try {
+            this.origins = readJson(path.join(conf.state_dir, 'origins.json'));
+        } catch (e) { /* none yet */ }
+        try {
+            this.webEnabled = readJson(path.join(conf.state_dir, 'web.json')).enabled === true;
+        } catch (e) { /* off */ }
+        if (conf.sources) {
+            this.loadSources();
         }
     }
 
-    installed() {
-        const list = [];
-        (this.catalog ? this.catalog.components : []).forEach((c) => {
-            const i = c.kind === 'app' ? installedApp(this.conf, c.id) : installedTool(this.conf, c.id);
-            if (i) {
-                list.push(i);
+    builtin() {
+        return { id: SELF_SOURCE_ID, type: 'github', repo: this.conf.builtin_repo || 'robertnisipeanu/mgu-store', builtin: true };
+    }
+
+    /* sources.json, made on the first start (migrate.js); the built-in source
+     * is always there. A file that cannot be read leaves the built-in source
+     * alone and says why. */
+    loadSources() {
+        let list;
+        try {
+            list = sourcesLib.load(this.conf.sources) || migrate(this.conf, this.builtin(), this.credentials, (l) => console.log(l));
+        } catch (e) {
+            console.log(`sources: ${e.message}`);
+            this.sourcesError = e.message;
+            list = [];
+        }
+        if (!list.some((s) => s.builtin)) {
+            list.unshift(this.builtin());
+        }
+        this.stored = list;
+        list.forEach((def) => this.addRuntime(def));
+    }
+
+    cacheFile(id) {
+        return path.join(this.conf.state_dir, 'sources', `${id}.json`);
+    }
+
+    /* A source's runtime state, with the components it listed when last read. */
+    addRuntime(def) {
+        const rt = { def, reader: sourcesLib.reader(def, this.ctx), status: 'ok', error: null, checkedAt: null,
+            channel: def.channel || null, mode: null, commit: null, components: [], checking: null, answered: false };
+        if (def.type !== 'usb') {
+            try {
+                const c = readJson(this.cacheFile(def.id));
+                Object.assign(rt, { mode: c.mode, channel: c.channel || rt.channel, commit: c.commit, components: c.components, checkedAt: c.checkedAt });
+            } catch (e) { /* not read yet */ }
+        }
+        this.src.set(def.id, rt);
+        return rt;
+    }
+
+    defs() {
+        return this.stored.concat(this.usb);
+    }
+
+    /* Each component id once: from the source that installed it, if it lists
+     * it, else from the first source (sources.json order, then USB media). */
+    resolved() {
+        const map = new Map();
+        this.defs().forEach((def) => {
+            const rt = this.src.get(def.id);
+            (rt ? rt.components : []).forEach((entry) => {
+                if (!map.has(entry.id)) {
+                    map.set(entry.id, { entry, source: def.id });
+                }
+            });
+        });
+        map.forEach((r, id) => {
+            const o = this.origins[id];
+            const rt = o && this.src.get(o.source);
+            const entry = rt && rt.components.find((c) => c.id === id);
+            if (entry) {
+                map.set(id, { entry, source: o.source });
             }
         });
-        return list;
+        return map;
+    }
+
+    installedOf(id, kind, wantTitle) {
+        if (kind === 'app') {
+            return installedApp(this.conf, id, wantTitle);
+        }
+        if (kind === 'tool') {
+            return installedTool(this.conf, id);
+        }
+        return installedApp(this.conf, id) || installedTool(this.conf, id);
+    }
+
+    sourceState(def) {
+        const rt = this.src.get(def.id);
+        const token = def.type !== 'usb' && this.credentials.token(def.id);
+        const meta = token ? this.credentials.meta(def.id) : null;
+        return {
+            id: def.id,
+            type: def.type,
+            label: sourcesLib.label(def),
+            builtin: !!def.builtin,
+            usb: def.type === 'usb',
+            channel: def.type === 'github' ? rt.channel || def.channel || null : null,
+            status: rt.status,
+            error: rt.error,
+            auth: token ? { kind: meta.kind || (def.type === 'github' ? 'github' : 'token'), login: meta.login || null } : null,
+            checkedAt: rt.checkedAt,
+            components: rt.components.length
+        };
     }
 
     state() {
-        const rows = catalogLib.plan(this.catalog, this.installed()).map((r) => Object.assign(r, {
-            pendingReboot: this.pending.indexOf(r.id) >= 0,
-            queued: this.queue.indexOf(r.id) >= 0,
-            error: this.errors[r.id] || null
-        }));
-        return {
+        const resolved = Array.from(this.resolved().values());
+        const installed = resolved.map((r) => this.installedOf(r.entry.id, r.entry.kind, r.entry.title === r.entry.id)).filter(Boolean);
+        const rows = catalogLib.plan(resolved, installed).map((row, i) => {
+            const entry = resolved[i].entry;
+            const o = this.origins[row.id];
+            // a branch's new commit of the same version
+            if (row.status === 'installed' && entry.revision && o && o.source === row.source && o.commit && o.commit !== entry.commit) {
+                row.status = 'update';
+            }
+            return Object.assign(row, {
+                revision: entry.revision || null,
+                pendingReboot: this.pending.indexOf(row.id) >= 0,
+                queued: this.queue.some((q) => q.id === row.id),
+                error: this.errors[row.id] || null
+            });
+        });
+        const sources = this.defs().map((d) => this.sourceState(d));
+        const st = {
             type: 'state',
             updater: { version: this.version },
             online: readLease(this.conf).online,
             privacy: this.privacy,
+            // one line for clients that know a single catalog (the Store 0.3)
             catalog: {
-                commit: this.catalog ? this.catalog.commit : null,
-                checkedAt: this.checkedAt,
-                checking: !!this.checking,
-                error: this.catalogError
+                commit: (this.src.get(SELF_SOURCE_ID) || {}).commit || null,
+                checkedAt: sources.reduce((m, s) => Math.max(m, s.checkedAt || 0), 0) || null,
+                checking: !!this.checking || sources.some((s) => s.status === 'checking'),
+                error: this.catalogError()
             },
+            sources,
+            login: this.login.state(),
             busy: this.busy,
             rebooting: this.rebooting,
             rebootError: this.rebootError,
             components: rows
         };
+        if (web) {
+            st.web = web.state();
+        }
+        return st;
+    }
+
+    /* The first source that could not be read, as one line. */
+    catalogError() {
+        if (this.sourcesError) {
+            return `sources.json: ${this.sourcesError}`;
+        }
+        const bad = this.defs().map((d) => this.src.get(d.id)).find((rt) => rt.status === 'error' || rt.status === 'auth-needed');
+        return bad ? `${sourcesLib.label(bad.def)}: ${bad.error}` : null;
     }
 
     /* Sends the state to every client, at most every 250 ms. */
@@ -560,33 +729,93 @@ class Updater {
         }, 250);
     }
 
+    /* A credential whose token has run out gets a new one from its refresh token. */
+    freshToken(id) {
+        const meta = this.credentials.meta(id);
+        if (!meta.expiresAt || meta.expiresAt > Date.now() + 60000 || !this.credentials.token(id)) {
+            return Promise.resolve();
+        }
+        return this.login.refresh(meta).then((r) => {
+            if (r) {
+                this.credentials.set(id, r.token, r.meta);
+                console.log(`source ${id}: token renewed`);
+            }
+        });
+    }
+
+    /* Reads one source: ok, auth-needed (the repo answers 401/404: no token,
+     * or one without access), offline (no uplink), or error. A source that
+     * cannot be read keeps the components it listed last. */
+    checkSource(id) {
+        const rt = this.src.get(id);
+        if (!rt) {
+            return Promise.resolve();
+        }
+        if (rt.checking) {
+            return rt.checking;
+        }
+        if (rt.reader.network && !readLease(this.conf).online) {
+            rt.status = 'offline';
+            rt.answered = false;
+            this.changed();
+            return Promise.resolve();
+        }
+        rt.status = 'checking';
+        this.changed();
+        rt.checking = this.freshToken(id)
+            .then(() => rt.reader.catalog())
+            .then((cat) => {
+                Object.assign(rt, { components: cat.components, mode: cat.mode, channel: cat.channel || rt.channel, commit: cat.commit || null,
+                    status: 'ok', error: cat.skipped && cat.skipped.length ? `left out: ${cat.skipped.join('; ')}` : null,
+                    checkedAt: Date.now(), answered: true });
+                if (rt.def.type !== 'usb') {
+                    mkdirp(path.dirname(this.cacheFile(id)), 0o700);
+                    writeAtomic(this.cacheFile(id), JSON.stringify({ mode: rt.mode, channel: rt.channel, commit: rt.commit,
+                        components: rt.components, checkedAt: rt.checkedAt }));
+                }
+                console.log(`source ${id}${rt.channel ? ` (${rt.channel})` : ''}: ${rt.mode}${rt.commit ? ` ${rt.commit.slice(0, 7)}` : ''}, ` +
+                    `${cat.components.map((c) => `${c.id}@${c.version}`).join(' ') || 'nothing'}${rt.error ? `; ${rt.error}` : ''}`);
+            }, (err) => {
+                rt.status = err.auth ? 'auth-needed' : 'error';
+                rt.error = err.message;
+                rt.answered = err.status !== undefined || !!err.auth;
+                console.log(`source ${id}: ${rt.status}: ${err.message}`);
+            })
+            .then(() => {
+                rt.checking = null;
+                this.changed();
+            });
+        return rt.checking;
+    }
+
+    /* The USB media mounted now (README.md, "USB media"). Returns true when
+     * the list changed; new ones are read. */
+    scanUsb() {
+        const found = sourcesLib.usbSources(this.conf.mounts || '/proc/mounts', String(this.conf.usb_roots || '/media').split(/[\s,]+/).filter(Boolean))
+            .map((u) => ({ id: u.id, type: 'usb', label: u.label, root: u.root }));
+        const key = (l) => l.map((u) => `${u.id}\0${u.root}`).join('\n');
+        if (key(found) === key(this.usb)) {
+            return false;
+        }
+        this.usb.forEach((u) => this.src.delete(u.id));
+        this.usb = found;
+        found.forEach((u) => {
+            this.addRuntime(u);
+            console.log(`usb: ${u.id} at ${u.root}`);
+            this.checkSource(u.id);
+        });
+        this.changed();
+        return true;
+    }
+
     check() {
         if (this.checking) {
             return this.checking;
         }
         this.changed();
         this.rebootError = null;
-        this.checking = Promise.resolve()
-            .then(() => {
-                if (this.keyError) {
-                    throw new Error(this.keyError);
-                }
-                return this.source.catalogText();
-            })
-            .then((text) => {
-                const catalog = catalogLib.parse(text, this.publicKey);
-                mkdirp(this.conf.state_dir, 0o755);
-                fs.writeFileSync(`${this.catalogFile}.tmp`, text);
-                fs.renameSync(`${this.catalogFile}.tmp`, this.catalogFile);
-                this.catalog = catalog;
-                this.catalogError = null;
-                this.checkedAt = Date.now();
-                console.log(`catalog ${catalog.commit}: ${catalog.components.map((c) => `${c.id}@${c.version}`).join(' ')}`);
-            })
-            .catch((err) => {
-                this.catalogError = err.message;
-                console.log(`catalog check failed: ${err.message}`);
-            })
+        this.scanUsb();
+        this.checking = Promise.all(this.defs().map((d) => this.checkSource(d.id)))
             .then(() => this.refresh())
             .then(() => {
                 this.checking = null;
@@ -595,19 +824,106 @@ class Updater {
         return this.checking;
     }
 
+    /* The version installed of id, or null. */
+    installedVersion(id, kind) {
+        const i = this.installedOf(id, kind);
+        return i ? i.version : null;
+    }
+
+    /* An entry of dep at least min: from source first, else any source in order. */
+    findRequirement(dep, min, source) {
+        const order = [source].concat(this.defs().map((d) => d.id).filter((id) => id !== source));
+        for (let i = 0; i < order.length; i += 1) {
+            const rt = this.src.get(order[i]);
+            const e = rt && rt.components.find((c) => c.id === dep && catalogLib.compareVersions(c.version, min) >= 0);
+            if (e) {
+                return { entry: e, source: order[i] };
+            }
+        }
+        return null;
+    }
+
+    /* What installing r takes, requirements first: [{ id, source }]. */
+    installPlan(r, chain) {
+        const steps = [];
+        Object.keys(r.entry.requires).forEach((dep) => {
+            const min = r.entry.requires[dep];
+            if (chain.indexOf(dep) >= 0) {
+                throw new Error(`${r.entry.id} and ${dep} require each other`);
+            }
+            const have = this.installedVersion(dep);
+            if (have && catalogLib.compareVersions(have, min) >= 0) {
+                return;
+            }
+            const found = this.findRequirement(dep, min, r.source);
+            if (!found) {
+                throw new Error(`needs ${dep} ${min} or newer, which no source has`);
+            }
+            this.installPlan(found, chain.concat([r.entry.id])).forEach((s) => {
+                if (!steps.some((x) => x.id === s.id)) {
+                    steps.push(s);
+                }
+            });
+        });
+        steps.push({ id: r.entry.id, source: r.source });
+        return steps;
+    }
+
+    enqueue(item) {
+        if ((this.busy && this.busy.id === item.id) || this.queue.some((q) => q.id === item.id)) {
+            return;
+        }
+        delete this.errors[item.id];
+        this.queue.push(item);
+    }
+
+    /* Queues an install of id, after the requirements it lacks. */
     request(id) {
         if (this.rebooting) {
             return 'the head unit is restarting';
         }
-        const entry = this.catalog && this.catalog.components.find((c) => c.id === id);
-        if (!entry) {
-            return `${id} is not in the catalog`;
+        const r = this.resolved().get(id);
+        if (!r) {
+            return `${id} is not in any source`;
         }
-        if ((this.busy && this.busy.id === id) || this.queue.indexOf(id) >= 0) {
+        let steps;
+        try {
+            steps = this.installPlan(r, []);
+        } catch (e) {
+            this.errors[id] = e.message;
+            this.changed();
             return null;
         }
-        delete this.errors[id];
-        this.queue.push(id);
+        steps.forEach((s) => this.enqueue({ op: 'install', id: s.id, source: s.source }));
+        this.changed();
+        if (!this.busy) {
+            this.next();
+        }
+        return null;
+    }
+
+    /* Queues a removal of id: one its source marks uninstallable, installed,
+     * that nothing installed requires. */
+    requestUninstall(id) {
+        if (this.rebooting) {
+            return 'the head unit is restarting';
+        }
+        const all = this.resolved();
+        const r = all.get(id);
+        if (!r) {
+            return `${id} is not in any source`;
+        }
+        if (!r.entry.uninstallable || id === SELF || id === this.conf.deploy_tool) {
+            return `${id} cannot be removed`;
+        }
+        if (!this.installedVersion(id, r.entry.kind)) {
+            return `${id} is not installed`;
+        }
+        const needs = Array.from(all.values()).find((o) => o.entry.requires[id] && this.installedVersion(o.entry.id, o.entry.kind));
+        if (needs) {
+            return `${needs.entry.title} needs ${id}`;
+        }
+        this.enqueue({ op: 'uninstall', id });
         this.changed();
         if (!this.busy) {
             this.next();
@@ -659,20 +975,14 @@ class Updater {
     /* Takes the next request; the updater's own update goes last, since it
      * restarts the daemon and a queue does not survive that. */
     next() {
-        const other = this.queue.findIndex((q) => q !== SELF);
-        const id = this.queue.splice(other >= 0 ? other : 0, 1)[0];
-        if (!id) {
+        const other = this.queue.findIndex((q) => q.id !== SELF);
+        const item = this.queue.splice(other >= 0 ? other : 0, 1)[0];
+        if (!item) {
             this.busy = null;
             this.changed();
             return;
         }
-        const entry = this.catalog && this.catalog.components.find((c) => c.id === id);
-        if (!entry) {
-            this.errors[id] = 'no longer in the catalog';
-            this.next();
-            return;
-        }
-        this.install(entry).then((handover) => {
+        (item.op === 'uninstall' ? this.uninstall(item) : this.install(item)).then((handover) => {
             if (handover) {
                 this.handover();
                 return;
@@ -681,13 +991,68 @@ class Updater {
         });
     }
 
-    /* Downloads, verifies and installs one catalog entry. Resolves true when
-     * the updater installed a new version of itself. */
-    install(entry) {
-        const id = entry.id;
-        this.busy = { id, phase: 'download', progress: 0, total: entry.artifact.size };
+    saveOrigins() {
+        mkdirp(this.conf.state_dir, 0o755);
+        writeAtomic(path.join(this.conf.state_dir, 'origins.json'), JSON.stringify(this.origins, null, 1));
+    }
+
+    /* The deploy tool's SDK donor (`sdk-donor --json`: { path }), for a repo's build script. */
+    sdkDonor() {
+        return new Promise((resolve, reject) => {
+            cp.execFile(this.conf.deploy, ['sdk-donor', '--json'], { timeout: 300000, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
+                let p = null;
+                try {
+                    p = JSON.parse(String(stdout).trim().split('\n').pop()).path;
+                } catch (e) { /* no answer */ }
+                if (err || typeof p !== 'string' || !p) {
+                    const why = /mgu-deploy: (.+)/.exec(String(stderr)) || /mgu-deploy: (.+)/.exec(String(stdout));
+                    reject(new Error(`no SDK donor for the build${why ? `: ${why[1]}` : ''}`));
+                    return;
+                }
+                resolve(p);
+            });
+        });
+    }
+
+    /* The bytes to hand the deploy tool for entry: the file a catalog or a
+     * release lists, or a repo-tree component packed from the repo's files
+     * at its commit (a source package or tool kit), or the package the
+     * repo's build script makes. */
+    artifact(rt, entry) {
+        const progress = (bytes, total) => {
+            this.busy.progress = bytes;
+            if (total && !this.busy.total) {
+                this.busy.total = total;
+            }
+            this.changed();
+        };
+        if (!entry.path) {
+            return rt.reader.artifact(entry, progress);
+        }
+        return rt.reader.files(entry.commit, progress).then((files) => {
+            if (!entry.script) {
+                return sourcesLib.packComponent(entry, sourcesLib.subtree(files, entry.path));
+            }
+            this.busy.phase = 'build';
+            this.changed();
+            return this.sdkDonor().then((donor) => runBuild({ conf: this.conf, entry, files, donor, log: (l) => console.log(l) }));
+        });
+    }
+
+    /* Downloads (or builds), verifies and installs one component. Resolves
+     * true when the updater installed a new version of itself. */
+    install(item) {
+        const id = item.id;
+        const rt = this.src.get(item.source);
+        const entry = rt && rt.components.find((c) => c.id === id);
+        if (!entry) {
+            this.errors[id] = 'no longer in its source';
+            return Promise.resolve(false);
+        }
+        this.busy = { id, phase: 'download', progress: 0, total: entry.artifact.size || null };
         this.changed();
-        console.log(`${id}@${entry.version}: download (${entry.artifact.size} bytes)`);
+        console.log(`${id}@${entry.version}: download from ${item.source}${entry.revision ? ` at ${entry.revision}` : ''}` +
+            `${entry.artifact.size ? ` (${entry.artifact.size} bytes)` : ''}`);
         const verifiedDir = path.join(this.conf.state_dir, 'verified');
         const verified = path.join(verifiedDir, entry.artifact.name);
         const trial = path.join(this.conf.tool_root, SELF, 'trial');
@@ -695,15 +1060,21 @@ class Updater {
         const toolDir = path.join(this.conf.tool_root, id);
         let before = null;
         return Promise.resolve()
-            .then(() => this.source.artifact(entry, (bytes) => {
-                this.busy.progress = bytes;
-                this.changed();
-            }))
+            .then(() => {
+                Object.keys(entry.requires).forEach((dep) => {
+                    const have = this.installedVersion(dep);
+                    if (!have || catalogLib.compareVersions(have, entry.requires[dep]) < 0) {
+                        throw new Error(`needs ${dep} ${entry.requires[dep]} or newer${dep === SELF ? ': update the updater first' : ''}`);
+                    }
+                });
+                return this.artifact(rt, entry);
+            })
             .then((bytes) => {
                 this.busy.phase = 'verify';
                 this.changed();
                 console.log(`${id}@${entry.version}: verify`);
-                if (bytes.length !== entry.artifact.size || sha256(bytes) !== entry.artifact.sha256) {
+                if ((entry.artifact.size && bytes.length !== entry.artifact.size) ||
+                    (entry.artifact.sha256 && sha256(bytes) !== entry.artifact.sha256)) {
                     throw new Error('download does not match the catalog (size or sha256)');
                 }
                 // the checked bytes, root's alone, are what the deploy tool reads
@@ -712,9 +1083,10 @@ class Updater {
                 if (!fs.existsSync(this.conf.deploy)) {
                     throw new Error(`deploy tool missing (${this.conf.deploy})`);
                 }
-                this.busy.phase = 'install';
+                // a source package is built by the deploy tool, then installed
+                this.busy.phase = entry.build === 'unit' && !entry.script ? 'build' : 'install';
                 this.changed();
-                console.log(`${id}@${entry.version}: install`);
+                console.log(`${id}@${entry.version}: install (sha256 ${sha256(bytes).slice(0, 12)})`);
                 try {
                     before = fs.readlinkSync(path.join(toolDir, 'current'));
                 } catch (e) { /* not installed yet */ }
@@ -732,6 +1104,8 @@ class Updater {
                         `install failed${why ? ': ' + why : ''}; the previous version was kept`);
                 }
                 console.log(`installed ${id}@${entry.version}`);
+                this.origins[id] = { source: item.source, commit: entry.commit || null };
+                this.saveOrigins();
                 return this.bootstrapCheck(entry, toolDir, before);
             })
             .then(() => self)
@@ -748,11 +1122,41 @@ class Updater {
                     fs.unlinkSync(verified);
                 }
                 return this.refresh().then(() => {
+                    this.writeSecrets();
                     console.log(`${id}@${entry.version}: done`);
                     this.busy = null;
                     this.changed();
                     return handover;
                 });
+            });
+    }
+
+    /* Removes a component through the deploy tool's uninstall. */
+    uninstall(item) {
+        const id = item.id;
+        this.busy = { id, phase: 'uninstall' };
+        this.changed();
+        console.log(`${id}: uninstall`);
+        return this.deployTool(['uninstall', id, '--yes'])
+            .then((code) => {
+                if (code !== 0) {
+                    const why = this.deployError;
+                    throw new Error(code === 2 ? `${why || 'refused by the deploy tool'}; nothing changed` :
+                        `uninstall failed${why ? ': ' + why : ''}`);
+                }
+                console.log(`uninstalled ${id}`);
+                delete this.origins[id];
+                this.saveOrigins();
+            })
+            .catch((err) => {
+                console.log(`${id}: ${err.message}`);
+                this.errors[id] = err.message;
+            })
+            .then(() => this.refresh())
+            .then(() => {
+                this.busy = null;
+                this.changed();
+                return false;
             });
     }
 
@@ -810,11 +1214,24 @@ class Updater {
         return Promise.resolve();
     }
 
-    /* The catalog can be fetched again within ms: the internet works. */
+    /* A network source answers within ms (or there is none): the internet works. */
     online(ms) {
         const deadline = Date.now() + ms;
+        const net = this.stored.map((d) => this.src.get(d.id)).filter((rt) => rt.reader.network);
         const attempt = () => Promise.resolve()
-            .then(() => (readLease(this.conf).online ? this.source.catalogText() : Promise.reject(new Error('no lease'))))
+            .then(() => {
+                if (!readLease(this.conf).online) {
+                    throw new Error('no lease');
+                }
+                if (!net.length) {
+                    return undefined;
+                }
+                return net[0].reader.catalog().catch((err) => {
+                    if (err.status === undefined && !err.auth) {
+                        throw err;
+                    }
+                });
+            })
             .then(() => true, () => {
                 if (Date.now() >= deadline) {
                     return false;
@@ -854,6 +1271,257 @@ class Updater {
             child.on('error', () => resolve(1));
             child.on('close', (code) => resolve(code));
         });
+    }
+
+    /* ---- privileged requests ---- */
+
+    /* The per-start secret, for the Store (in its own data folder, its uid's,
+     * 0400) and the phone page (web_secret, web_uid's, 0400). Only they can
+     * make the privileged requests. */
+    writeSecrets() {
+        const conf = this.conf;
+        if (conf.web_secret) {
+            try {
+                const dir = path.dirname(conf.web_secret);
+                mkdirp(dir, 0o755);
+                const st = fs.lstatSync(dir);
+                if (!st.isDirectory() || st.uid !== process.getuid() || (st.mode & 0o022)) {
+                    throw new Error(`${dir} is not root's own folder`);
+                }
+                const tmp = `${conf.web_secret}.tmp`;
+                rmIfThere(tmp);
+                const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o400);
+                fs.writeSync(fd, this.secret);
+                if (process.getuid() === 0) {
+                    fs.fchownSync(fd, Number(conf.web_uid), Number(conf.web_gid));
+                }
+                fs.fchmodSync(fd, 0o400);
+                fs.closeSync(fd);
+                fs.renameSync(tmp, conf.web_secret);
+            } catch (e) {
+                console.log(`web secret: ${e.message}`);
+            }
+        }
+        const store = this.storeData();
+        if (!store) {
+            this.storeSecretUid = null;
+            return Promise.resolve();
+        }
+        this.storeSecretUid = store.uid;
+        return writeAs(path.join(store.data, 'updater-secret'), this.secret, store.uid, store.gid)
+            .catch((e) => {
+                this.storeSecretUid = null;
+                console.log(`store secret: ${e.message}`);
+            })
+            .then(() => this.syncWebUrl(true));
+    }
+
+    /* The Store's uid and data folder, or null while it has none. */
+    storeData() {
+        const uid = storeUid(this.conf);
+        if (!uid) {
+            return null;
+        }
+        const data = path.join(this.conf.oap_root, `oap_${uid}`, 'data');
+        try {
+            return { uid, gid: fs.statSync(data).gid, data };
+        } catch (e) {
+            return null; // the Store has no data folder yet
+        }
+    }
+
+    /* While the phone page is on, the Store's data folder holds its address
+     * on the hotspot with the access token (web-url, the Store's own 0400
+     * file), for the QR code; otherwise there is none. force: write it
+     * again even when the address is the same (the Store's uid changed). */
+    syncWebUrl(force) {
+        const url = web && this.webEnabled ? web.accessUrls().find((u) => !/^https?:\/\/(127\.|localhost)/.test(u)) || null : null;
+        if (url === this.webUrl && !force) {
+            return Promise.resolve();
+        }
+        this.webUrl = url;
+        const store = this.storeData();
+        if (!store) {
+            return Promise.resolve();
+        }
+        // the Store reads the file when a state arrives: one goes out once it is written
+        return writeAs(path.join(store.data, 'web-url'), url ? `${url}\n` : '', store.uid, store.gid)
+            .catch((e) => console.log(`web-url: ${e.message}`))
+            .then(() => this.changed());
+    }
+
+    /* The phone page on or off (web.js); its changes re-send the state. */
+    applyWeb() {
+        return web.setEnabled(this.conf, this.webEnabled, (l) => console.log(l), () => {
+            this.changed();
+            this.syncWebUrl();
+        });
+    }
+
+    authorized(secret) {
+        const a = Buffer.from(String(secret || ''));
+        const b = Buffer.from(this.secret);
+        return a.length === b.length && crypto.timingSafeEqual(a, b);
+    }
+
+    saveSources(list) {
+        sourcesLib.save(this.conf.sources, list);
+        this.stored = list;
+        this.sourcesError = null;
+    }
+
+    sourceAdd(req) {
+        let def;
+        const taken = (id) => this.stored.some((s) => s.id === id);
+        const newId = (want) => (want && ID.test(want) && !taken(want) ? want : `s-${crypto.randomBytes(2).toString('hex')}`);
+        if (req.type === 'github') {
+            if (!sourcesLib.REPO.test(req.repo || '')) {
+                return 'repo must be <owner>/<repo>';
+            }
+            if (req.channel !== undefined && req.channel !== null && !sourcesLib.CHANNEL.test(req.channel)) {
+                return 'channel must be releases, tags or branch:<name>';
+            }
+            if (this.stored.some((s) => s.type === 'github' && s.repo.toLowerCase() === req.repo.toLowerCase())) {
+                return `${req.repo} is already a source`;
+            }
+            def = { id: newId(req.repo.split('/')[1].toLowerCase()), type: 'github', repo: req.repo };
+            if (req.channel) {
+                def.channel = req.channel;
+            }
+        } else if (req.type === 'https') {
+            try {
+                def = sourcesLib.checkStored({ id: newId(null), type: 'https', url: req.url });
+            } catch (e) {
+                return 'url must be https://';
+            }
+            if (this.stored.some((s) => s.url === req.url)) {
+                return `${req.url} is already a source`;
+            }
+        } else {
+            return 'type must be github or https';
+        }
+        this.saveSources(this.stored.concat([def]));
+        this.addRuntime(def);
+        console.log(`source ${def.id}: added (${sourcesLib.label(def)}${def.channel ? `, ${def.channel}` : ''})`);
+        this.checkSource(def.id);
+        return null;
+    }
+
+    sourceRemove(id) {
+        const def = this.stored.find((s) => s.id === id);
+        if (!def) {
+            return `no source ${id}`;
+        }
+        if (def.builtin) {
+            return 'the Store\'s own source cannot be removed';
+        }
+        this.saveSources(this.stored.filter((s) => s.id !== id));
+        this.src.delete(id);
+        this.credentials.clear(id);
+        rmIfThere(this.cacheFile(id));
+        Object.keys(this.origins).forEach((c) => {
+            if (this.origins[c].source === id) {
+                delete this.origins[c];
+            }
+        });
+        this.saveOrigins();
+        const login = this.login.state();
+        if (login && login.source === id) {
+            this.login.cancel();
+        }
+        console.log(`source ${id}: removed`);
+        this.changed();
+        return null;
+    }
+
+    tokenSet(id, token) {
+        const def = this.stored.find((s) => s.id === id);
+        if (!def || def.type === 'file') {
+            return `no source ${id} that takes a token`;
+        }
+        if (typeof token !== 'string' || !sourcesLib.TOKEN.test(token.trim())) {
+            return 'a token is 1 to 1024 printable characters without spaces';
+        }
+        const t = token.trim();
+        this.credentials.set(id, t, { kind: def.type === 'github' ? 'github' : 'token', login: null });
+        console.log(`source ${id}: token set`);
+        const after = def.type === 'github' ? this.login.account(t).then((login) => {
+            if (login && this.credentials.token(id) === t) {
+                this.credentials.setMeta(id, { kind: 'github', login });
+            }
+        }) : Promise.resolve();
+        after.then(() => this.checkSource(id));
+        this.changed();
+        return null;
+    }
+
+    tokenClear(id) {
+        if (!this.stored.some((s) => s.id === id)) {
+            return `no source ${id}`;
+        }
+        this.credentials.clear(id);
+        console.log(`source ${id}: token cleared`);
+        this.checkSource(id);
+        this.changed();
+        return null;
+    }
+
+    loginStart(id) {
+        const def = this.stored.find((s) => s.id === id);
+        if (!def || def.type !== 'github') {
+            return `no GitHub source ${id}`;
+        }
+        return this.login.start(id);
+    }
+
+    setWeb(enabled) {
+        if (!web) {
+            return 'this updater has no phone page';
+        }
+        this.webEnabled = enabled;
+        mkdirp(this.conf.state_dir, 0o755);
+        writeAtomic(path.join(this.conf.state_dir, 'web.json'), JSON.stringify({ enabled }));
+        Promise.resolve(this.applyWeb()).then(() => this.syncWebUrl());
+        this.syncWebUrl();
+        this.changed();
+        return null;
+    }
+
+    /* A unit's journal for the phone page: {type:"logs", unit, text}. */
+    logs(req, reply) {
+        if (!web) {
+            return 'this updater has no phone page';
+        }
+        if (web.UNITS.indexOf(req.unit) < 0) {
+            return `no journal for ${req.unit}`;
+        }
+        web.journal(req.unit, req.lines, (err, text) => reply(err ? { type: 'error', op: 'logs', error: err.message } :
+            { type: 'logs', unit: req.unit, text }));
+        return undefined;
+    }
+
+    /* One request; returns the reason it is refused, null when the state
+     * answers it, or undefined when it answers later through reply(msg). */
+    handle(req, reply) {
+        if (PRIVILEGED.indexOf(req.op) >= 0 && !this.authorized(req.secret)) {
+            return 'forbidden';
+        }
+        switch (req.op) {
+        case 'status': return null;
+        case 'check': this.check(); return null;
+        case 'install': return typeof req.id === 'string' ? this.request(req.id) : 'install needs an id';
+        case 'reboot': return this.reboot();
+        case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id) : 'uninstall needs an id';
+        case 'source-add': return this.sourceAdd(req);
+        case 'source-remove': return this.sourceRemove(req.id);
+        case 'login-start': return this.loginStart(req.source);
+        case 'login-cancel': this.login.cancel(); return null;
+        case 'token-set': return this.tokenSet(req.source, req.token);
+        case 'token-clear': return this.tokenClear(req.source);
+        case 'web': return this.setWeb(req.enable === true);
+        case 'logs': return this.logs(req, reply);
+        default: return `unknown op ${req.op}`;
+        }
     }
 
     /* The new version is in place: the supervisor starts it once we exit. */
@@ -906,9 +1574,10 @@ class Updater {
         });
     }
 
-    /* One JSON request per line: {op:"status"} | {op:"check"} | {op:"install", id}
-     * | {op:"reboot"}. Every client gets the full state on connect and
-     * whenever it changes. */
+    /* One JSON request per line (README.md, "The socket"). Every client gets
+     * the full state on connect and whenever it changes; a refused request
+     * gets {type:"error", op, error}. The direct answer to a request carries
+     * its "rid". */
     accept(s) {
         this.clients.add(s);
         s.on('close', () => this.clients.delete(s));
@@ -932,24 +1601,38 @@ class Updater {
                 } catch (e) {
                     continue;
                 }
-                let error = null;
-                if (req.op === 'check') {
-                    this.check();
-                } else if (req.op === 'install' && typeof req.id === 'string') {
-                    error = this.request(req.id);
-                } else if (req.op === 'reboot') {
-                    error = this.reboot();
-                } else if (req.op !== 'status') {
-                    error = `unknown op ${req.op}`;
+                if (!req || typeof req !== 'object') {
+                    continue;
                 }
-                s.write(JSON.stringify(error ? { type: 'error', op: req.op, error } : this.state()) + '\n');
+                const rid = (typeof req.rid === 'string' && req.rid.length <= 64) || Number.isInteger(req.rid) ? { rid: req.rid } : {};
+                const reply = (msg) => {
+                    if (!s.destroyed) {
+                        s.write(JSON.stringify(Object.assign(msg, rid)) + '\n');
+                    }
+                };
+                let error;
+                try {
+                    error = this.handle(req, reply);
+                } catch (e) {
+                    error = e.message;
+                }
+                if (error !== undefined) {
+                    reply(error ? { type: 'error', op: req.op, error } : this.state());
+                }
             }
         });
     }
 
-    /* A version on trial is kept once it has done its job end to end: the
-     * catalog fetched through the uplink (verified, or an HTTP answer from
-     * the server: its network path works), and a deploy tool that answers.
+    /* Some network source was reached on the last check (a listing, or an
+     * HTTP answer from its server), or there is none. */
+    reached() {
+        const net = this.stored.map((d) => this.src.get(d.id)).filter((rt) => rt.reader.network);
+        return !net.length || net.some((rt) => rt.answered);
+    }
+
+    /* A version on trial is kept once it has done its job end to end: a
+     * source read through the uplink (a listing, or an HTTP answer from its
+     * server: its network path works), and a deploy tool that answers.
      * It keeps trying until TRIAL_WAIT_MS, so a start before the uplink is
      * up (a boot) or a passing network error is not taken for a broken
      * version. Otherwise it exits and the supervisor goes back to the version
@@ -961,8 +1644,7 @@ class Updater {
         const local = path.join(this.conf.tool_root, SELF, 'trial-local');
         const needsCatalog = !fs.existsSync(local);
         const deadline = Date.now() + TRIAL_WAIT_MS;
-        const reached = () => !this.catalogError || /^HTTP \d+ from /.test(this.catalogError);
-        const fetched = () => !needsCatalog || (readLease(this.conf).online && reached());
+        const fetched = () => !needsCatalog || (readLease(this.conf).online && this.reached());
         const attempt = () => (!needsCatalog ? Promise.resolve() : (readLease(this.conf).online ? this.check() : Promise.resolve())
             .then(() => fetched() || Date.now() >= deadline ? undefined
                 : new Promise((r) => setTimeout(r, 3000)).then(attempt)));
@@ -981,7 +1663,7 @@ class Updater {
                 }
                 const reason = fetched() ? 'the deploy tool does not answer it' :
                     !readLease(this.conf).online ? 'there was no internet to check it with' :
-                        `it cannot fetch the catalog (${this.catalogError})`;
+                        `it cannot fetch the catalog (${this.catalogError()})`;
                 console.log(`${this.version} not kept: ${reason}`);
                 writeAtomic(path.join(this.conf.tool_root, SELF, 'trial-reason'), `${reason}\n`);
                 process.exit(1);
@@ -991,6 +1673,12 @@ class Updater {
     run() {
         return this.serve().then(() => {
             this.fetcher.clean();
+            cleanBuilds(this.conf);
+            this.writeSecrets();
+            if (web) {
+                // also with false: it removes a firewall rule an earlier run left
+                Promise.resolve(this.applyWeb()).then(() => this.syncWebUrl(true));
+            }
             const trial = path.join(this.conf.tool_root, SELF, 'trial');
             if (fs.existsSync(trial)) {
                 this.commitTrial(trial);
@@ -1015,11 +1703,17 @@ class Updater {
             let wasOnline = readLease(this.conf).online;
             setTimeout(() => this.check(), Number(this.conf.first_check_s) * 1000);
             setInterval(() => this.check(), Number(this.conf.check_interval_s) * 1000);
+            // USB media: nothing announces a stick, so the mounts are looked at
+            setInterval(() => this.scanUsb(), (Number(this.conf.usb_poll_s) || 5) * 1000);
             // A version installed from outside (the deploy tool run from the
             // Mac) is taken up on trial too, with this one to return to; it
             // commits without the catalog (trial-local, commitTrial).
             const current = path.join(this.conf.tool_root, SELF, 'current');
             setInterval(() => {
+                // the Store installed or reinstalled under another uid gets the secret
+                if (storeUid(this.conf) !== this.storeSecretUid) {
+                    this.writeSecrets();
+                }
                 let target;
                 try {
                     target = fs.realpathSync(current);
@@ -1134,4 +1828,6 @@ if (require.main === module) {
     cli(process.argv.slice(2));
 }
 
-module.exports = { Updater, Fetcher, loadConf, makeSource, installedApp, installedTool, fileLog };
+module.exports = { Updater, Fetcher, loadConf, installedApp, installedTool, fileLog,
+    // tests: a stand-in phone page
+    _setWeb: (w) => { web = w; } };
