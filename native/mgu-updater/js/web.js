@@ -659,6 +659,10 @@ try {
   if (m) { sessionStorage.setItem(KEY, m[1]); } else { token = sessionStorage.getItem(KEY); }
 } catch (e) { /* private mode: the token lives in this page only */ }
 if (m) { history.replaceState(null, '', location.pathname); }
+// a code scanned again in a tab showing the page changes only the fragment
+window.addEventListener('hashchange', function () {
+  if (/^#t=[0-9a-f]+$/.test(location.hash)) { location.reload(); }
+});
 var STATUS = { ok: 'OK', checking: 'Checking', error: 'Error', 'auth-needed': 'Sign-in needed', offline: 'Offline',
   installed: 'Installed', update: 'Update', available: 'Available', newer: 'Newer' };
 var PHASE = { download: 'Downloading', verify: 'Verifying', install: 'Installing', check: 'Checking', build: 'Building' };
