@@ -213,6 +213,11 @@ function ghApi(req, res, auth) {
         send(f ? 200 : 404, !f ? { message: 'Not Found' } : rawWanted ? f[0] : { type: 'file', encoding: 'base64', content: f[0].toString('base64') });
     } else if (rest.indexOf('/tarball/') === 0) {
         const sha = rest.slice('/tarball/'.length);
+        // GitHub refuses a tarball request that accepts only application/octet-stream
+        if (/^application\/octet-stream$/.test(req.headers.accept || '')) {
+            send(415, { message: 'Unsupported \'Accept\' header' });
+            return;
+        }
         send(302, '', { Location: `https://codeload.github.com:${HTTPS_PORT}/${m[1]}/legacy.tar.gz/${sha}` });
     } else {
         send(404, { message: 'Not Found' });
