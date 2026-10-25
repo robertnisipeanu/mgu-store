@@ -165,14 +165,20 @@ function phoneState(web) {
     return web.enabled ? 'On' : 'Off';
 }
 
-/* The page's address a phone on the car's hotspot can open: the first one
- * that is not the unit's loopback. */
-function phoneUrl(web) {
+/* What the Phone access page shows while the page is on: the QR code and
+ * text of the access URL (with its token) the updater leaves in the app's
+ * data folder (`web-url`, its first line), or, without one, the token-free
+ * address of the state as text only. */
+function phoneAddress(web, fileText) {
     if (!web.enabled) {
-        return '';
+        return { qr: '', text: '' };
     }
-    return (web.urls || []).find((u) => !/^https?:\/\/(127\.|localhost[:/])/.test(u)) || '';
+    const line = String(fileText || '').split('\n')[0].trim();
+    if (/^https?:\/\/\S+$/.test(line)) {
+        return { qr: line, text: line };
+    }
+    return { qr: '', text: (web.urls && web.urls[0]) || '' };
 }
 
 module.exports = { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
-    sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneUrl };
+    sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneAddress };

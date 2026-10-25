@@ -45,14 +45,17 @@ const { UpdaterClient } = require('./client.js');
 const { qrPng } = require('./qr.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState,
-    phoneUrl } = require('./store_view.js');
+    phoneAddress } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 
 const SOCKET = '/dev/shm/mgu-updater/updater.sock';
-/* The updater writes the privileged secret here (owner this app's uid,
- * 0400); it is read again for every privileged request. */
-const SECRET_FILE = path.join(__dirname, '..', '..', 'data', 'updater-secret');
+/* The updater writes the privileged secret, and while the phone page is on
+ * its access URL, into this app's data folder (owner this app's uid, 0400);
+ * both are read again on every use. */
+const DATA_DIR = path.join(__dirname, '..', '..', 'data');
+const SECRET_FILE = path.join(DATA_DIR, 'updater-secret');
+const WEB_URL_FILE = path.join(DATA_DIR, 'web-url');
 const RECONNECT_MS = 2000;
 const PRESS_DEDUPE_MS = 400;
 const HIDE_SETTLE_MS = 800;
@@ -92,12 +95,16 @@ function isTrue(raw) {
     return raw === true || raw === 'true' || raw === 1 || raw === '1';
 }
 
-function readSecret() {
+function readFile(file) {
     try {
-        return fs.readFileSync(SECRET_FILE, 'utf8').trim() || null;
+        return fs.readFileSync(file, 'utf8');
     } catch (e) {
-        return null;
+        return '';
     }
+}
+
+function readSecret() {
+    return readFile(SECRET_FILE).trim() || null;
 }
 
 /* The HMI reads pictures as another user: QR codes live in a world-readable
@@ -605,13 +612,13 @@ class Store extends OnlineApp {
     }
 
     _renderPhone(web) {
-        const url = web ? phoneUrl(web) : '';
+        const address = web ? phoneAddress(web, web.enabled ? readFile(WEB_URL_FILE) : '') : { qr: '', text: '' };
         if (web) {
             this._set(C.phoneToggle, 'Text2ndCol', phoneState(web), 'Text');
         }
-        this._text(C.phoneUrl, url);
+        this._text(C.phoneUrl, address.text);
         this._text(C.phoneError, web && web.error ? String(web.error) : '');
-        this._showQr('phone', C.phoneQr, url, '');
+        this._showQr('phone', C.phoneQr, address.qr, '');
     }
 
     /* A list's row count follows its rows ([1st column, 2nd column]). A cell

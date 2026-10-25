@@ -7,7 +7,7 @@
  */
 const assert = require('assert');
 const { rowState, rowAction, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
-    sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneUrl } = require('../src/store_view.js');
+    sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneAddress } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
@@ -17,8 +17,9 @@ const src = (o) => Object.assign({ id: 'mgu-apps', type: 'github', label: 'rober
     usb: false, status: 'ok', error: null, auth: null, checkedAt: 0, components: 7 }, o);
 const login = (o) => Object.assign({ source: 'mgu-apps', url: 'https://github.com/login/device', code: 'ABCD-1234',
     expiresAt: 0, status: 'pending', error: null }, o);
-const web = (o) => Object.assign({ enabled: true, error: null,
-    urls: ['http://127.0.0.1:8470/#t=abc', 'http://172.16.222.97:8470/#t=abc'] }, o);
+const web = (o) => Object.assign({ enabled: true, error: null, urls: ['http://172.16.222.97:8470/'] }, o);
+const TOKEN_URL = 'http://172.16.222.97:8470/#t=0123abcd';
+const address = (w, file) => JSON.stringify(phoneAddress(w, file));
 const cases = [
     [rowState(row({}), null), 'Update 1.0.1'],
     [rowState(row({ status: 'available', installed: null }), null), 'Install 1.0.1'],
@@ -98,11 +99,15 @@ const cases = [
     [loginCode(null, 'mgu-apps'), ''],
     [phoneState(web({})), 'On'],
     [phoneState(web({ enabled: false })), 'Off'],
-    [phoneUrl(web({})), 'http://172.16.222.97:8470/#t=abc'],
-    [phoneUrl(web({ urls: ['http://localhost:8470/#t=abc'] })), ''],
-    [phoneUrl(web({ urls: [] })), ''],
-    [phoneUrl(web({ urls: undefined })), ''],
-    [phoneUrl(web({ enabled: false })), ''],
+    [address(web({}), `${TOKEN_URL}\n`), JSON.stringify({ qr: TOKEN_URL, text: TOKEN_URL })],
+    [address(web({}), `  ${TOKEN_URL}  \nextra`), JSON.stringify({ qr: TOKEN_URL, text: TOKEN_URL })],
+    [address(web({}), ''), JSON.stringify({ qr: '', text: 'http://172.16.222.97:8470/' })],
+    [address(web({}), undefined), JSON.stringify({ qr: '', text: 'http://172.16.222.97:8470/' })],
+    [address(web({}), 'not a url'), JSON.stringify({ qr: '', text: 'http://172.16.222.97:8470/' })],
+    [address(web({}), 'http://172.16.222.97:8470/#t=a b'), JSON.stringify({ qr: '', text: 'http://172.16.222.97:8470/' })],
+    [address(web({ urls: [] }), ''), JSON.stringify({ qr: '', text: '' })],
+    [address(web({ urls: undefined }), ''), JSON.stringify({ qr: '', text: '' })],
+    [address(web({ enabled: false }), TOKEN_URL), JSON.stringify({ qr: '', text: '' })],
     [groupState([row({}), row({ id: 'vc', status: 'update' })], null), '2 updates'],
     [groupState([row({}), row({ id: 'vc', status: 'installed' })], null), '1 update'],
     [groupState([row({ status: 'installed' }), row({ id: 'vc', status: 'available' })], null), ''],
