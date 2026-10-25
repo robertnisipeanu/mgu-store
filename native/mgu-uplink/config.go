@@ -96,7 +96,7 @@ func (c *config) read(path string, top bool) error {
 			if err := c.set(key, val); err != nil {
 				return fmt.Errorf("%s:%d: %v", path, n, err)
 			}
-			c.UIDs = unionUIDs(shipped, c.UIDs)
+			c.UIDs = union(shipped, c.UIDs)
 			continue
 		}
 		if err := c.set(key, val); err != nil {
@@ -106,10 +106,10 @@ func (c *config) read(path string, top bool) error {
 	return sc.Err()
 }
 
-// unionUIDs is a followed by the uids of b it lacks, in order.
-func unionUIDs(a, b []int) []int {
-	out := append([]int(nil), a...)
-	seen := map[int]bool{}
+// union is a followed by the elements of b it lacks, in order.
+func union[T comparable](a, b []T) []T {
+	out := append([]T(nil), a...)
+	seen := map[T]bool{}
 	for _, u := range a {
 		seen[u] = true
 	}

@@ -293,8 +293,9 @@ var (
 
 // pairIPhone establishes trust with the phone behind m (see the top of
 // this file). wait reports the prompt state; pairIPhone polls the phone
-// every 2 s until the owner answers, ctx ends or the phone leaves.
-func pairIPhone(ctx context.Context, m *usbMux, dir string, wait func(msg string)) (string, error) {
+// every 2 s until the owner answers, ctx ends, the phone leaves or wait
+// returns an error, which pairIPhone then returns.
+func pairIPhone(ctx context.Context, m *usbMux, dir string, wait func(msg string) error) (string, error) {
 	conn, err := m.Dial(lockdownPort, 5*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("lockdown: %w", err)
@@ -365,15 +366,19 @@ func pairIPhone(ctx context.Context, m *usbMux, dir string, wait func(msg string
 			logf("iPhone %s trusts this unit", udid)
 			return udid, ld.startSession(rec)
 		}
+		var werr error
 		switch lockdownCode(err) {
 		case "PairingDialogResponsePending":
-			wait(trustWaiting)
+			werr = wait(trustWaiting)
 		case "PasswordProtected":
-			wait(trustLocked)
+			werr = wait(trustLocked)
 		case "UserDeniedPairing":
 			return udid, errTrustDenied
 		default:
 			return udid, err
+		}
+		if werr != nil {
+			return udid, werr
 		}
 		select {
 		case <-ctx.Done():

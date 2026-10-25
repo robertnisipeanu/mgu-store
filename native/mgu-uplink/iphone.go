@@ -18,7 +18,7 @@ package main
 //	RX legacy      2 bytes of padding, then one frame (1516-byte buffer)
 //	RX NCM         an NTH16 with its NDP16 at offset 12, 96 bytes long
 //	               (64 KiB buffer)
-//	CARRIER_CHECK  0xc0/0x45, polled each second once a frame has arrived:
+//	CARRIER_CHECK  0xc0/0x45, polled each second once a transfer has arrived:
 //	               0x04 (byte 0 of a 1-byte reply, else byte 1) is on
 //
 // A zero-length transfer, and a 4-byte one starting 00 01 (a control frame,
@@ -51,7 +51,7 @@ const (
 
 // openIPhoneLink selects the hotspot configuration, establishes trust and
 // starts the relay. wait reports the Trust prompt while it is open.
-func openIPhoneLink(ctx context.Context, info usbDeviceInfo, fn netFunction, pairDir string, wait func(string)) (Link, error) {
+func openIPhoneLink(ctx context.Context, info usbDeviceInfo, fn netFunction, pairDir string, wait func(string) error) (Link, error) {
 	if info.config != fn.config {
 		if b := info.boundIfaces(); len(b) > 0 {
 			return nil, &busyError{fmt.Sprintf("%s: configuration %d held (%v)", info, info.config, b)}
@@ -123,7 +123,7 @@ type iphethFramer struct {
 	p       usbPipe
 	iface   uint16
 	ncm     bool
-	gotRx   int32 // a frame has arrived: carrier checks begin
+	gotRx   int32 // a transfer has arrived: carrier checks begin
 	carrier int32 // 0 unknown, 1 on, 2 off
 }
 
@@ -143,10 +143,10 @@ func (f *iphethFramer) recv(buf []byte, emit func([]byte)) error {
 	if err != nil {
 		return err
 	}
+	atomic.StoreInt32(&f.gotRx, 1)
 	if n == 0 || n == 4 && buf[0] == 0 && buf[1] == 1 {
 		return nil
 	}
-	atomic.StoreInt32(&f.gotRx, 1)
 	if f.ncm {
 		iphethUnpackNCM(buf[:n], emit)
 	} else {

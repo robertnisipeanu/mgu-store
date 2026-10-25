@@ -208,10 +208,11 @@ func pairOnce(t *testing.T, phone *fakePhone, dir string) (string, []string, err
 	var prompts []string
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	udid, err := pairIPhone(ctx, m, dir, func(msg string) {
+	udid, err := pairIPhone(ctx, m, dir, func(msg string) error {
 		mu.Lock()
 		prompts = append(prompts, msg)
 		mu.Unlock()
+		return nil
 	})
 	return udid, prompts, err
 }

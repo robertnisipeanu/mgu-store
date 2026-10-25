@@ -20,6 +20,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -106,7 +107,9 @@ func (u *scanUplink) candidates() []candidate {
 	}
 	if covers[kindUSB] {
 		for _, n := range usbNetdevs(sysClassNet, u.device) {
-			out = append(out, candidate{kind: kindUSB, key: "netdev:" + n, netdev: n, dev: netdevDevice(sysClassNet, n)})
+			// The interface index is new for each attachment, the name may not be.
+			idx, _ := readSysctl(sysClassNet + "/" + n + "/ifindex")
+			out = append(out, candidate{kind: kindUSB, key: "netdev:" + n + "#" + idx, netdev: n, dev: netdevDevice(sysClassNet, n)})
 		}
 	}
 	var devs []usbDeviceInfo
@@ -115,8 +118,12 @@ func (u *scanUplink) candidates() []candidate {
 	}
 	for _, info := range devs {
 		named := u.device == "" || info.vidpid == u.device
+		apple := strings.HasPrefix(info.vidpid, "05ac:")
 		for _, kind := range []string{kindECM, kindRNDIS, kindNCM, kindIPhone} {
-			if !covers[kind] {
+			// An Apple device's own CDC functions (a Mac's, an iPhone's reverse
+			// tethering) are not internet for the unit, and its drivers are
+			// never lifted: Apple devices are taken only as iPhones.
+			if !covers[kind] || apple && kind != kindIPhone {
 				continue
 			}
 			c := candidate{kind: kind, key: kind + ":" + info.key(), info: info,
@@ -233,6 +240,11 @@ func (u *scanUplink) Open(ctx context.Context) (Link, error) {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
+			var pe *preferredError
+			if errors.As(err, &pe) {
+				u.say(c.key, fmt.Sprintf("%s: %v", c.info, err))
+				break // the next scan opens the preferred device first
+			}
 			u.mu.Lock()
 			u.failed[c.key] = time.Now()
 			if err == errTrustDenied {
@@ -276,9 +288,13 @@ func (u *scanUplink) open(ctx context.Context, c candidate) (Link, error) {
 		return l, nil
 	case kindIPhone:
 		dev := c.dev
-		return openIPhoneLink(ctx, c.info, c.fn, u.pairDir, func(msg string) {
+		return openIPhoneLink(ctx, c.info, c.fn, u.pairDir, func(msg string) error {
 			u.say(c.key, fmt.Sprintf("%s: %s", c.info, msg))
 			setStatus(&dev, stateTrustNeeded, msg)
+			if p := u.preferred(c); p != nil {
+				return &preferredError{*p}
+			}
+			return nil
 		})
 	}
 	return openCDCLink(c.info, c.fn, !u.auto())
@@ -297,6 +313,41 @@ func (u *scanUplink) modeSwitch(info usbDeviceInfo) {
 	if err := modeSwitch(info); err != nil {
 		logf("mode switch: %v", err)
 	}
+}
+
+// preferred returns a device of an earlier kind than cur that the auto
+// uplink should open instead: one not busy and never failed to open in
+// this attachment, so a device that cannot be opened does not take a
+// working link down again and again. A stick in CD-ROM mode is switched
+// from here; it is preferred once it returns as a network device.
+func (u *scanUplink) preferred(cur candidate) *candidate {
+	if !u.auto() {
+		return nil
+	}
+	for _, c := range u.candidates() {
+		if c.rank() >= cur.rank() || c.busy != "" {
+			continue
+		}
+		if c.toSwitch {
+			u.modeSwitch(c.info)
+			continue
+		}
+		u.mu.Lock()
+		_, failed := u.failed[c.key]
+		u.mu.Unlock()
+		if !failed {
+			return &c
+		}
+	}
+	return nil
+}
+
+// preferredError ends a link, or an iPhone's Trust wait, for a device of
+// an earlier kind.
+type preferredError struct{ c candidate }
+
+func (e *preferredError) Error() string {
+	return fmt.Sprintf("%s %s is preferred", e.c.kind, e.c.dev.Name)
 }
 
 // preferLink is an auto link on a later kind, ended when a device of an
@@ -323,11 +374,8 @@ func (u *scanUplink) watchPreferred(l Link, cur candidate) Link {
 				close(p.done)
 				return
 			case <-t.C:
-				for _, c := range u.candidates() {
-					if c.rank() >= cur.rank() || c.busy != "" || u.recentlyFailed(c.key) {
-						continue
-					}
-					p.err = fmt.Errorf("%s %s is preferred", c.kind, c.dev.Name)
+				if c := u.preferred(cur); c != nil {
+					p.err = &preferredError{*c}
 					close(p.done)
 					return
 				}

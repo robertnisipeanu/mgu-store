@@ -42,8 +42,8 @@ type Lease struct {
 // returned as missing.
 func resolveUIDs(c config) (uids []int, byApp map[string]int, missing []string) {
 	dUIDs, dApps, _ := dropIns(c)
-	c.Apps = unionStrings(c.Apps, dApps)
-	c.UIDs = unionUIDs(c.UIDs, dUIDs)
+	c.Apps = union(c.Apps, dApps)
+	c.UIDs = union(c.UIDs, dUIDs)
 	byApp = map[string]int{}
 	b, _ := os.ReadFile(c.uidsFile())
 	for _, line := range strings.Split(string(b), "\n") {
@@ -80,22 +80,6 @@ func resolveUIDs(c config) (uids []int, byApp map[string]int, missing []string) 
 	}
 	sort.Ints(uids)
 	return uids, byApp, missing
-}
-
-// unionStrings is a followed by the strings of b it lacks, in order.
-func unionStrings(a, b []string) []string {
-	out := append([]string(nil), a...)
-	seen := map[string]bool{}
-	for _, s := range a {
-		seen[s] = true
-	}
-	for _, s := range b {
-		if !seen[s] {
-			seen[s] = true
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func marshalJSON(v interface{}) []byte {

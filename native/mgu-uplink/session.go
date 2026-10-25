@@ -28,10 +28,12 @@ type service struct {
 	uids    []int
 	byApp   map[string]int
 	missing []string
-	link    Link
-	lease   *Lease
-	dhcp    *dhcpClient
-	lastErr string
+	// badDropIns are the drop-in entries last logged as ignored.
+	badDropIns string
+	link       Link
+	lease      *Lease
+	dhcp       *dhcpClient
+	lastErr    string
 }
 
 type openResult struct {
@@ -248,8 +250,11 @@ func (s *service) reconcile(force bool) {
 	uidsChanged := fmt.Sprint(uids) != fmt.Sprint(s.uids) || fmt.Sprint(missing) != fmt.Sprint(s.missing)
 	if uidsChanged {
 		logf("allowed uids %v (apps %v; not installed: %v)", uids, byApp, missing)
-		if _, _, bad := dropIns(c); len(bad) > 0 {
-			logf("ignored drop-in entries: %s", strings.Join(bad, ", "))
+	}
+	if _, _, bad := dropIns(c); strings.Join(bad, ", ") != s.badDropIns {
+		s.badDropIns = strings.Join(bad, ", ")
+		if s.badDropIns != "" {
+			logf("ignored drop-in entries: %s", s.badDropIns)
 		}
 	}
 	s.publishStatus()
@@ -341,5 +346,6 @@ func cleanup(c config) {
 	syncAppState(c, nil, nil)
 	deleteVethPair()
 	restoreLinkState(c.linkFile())
+	os.Remove(c.statusFile())
 	os.Remove(c.hookSocket())
 }
