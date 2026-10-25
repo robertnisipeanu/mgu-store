@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Where release.js publishes, chosen by MGU_PUBLISH (default
- * github:robertnisipeanu/mgu-apps):
+ * github:robertnisipeanu/mgu-store):
  *
  *   github:<owner>/<repo>  GitHub Releases of a PRIVATE repository: each
  *                          version is the release <id>@<version> with its
@@ -12,26 +12,19 @@
  *                          here changes a repository's visibility.
  *   dir:<path>             A local folder (relative paths: to the repository):
  *                          catalog.json and the artifacts side by side, a
- *                          test catalog for the emulator.
+ *                          catalog for the emulator or a USB stick.
  *
- * Catalogs are signed with the EC P-256 private key at MGU_SIGNING_KEY (in
- * GitHub Actions, the CATALOG_SIGNING_KEY secret written to a 0600 file). The
- * signature travels inside catalog.json, so the catalog and its signature are
- * always replaced together: "signature" holds the base64 DER ECDSA-SHA256
- * signature of JSON.stringify(catalog without "signature"), which the
- * updater checks against native/mgu-updater/catalog-key.pub.pem.
+ * Catalogs are not signed: the unit trusts a source over HTTPS (and its
+ * token), and checks every artifact against the catalog's size and sha256.
  */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const crypto = require('crypto');
-const { parse, verifySignature } = require('../native/mgu-updater/js/catalog.js');
 
-const TARGET = process.env.MGU_PUBLISH || 'github:robertnisipeanu/mgu-apps';
+const TARGET = process.env.MGU_PUBLISH || 'github:robertnisipeanu/mgu-store';
 const REPO = path.join(__dirname, '..');
-const SIGNING_KEY = process.env.MGU_SIGNING_KEY || null;
-const PUBLIC_KEY = path.join(__dirname, '..', 'native', 'mgu-updater', 'catalog-key.pub.pem');
 const KIND = TARGET.slice(0, TARGET.indexOf(':'));
 const WHERE = KIND === 'dir' ? path.resolve(REPO, TARGET.slice(TARGET.indexOf(':') + 1)) : TARGET.slice(TARGET.indexOf(':') + 1);
 const CATALOG_TAG = 'catalog';
@@ -40,64 +33,34 @@ function gh(args, opts = {}) {
     return cp.execFileSync('gh', args, Object.assign({ encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }, opts));
 }
 
-/* The private key, readable by its owner only, or null without one. */
-function signingKey() {
-    if (!SIGNING_KEY) {
-        return null;
+/* A catalog's entries carry over into the next one: what is published
+ * must be a catalog (schema 1 or 2) whose entries name their artifact. */
+function checkCatalog(catalog) {
+    if (!catalog || [1, 2].indexOf(catalog.schema) < 0 || !Array.isArray(catalog.components)) {
+        throw new Error('not a catalog of schema 1 or 2');
     }
-    let st;
-    try {
-        st = fs.statSync(SIGNING_KEY);
-    } catch (e) {
-        return null;
-    }
-    if (st.mode & 0o077) {
-        throw new Error(`${SIGNING_KEY} is readable by others: chmod 600 it`);
-    }
-    return fs.readFileSync(SIGNING_KEY);
+    catalog.components.forEach((c) => {
+        const a = c && c.artifact;
+        if (!c || typeof c.id !== 'string' || typeof c.version !== 'string' || !a ||
+            a.name !== `${c.id}@${c.version}.tgz` || !/^[0-9a-f]{64}$/.test(a.sha256 || '') || !(a.size > 0)) {
+            throw new Error(`entry ${c && c.id} is malformed`);
+        }
+    });
+    return catalog;
 }
 
-/* Whether a catalog carries our signature. */
-function signedByUs(catalog) {
-    return verifySignature(catalog, fs.readFileSync(PUBLIC_KEY, 'utf8'));
-}
-
-/* The published catalog, or null when none is published. Whatever is there
- * must be a well-formed catalog, on GitHub one our key signed, as the car
- * requires: its entries carry over into the next catalog, which is signed
- * again. */
+/* The published catalog, or null when none is published. */
 function published() {
     const text = targets[KIND].fetchCatalogText();
     if (text === null) {
         return null;
     }
     try {
-        return parse(text, KIND === 'github' ? fs.readFileSync(PUBLIC_KEY, 'utf8') : null);
+        return checkCatalog(JSON.parse(text));
     } catch (e) {
         throw new Error(`the published catalog at ${TARGET} is unusable (${e.message}); ` +
             'find out who changed it before publishing over it');
     }
-}
-
-/* Signs a catalog; the signature must verify with the public key the
- * updater ships, or the car would refuse the catalog. Without a key the
- * catalog stays unsigned unless `required`. */
-function sign(catalog, required) {
-    const key = signingKey();
-    const body = Object.assign({}, catalog);
-    delete body.signature;
-    if (!key) {
-        if (required) {
-            throw new Error('no signing key (MGU_SIGNING_KEY): the car accepts only signed catalogs (release/README.md)');
-        }
-        return body;
-    }
-    const value = crypto.createSign('SHA256').update(JSON.stringify(body)).sign(key);
-    const signed = Object.assign(body, { signature: { alg: 'ecdsa-p256-sha256', value: value.toString('base64') } });
-    if (!signedByUs(signed)) {
-        throw new Error(`${SIGNING_KEY} does not match ${path.relative(process.cwd(), PUBLIC_KEY)}, the key the updater checks with`);
-    }
-    return signed;
 }
 
 /* sha256 of a release's one asset, as GitHub serves it. */
@@ -211,5 +174,4 @@ if (!targets[KIND]) {
     throw new Error(`MGU_PUBLISH=${TARGET}: use github:<owner>/<repo> or dir:<path>`);
 }
 
-// Only GitHub Releases carry catalogs for the car, which must be signed.
-module.exports = Object.assign({ describe: () => TARGET, sign, published, forTheCar: KIND === 'github' }, targets[KIND]);
+module.exports = Object.assign({ describe: () => TARGET, published }, targets[KIND]);

@@ -6,18 +6,20 @@
  * Node 8.
  *
  * stdin: one JSON job
- *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], ca }
+ *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], ca, method, body }
  *   dns: resolve host names through these servers (the uplink lease's);
  *   empty: the system resolver. ca: PEM roots to trust instead of Node's
- *   bundled ones (a self-hosted catalog with its own CA).
+ *   bundled ones (a self-hosted catalog with its own CA). method: GET
+ *   (default) or POST, with body (a string) sent as it is.
  * stdout: one JSON line per event
  *   { progress: <bytes>, total: <bytes|null> }  while downloading
  *   { done: true, bytes, status }               dest complete
- *   { error: "<reason>" }                       nothing usable at dest
+ *   { error: "<reason>", status }               nothing usable at dest
+ *                                               (status: the HTTP answer, if any)
  *
- * Redirects are followed (up to 5, https only); the request headers go to
- * the first host only, so a token never reaches a redirect target such as
- * GitHub's asset storage.
+ * Redirects of a GET are followed (up to 5, https only); the request headers
+ * go to the first host only, so a token never reaches a redirect target such
+ * as GitHub's asset storage. A POST is not redirected.
  */
 const fs = require('fs');
 const dns = require('dns');
@@ -58,15 +60,18 @@ function get(job, url, headers, hops) {
         process.exitCode = 1;
         return;
     }
-    const req = https.get({
+    const post = hops === 0 && job.method === 'POST';
+    const body = post ? Buffer.from(String(job.body || '')) : null;
+    const req = https.request({
+        method: post ? 'POST' : 'GET',
         hostname: target.hostname,
         port: target.port || 443,
         path: target.pathname + target.search,
-        headers,
+        headers: post ? Object.assign({}, headers, { 'Content-Length': body.length }) : headers,
         lookup: lookupVia(job.dns),
         ca: job.ca || undefined
     }, (res) => {
-        if ([301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
+        if (!post && [301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
             res.resume();
             if (hops >= MAX_REDIRECTS) {
                 emit({ error: 'too many redirects' });
@@ -80,7 +85,7 @@ function get(job, url, headers, hops) {
         }
         if (res.statusCode !== 200) {
             res.resume();
-            emit({ error: `HTTP ${res.statusCode} from ${target.hostname}` });
+            emit({ error: `HTTP ${res.statusCode} from ${target.hostname}`, status: res.statusCode });
             process.exitCode = 1;
             return;
         }
@@ -129,6 +134,7 @@ function get(job, url, headers, hops) {
         emit({ error: `${target.hostname}: ${err.code || err.message}` });
         process.exitCode = 1;
     });
+    req.end(body || undefined);
 }
 
 let input = '';

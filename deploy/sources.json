@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sources": [
+    { "id": "mgu-store", "type": "github", "repo": "robertnisipeanu/mgu-store", "builtin": true }
+  ]
+}
