@@ -226,6 +226,13 @@ function testModuleMode() {
     write(path.join(bundled, 'package.json'), JSON.stringify({ name: 'b', version: '1.0.0' }));
     write(path.join(bundled, 'javascript', 'app.js'), '/* x */\n' + donor.bundle().replace('require("oap-sdk/src/core/OnlineApp.js")', 'require("oap-sdk")'));
     check('module: a browserify bundle resolves its own requires', !link.needsSdk(bundled));
+    check('shrinkwrap: a package with neither node_modules/ nor npm-shrinkwrap.json needs one', link.needsShrinkwrap(bundled) &&
+        !link.needsShrinkwrap(vendored));
+    const br = link.preparePackage(bundled, path.join(tmp('out'), 'b.tgz'), { donors: [] });
+    const sw = JSON.parse(members(br.file)['npm-shrinkwrap.json'].toString());
+    check('shrinkwrap: one without dependencies is added, which MainApp installs from', br.shrinkwrap === true && br.sdk === null &&
+        sw.name === 'b' && sw.version === '1.0.0' && sw.lockfileVersion === 1 && JSON.stringify(sw.dependencies) === '{}', JSON.stringify(sw));
+    check('shrinkwrap: none for a package with node_modules/', vr.shrinkwrap === false && !members(vr.file)['npm-shrinkwrap.json']);
     const e = throws(() => link.preparePackage(thirdParty(), path.join(tmp('out'), 'n.tgz'), { donors: [] }));
     check('module: no donor fails before anything is packed', e && e.noDonor && /no donor holds the oap-sdk core/.test(e.message), e && e.message);
     const sd = link.sdkDonor([path.join(T, 'none.tgz'), donorTgz]);

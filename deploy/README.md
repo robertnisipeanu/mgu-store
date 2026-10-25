@@ -596,6 +596,9 @@ An OAP package from another repository installs as it is published:
   `rhmiData/` and `oapgen/` beside it are left out, the manager makes its
   own) is repacked flat;
 - `"mguLocalOnly": true` is added to its `package.json`;
+- without `node_modules/` or `npm-shrinkwrap.json`, an `npm-shrinkwrap.json`
+  without dependencies is added: the manager installs such a package only
+  through one, and the package carries what it runs on;
 - when its own javascript calls `require('oap-sdk')` (a browserify bundle
   resolves its requires itself) and it has no `node_modules/oap-sdk`, that
   module is generated from the first donor holding the oap-sdk core

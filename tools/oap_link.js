@@ -637,10 +637,18 @@ function sdkDonor(donors) {
     return { label: d.label, text: d.text, sdkVersion: d.sdkVersion };
 }
 
+/* MainApp installs a package that has no node_modules/ through its
+ * npm-shrinkwrap.json and refuses one that has neither. */
+function needsShrinkwrap(pkgDir) {
+    return !fs.existsSync(path.join(pkgDir, 'node_modules')) && !fs.existsSync(path.join(pkgDir, 'npm-shrinkwrap.json'));
+}
+
 /* An OAP package folder (pkgDir is changed) as the flat tgz the head unit
  * installs: "mguLocalOnly": true in its package.json, node_modules/oap-sdk
- * generated when needsSdk(), and every file packed (tools/oap_pack.js
- * format). An oap-sdk the package ships stays as it is. */
+ * generated when needsSdk(), an npm-shrinkwrap.json without dependencies
+ * when needsShrinkwrap() (the package carries what it runs on; nothing is
+ * fetched from npm), and every file packed (tools/oap_pack.js format). An
+ * oap-sdk the package ships stays as it is. */
 function preparePackage(pkgDir, outFile, opts) {
     opts = opts || {};
     let sdk = null;
@@ -659,10 +667,16 @@ function preparePackage(pkgDir, outFile, opts) {
         nodeCheck(path.join(dir, 'index.js'));
         sdk = { donor: donor.label, api: Object.keys(donor.ids) };
     }
+    const shrinkwrap = needsShrinkwrap(pkgDir);
+    if (shrinkwrap) {
+        const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+        fs.writeFileSync(path.join(pkgDir, 'npm-shrinkwrap.json'), JSON.stringify({ name: pkg.name, version: pkg.version,
+            lockfileVersion: 1, requires: true, dependencies: {} }, null, 2) + '\n');
+    }
     stampPackage(pkgDir);
     fs.writeFileSync(outFile, tgz(filesBelow(pkgDir).map((name) =>
         ({ name, data: fs.readFileSync(path.join(pkgDir, name)), mode: 0o644 })), MTIME));
-    return { file: outFile, sdk };
+    return { file: outFile, sdk, shrinkwrap };
 }
 
 function rmrf(p) {
@@ -680,7 +694,7 @@ function rmrf(p) {
     }
 }
 
-module.exports = { build, packSource, readManifest, preparePackage, needsSdk, sdkDonor, unitDonors, untar, SDK_API, ENTRY_ID };
+module.exports = { build, packSource, readManifest, preparePackage, needsSdk, needsShrinkwrap, sdkDonor, unitDonors, untar, SDK_API, ENTRY_ID };
 
 /* Private worker protocol: no donor code runs here with root privileges. */
 if (require.main === module) {

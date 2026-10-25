@@ -947,7 +947,8 @@ function prepareApp(a, stage) {
         } else {
             r = linker().preparePackage(a.pkgDir, out, { donors: unitDonors() });
             say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +
-                (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : ''));
+                (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : '') +
+                (r.shrinkwrap ? ', npm-shrinkwrap.json added' : ''));
         }
     } catch (e) {
         throw refuse(a.file + ': cannot ' + (a.prepare === 'build' ? 'build ' : 'prepare ') + a.id + ' ' + a.version +
