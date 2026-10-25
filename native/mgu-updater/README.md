@@ -193,9 +193,9 @@ on and off (privileged `web` op) and shows its QR code.
   Store*. 10 wrong tokens from one address in a minute lock that address
   out for the rest of the minute. The state stream's `web.urls` carry no
   token: every OAP app reads that stream and can reach 127.0.0.1:8470. The
-  Store gets the QR URLs with the privileged `{"op":"web-access","secret"}`
-  → `{"type":"web-access","urls":["http://172.16.222.97:8470/#t=…"]}`,
-  asked again whenever `web.urls` change.
+  Store reads the QR URL (`http://172.16.222.97:8470/#t=…`) from the file
+  `web-url` the updater keeps in the Store's own data folder (the Store's
+  uid, 0400) while the page is on; a state goes out after each change.
 - **Firewall.** The unit's `ip filter` input chain (firewalldz) drops what
   it does not accept. While the page is on, one rule at its top accepts
   it: `iifname "wlan_bridge" tcp dport 8470 accept comment

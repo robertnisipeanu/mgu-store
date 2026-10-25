@@ -17,11 +17,10 @@
  *                       the hotspot addresses being served
  *                       ("http://172.16.222.97:8470/"), without the token.
  *   web.accessUrls() -> the same URLs with "#t=<token>", for the Store's QR
- *                       code: the reply to {"op":"web-access","secret"} is
- *                       {"type":"web-access","urls":web.accessUrls()}. Every
- *                       OAP app reads the state stream and can reach
- *                       127.0.0.1:8470, so the token is never in it; the
- *                       Store asks again whenever state's web.urls change.
+ *                       code: the updater writes the hotspot one to the
+ *                       Store's data folder (web-url). Every OAP app reads
+ *                       the state stream and can reach 127.0.0.1:8470, so
+ *                       the token is never in it.
  *   web.journal(unit, lines, cb) -> cb(err, text): `journalctl -u <unit> -n
  *                       <lines> --no-pager`, for the privileged `logs` op;
  *                       unit one of web.UNITS, lines clamped to 1..1000.
