@@ -1289,7 +1289,9 @@ function testSources(certs) {
     fs.writeFileSync(path.join(oap, 'oap_12201', 'data', 'apps', 'robertn_store.json'), JSON.stringify({ userId: 13050 }));
     const storeData = path.join(oap, 'oap_13050', 'data');
     mkdirp(storeData);
-    sh(`chown -R 13050:13050 ${path.join(oap, 'oap_13050')}`);
+    // the unit's modes: apps reach oap_root only through its group (mgu_persist), their home through their own
+    sh(`chown 0:903 ${oap} && chmod 0710 ${oap} && chown 12201:13050 ${path.join(oap, 'oap_13050')} ${storeData} && ` +
+        `chmod 0750 ${path.join(oap, 'oap_13050')} && chmod 0770 ${storeData}`);
     fs.writeFileSync(path.join(M, 'victim'), 'untouched');
     fs.symlinkSync(path.join(M, 'victim'), path.join(storeData, 'updater-secret'));
     sh(`chown -h 13050:13050 ${path.join(storeData, 'updater-secret')}`);
