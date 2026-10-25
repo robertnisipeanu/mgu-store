@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,7 +20,7 @@ const Ifname = "vethuplink"
 const defaultConfig = "/var/opt/mgu-uplink/current/mgu-uplink.conf"
 
 type config struct {
-	Uplink    string   // "usb", "usbecm" or "netdev:<ifname>"
+	Uplink    string   // see uplinkChoices
 	Apps      []string // OAP app names, resolved to uids through uids.txt
 	UIDs      []int    // static uids (non-app processes)
 	Table     int      // routing table holding the uplink's default route
@@ -28,15 +29,17 @@ type config struct {
 	RunDir    string   // lease.json and the DHCP hook socket
 	USBDevice string   // optional VID:PID: the usb uplink uses only this adapter
 	LocalConf string   // read on top of this file when it exists; survives updates
+	StateDir  string   // uids.d/, apps.d/ and pair/; survives updates
 }
 
 func defaults() config {
 	return config{
-		Uplink: "usb",
-		Table:  110,
-		Pref:   1100,
-		OAPDir: "/var/opt/public/oap",
-		RunDir: "/run/mgu-uplink",
+		Uplink:   "auto",
+		Table:    110,
+		Pref:     1100,
+		OAPDir:   "/var/opt/public/oap",
+		RunDir:   "/run/mgu-uplink",
+		StateDir: "/var/opt/mgu-uplink",
 	}
 }
 
@@ -85,9 +88,9 @@ func (c *config) read(path string, top bool) error {
 			c.LocalConf = val
 			continue
 		}
-		// The shipped uids are the services the unit needs (the updater, the
-		// shared Tailscale node); a local uids adds to them, so an override
-		// written for an older list can never take their egress away.
+		// The shipped uids are the services the unit needs (the updater's
+		// fetcher); a local uids adds to them, so an override written for an
+		// older list can never take their egress away.
 		if key == "uids" && !top {
 			shipped := c.UIDs
 			if err := c.set(key, val); err != nil {
@@ -192,3 +195,74 @@ func (c config) uidsFile() string   { return c.OAPDir + "/oap_12201/security/uid
 func (c config) leaseFile() string  { return c.RunDir + "/lease.json" }
 func (c config) hookSocket() string { return c.RunDir + "/hook.sock" }
 func (c config) linkFile() string   { return c.RunDir + "/link.json" }
+func (c config) statusFile() string { return c.RunDir + "/status.json" }
+func (c config) pairDir() string    { return c.StateDir + "/pair" }
+
+// Drop-in folders the deploy tool fills per installed component that
+// declares "internet": true: uids.d/<id> holds numeric uids, apps.d/<id>
+// app names, one per line ('#' starts a comment); an apps.d file with no
+// name in it stands for the app named like the file.
+func (c config) uidsDir() string { return c.StateDir + "/uids.d" }
+func (c config) appsDir() string { return c.StateDir + "/apps.d" }
+
+// dropIns reads the drop-in folders. Entries that are not a valid uid or
+// app name are skipped and reported in bad.
+func dropIns(c config) (uids []int, apps []string, bad []string) {
+	for _, f := range dropInFiles(c.uidsDir()) {
+		for _, s := range f.lines {
+			uid, err := strconv.ParseUint(s, 10, 32)
+			if err != nil || uid == 0 {
+				bad = append(bad, fmt.Sprintf("%s: %q", f.path, s))
+				continue
+			}
+			uids = append(uids, int(uid))
+		}
+	}
+	for _, f := range dropInFiles(c.appsDir()) {
+		names := f.lines
+		if len(names) == 0 {
+			names = []string{filepath.Base(f.path)}
+		}
+		for _, s := range names {
+			if !appNameRe.MatchString(s) {
+				bad = append(bad, fmt.Sprintf("%s: %q", f.path, s))
+				continue
+			}
+			apps = append(apps, s)
+		}
+	}
+	return uids, apps, bad
+}
+
+type dropInFile struct {
+	path  string
+	lines []string
+}
+
+// dropInFiles reads the regular files in dir (names starting with '.' and
+// ending in '.tmp' are skipped: in-progress writes), in name order.
+func dropInFiles(dir string) []dropInFile {
+	entries, _ := os.ReadDir(dir)
+	var out []dropInFile
+	for _, e := range entries {
+		n := e.Name()
+		if strings.HasPrefix(n, ".") || strings.HasSuffix(n, ".tmp") || !e.Type().IsRegular() {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, n))
+		if err != nil || len(b) > 4096 {
+			continue
+		}
+		f := dropInFile{path: filepath.Join(dir, n)}
+		for _, line := range strings.Split(string(b), "\n") {
+			if i := strings.IndexByte(line, '#'); i >= 0 {
+				line = line[:i]
+			}
+			for _, s := range strings.FieldsFunc(line, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\r' }) {
+				f.lines = append(f.lines, s)
+			}
+		}
+		out = append(out, f)
+	}
+	return out
+}

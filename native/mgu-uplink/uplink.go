@@ -41,13 +41,13 @@ type Link interface {
 	String() string
 }
 
+const uplinkChoices = "auto, usb, usbecm, rndis, ncm, iphone, netdev:<ifname>"
+
 func parseUplink(c config) (Uplink, error) {
 	spec := c.Uplink
 	switch {
-	case spec == "usb":
-		return &usbUplink{device: c.USBDevice, record: c.linkFile()}, nil
-	case spec == "usbecm":
-		return &usbECMUplink{device: c.USBDevice}, nil
+	case spec == "auto" || spec == kindUSB || spec == kindECM || spec == kindRNDIS || spec == kindNCM || spec == kindIPhone:
+		return newScanUplink(spec, c), nil
 	case strings.HasPrefix(spec, "netdev:"):
 		name := strings.TrimPrefix(spec, "netdev:")
 		if name == "" || len(name) > 15 || strings.ContainsAny(name, "/ \t") {
@@ -55,7 +55,7 @@ func parseUplink(c config) (Uplink, error) {
 		}
 		return &netdevUplink{name: name, record: c.linkFile()}, nil
 	}
-	return nil, fmt.Errorf("uplink: %q is none of usb, usbecm, netdev:<ifname>", spec)
+	return nil, fmt.Errorf("uplink: %q is none of %s", spec, uplinkChoices)
 }
 
 // netdevUplink is an existing kernel Ethernet interface, named: the
@@ -72,9 +72,15 @@ func (u *netdevUplink) Open(ctx context.Context) (Link, error) {
 	waiting := false
 	for {
 		if link, err := netlink.LinkByName(u.name); err == nil {
-			return openLink(link, u.name, u.record)
+			l, err := attach(link, u.name, u.record)
+			if err != nil {
+				return nil, err
+			}
+			l.dev = statusDevice{Kind: "netdev", Name: u.name}
+			return l, nil
 		}
 		if !waiting {
+			setStatus(nil, stateSearching, "")
 			logf("waiting for interface %s", u.name)
 			waiting = true
 		}
@@ -84,15 +90,6 @@ func (u *netdevUplink) Open(ctx context.Context) (Link, error) {
 		case <-time.After(2 * time.Second):
 		}
 	}
-}
-
-// openLink returns a nil Link, not a nil *attachedLink, when attach fails.
-func openLink(link netlink.Link, name, record string) (Link, error) {
-	l, err := attach(link, name, record)
-	if err != nil {
-		return nil, err
-	}
-	return l, nil
 }
 
 // linkState is an interface's name, IPv6 setting and admin state as attach
@@ -110,6 +107,7 @@ type linkState struct {
 // Close.
 type attachedLink struct {
 	linkState
+	dev    statusDevice
 	record string
 	done   chan struct{}
 	stop   chan struct{}
@@ -157,6 +155,7 @@ func attach(link netlink.Link, name, record string) (*attachedLink, error) {
 func (l *attachedLink) Ifname() string        { return l.Name }
 func (l *attachedLink) Done() <-chan struct{} { return l.done }
 func (l *attachedLink) Err() error            { return l.err }
+func (l *attachedLink) device() statusDevice  { return l.dev }
 func (l *attachedLink) String() string {
 	if l.OrigName != l.Name {
 		return fmt.Sprintf("interface %s (%s)", l.Name, l.OrigName)
