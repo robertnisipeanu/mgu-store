@@ -24,10 +24,11 @@
  *   Vehicle control             Installed 1.0.0
  *   Extended dashboard          42%               (downloading)
  *
- * Sources lists each source with its status and opens its page (Account,
- * Components, Sign in with GitHub, Remove). The head unit has no text entry,
- * so a source is added on the phone page (Add source opens Phone access) or
- * by plugging in a USB stick, whose sources the updater lists by itself.
+ * Sources lists each source with its status and opens its page (Channel,
+ * Account, Components, Sign in with GitHub, Remove). The head unit has no
+ * text entry, so a source is added on the phone page (Add source opens
+ * Phone access) or by plugging in a USB stick, whose sources the updater
+ * lists by itself.
  *
  * An app install runs in place, or else restarts MainApp's app processes,
  * this one included; the updater carries on, and the Store shows the result
@@ -134,6 +135,9 @@ class Store extends OnlineApp {
         this._sizing = {};              // lists whose row count is being set
         this._sourceId = null;          // the source whose page is open
         this._removeId = null;          // the component the Remove confirm step names
+        /* The sign-in this app started: waiting until the updater reports it
+         * pending, or the updater's refusal. */
+        this._login = { waiting: false, refusal: null };
         this._qr = { login: { key: null, file: null, chain: Promise.resolve() },
             phone: { key: null, file: null, chain: Promise.resolve() } };
         this._st = null;
@@ -151,7 +155,14 @@ class Store extends OnlineApp {
             this._connected = false;
             this._render();
         });
-        this._client.on('reply-error', (msg) => logger.warn(`updater refused: ${msg}`));
+        this._client.on('reply-error', (msg) => {
+            logger.warn(`updater refused: ${msg}`);
+            // replies come in request order, and the sign-in page sends nothing else
+            if (this._login.waiting) {
+                this._login = { waiting: false, refusal: String(msg) };
+                this._render();
+            }
+        });
 
         this.on('initialized', () => {
             this._appInitialized()
@@ -379,7 +390,6 @@ class Store extends OnlineApp {
         }
     }
 
-    /* The Remove confirm step's Remove. */
     _remove() {
         this._closeState(S.remove);
         const row = this._component(this._removeId);
@@ -399,9 +409,15 @@ class Store extends OnlineApp {
 
     _signIn() {
         const src = this._source(this._sourceId);
-        if (src && sourceActions(src).signIn && this._privileged({ op: 'login-start', source: src.id })) {
+        if (!src || !sourceActions(src).signIn) {
+            return;
+        }
+        this._login = { waiting: true, refusal: null };
+        if (this._privileged({ op: 'login-start', source: src.id })) {
             logger.info(`GitHub sign-in for ${src.id}`);
             this._openState(S.login);
+        } else {
+            this._login.waiting = false;
         }
     }
 
@@ -568,11 +584,17 @@ class Store extends OnlineApp {
         this._show(C.srcRemove, !!actions.remove);
     }
 
-    /* The sign-in page of the open source; it closes itself once signed in. */
-    _renderLogin(login) {
+    /* The sign-in page of the open source; it closes itself once the sign-in
+     * it started is done. A login the updater reports before it has taken
+     * the new one up is an earlier one. */
+    _renderLogin(reported) {
         const source = this._sourceId;
+        if (this._login.waiting && reported && reported.source === source && reported.status === 'pending') {
+            this._login.waiting = false;
+        }
+        const login = this._login.waiting ? null : reported;
         const code = loginCode(login, source);
-        this._set(C.loginStatus, 'Text', loginStatus(login, source), 'Text');
+        this._set(C.loginStatus, 'Text', loginStatus(login, source, this._login.refusal), 'Text');
         this._text(C.loginCode, code);
         this._text(C.loginUrl, code ? login.url : '');
         this._showQr('login', C.loginQr, code ? login.url : '', code);
@@ -638,8 +660,8 @@ class Store extends OnlineApp {
         q.chain = q.chain.then(() => {
             const bundle = rhmi.getResourceBundle();
             const old = q.file;
-            q.file = null;
             if (!text) {
+                q.file = null;
                 return old ? this._retireQr(bundle, old) : undefined;
             }
             const dir = qrDir();
@@ -658,7 +680,7 @@ class Store extends OnlineApp {
                     q.file = file;
                     logger.info(`${slot} QR code ${r.width}x${r.height} px (${r.modules} modules)`);
                     return old ? this._retireQr(bundle, old) : undefined;
-                });
+                }, (err) => this._retireQr(bundle, file).then(() => { throw err; }));
         }).catch((err) => {
             q.key = null;
             logger.warn(`${slot} QR code failed: ${err && err.message}`);

@@ -117,7 +117,6 @@ function sourcesState(sources) {
     return sources.some((s) => s.status === 'error') ? 'Error' : '';
 }
 
-/* What the source page offers. */
 function sourceActions(src) {
     return {
         signIn: src.type === 'github' && !src.usb,
@@ -138,8 +137,12 @@ function sourceAccount(src) {
     return (src.auth && src.auth.login) || '';
 }
 
-/* The sign-in page's status line for the GitHub login of `sourceId`. */
-function loginStatus(login, sourceId) {
+/* The sign-in page's status line for the GitHub login of `sourceId`, or the
+ * updater's refusal to start it. */
+function loginStatus(login, sourceId, refusal) {
+    if (refusal) {
+        return `Sign-in failed: ${refusal}`;
+    }
     if (!login || login.source !== sourceId) {
         return 'Starting';
     }
