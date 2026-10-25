@@ -14,8 +14,9 @@ GitHub Releases.
 What every layout shares:
 
 - **No SDK in the repository.** BMW's oap-sdk is not redistributable. The
-  unit takes it from an app already on it (a *donor*: the preinstalled
-  packages first, then installed apps' bundles).
+  unit takes it from a stock BMW app already on it (a *donor*: the
+  firmware's preinstalled packages first, then BMW's installed apps; never a
+  package the Store installed).
 - **App ids are global on the unit**, and the head unit's provisioning
   knows apps by id: an id BMW uses (`store`, `x_call`, ...) can hide the
   tile. Pick a prefix of your own.

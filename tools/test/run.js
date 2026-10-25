@@ -351,7 +351,6 @@ function testRealDonors() {
     });
     check(`real: the Store links into one javascript/app.js from every donor (${apps.map((a) => a.r.donor).join(', ')})`,
         apps.every((a) => a.app.equals(apps[0].app)), apps.map((a) => `${a.r.donor} ${a.r.moduleCount}`).join('\n'));
-    console.log('# Store bundle sha256: ' + require('crypto').createHash('sha256').update(apps[0].app).digest('hex'));
     const apis = donors.map((d) => {
         const pkg = thirdParty();
         link.preparePackage(pkg, path.join(tmp('o'), 'w.tgz'), { donors: [d] });
