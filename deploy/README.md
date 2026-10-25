@@ -6,55 +6,63 @@ snapshots every change first, and restores a snapshot on request.
 
 | Part | Runs on | What it does |
 |---|---|---|
-| `deploy/hu` | the Mac (system Node) | packs tool artifacts, assembles the offline USB kit, runs the installer over SSH |
+| `deploy/hu` | the Mac (system Node) | packs tool artifacts, assembles the install kit, runs the installer over SSH |
+| `deploy/install.sh` | the unit, as root | the install kit's installer |
+| `deploy/sources.json` | | the updater's sources the installers seed: the Store's own |
 | `deploy/transport/` | the Mac (system `python3`) | finds the unit's sshd over ENET or the hotspot, relays ENET, and the `--arm-debug` bootstrap |
 | `deploy/unit/mgu-deploy.sh` → `mgu-deploy.js` | the unit, as root, under its Node 8 | the installer itself |
+| `tools/oap_link.js`, `tools/oap_pack.js` | the unit (and the build machine) | build source packages and prepare packages built elsewhere |
 | `deploy/unit/fallback_build.js`, `mgu-app-fallback.service` | the unit | the provisioning fallback our apps install through |
 | `deploy/component.json` | | the installer as a tool component, `mgu-deploy` |
 
 ## Two installers
 
 - **The local deploy tool** (this folder) bootstraps the car: over SSH from
-  the Mac or from the USB kit it installs every tool and app, the updater
-  and the Store among them, and writes the updater's GitHub token.
+  the Mac or from the USB install kit it installs app-privacy, the updater
+  and the Store, seeds the updater's sources and writes the mgu-store
+  source's token.
 - **The updater** (`native/mgu-updater`) is the cloud installer: it
-  downloads from the published catalog and installs each artifact by calling
-  the installed deploy tool, `/var/opt/mgu-deploy/mgu-deploy.sh install
+  downloads from its sources and installs each artifact by calling the
+  installed deploy tool, `/var/opt/mgu-deploy/mgu-deploy.sh install
   --artifact <file> --yes`.
 
 Both follow one contract: a tool is `component.json` installed as
 `/var/opt/<id>/versions/<version>/` with `current` switched by rename; an
-app's `package.json` carries `"mguLocalOnly": true`. Every install takes the
-same path, whichever installer starts it.
+app's installed `package.json` carries `"mguLocalOnly": true`. Every install
+takes the same path, whichever installer starts it.
 
 ## From the Mac
 
 ```sh
 deploy/hu check  [<id>...] [--artifact <file>...]   # read-only checks of the unit (and the artifacts)
-deploy/hu install [<id>...] [--artifact <file>...] [--updater-token-file <file>]
-                                                    # build and install; no ids: every tool and app
+deploy/hu install [<id>...] [--with-uplink] [--artifact <file>...] [--updater-token-file <file>]
+                                                    # build and install; no ids: every component but mgu-uplink
 deploy/hu status [--json]
 deploy/hu uninstall <id> --yes
 deploy/hu rollback <id> --yes                       # a tool back to its other kept version
 deploy/hu backups
 deploy/hu restore [name] --yes                      # default: stock
 deploy/hu fallback on|off|status|migrate
-deploy/hu updater-token [--updater-token-file <file>] [--remove]
+deploy/hu updater-token [--updater-token-file <file>] [--source <id>] [--remove]
 deploy/hu artifact <dir> --out <dir>                # one tool artifact: native/<id>, or deploy
-deploy/hu kit [--out <dir>] [--tar] [<id>...]       # the offline kit
+deploy/hu kit [--out <dir>] [--tar] [--with-uplink] [--updater-token-file <file>] [<id>...]
+                                                    # the install kit
 deploy/hu connect [--hold <seconds>] [--cmd <command>]   # reach root on the unit (below)
 deploy/hu help
 ```
 
-The SSH commands upload the repo's `deploy/unit/` files and
-`deploy/component.json`, plus for `install` and `check` the artifacts, as one
+The SSH commands upload the repo's `deploy/unit/` files, `tools/oap_link.js`,
+`tools/oap_pack.js` and `deploy/component.json`, plus for `install` and
+`check` the artifacts, as one
 tar stream into a fresh `/var/opt/mgu-deploy-kit-<pid>` on the unit, run
 `sh <stage>/mgu-deploy.sh <command> ...` there with its output streamed, exit
 with its status, and remove the staging folder (`--keep-stage` keeps it,
 until a changing run a day later removes it).
 `check` changes nothing else on the unit. Bare ids name components to build
-locally (`display-bridge`, `doom`, ...); `--artifact` names files already
-built.
+locally (`app-privacy`, `robertn_store`, ...); `--artifact` names files
+already built. After a successful `install`, `updater-sources` seeds the
+updater's sources from `deploy/sources.json` (kept when the unit has its
+own), and, with a token file, `updater-token --source mgu-store` writes it.
 
 SSH options: `--user` (`HU_USER`, root), `--identity <key>` (`HU_IDENTITY`),
 and repeatable `--ssh-opt <option>` passed as `ssh -o` (the first value of
@@ -144,19 +152,27 @@ deploy/hu status --host 127.0.0.1 --port 2225 \
 Exit status everywhere: 0 done, 1 failed (rolled back where it applies),
 2 refused before anything changed (and bad usage).
 
-### The updater's token
+### The updater's sources and tokens
 
-The updater reads the repository's catalog with a read-only GitHub token
-(fine-grained, Contents: Read-only, this repository only), kept on the unit
-as `/var/opt/mgu-updater/github-token`, root's, mode 0600. The owner supplies
-it as a file on the Mac; it is never committed. `deploy/hu install
---updater-token-file <file>` writes it after the install, and `deploy/hu
-updater-token --updater-token-file <file>` writes it alone; both default to
-`HU_UPDATER_TOKEN_FILE`. The file's content travels on ssh's stdin only: it
-is never an argument, part of the staging upload or a kit, nor printed. A kit
-never carries it (`kit --updater-token-file` is refused); on the unit,
-`sh mgu-deploy.sh updater-token < <file>` writes it from a file on the stick.
-`updater-token --remove` deletes it.
+The updater reads its sources from `/var/opt/mgu-updater/sources.json`
+(native/mgu-updater/README.md). The installers seed it with
+`deploy/sources.json`, the Store's own source (`mgu-store`, this
+repository's releases), when the updater is installed and has none: `sh
+mgu-deploy.sh updater-sources < sources.json` writes it, root's, mode 0600,
+and keeps an existing one, since the owner adds sources from the Store.
+
+A source's token is `/var/opt/mgu-updater/credentials/<source>`, root's,
+mode 0600, in a 0700 folder. The owner supplies the mgu-store source's
+token (fine-grained, Contents: Read-only on this repository) as a file on
+the Mac; it is never committed. `deploy/hu install --updater-token-file
+<file>` writes it after the install, and `deploy/hu updater-token
+--updater-token-file <file> [--source <id>]` writes it alone; both default
+to `HU_UPDATER_TOKEN_FILE`. Over SSH the file's content travels on ssh's
+stdin only: it is never an argument or part of the staging upload, nor
+printed. A kit carries it only when made with `--updater-token-file` (the
+file `token`, mode 0600, which `install.sh` writes; keep such a stick
+private). On the unit, `sh mgu-deploy.sh updater-token [--source <id>] <
+<file>` writes it (default source `mgu-store`); `--remove` deletes it.
 
 ## Artifacts
 
@@ -166,46 +182,62 @@ folder holding a `component.json` (`native/<id>`, or `deploy` for the deploy
 tool itself):
 
 - `build`, when present, is a command run in that folder first
-  (display-bridge: `make target check-target`; it needs zig 0.15, so pass
-  `ZIG=<zig 0.15>` in the environment, or have it on `PATH` as `zig`);
+  (mgu-uplink: `make target`, which needs Go);
 - `files[{path, from, mode}]` are read from `from`; a missing one fails,
   naming the build command;
 - the artifact's `component.json` is `{id, kind, version, title,
   description, files[{path, mode, sha256}], units[{name}], enable, recmgr,
-  restart}`;
+  restart}`, and `internet` with `uids` when the tool declares them;
 - members are sorted, owned 0:0, with the listed modes (`component.json` and
   units 0644) and one mtime: `SOURCE_DATE_EPOCH` when set, else the packer's
   fixed one (`tools/oap_pack.js`, which also writes the gzip header's OS byte
   as Unix on any machine). The same tree gives the same bytes;
   `release/release.js` packs tools with this command.
 
-An **app artifact** is the app's own flat OAP tgz from its build
-(`apps/<id>/<id>@<version>.tgz`), with `"mguLocalOnly": true` in its
-`package.json`. The installer refuses an app without it.
+An **app artifact** is one of:
 
-## The offline kit
+- an OAP package: the flat tgz our builds pack (`tools/oap_pack.js`, files
+  at the root, `"mguLocalOnly": true`), installed byte for byte; or one
+  built elsewhere (below): an npm-format tgz (files under `package/`), or a
+  `.mgu` (`meta.json`, the package as `source/`, `rhmiData/`, `oapgen/`);
+- a **source package**: a tgz with `mgu-app.json` at its root, built on the
+  unit (below). The Store is published this way.
 
-```sh
-ZIG=/path/to/zig-0.15 deploy/hu kit --tar
-```
-
-writes `deploy/out/kit/` (and `deploy/out/kit.tar.gz`): the four
-`deploy/unit/` files, `deploy/component.json`, `README.txt`, and `artifacts/`
-with one artifact per component, and prints each artifact's sha256. Without
-ids it takes every tool and every app; an app whose tgz is not built yet is
-built with its `release.json` command in the working tree, and an app that
-cannot be built (DOOM without `DOOM1.WAD`) fails the kit with the command to
-run. Give ids to take a subset.
-
-On the unit, copy the folder to a writable place and run, as root:
+## The install kit
 
 ```sh
-sh mgu-deploy.sh check
-sh mgu-deploy.sh install          # every artifact in ./artifacts
-sh mgu-deploy.sh status
-sh mgu-deploy.sh backups
-sh mgu-deploy.sh restore --yes
+deploy/hu kit --tar [--with-uplink] [--updater-token-file <file>]
 ```
+
+writes `deploy/out/kit/` (and `deploy/out/kit.tar.gz`), a folder for a USB
+stick: the deploy tool (`deploy/unit/` files, `oap_link.js`, `oap_pack.js`,
+`component.json`), `install.sh`, `README.txt`, `sources.json`
+(`deploy/sources.json`), `artifacts/` with one artifact per component but
+the optional ones (app-privacy, the updater, the deploy tool, the Store's
+source package), `optional/` with the optional ones (`mgu-uplink`) given
+`--with-uplink`, and `token` only with an explicit `--updater-token-file`
+(`HU_UPDATER_TOKEN_FILE` applies to SSH commands). It prints each artifact's
+sha256. An app whose artifact is not built yet is built with its
+`release.json` command in the working tree. Give ids to take a subset.
+
+On the unit, as root, from the stick:
+
+```sh
+sh install.sh                 # app-privacy, the updater, the deploy tool, the Store
+sh install.sh --with-uplink   # and the internet uplink
+```
+
+`install.sh` copies the kit to `/var/opt/mgu-deploy-kit-<pid>` (removed
+when it ends), installs every artifact through the kit's own deploy tool
+(`install --artifact ... --skip-older --yes`: it installs itself as `mgu-deploy`, builds
+the Store's source package on the unit against a donor there, and installs
+it), seeds the updater's sources (`updater-sources`, kept when present),
+writes the kit's token for the `mgu-store` source when there is one, and
+prints `status`. Newer installed tools (including deploy) and apps are
+skipped, and sources/token seeding still runs. Same-version tool payloads
+are kept, and same-version apps are not built again. Normal app installs
+retain their downgrade refusal. Its exit status is the deploy tool's. After it, every update comes
+through the Store.
 
 Before installing, the car is parked, on stable power (engine running or a
 charger connected), and stays awake until the command finishes.
@@ -214,19 +246,21 @@ charger connected), and stays awake until the command finishes.
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--yes]
 mgu-deploy.sh status [--json]
 mgu-deploy.sh uninstall <id> [--yes]
 mgu-deploy.sh rollback <id> [--yes]
 mgu-deploy.sh restore [name] [--yes]
 mgu-deploy.sh backups
 mgu-deploy.sh fallback <on|off|status|migrate> [--yes]
-mgu-deploy.sh updater-token [--remove]        # the token on stdin
+mgu-deploy.sh updater-token [--source <id>] [--remove]   # the token on stdin
+mgu-deploy.sh updater-sources                 # sources.json on stdin
+mgu-deploy.sh sdk-donor [--json]
 ```
 
-`install` without `--artifact` takes every `*.tgz` in `./artifacts` beside
-the script. Tools install before apps, `app-privacy` first. `restore` needs
-`--yes`, or `YES` typed at a terminal.
+`install` without `--artifact` takes every `*.tgz` and `*.mgu` in
+`./artifacts` beside the script. Tools install before apps, `app-privacy`
+first. `restore` needs `--yes`, or `YES` typed at a terminal.
 
 ### Layout
 
@@ -235,8 +269,8 @@ the script. Tools install before apps, `app-privacy` first. `restore` needs
 /var/opt/<id>/current -> versions/<v>    the version in use (switched by rename)
 /etc/systemd/system/<unit>               units; <target>.wants/<unit> for enable
 /etc/recmgr-restartlist.conf             recmgr's restart list
-/var/opt/mgu-deploy/versions/<v>/        the deploy tool itself (mgu-deploy.js, .sh,
-                                         fallback_build.js, mgu-app-fallback.service)
+/var/opt/mgu-deploy/versions/<v>/        the deploy tool itself (mgu-deploy.js, .sh, fallback_build.js,
+                                         mgu-app-fallback.service, oap_link.js, oap_pack.js)
 /var/opt/mgu-deploy/current -> versions/<v>
 /var/opt/mgu-deploy/mgu-deploy.sh        shim: runs current/mgu-deploy.sh
 /var/opt/mgu-deploy/state.json           pending reboots, apps' uids, the last bounce
@@ -245,7 +279,11 @@ the script. Tools install before apps, `app-privacy` first. `restore` needs
 /var/opt/mgu-deploy/backups/<time>-<command>/, backups/stock/   (0700)
 /var/opt/mgu-deploy/main.js              the fallback copy of the manager's main.js
 /var/opt/mgu-deploy/inplace/request.json an in-place install request, while one is pending
-/var/opt/mgu-updater/github-token        the updater's token (0600)
+/var/opt/mgu-updater/sources.json        the updater's sources, seeded (0600)
+/var/opt/mgu-updater/credentials/<id>    a source's token (0600, folder 0700)
+/var/opt/mgu-uplink/uids.d/<id>          a tool's uids that get internet
+/var/opt/mgu-uplink/apps.d/<id>          an app that gets internet
+/run/mgu-deploy/sdk-donor/               the donor bundle's readable copy (sdk-donor)
 /usr/lib/oap-mainapp/preinstalled_apps/<id>@<version>.tgz
 /var/opt/public/oap/oap_12201/data/apps/<id>.json   an app's registry entry
 /var/opt/public/oap/oap_12201/data/custom_apps.json the apps the fallback lists
@@ -264,8 +302,8 @@ read-only on any exit; a `/` found read-write stays read-write.
 staging folder, every successful install or uninstall, and turning the
 fallback on, installs the files it runs from into
 `/var/opt/mgu-deploy/versions/<VERSION>/`, under the `component.json` beside
-the script (synthesized from `VERSION` and its four files when there is
-none), switches `current` to it and keeps that version and the one `current`
+the script (synthesized from `VERSION` and its six files when there is
+none; run from `deploy/unit/`, the linker and packer come from `tools/`), switches `current` to it and keeps that version and the one `current`
 pointed to before; a newer version already current stays. Run from
 `versions/`, it is installed already. `state.json`, `backups/` and the
 fallback copy stay beside `versions/`. `status` lists it from
@@ -285,8 +323,9 @@ itself. `restore` puts back what the tool changed and keeps the tool;
 
 **Version rule.** Bump `deploy/component.json`'s version, and `VERSION` with
 it (`node release/release.js bump mgu-deploy <x.y.z>` sets both), whenever a
-file under `deploy/unit/` changes; `deploy/hu`, the tests and this README are
-not part of the artifact.
+file under `deploy/unit/`, `tools/oap_link.js` or `tools/oap_pack.js`
+changes; `deploy/hu`, `install.sh`, the tests and this README are not part
+of the artifact.
 
 ### Tools
 
@@ -338,7 +377,8 @@ reported as not healthy, exit 1.
 them), removes its units, links and the recmgr names no other tool lists,
 and the whole `/var/opt/<id>`: besides `versions/` and `current`, a tool's
 own config there goes too, named in the output (the updater's
-`github-token`, the uplink's `local.conf`). A `.wants` folder the tool
+`sources.json` and `credentials/`, the uplink's `local.conf`, `uids.d/` and
+`apps.d/`). A `.wants` folder the tool
 created is removed once it is empty; folders that were there before stay.
 
 ### Rollback
@@ -519,6 +559,80 @@ between nor asks the backend for it. It also removes the app's npm cache
 entries and clears its quota. The manager's own ACL, UI and status records
 for the uid stay; anything left behind is listed.
 
+### Source packages
+
+A source package is a tgz with `mgu-app.json` at its root
+(`tools/oap_link.js` has the format): the app's staged package tree
+without `javascript/app.js`, its modules (the entry first), and the
+require names its modules take from the oap-sdk. `install` and `check`
+build it in the staging folder before anything changes ("bundle" mode):
+the first **stock BMW donor** on the unit that resolves every name to exactly
+one module id, searched in the firmware preinstalled packages
+(`/usr/lib/oap-mainapp/preinstalled_apps/*.tgz`, their `javascript/*.js`)
+and then the installed stock apps' bundles (`oap_*/source/javascript/*.js`).
+A package with any `mguLocalOnly` field, or named in the manager's
+`local-only-apps.json` or `custom_apps.json`, is excluded from both searches.
+Root splits the donor in a separate Node process as uid/gid 65534 (overrides:
+`MGU_DEPLOY_SPLIT_UID` and `MGU_DEPLOY_SPLIT_GID`, positive numeric ids),
+with a 30 s timeout and a 64 MiB output cap. The child captures the module
+map without calling module functions and returns JSON containing their
+source text and dependency tables; root links those strings without
+evaluating the donor. Non-root host builds use the same string form in
+process. The closure of those names is copied with the donor's ids, the app's modules follow from id 10000, and `javascript/app.js`
+and `javascript/build.json` are written, `node --check`ed and packed
+(`tools/oap_pack.js`). The result installs as any app. The same
+inputs give the same bundle on the unit and on the build machine. An app
+already installed at that version is not built. No donor, a module that
+does not compile, or a bad `mgu-app.json` refuses the artifact (exit 2,
+nothing changed), saying what each donor lacked. `"internet": true` in
+`mgu-app.json` becomes `"mguInternet": true` in the built `package.json`.
+
+### Packages built elsewhere
+
+An OAP package from another repository installs as it is published:
+
+- an npm-format tgz (its files under `package/`) or a `.mgu` (its
+  `source/` is the package; `meta.json` must name the same id and version;
+  `rhmiData/` and `oapgen/` beside it are left out, the manager makes its
+  own) is repacked flat;
+- `"mguLocalOnly": true` is added to its `package.json`;
+- when its own javascript calls `require('oap-sdk')` (a browserify bundle
+  resolves its requires itself) and it has no `node_modules/oap-sdk`, that
+  module is generated from the first donor holding the oap-sdk core
+  (`OnlineApp`, `someipBuilders`), "module" mode: the closure of the public
+  API's modules with the donor's ids behind the browserify prelude, and one
+  getter per API name (`OnlineApp`, `NsmProxy`, `config`, `logging`,
+  `loggingLevel`, `SDKError`, `someipBuilders`, `RhmiApplication`,
+  `RhmiResourcesLocator`, `telephony`, `getVin`, `runtimeVariant`,
+  `appstart`, `guidance`, `map`, `MapKmlContentTypeConverters`, `poi`; the
+  ones the donor holds) that loads its module on first use. The idea and
+  the export shape follow `kit/tools/extract_sdk.js` of
+  [cauliflowermossgrape/idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps)
+  (MIT); `tools/oap_link.js` is its own implementation. An `oap-sdk` the
+  package ships stays as it is.
+
+The prepared package is checked again as an app, then installed. Our own
+flat, marked packages are installed byte for byte. A package that needs
+the oap-sdk on a unit with no donor is refused (exit 2, nothing changed).
+
+`sdk-donor [--json]` copies the bundle module mode takes the oap-sdk from to
+`/run/mgu-deploy/sdk-donor/javascript/app.js` (0644, folders 0755), beside a
+`package.json` naming its oap-sdk version, and prints its path (`{"path",
+"donor", "sdkVersion"}` with `--json`). The updater hands it to a
+repository's own build as `MGU_SDK_DONOR` (docs/PUBLISHING.md). No lock, no
+snapshot; exit 2 when no donor holds the core.
+
+### Internet for selected components
+
+A tool whose `component.json` says `"internet": true` lists its numeric
+`uids`; an app's built or published `package.json` says `"mguInternet":
+true`. After every install and uninstall, while `mgu-uplink` is installed,
+the tool writes `/var/opt/mgu-uplink/uids.d/<id>` (the uids, one per line)
+and `apps.d/<id>` (the app id) for every installed component that declares
+it, and removes the ones of components that are gone; installing
+`mgu-uplink` writes them all. mgu-uplink reads both folders besides its
+conf. The files are in the component's snapshot.
+
 ### One transaction per artifact
 
 Each artifact of an `install` is its own transaction, with its own snapshot.
@@ -537,9 +651,10 @@ Before every change the installer snapshots every file the operation
 touches: unit files, enablement links, the recmgr list, preinstalled
 packages, registry entries, and each tool's `current` link, each with mode
 and owner, or marked absent. Every snapshot also records `state.json`,
-`custom_apps.json`, the fallback's unit, link and copy, and the updater's
-token. The app manager's `main.js` is recorded (checksum, bind-mounted or
-not), not copied, except by a snapshot that covers the retired installer's
+`custom_apps.json`, and the fallback's unit, link and copy. The updater owns
+its `sources.json` and `credentials/`: snapshots neither copy nor restore
+them, including when restoring an older manifest that lists them. The app
+manager's `main.js` is recorded (checksum, bind-mounted or not), not copied, except by a snapshot that covers the retired installer's
 leftovers (below), which copies the file under the fallback copy. Restoring
 one taken before a migration that listed apps is refused (below); otherwise
 the file is put back with the copy unbound, and the rebuilt copy is bound
@@ -551,18 +666,19 @@ a command that took one removes the older ones when it ends. A failed uninstall 
 snapshot.
 
 One changing command runs at a time (`install`, `uninstall`, `rollback`,
-`restore`, `fallback on|off|migrate`, `updater-token`): it waits for the
+`restore`, `fallback on|off|migrate`, `updater-token`, `updater-sources`): it waits for the
 `lock` of another run, up to an hour, then refuses (exit 2). A lock whose process is
 gone, or from an earlier boot, is taken over. `status`, `check`, `backups`
-and `fallback status` take no lock. Holding the lock, a changing command
+`fallback status` and `sdk-donor` take no lock. Holding the lock, a changing command
 first removes what a killed run left: files named after a process that is
 gone (staging, rootfs-window and temp files, a tool's unfinished version
 folder) and `/var/opt/mgu-deploy-kit-<n>` folders a day old.
 
 `restore [name]` (default `stock`) first snapshots the current state, then
-puts every recorded file back, removes what the snapshot shows as absent (a
-tool's whole `/var/opt/<id>`, an app's home and package, `custom_apps.json`,
-the token), verifies every file against its checksum (a mismatch is exit 1
+puts every recorded file back, removes what the snapshot shows as absent
+(a tool's `/var/opt/<id>`, an app's home and package, `custom_apps.json`),
+keeps the updater's sources and credentials, verifies every file against
+its checksum (a mismatch is exit 1
 and rolls back), and rebuilds or unbinds the fallback copy to match. Its
 boundary:
 
@@ -579,6 +695,8 @@ boundary:
   restore that would point a tool's `current` at a version no longer kept is
   refused; install that artifact instead.
 - the app manager's records for removed apps (uids, ACLs, UI state) stay.
+- sources and credentials stay even when the restore removes the updater.
+  Explicitly uninstalling the updater removes its whole folder.
 - the deploy tool itself stays installed: no snapshot records or restores
   `/var/opt/mgu-deploy/versions/` or `current`.
 
@@ -697,7 +815,7 @@ stdout, read-only, taking no lock, of this shape:
                  { "id", "kind": "app", "version", "uid", "installationSource", "running",
                    "tile_provisioned", "tile_fallback", "tile_visible" }],
   "pending_reboot": [{ "id", "reason" }],
-  "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],
+  "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],   (mgu-apps' display-bridge)
   "fallback": { ... }, "backups": 3, "stock_backup": true, "updater_token": "present",
   "retired_leftovers": ["/usr/lib/oap-mainapp/src/main.js.capbak"] }
 ```
@@ -705,7 +823,9 @@ stdout, read-only, taking no lock, of this shape:
 ## Tests
 
 ```sh
-node deploy/test/run.js
+node deploy/test/run.js              # MGU_TEST_ONLY=testKit,... runs those test functions only
+sh deploy/test/run.sh                # in Docker: the unit's code on Node 8.16.2 (MGU_TEST_UNIT_NODE)
+node tools/test/run.js               # the linker and packer; sh tools/test/run.sh: on Node 8.16.2
 ```
 
 Offline, against a fake root (`MGU_DEPLOY_FAKE_ROOT=1` and the
@@ -729,8 +849,16 @@ installer's leftovers (detection, the migration through an update and an uninsta
 `AppManagement.js` alone, an unmarked app the retired edit lists keeping its
 tile, its rollback after a failure before and after its bounce and when a
 tile that showed is lost, a rollback that fails too, the restore guard for
-carried apps, and the refusals), and the updater's token (on the unit and
-through `deploy/hu`).
+carried apps, and the refusals), the updater's sources and tokens (on the
+unit and through `deploy/hu`), source packages built against the made-up
+donor in `tools/test/synthetic_donor.js` (installed, not built again, no
+donor refused), packages built elsewhere (npm format, `.mgu`, unmarked,
+oap-sdk generated, no donor refused), the internet drop-ins, `sdk-donor`,
+and the install kit with `install.sh` run against a fake root (twice).
+`tools/test/run.js` builds and runs linked and module-mode apps against
+that donor; with `MGU_TEST_DONORS` and `MGU_TEST_THIRDPARTY` it also
+checks real donors and third-party packages on the machine (never part of
+the repository).
 
 The connection is tested without a car or an ENET adapter:
 `deploy/test/transport_test.py` (run by `run.js`, on the system `python3`)
@@ -767,5 +895,12 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
   backups' names and content, and our apps keeping their tiles through the
   fallback once the stock bundles are back (proven in the emulator on a
   reproduction of the car's state).
-- display-bridge's `TODO(on-car)` values (`status` lists them;
-  `native/display-bridge/BRINGUP.md`).
+- The car's donors: which preinstalled package resolves the Store's sdk
+  names first (on a replica of the car's rootfs it is
+  `ts_diagnostic_service@4.20.2`, oap-sdk 24.10.2 with module ids of its
+  own; x_call's closure is byte-identical to oap-sdk 24.10.2), and the
+  Store built from it starting on the car.
+- A package built elsewhere running on the car with the generated
+  `node_modules/oap-sdk` under the manager's install (its native modules
+  resolved for the app as for a stock app).
+- `/run/mgu-deploy` writable and readable by other uids on the car.

@@ -6,7 +6,8 @@
  * with no name, no time and the OS byte set to Unix. The bytes depend only
  * on the tree (and the zlib build), not on the machine or the time, and the
  * archive cannot carry macOS extended attributes, which the head unit's tar
- * refuses. Finder metadata (.DS_Store, ._*) is never packed.
+ * refuses. Finder metadata (.DS_Store, ._*) is never packed. Node 8; the
+ * deploy tool ships this file to build source packages on the head unit.
  *
  *   const { pack } = require('<repo>/tools/oap_pack.js');
  *   pack(stagedDir, outFile)   // -> the packed paths
@@ -17,7 +18,6 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { stampPackage } = require('../native/app-privacy/patch_mainapp.js');
 
 const MTIME = Math.floor(Date.UTC(2026, 9, 18) / 1000);
 const GZIP_OS_BYTE = 9;
@@ -98,15 +98,25 @@ function tgz(entries, mtime) {
     return out;
 }
 
+/* Every app packed here is ours: "mguLocalOnly": true in its package.json
+ * keeps it out of the head unit's backend app reporting (native/app-privacy). */
+function stampPackage(pkgDir) {
+    const file = path.join(pkgDir, 'package.json');
+    const raw = fs.readFileSync(file, 'utf8');
+    const pkg = JSON.parse(raw);
+    if (pkg.mguLocalOnly !== true) {
+        pkg.mguLocalOnly = true;
+        fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + (raw.endsWith('\n') ? '\n' : ''));
+    }
+    return pkg;
+}
+
 function pack(pkgDir, outFile) {
-    // Every app packed here is ours: "mguLocalOnly": true keeps it out of
-    // the head unit's backend app reporting (native/app-privacy).
-    stampPackage(pkgDir);
-    const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+    const pkg = stampPackage(pkgDir);
     const files = members(pkgDir, pkg);
     const entries = files.map((rel) => ({ name: rel, data: fs.readFileSync(path.join(pkgDir, rel)), mode: 0o644 }));
     fs.writeFileSync(outFile, tgz(entries, MTIME));
     return files;
 }
 
-module.exports = { pack, tgz, MTIME };
+module.exports = { pack, tgz, stampPackage, MTIME };

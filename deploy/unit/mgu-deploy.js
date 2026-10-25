@@ -13,7 +13,9 @@
  *   mgu-deploy.sh restore [name] [--yes]
  *   mgu-deploy.sh backups
  *   mgu-deploy.sh fallback <on|off|status|migrate> [--yes]
- *   mgu-deploy.sh updater-token [--remove]   (the token on stdin)
+ *   mgu-deploy.sh updater-token [--source <id>] [--remove]   (the token on stdin)
+ *   mgu-deploy.sh updater-sources            (sources.json on stdin)
+ *   mgu-deploy.sh sdk-donor [--json]
  *   mgu-deploy.sh help
  *
  * Exit codes: 0 done, 1 failed (rolled back where applicable),
@@ -22,7 +24,9 @@
  * Without --artifact, install takes every *.tgz in ./artifacts beside
  * this script (the USB kit layout), tools before apps, the app-privacy
  * tool first. A tool artifact carries component.json at its root with
- * files/ and units/ payloads; an app artifact carries package.json.
+ * files/ and units/ payloads. An app artifact is an OAP package (package.json
+ * at its root or under package/, or a .mgu with source/), or a source
+ * package (mgu-app.json), which is built here with oap_link.js.
  *
  * Every absolute root and external command can be overridden through
  * MGU_DEPLOY_* environment variables (see CFG below).
@@ -38,7 +42,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.1.8';
+var VERSION = '0.2.1';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -65,6 +69,7 @@ var CFG = {
     df: env('MGU_DEPLOY_DF', 'df'),
     setquota: env('MGU_DEPLOY_SETQUOTA', 'setquota'),
     sh: env('MGU_DEPLOY_SH', '/bin/sh'),
+    run: env('MGU_DEPLOY_RUN', '/run/mgu-deploy'),
     node: env('MGU_DEPLOY_NODE', '/usr/bin/node'),
     socketPath: env('MGU_DEPLOY_BRIDGE_SOCKET', '/dev/shm/display-bridge/bridge.sock'),
     watchTimeoutMs: Number(env('MGU_DEPLOY_WATCH_TIMEOUT_MS', '600000')),
@@ -96,7 +101,15 @@ var SELF_TITLE = 'Deploy tool';
 var SELF_DESCRIPTION = 'Installs, updates, rolls back and removes our tools and apps on the head unit, ' +
     'with a snapshot before every change';
 var SELF_FILES = [{ path: 'mgu-deploy.js', mode: '0644' }, { path: 'mgu-deploy.sh', mode: '0755' },
-    { path: 'fallback_build.js', mode: '0644' }, { path: 'mgu-app-fallback.service', mode: '0644' }];
+    { path: 'fallback_build.js', mode: '0644' }, { path: 'mgu-app-fallback.service', mode: '0644' },
+    { path: 'oap_link.js', mode: '0644' }, { path: 'oap_pack.js', mode: '0644' }];
+/* A file of this tool: beside the script, or in the repository's tools/
+ * (the linker and packer, when it runs from deploy/unit/). */
+function selfFile(name) {
+    var p = path.join(HERE, name);
+    return fs.existsSync(p) ? p : path.join(HERE, '..', '..', 'tools', name);
+}
+function linker() { return require(selfFile('oap_link.js')); }
 
 function privacyTool() {
     return env('MGU_DEPLOY_PRIVACY',
@@ -113,7 +126,17 @@ function localOnlyFile() { return path.join(mgrHome(), 'data', 'local-only-apps.
 function inplaceStatusFile() { return path.join(mgrHome(), 'data', 'mgu-deploy-inplace.json'); }
 function appEntryFile(id) { return path.join(appsDir(), id + '.json'); }
 function appHome(uid) { return path.join(CFG.oap, 'oap_' + uid); }
-function tokenFile() { return path.join(CFG.varOpt, 'mgu-updater', 'github-token'); }
+function updaterDir() { return path.join(CFG.varOpt, 'mgu-updater'); }
+function sourcesFile() { return path.join(updaterDir(), 'sources.json'); }
+function credentialsDir() { return path.join(updaterDir(), 'credentials'); }
+function credentialFile(source) { return path.join(credentialsDir(), source); }
+/* the source the Store's own components come from */
+var STORE_SOURCE = 'mgu-store';
+var SOURCE_ID = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
+function uplinkDropIns(id) {
+    var root = path.join(CFG.varOpt, 'mgu-uplink');
+    return [path.join(root, 'uids.d', id), path.join(root, 'apps.d', id)];
+}
 
 /* ---- small helpers (Node 8) ------------------------------------------- */
 
@@ -508,8 +531,7 @@ function snapshotEntry(p) {
     }
     return { path: p, kind: 'other', mode: st.mode & 0o7777, uid: st.uid, gid: st.gid };
 }
-/* Stored copies are root's alone: a snapshot can hold the updater's
- * token. */
+/* Stored copies and manifests are root's alone. */
 function writeSnapshot(dir, command, paths) {
     var filesDir = path.join(dir, 'files'), manifest = [], n = 0;
     mkdirp(filesDir, 0o700);
@@ -536,21 +558,27 @@ function writeSnapshot(dir, command, paths) {
 }
 /* Every snapshot also records the files any command may leave changed:
  * this tool's state, the fallback's unit, link, copy and app list, the
- * recmgr list and the updater's token. */
+ * recmgr list. The updater owns its sources and credentials. */
 function alwaysSnapshotted() {
     return [STATE_FILE, CFG.recmgr, customAppsFile(), FALLBACK_COPY,
         path.join(CFG.systemd, FALLBACK_UNIT),
-        path.join(CFG.systemd, 'multi-user.target.wants', FALLBACK_UNIT), tokenFile()];
+        path.join(CFG.systemd, 'multi-user.target.wants', FALLBACK_UNIT)];
 }
 /* The deploy tool's own versions/ and current: no snapshot holds them, so a
  * restore never removes the tool that holds the backups. */
 function selfPath(p) {
     return p === path.join(DEPLOY_DIR, 'current') || p.indexOf(path.join(DEPLOY_DIR, 'versions') + '/') === 0;
 }
+/* Source and credential changes survive every restore, including older
+ * manifests that recorded them. */
+function updaterStatePath(p) {
+    p = path.resolve(p);
+    return p === sourcesFile() || p === credentialsDir() || p.indexOf(credentialsDir() + '/') === 0;
+}
 function snapshotPaths(paths) {
     var uniq = [], seen = {};
     paths.concat(alwaysSnapshotted()).forEach(function (p) {
-        if (!seen[p] && !selfPath(p)) { seen[p] = true; uniq.push(p); }
+        if (!seen[p] && !selfPath(p) && !updaterStatePath(p)) { seen[p] = true; uniq.push(p); }
     });
     return uniq;
 }
@@ -610,7 +638,7 @@ function restoreSnapshot(dir) {
         runOk(CFG.umount, [mainJs()]);
     }
     data.entries.forEach(function (e) {
-        if (e.kind === 'record' || selfPath(e.path) || entryMatches(e)) return;
+        if (e.kind === 'record' || selfPath(e.path) || updaterStatePath(e.path) || entryMatches(e)) return;
         (isRootfsPath(e.path) ? rootEntries : plain).push(e);
     });
     plain.forEach(function (e) { putBackEntry(dir, e); });
@@ -630,7 +658,7 @@ function verifySnapshot(dir) {
     data.entries.forEach(function (e) {
         /* rewritten after every restore: the state, and the fallback copy
          * rebuilt from the stock file */
-        if (e.path === STATE_FILE || e.path === FALLBACK_COPY || selfPath(e.path)) return;
+        if (e.path === STATE_FILE || e.path === FALLBACK_COPY || selfPath(e.path) || updaterStatePath(e.path)) return;
         if (e.kind === 'file') {
             try { if (sha256File(e.path) !== e.sha256) bad.push(e.path); }
             catch (err) { bad.push(e.path); }
@@ -707,7 +735,7 @@ function pidAlive(pid) {
     try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 function cleanStale() {
-    var dirs = [CFG.varOpt, DEPLOY_DIR, INPLACE_DIR, path.dirname(tokenFile()), path.dirname(customAppsFile())];
+    var dirs = [CFG.varOpt, DEPLOY_DIR, INPLACE_DIR, updaterDir(), credentialsDir(), path.dirname(customAppsFile())];
     rmrf(INPLACE_REQUEST);
     fs.readdirSync(CFG.varOpt).forEach(function (n) {
         if (n !== 'public' && fs.existsSync(path.join(CFG.varOpt, n, 'versions'))) dirs.push(path.join(CFG.varOpt, n, 'versions'));
@@ -822,8 +850,21 @@ function validateArtifact(file, stage) {
         if (e.stat.isFile() && e.stat.nlink > 1) throw refuse('hardlink in artifact: ' + e.rel);
     });
     if (fs.existsSync(path.join(dir, 'component.json'))) return validateTool(file, dir);
-    if (fs.existsSync(path.join(dir, 'package.json'))) return validateApp(file, dir);
-    throw refuse(file + ': neither component.json nor package.json at its root');
+    if (fs.existsSync(path.join(dir, 'mgu-app.json'))) return validateSource(file, dir);
+    if (fs.existsSync(path.join(dir, 'package.json'))) return validateApp(file, dir, dir);
+    /* an npm-format package, its files under package/ */
+    if (fs.existsSync(path.join(dir, 'package', 'package.json'))) return validateApp(file, dir, path.join(dir, 'package'));
+    /* a .mgu: meta.json, the package as source/ (with its rhmiData), the
+     * installed rhmiData/ and oapgen/, which the manager makes itself */
+    if (fs.existsSync(path.join(dir, 'meta.json')) && fs.existsSync(path.join(dir, 'source', 'package.json'))) {
+        var a = validateApp(file, dir, path.join(dir, 'source')), meta = readJsonOrNull(path.join(dir, 'meta.json'));
+        if (!meta || meta.id !== a.id || meta.version !== a.version) {
+            throw refuse(file + ': meta.json names ' + (meta ? meta.id + ' ' + meta.version : 'nothing readable') +
+                ', source/package.json ' + a.id + ' ' + a.version);
+        }
+        return a;
+    }
+    throw refuse(file + ': no component.json, mgu-app.json, package.json, package/package.json or .mgu layout at its root');
 }
 function validateTool(file, dir) {
     var c;
@@ -848,30 +889,84 @@ function validateTool(file, dir) {
     (c.enable || []).forEach(function (en) {
         if (!safeRel(en.unit) || !safeRel(en.target)) throw refuse(file + ': bad enable entry');
     });
+    if (c.internet !== undefined && (c.internet !== true || !Array.isArray(c.uids) || !c.uids.length ||
+        !c.uids.every(function (u) { return u === Math.floor(u) && u > 0; }))) {
+        throw refuse(file + ': "internet": true needs "uids", the tool\'s numeric uids');
+    }
     (c.recmgr || []).concat(c.restart || []).forEach(function (n) {
         if (typeof n !== 'string' || !n) throw refuse(file + ': bad recmgr/restart entry');
         if (n === 'oapcontroller' || n === 'oapcontroller.service') throw refuse(file + ': oapcontroller is never restarted');
     });
     return { kind: 'tool', file: file, dir: dir, component: c, id: c.id, version: c.version };
 }
-function validateApp(file, dir) {
+/* An OAP package in pkgDir. One that is not the flat tgz the manager
+ * installs as it is (files at the root, "mguLocalOnly": true, no
+ * require('oap-sdk') left unanswered) is prepared first (prepareApp). */
+function validateApp(file, dir, pkgDir) {
     var pkg;
-    try { pkg = readJson(path.join(dir, 'package.json')); }
+    try { pkg = readJson(path.join(pkgDir, 'package.json')); }
     catch (e) { throw refuse(file + ': package.json does not parse'); }
+    checkPkg(file, pkg);
+    var a = { kind: 'app', file: file, dir: dir, pkgDir: pkgDir, pkg: pkg, id: pkg.name, version: pkg.version };
+    a.prepare = pkgDir !== dir || pkg.mguLocalOnly !== true || linker().needsSdk(pkgDir) ? 'package' : null;
+    return a;
+}
+function checkPkg(file, pkg) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(pkg.name || '')) throw refuse(file + ': bad app name ' + pkg.name);
     if (!semverParts(pkg.version)) throw refuse(file + ': version is not x.y.z: ' + pkg.version);
-    if (pkg.mguLocalOnly !== true) throw refuse(file + ': package.json lacks "mguLocalOnly": true');
     if (pkg.mguAppStartType !== undefined && START_TYPES.indexOf(pkg.mguAppStartType) < 0) {
         throw refuse(file + ': mguAppStartType is not one of ' + START_TYPES.join(', ') + ': ' + pkg.mguAppStartType);
     }
-    return { kind: 'app', file: file, dir: dir, pkg: pkg, id: pkg.name, version: pkg.version };
+}
+/* A source package: built into an OAP package by prepareApp. */
+function validateSource(file, dir) {
+    var m;
+    try { m = linker().readManifest(dir); } catch (e) { throw refuse(file + ': ' + e.message); }
+    var pkg = readJson(path.join(dir, m.tree, 'package.json'));
+    checkPkg(file, pkg);
+    return { kind: 'app', file: file, dir: dir, pkgDir: null, pkg: pkg, id: m.id, version: m.version, prepare: 'build' };
+}
+/* The donor bundles on this unit, in search order (oap_link.js). */
+function unitDonors() {
+    return linker().unitDonors(CFG.mainapp, CFG.oap,
+        { localOnlyFile: localOnlyFile(), customAppsFile: customAppsFile() });
+}
+/* Turns a source package or a package that is not ready into the flat,
+ * marked OAP tgz in the staging folder, and validates that as the app.
+ * Nothing outside the staging folder changes; a package that cannot be
+ * prepared (no donor holds the oap-sdk it needs, a module that does not
+ * compile) is refused. */
+function prepareApp(a, stage) {
+    if (!a.prepare) return a;
+    var out = path.join(stage, 'built-' + a.id + '@' + a.version + '.tgz'), r;
+    try {
+        if (a.prepare === 'build') {
+            r = linker().build(a.dir, out, { donors: unitDonors(), workDir: stage });
+            say('built ' + a.id + ' ' + a.version + ' from its source package (' + r.moduleCount +
+                ' modules, oap-sdk from ' + r.donor + ')');
+        } else {
+            r = linker().preparePackage(a.pkgDir, out, { donors: unitDonors() });
+            say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +
+                (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : ''));
+        }
+    } catch (e) {
+        throw refuse(a.file + ': cannot ' + (a.prepare === 'build' ? 'build ' : 'prepare ') + a.id + ' ' + a.version +
+            ' on this unit: ' + e.message);
+    }
+    var b = validateArtifact(out, stage);
+    if (b.kind !== 'app' || b.prepare || b.id !== a.id || b.version !== a.version) {
+        throw refuse(a.file + ': the prepared package is not ' + a.id + ' ' + a.version);
+    }
+    b.file = out;
+    b.from = a.file;
+    return b;
 }
 function kitArtifacts() {
     var d = env('MGU_DEPLOY_ARTIFACTS', path.join(HERE, 'artifacts'));
     if (!fs.existsSync(d)) throw refuse('no --artifact given and no kit artifacts directory at ' + d);
-    var found = fs.readdirSync(d).filter(function (n) { return /\.tgz$/.test(n); }).sort()
+    var found = fs.readdirSync(d).filter(function (n) { return /\.(tgz|mgu)$/.test(n); }).sort()
         .map(function (n) { return path.join(d, n); });
-    if (!found.length) throw refuse('no *.tgz in ' + d);
+    if (!found.length) throw refuse('no *.tgz or *.mgu in ' + d);
     return found;
 }
 function orderArtifacts(list) {
@@ -938,6 +1033,45 @@ function tileFlags(entry) {
 function tileState(app, fb) {
     var visible = tileFlags(app.entry).visible, listed = !!(fb.active && fb.apps.indexOf(app.id) >= 0);
     return { provisioned: visible && !listed, fallback: visible && listed, visible: visible };
+}
+
+/* ---- internet for selected components ------------------------------------------ */
+/* A tool whose component.json says "internet": true has its uids in
+ * /var/opt/mgu-uplink/uids.d/<id>, an app whose package.json says
+ * "mguInternet": true its id in apps.d/<id>; mgu-uplink reads both folders
+ * besides its conf. They are written while mgu-uplink is installed (its
+ * own install writes every one) and removed with the component. */
+function wantedDropIns() {
+    var want = {};
+    installedTools().forEach(function (t) {
+        if (t.component.internet === true && Array.isArray(t.component.uids)) {
+            want[uplinkDropIns(t.id)[0]] = t.component.uids.join('\n') + '\n';
+        }
+    });
+    installedApps().forEach(function (app) {
+        if (app.pkg.mguInternet === true) want[uplinkDropIns(app.id)[1]] = app.id + '\n';
+    });
+    return want;
+}
+function syncDropIns() {
+    var root = path.join(CFG.varOpt, 'mgu-uplink');
+    if (!lstatOrNull(path.join(root, 'current'))) return;
+    var want = wantedDropIns();
+    ['uids.d', 'apps.d'].forEach(function (sub) {
+        var d = path.join(root, sub);
+        if (fs.existsSync(d)) {
+            fs.readdirSync(d).forEach(function (n) {
+                var p = path.join(d, n);
+                if (!(p in want) && !/\.tmp-\d+$/.test(n)) { rmrf(p); say('internet: removed ' + p); }
+            });
+        }
+    });
+    Object.keys(want).forEach(function (p) {
+        if (bytesEqualFile(Buffer.from(want[p]), p)) return;
+        mkdirp(path.dirname(p), 0o755);
+        writeAtomic(p, want[p], 0o644);
+        say('internet: ' + p);
+    });
 }
 
 /* ---- tool paths --------------------------------------------------------------- */
@@ -1177,7 +1311,7 @@ function selfManifest() {
         title: useSrc && src.title ? src.title : SELF_TITLE,
         description: useSrc && src.description ? src.description : SELF_DESCRIPTION,
         files: (useSrc ? src.files : SELF_FILES).map(function (f) {
-            return { path: f.path, mode: f.mode, sha256: sha256File(path.join(HERE, f.path)) };
+            return { path: f.path, mode: f.mode, sha256: sha256File(selfFile(f.path)) };
         }),
         units: [], enable: [], recmgr: [], restart: [] };
 }
@@ -1216,7 +1350,7 @@ function selfInstall() {
             var partial = dest + '.partial-' + process.pid, aside = dest + '.old-' + process.pid;
             rmrf(partial); mkdirp(partial);
             selfManifest().files.forEach(function (f) {
-                copyFileMode(path.join(HERE, f.path), path.join(partial, f.path), octalMode(f.mode));
+                copyFileMode(selfFile(f.path), path.join(partial, f.path), octalMode(f.mode));
             });
             fs.writeFileSync(path.join(partial, 'component.json'), text);
             fs.chmodSync(path.join(partial, 'component.json'), 0o644);
@@ -1289,7 +1423,7 @@ function appTouched(a, existing) {
     return paths;
 }
 function aclFile(uid) { return path.join(appHome(uid), 'someipInterfaces', 'acl.json'); }
-function appDecision(a) {
+function appDecision(a, skipOlder) {
     var existing = installedApp(a.id), entry = readJsonOrNull(appEntryFile(a.id));
     if (entry && !existing) {
         throw refuse(a.id + ': registry entry exists without a matching source; uninstall it first');
@@ -1297,6 +1431,7 @@ function appDecision(a) {
     if (!existing) return { action: 'fresh' };
     var cmp = semverCmp(a.version, existing.version);
     if (cmp === 0) return { action: 'current', existing: existing };
+    if (cmp < 0 && skipOlder) return { action: 'older', existing: existing };
     if (cmp < 0) throw refuse(a.id + ' ' + existing.version + ' is installed; ' + a.version + ' is a downgrade, uninstall first');
     /* the manager fails to start an app without its ACL file and then
      * forgets it, so an update would never run */
@@ -1719,8 +1854,8 @@ function uninstallTool(id, state) {
 }
 function touchedForUninstall(id) {
     var tool = installedTools().filter(function (t) { return t.id === id; })[0];
-    if (tool) return toolTouched(tool.component);
-    var paths = [appEntryFile(id), customAppsFile()];
+    if (tool) return toolTouched(tool.component).concat(uplinkDropIns(id));
+    var paths = [appEntryFile(id), customAppsFile()].concat(uplinkDropIns(id));
     preinstalledFor(id).forEach(function (p) { paths.push(p); });
     return paths;
 }
@@ -2184,7 +2319,7 @@ function collectStatus(state) {
         display_bridge_todo_on_car: bridgeTodoLines(),
         fallback: fb, backups: backupCount,
         retired_leftovers: retiredBackups().map(function (b) { return b.path; }),
-        updater_token: lstatOrNull(tokenFile()) ? 'present' : 'absent',
+        updater_token: lstatOrNull(credentialFile(STORE_SOURCE)) ? 'present' : 'absent',
         stock_backup: fs.existsSync(path.join(BACKUPS_DIR, 'stock')) };
 }
 function cmdStatus(args) {
@@ -2220,10 +2355,10 @@ function cmdStatus(args) {
 }
 function artifactTouched(a) {
     if (a.kind === 'tool') return toolTouched(a.component)
-        .concat([path.join(CFG.varOpt, a.id, 'versions', a.version)]);
+        .concat([path.join(CFG.varOpt, a.id, 'versions', a.version)]).concat(uplinkDropIns(a.id));
     var existing = null;
     try { existing = installedApp(a.id); } catch (e) { /* listed without it */ }
-    return appTouched(a, existing);
+    return appTouched(a, existing).concat(uplinkDropIns(a.id));
 }
 function cmdCheck(args) {
     var hard = [], notes = [];
@@ -2300,7 +2435,7 @@ function cmdCheck(args) {
         try {
             files.forEach(function (f) {
                 try {
-                    var a = validateArtifact(path.resolve(f), stage);
+                    var a = prepareApp(validateArtifact(path.resolve(f), stage), stage);
                     say('artifact ' + f + ': ' + a.kind + ' ' + a.id + ' ' + a.version + ' ok');
                     artifactTouched(a).forEach(function (p) { say('  would touch ' + p); });
                 } catch (e) { line(false, 'artifact ' + f + ' valid: ' + e.message, true); }
@@ -2310,12 +2445,13 @@ function cmdCheck(args) {
     return hard.length ? 2 : 0;
 }
 
-/* ---- the updater's token ---------------------------------------------------------- */
-/* The updater's read-only GitHub token, written by this tool from stdin
- * (never an argument: arguments show in ps) to
- * /var/opt/mgu-updater/github-token, root's alone. It is the updater's
- * config: uninstalling mgu-updater removes it with the rest of
- * /var/opt/mgu-updater. Output names its length, never its value. */
+/* ---- the updater's sources and tokens ------------------------------------------------ */
+/* A source's token (default: the Store's own source, mgu-store), written by
+ * this tool from stdin (never an argument: arguments show in ps) to
+ * /var/opt/mgu-updater/credentials/<source>, root's alone in a 0700
+ * folder. It is the updater's config: uninstalling mgu-updater removes it
+ * with the rest of /var/opt/mgu-updater. Output names its length, never its
+ * value. */
 var TOKEN_MAX = 512;
 function readStdin(max) {
     var chunks = [], total = 0, buf = Buffer.alloc(4096), n, waited = 0;
@@ -2334,14 +2470,16 @@ function readStdin(max) {
     return Buffer.concat(chunks);
 }
 function cmdUpdaterToken(args) {
-    var file = tokenFile(), dir = path.dirname(file), state = loadState();
+    var source = args.source || STORE_SOURCE;
+    if (!SOURCE_ID.test(source)) throw refuse('bad source id ' + source);
+    var file = credentialFile(source), state = loadState();
     if (args.remove) {
         if (!lstatOrNull(file)) { say('updater token: absent already'); return 0; }
         takeSnapshot('updater-token', [file]);
         rmrf(file);
         pruneCreatedDirs(state);
         saveState(state);
-        say('updater token removed (' + file + ')');
+        say('token of source ' + source + ' removed (' + file + ')');
         return 0;
     }
     if (process.stdin.isTTY) throw refuse('updater-token reads the token from stdin: sh mgu-deploy.sh updater-token < <file>');
@@ -2353,7 +2491,10 @@ function cmdUpdaterToken(args) {
     if (/[\r\n]/.test(text)) throw refuse('token input has more than one line; nothing written');
     if (/[\s\x00-\x1f\x7f]/.test(text)) throw refuse('token has spaces or control characters; nothing written');
     takeSnapshot('updater-token', [file]);
-    if (!fs.existsSync(dir)) { mkdirp(dir, 0o755); noteCreatedDir(state, dir); }
+    var created = [credentialsDir(), updaterDir()].filter(function (d) { return !fs.existsSync(d); });
+    mkdirp(credentialsDir(), 0o700);
+    fs.chmodSync(credentialsDir(), 0o700);
+    created.forEach(function (d) { noteCreatedDir(state, d); });
     var tmp = file + '.tmp-' + process.pid, fd;
     rmrf(tmp);
     fd = fs.openSync(tmp, 'wx', 0o600);
@@ -2362,9 +2503,68 @@ function cmdUpdaterToken(args) {
     chownMaybe(tmp, 0, 0);
     fs.renameSync(tmp, file);
     saveState(state);
-    say('updater token written to ' + file + ' (' + Buffer.byteLength(text) + ' bytes, mode 0600)');
+    say('token of source ' + source + ' written to ' + file + ' (' + Buffer.byteLength(text) + ' bytes, mode 0600)');
     return 0;
 }
+/* The updater's sources (native/mgu-updater), seeded from stdin by the
+ * installers when the updater has none yet: /var/opt/mgu-updater/
+ * sources.json, root's, 0600. Sources the owner added since stay: an
+ * existing file is never replaced. Nothing is written while mgu-updater is
+ * not installed. */
+var SOURCES_MAX = 65536;
+function cmdUpdaterSources() {
+    var file = sourcesFile(), state = loadState();
+    if (process.stdin.isTTY) throw refuse('updater-sources reads sources.json from stdin: sh mgu-deploy.sh updater-sources < sources.json');
+    var data = readStdin(SOURCES_MAX + 1), doc;
+    if (data.length > SOURCES_MAX) throw refuse('sources input is over ' + SOURCES_MAX + ' bytes; nothing written');
+    try { doc = JSON.parse(data.toString('utf8')); } catch (e) { throw refuse('sources input is not JSON; nothing written'); }
+    var ids = {};
+    if (!doc || doc.schema !== 1 || !Array.isArray(doc.sources) || !doc.sources.every(function (src) {
+        var ok = src && SOURCE_ID.test(src.id || '') && !ids[src.id] && ['github', 'https', 'file'].indexOf(src.type) >= 0;
+        if (ok) ids[src.id] = true;
+        return ok;
+    })) {
+        throw refuse('sources input is not {"schema": 1, "sources": [{id, type}...]} with distinct ids; nothing written');
+    }
+    if (!lstatOrNull(path.join(updaterDir(), 'current'))) { say('mgu-updater is not installed; sources not written'); return 0; }
+    if (lstatOrNull(file)) {
+        var cur = readJsonOrNull(file);
+        say('updater sources kept: ' + file + ' (' + (cur && Array.isArray(cur.sources) ? cur.sources.length + ' sources' : 'unreadable') + ')');
+        return 0;
+    }
+    takeSnapshot('updater-sources', [file]);
+    var tmp = file + '.tmp-' + process.pid, fd;
+    rmrf(tmp);
+    fd = fs.openSync(tmp, 'wx', 0o600);
+    try { fs.writeSync(fd, JSON.stringify(doc, null, 2) + '\n'); } finally { fs.closeSync(fd); }
+    fs.chmodSync(tmp, 0o600);
+    chownMaybe(tmp, 0, 0);
+    fs.renameSync(tmp, file);
+    saveState(state);
+    say('updater sources written to ' + file + ': ' + doc.sources.map(function (src) { return src.id; }).join(', '));
+    return 0;
+}
+
+/* ---- the donor for builds outside this tool ------------------------------------------ */
+/* The bundle module mode takes the oap-sdk from (oap_link.js), copied where
+ * any uid can read it: <run>/sdk-donor/javascript/app.js beside a
+ * package.json naming its oap-sdk version, the layout of an app's folder.
+ * The updater hands it to a repository's own build (MGU_SDK_DONOR). */
+function cmdSdkDonor(args) {
+    var d;
+    try { d = linker().sdkDonor(unitDonors()); } catch (e) { throw refuse(e.message); }
+    var dir = path.join(CFG.run, 'sdk-donor'), js = path.join(dir, 'javascript', 'app.js');
+    var pkg = JSON.stringify({ name: 'sdk-donor', version: '0.0.0', description: 'copied from ' + d.label,
+        dependencies: { 'oap-sdk': d.sdkVersion || '0.0.0' } }, null, 2) + '\n';
+    mkdirp(path.join(dir, 'javascript'), 0o755);
+    [CFG.run, dir, path.join(dir, 'javascript')].forEach(function (p) { fs.chmodSync(p, 0o755); });
+    if (!bytesEqualFile(Buffer.from(d.text), js)) writeAtomic(js, d.text, 0o644);
+    if (!bytesEqualFile(Buffer.from(pkg), path.join(dir, 'package.json'))) writeAtomic(path.join(dir, 'package.json'), pkg, 0o644);
+    if (args.json) say(JSON.stringify({ path: js, donor: d.label, sdkVersion: d.sdkVersion }));
+    else say(js + ' (from ' + d.label + ', oap-sdk ' + (d.sdkVersion || 'unknown') + ')');
+    return 0;
+}
+
 
 /* ---- commands ----------------------------------------------------------------- */
 
@@ -2387,11 +2587,25 @@ function cmdInstall(args) {
         var validated = files.map(function (f) { return validateArtifact(f, stage); });
         validated = orderArtifacts(validated);
         var decisions = {};
-        validated.forEach(function (a) { if (a.kind === 'app') decisions[a.id] = appDecision(a); });
-        var work = validated.filter(function (a) {
-            return a.kind !== 'app' || decisions[a.id].action !== 'current';
-        });
         validated.forEach(function (a) {
+            if (a.kind === 'app') decisions[a.id] = appDecision(a, args.skipOlder);
+        });
+        if (args.skipOlder) {
+            var tools = installedTools();
+            validated = validated.filter(function (a) {
+                var t = a.kind === 'tool' && tools.filter(function (t) { return t.id === a.id; })[0];
+                var older = t && semverCmp(a.version, t.version) < 0;
+                if (older) say(a.id + ' ' + a.version + ' skipped; ' + t.version + ' is installed');
+                return !older;
+            });
+        }
+        var work = validated.filter(function (a) {
+            return a.kind !== 'app' || ['current', 'older'].indexOf(decisions[a.id].action) < 0;
+        }).map(function (a) { return a.kind === 'app' ? prepareApp(a, stage) : a; });
+        validated.forEach(function (a) {
+            if (a.kind === 'app' && decisions[a.id].action === 'older') {
+                say(a.id + ' ' + a.version + ' skipped; ' + decisions[a.id].existing.version + ' is installed');
+            }
             if (a.kind === 'app' && decisions[a.id].action === 'current') {
                 say(a.id + ' ' + a.version + ' already installed; nothing to change');
             }
@@ -2417,6 +2631,7 @@ function cmdInstall(args) {
             try {
                 if (a.kind === 'tool') installTool(a, state, tx);
                 else installApp(a, state, decisions[a.id]);
+                syncDropIns();
                 done.push(a.id + ' ' + a.version);
             } catch (e) {
                 process.stderr.write(a.id + ' ' + a.version + ' failed: ' + e.message + '\n');
@@ -2495,6 +2710,7 @@ function cmdUninstall(args) {
     var backup = takeSnapshot('uninstall', touchedForUninstall(id));
     try {
         if (isTool) uninstallTool(id, state); else uninstallApp(id, state);
+        syncDropIns();
         state.pending_reboot = state.pending_reboot.filter(function (p) { return p.id !== id; });
         saveState(state); selfInstall();
     } catch (e) {
@@ -2595,7 +2811,16 @@ function cmdRestore(args) {
         var restored = restoreSnapshot(dir);
         restored.entries.forEach(function (e) {
             var tm = new RegExp('^' + CFG.varOpt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/([^/]+)/current$').exec(e.path);
-            if (e.kind === 'absent' && tm && tm[1] !== 'mgu-deploy') rmrf(path.join(CFG.varOpt, tm[1]));
+            if (e.kind === 'absent' && tm && tm[1] !== 'mgu-deploy') {
+                var root = path.join(CFG.varOpt, tm[1]);
+                if (tm[1] === 'mgu-updater' && fs.existsSync(root)) {
+                    fs.readdirSync(root).forEach(function (n) {
+                        var p = path.join(root, n);
+                        if (!updaterStatePath(p)) rmrf(p);
+                    });
+                    try { fs.rmdirSync(root); } catch (err) { if (err.code !== 'ENOTEMPTY') throw err; }
+                } else rmrf(root);
+            }
             var am = /\/data\/apps\/([^/]+)\.json$/.exec(e.path);
             if (e.kind === 'absent' && am) {
                 say('app ' + am[1] + ' was absent in ' + name + '; removing its source tree and package');
@@ -2711,7 +2936,7 @@ var HELP = [
     'mgu-deploy ' + VERSION,
     'usage: mgu-deploy.sh <command> ...',
     '  check [--artifact <file>...]     read-only checks; exits 2 on a hard problem',
-    '  install [--artifact <file>...] [--yes]',
+    '  install [--artifact <file>...] [--skip-older] [--yes]',
     '                                    install tools/apps (default: ./artifacts/*.tgz)',
     '  status [--json]                  installed components and pending reboots',
     '  uninstall <id> [--yes]           remove one tool or app',
@@ -2720,15 +2945,21 @@ var HELP = [
     '  backups                          list backups (stock marked)',
     '  fallback <on|off|status>         provisioning fallback for our apps',
     '  fallback migrate                 move our apps off the retired installer\'s leftovers onto the fallback',
-    '  updater-token [--remove]         write the updater\'s GitHub token from stdin (or remove it)',
+    '  updater-token [--source <id>] [--remove]',
+    '                                    write a source\'s token for the updater from stdin (or remove it)',
+    '  updater-sources                  seed the updater\'s sources.json from stdin (kept when present)',
+    '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle',
     '  help                             this text',
     'exit codes: 0 done, 1 failed (rolled back), 2 preflight refused'
 ].join('\n');
 function parseArgs(argv) {
-    var out = { command: argv[0] || 'help', artifacts: [], positional: [], json: false, yes: false, remove: false }, i;
+    var out = { command: argv[0] || 'help', artifacts: [], positional: [], json: false, yes: false, remove: false,
+        source: null }, i;
     for (i = 1; i < argv.length; i++) {
         if (argv[i] === '--artifact') { out.artifacts.push(argv[++i]); }
+        else if (argv[i] === '--source') out.source = argv[++i] || '';
         else if (argv[i] === '--json') out.json = true;
+        else if (argv[i] === '--skip-older') out.skipOlder = true;
         else if (argv[i] === '--yes') out.yes = true;
         else if (argv[i] === '--remove') out.remove = true;
         else out.positional.push(argv[i]);
@@ -2746,7 +2977,8 @@ function main() {
 }
 function runCommand() {
     var args = parseArgs(process.argv.slice(2)), locked = false;
-    var rootOnly = ['install', 'uninstall', 'rollback', 'restore', 'fallback', 'updater-token'].indexOf(args.command) >= 0;
+    var rootOnly = ['install', 'uninstall', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources']
+        .indexOf(args.command) >= 0;
     try {
         if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0 && rootOnly) {
             throw refuse('run as root');
@@ -2765,6 +2997,8 @@ function runCommand() {
         if (args.command === 'backups') return cmdBackups();
         if (args.command === 'fallback') return cmdFallback(args);
         if (args.command === 'updater-token') return cmdUpdaterToken(args);
+        if (args.command === 'updater-sources') return cmdUpdaterSources();
+        if (args.command === 'sdk-donor') return cmdSdkDonor(args);
         throw refuse('unknown command ' + args.command + '\n' + HELP);
     } catch (e) {
         process.stderr.write('mgu-deploy: ' + e.message + '\n');

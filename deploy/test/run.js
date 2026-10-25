@@ -17,15 +17,22 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const cp = require('child_process');
 const { tgz } = require('../../tools/oap_pack.js');
+const link = require('../../tools/oap_link.js');
+const donor = require('../../tools/test/synthetic_donor.js');
 
 const HERE = __dirname;
 const HU = path.join(HERE, '..', 'hu');
 const UNIT_JS = path.join(HERE, '..', 'unit', 'mgu-deploy.js');
+// the Node the unit's code runs under (deploy/test/run.sh: the unit's 8.16.2)
+const UNIT_NODE = process.env.MGU_TEST_UNIT_NODE || process.execPath;
 const DEPLOY = path.join(HERE, '..');
 const VERSION = /var VERSION = '([^']+)'/.exec(fs.readFileSync(UNIT_JS, 'utf8'))[1];
 // a deploy tool one patch version newer than this one
 const NEXT = VERSION.replace(/\d+$/, (p) => String(Number(p) + 1));
 const FIXTURE_TOOL = path.join(HERE, 'fixtures', 'fixture-tool');
+const TOOLS = path.join(HERE, '..', '..', 'tools');
+// the linker and packer the deploy tool ships (tools/)
+const LINK_FILES = ['oap_link.js', 'oap_pack.js'];
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-deploy-test-'));
 const MGR = 12201;
 const PENDING = 'recmgr entry takes effect after reboot';
@@ -152,6 +159,13 @@ function untar(file) {
             }
         });
     }(dir, ''));
+    return out;
+}
+
+/* Members of gzipped tar bytes, as { name: Buffer }. */
+function untarBuf(buf) {
+    const out = {};
+    link.untar(buf).forEach((m) => { out[m.name] = m.data; });
     return out;
 }
 
@@ -311,7 +325,9 @@ function fakeRoot(opts) {
         MGU_DEPLOY_WATCH_TIMEOUT_MS: '3000',
         FAKE_MGR_PIDFILE: pidFile,
         FAKE_MGR_LOG: `${R}.manager.log`,
-        MGU_DEPLOY_NODE: process.execPath,
+        MGU_DEPLOY_NODE: UNIT_NODE,
+        // the stand-ins run on the harness's Node
+        FAKE_NODE: process.execPath,
         // opts.privacy false: app-privacy is whatever tool is installed
         MGU_DEPLOY_PRIVACY: opts.privacy === false ? '' : path.join(HERE, 'fake_privacy.js'),
         FAKE_MGR_NO_KEYCHAIN: opts.noKeychain ? '1' : '',
@@ -330,7 +346,7 @@ function fakeRoot(opts) {
     const root = {
         R, p, env, log,
         run(args, extra) {
-            const r = cp.spawnSync(process.execPath, [UNIT_JS].concat(args),
+            const r = cp.spawnSync(UNIT_NODE, [UNIT_JS].concat(args),
                 { encoding: 'utf8', env: Object.assign({}, env, extra || {}), input: '' });
             r.out = `${r.stdout}${r.stderr}`;
             return r;
@@ -416,7 +432,6 @@ function testRefusals() {
         ['files[].path with ..', rebuild(good, withComponent((c) => { c.files[0].path = '../bin/fixture-tool'; })), 'bad files[].path'],
         ['symlink entry', rebuild(good, (entries) => rawTgz(entries.concat([{ name: 'files/link', link: '/etc/passwd' }]))), 'symlink in artifact'],
         ['missing files/ payload', rebuild(good, (entries) => tgz(entries.filter((e) => e.name !== 'files/lib/helper.js'), 1700000000)), 'payload missing files/lib/helper.js'],
-        ['unmarked app', appArtifact('plain_app', '1.0.0', false), 'lacks "mguLocalOnly": true'],
         ['unknown start type', appArtifact('start_app', '1.0.0', true, { mguAppStartType: 'boot' }), 'mguAppStartType is not one of']
     ];
     cases.forEach(([what, file, why]) => {
@@ -857,7 +872,7 @@ function testFallbackHook() {
     const flags = { '-enabled': 'true', '-allowed': 'true', '-appStartType': 'manually',
         '-userLoginRequired': 'false', '-updateMechanism': 'PLATFORM' };
     write(list, JSON.stringify({ our_app: flags }));
-    const r = cp.spawnSync(process.execPath, [path.join(DEPLOY, 'unit', 'fallback_build.js'),
+    const r = cp.spawnSync(UNIT_NODE, [path.join(DEPLOY, 'unit', 'fallback_build.js'),
         path.join(HERE, 'fixtures', 'main.js'), path.join(dir, 'built.js'), list], { encoding: 'utf8' });
     check('fallback hook: builds from the fixture main.js', r.status === 0, r.stderr);
     if (r.status !== 0) {
@@ -1118,9 +1133,12 @@ function testInplaceHook() {
 /* A copy of deploy/ at another version, both in component.json and the
  * script's VERSION. */
 function deployCopy(version) {
-    const dir = path.join(fs.mkdtempSync(path.join(T, 'deploy-')), 'deploy');
+    const top = fs.mkdtempSync(path.join(T, 'deploy-'));
+    const dir = path.join(top, 'deploy');
     fs.mkdirSync(dir);
     cp.execFileSync('cp', ['-R', path.join(DEPLOY, 'unit'), path.join(DEPLOY, 'component.json'), dir]);
+    fs.mkdirSync(path.join(top, 'tools'));
+    LINK_FILES.forEach((n) => fs.copyFileSync(path.join(TOOLS, n), path.join(top, 'tools', n)));
     const c = readJson(path.join(dir, 'component.json'));
     c.version = version;
     fs.writeFileSync(path.join(dir, 'component.json'), JSON.stringify(c, null, 2) + '\n');
@@ -1141,8 +1159,9 @@ function testSelf() {
     check('self: deploy/hu artifact deploy builds mgu-deploy@<version>.tgz', builds.every((b) => b.r.status === 0 && fs.existsSync(b.file)),
         builds.map((b) => b.r.stderr).join('\n'));
     check('self: two builds are byte-identical', sha256(fs.readFileSync(builds[0].file)) === sha256(fs.readFileSync(builds[1].file)));
-    check('self: the artifact holds the four files and its manifest', JSON.stringify(tarList(builds[0].file)) === JSON.stringify([
-        'component.json', 'files/fallback_build.js', 'files/mgu-app-fallback.service', 'files/mgu-deploy.js', 'files/mgu-deploy.sh']),
+    check('self: the artifact holds its six files and its manifest', JSON.stringify(tarList(builds[0].file)) === JSON.stringify([
+        'component.json', 'files/fallback_build.js', 'files/mgu-app-fallback.service', 'files/mgu-deploy.js', 'files/mgu-deploy.sh',
+        'files/oap_link.js', 'files/oap_pack.js']),
     tarList(builds[0].file).join(' '));
     const built = untar(builds[0].file)['component.json'].data;
 
@@ -1157,7 +1176,7 @@ function testSelf() {
     check('self: a synthesized manifest equals the artifact\'s', fs.readFileSync(path.join(v, 'component.json')).equals(built),
         fs.readFileSync(path.join(v, 'component.json'), 'utf8'));
     const shim = cp.spawnSync('sh', [root.p('var/opt/mgu-deploy/mgu-deploy.sh'), 'status', '--json'],
-        { encoding: 'utf8', env: Object.assign({}, root.env, { MGU_DEPLOY_NODE: process.execPath }) });
+        { encoding: 'utf8', env: Object.assign({}, root.env, { MGU_DEPLOY_NODE: UNIT_NODE }) });
     let st = null;
     try { st = JSON.parse(shim.stdout); } catch (e) { /* checked below */ }
     check('self: the shim runs status --json from current', shim.status === 0 && st && st.version === VERSION &&
@@ -1167,9 +1186,10 @@ function testSelf() {
     const kit = fs.mkdtempSync(path.join(T, 'kit-'));
     ['mgu-deploy.js', 'mgu-deploy.sh', 'fallback_build.js', 'mgu-app-fallback.service'].forEach((n) =>
         fs.copyFileSync(path.join(DEPLOY, 'unit', n), path.join(kit, n)));
+    LINK_FILES.forEach((n) => fs.copyFileSync(path.join(TOOLS, n), path.join(kit, n)));
     fs.copyFileSync(path.join(DEPLOY, 'component.json'), path.join(kit, 'component.json'));
     const kroot = fakeRoot();
-    const kr = cp.spawnSync(process.execPath, [path.join(kit, 'mgu-deploy.js'), 'install', '--artifact', toolArtifact('0.2.0'), '--yes'],
+    const kr = cp.spawnSync(UNIT_NODE, [path.join(kit, 'mgu-deploy.js'), 'install', '--artifact', toolArtifact('0.2.0'), '--yes'],
         { encoding: 'utf8', env: kroot.env });
     check('self: from a kit, the manifest beside the script is the artifact\'s', kr.status === 0 &&
         fs.readFileSync(kroot.p(`var/opt/mgu-deploy/versions/${VERSION}/component.json`)).equals(built), kr.stdout + kr.stderr);
@@ -1191,7 +1211,7 @@ function testSelf() {
         fs.readdirSync(sroot.p('var/opt/mgu-deploy/backups')).length > backupsBefore &&
         fs.existsSync(sroot.p('var/opt/mgu-deploy/main.js')));
     const s2 = cp.spawnSync('sh', [sroot.p('var/opt/mgu-deploy/mgu-deploy.sh'), 'status', '--json'],
-        { encoding: 'utf8', env: Object.assign({}, sroot.env, { MGU_DEPLOY_NODE: process.execPath }) });
+        { encoding: 'utf8', env: Object.assign({}, sroot.env, { MGU_DEPLOY_NODE: UNIT_NODE }) });
     st = null;
     try { st = JSON.parse(s2.stdout); } catch (e) { /* checked below */ }
     check('self: status through the shim answers from the new current at once', s2.status === 0 && st && st.version === NEXT &&
@@ -1319,7 +1339,7 @@ function testRollback() {
     root.run(['install', '--artifact', path.join(self, `mgu-deploy@${NEXT}.tgz`), '--yes']);
     r = root.run(['rollback', 'mgu-deploy', '--yes']);
     const s = cp.spawnSync('sh', [root.p('var/opt/mgu-deploy/mgu-deploy.sh'), 'status', '--json'],
-        { encoding: 'utf8', env: Object.assign({}, root.env, { MGU_DEPLOY_NODE: process.execPath }) });
+        { encoding: 'utf8', env: Object.assign({}, root.env, { MGU_DEPLOY_NODE: UNIT_NODE }) });
     check('rollback: mgu-deploy switches current; the shim runs the version rolled back to',
         r.status === 0 && fs.readlinkSync(root.p('var/opt/mgu-deploy/current')) === `versions/${VERSION}` &&
         JSON.parse(s.stdout).version === VERSION, `${r.out}\n${s.stdout}${s.stderr}`);
@@ -1410,7 +1430,7 @@ function testLock() {
     const lock = root.p('var/opt/mgu-deploy/lock');
     const boot = fs.readFileSync(root.p('proc/boot_id'), 'utf8').trim();
     const runWait = (args, ms) => {
-        const r = cp.spawnSync(process.execPath, [UNIT_JS].concat(args),
+        const r = cp.spawnSync(UNIT_NODE, [UNIT_JS].concat(args),
             { encoding: 'utf8', env: Object.assign({}, root.env, { MGU_DEPLOY_LOCK_WAIT_MS: String(ms) }), input: '' });
         r.out = `${r.stdout}${r.stderr}`;
         return r;
@@ -1571,10 +1591,19 @@ function testTransactions() {
 
 function testTodoLines() {
     const root = fakeRoot();
-    write(root.p('var/opt/display-bridge/current/display-bridge.conf'),
-        fs.readFileSync(path.join(HERE, '..', '..', 'native', 'display-bridge', 'display-bridge.conf')));
+    // display-bridge (mgu-apps) installs through this tool; status lists its notes
+    write(root.p('var/opt/display-bridge/current/display-bridge.conf'), [
+        '# "TODO(on-car)" marks values the bring-up (BRINGUP.md) must confirm.',
+        '# The group apps connect with. TODO(on-car): confirm',
+        '# (BRINGUP.md step 6).',
+        'socket_group =',
+        '# Touch range. TODO(on-car): step 8.3.',
+        'touch_range = 0,0,4095,4095',
+        'mode = "TODO(on-car) in a value is not a note"',
+        ''].join('\n'));
     const st = root.status();
     check('status: each TODO(on-car) note in full, after its key, notes only',
+        st.display_bridge_todo_on_car.length === 2 &&
         st.display_bridge_todo_on_car.includes('socket_group: TODO(on-car): confirm (BRINGUP.md step 6).') &&
         st.display_bridge_todo_on_car.includes('touch_range: TODO(on-car): step 8.3.') &&
         st.display_bridge_todo_on_car.every((l) => /^[a-z_]+: TODO\(on-car\)/.test(l)), JSON.stringify(st.display_bridge_todo_on_car));
@@ -1586,17 +1615,26 @@ const TOKEN = 'github_pat_FIXTURE0only0for0the0deploy0tests0000000000';
 
 function testToken() {
     const root = fakeRoot();
-    const file = root.p('var/opt/mgu-updater/github-token');
+    const file = root.p('var/opt/mgu-updater/credentials/mgu-store');
     const runIn = (args, input) => {
-        const r = cp.spawnSync(process.execPath, [UNIT_JS].concat(args), { encoding: 'utf8', env: root.env, input });
+        const r = cp.spawnSync(UNIT_NODE, [UNIT_JS].concat(args), { encoding: 'utf8', env: root.env, input });
         r.out = `${r.stdout}${r.stderr}`;
         return r;
     };
     const outputs = [];
     let r = runIn(['updater-token'], `${TOKEN}\n`);
     outputs.push(r.out);
-    check('token: written from stdin, trailing newline dropped, mode 0600', r.status === 0 &&
-        fs.readFileSync(file, 'utf8') === TOKEN && mode(file) === 0o600 && r.out.includes(`${TOKEN.length} bytes`), r.out);
+    check('token: the mgu-store source\'s, written from stdin, trailing newline dropped, 0600 in a 0700 folder', r.status === 0 &&
+        fs.readFileSync(file, 'utf8') === TOKEN && mode(file) === 0o600 && mode(path.dirname(file)) === 0o700 &&
+        r.out.includes(`${TOKEN.length} bytes`), r.out);
+    r = runIn(['updater-token', '--source', 'mgu-apps'], TOKEN);
+    outputs.push(r.out);
+    check('token: --source names another source\'s credential', r.status === 0 &&
+        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/mgu-apps'), 'utf8') === TOKEN, r.out);
+    r = runIn(['updater-token', '--source', '../x'], TOKEN);
+    check('token: a bad source id is refused, exit 2', r.status === 2 && r.out.includes('bad source id') &&
+        !fs.existsSync(root.p('var/opt/mgu-updater/x')), r.out);
+    runIn(['updater-token', '--source', 'mgu-apps', '--remove'], '');
     const st = root.status();
     const human = root.run(['status']);
     outputs.push(JSON.stringify(st), human.out);
@@ -1611,12 +1649,14 @@ function testToken() {
     const backups = root.p('var/opt/mgu-deploy/backups');
     const stored = fs.readdirSync(backups).map((d) => path.join(backups, d, 'files')).filter((d) => fs.existsSync(d))
         .flatMap((d) => fs.readdirSync(d).map((n) => path.join(d, n)));
-    check('token: snapshot copies are root\'s alone (0600 in a 0700 folder)', mode(backups) === 0o700 &&
-        stored.every((f) => mode(f) === 0o600));
+    check('token: snapshot copies are private and contain no credentials', mode(backups) === 0o700 &&
+        stored.every((f) => mode(f) === 0o600 && !fs.readFileSync(f).includes(Buffer.from(TOKEN))) &&
+        fs.readdirSync(backups).every((d) => !readJson(path.join(backups, d, 'manifest.json')).entries.some((e) =>
+            e.path.includes('/credentials') || e.path.endsWith('/sources.json'))));
     r = root.run(['restore', 'stock', '--yes']);
     outputs.push(r.out);
-    check('token: absent in stock, restore deletes it (and the folder it made)', r.status === 0 && !fs.existsSync(file) &&
-        !fs.existsSync(path.dirname(file)), r.out);
+    check('token: restoring stock keeps the updater credential', r.status === 0 &&
+        fs.readFileSync(file, 'utf8') === TOKEN, r.out);
     runIn(['updater-token'], TOKEN);
     r = runIn(['updater-token', '--remove'], '');
     outputs.push(r.out);
@@ -1629,10 +1669,10 @@ function testToken() {
     const out = fs.mkdtempSync(path.join(T, 'art-'));
     hu(['artifact', src, '--out', out]);
     up.run(['install', '--artifact', path.join(out, 'mgu-updater@0.1.0.tgz'), '--yes']);
-    cp.spawnSync(process.execPath, [UNIT_JS, 'updater-token'], { env: up.env, input: TOKEN });
+    cp.spawnSync(UNIT_NODE, [UNIT_JS, 'updater-token'], { env: up.env, input: TOKEN });
     const un = up.run(['uninstall', 'mgu-updater', '--yes']);
     check('token: uninstalling mgu-updater removes its token with its folder, naming it', un.status === 0 &&
-        !fs.existsSync(up.p('var/opt/mgu-updater')) && un.out.includes('github-token') && !un.out.includes(TOKEN), un.out);
+        !fs.existsSync(up.p('var/opt/mgu-updater')) && un.out.includes('credentials') && !un.out.includes(TOKEN), un.out);
 }
 
 /* deploy/hu with a stand-in ssh: the token travels on stdin only. */
@@ -1651,21 +1691,23 @@ function testHuToken() {
     check('hu token: updater-token stages the installer, then sends the token on stdin',
         x.r.status === 0 && x.calls.length === 3 && x.calls[1].includes("'updater-token'") &&
         x.stdin(1).toString() === `${TOKEN}\n`, `${x.r.stderr}\n${x.calls.join('\n')}`);
+    const staged = Object.keys(untarBuf(x.stdin(0))).sort().join(' ');
+    check('hu: the staging upload carries the deploy tool with its linker and packer', staged ===
+        'component.json fallback_build.js mgu-app-fallback.service mgu-deploy.js mgu-deploy.sh oap_link.js oap_pack.js', staged);
     check('hu token: not in any ssh argument, the staging upload or the output',
         x.calls.every((c) => !c.includes(TOKEN)) && !zlib.gunzipSync(x.stdin(0)).includes(TOKEN) &&
         !`${x.r.stdout}${x.r.stderr}`.includes(TOKEN));
     x = run(['install', '--artifact', toolArtifact('0.2.0')], { HU_UPDATER_TOKEN_FILE: tokenFile });
-    check('hu token: install with HU_UPDATER_TOKEN_FILE sends it after the install', x.r.status === 0 && x.calls.length === 4 &&
-        x.calls[1].includes("'install'") && x.calls[2].includes("'updater-token'") && x.stdin(2).toString() === `${TOKEN}\n` &&
+    check('hu token: install seeds the updater\'s sources, then sends the token for mgu-store', x.r.status === 0 &&
+        x.calls.length === 5 && x.calls[1].includes("'install'") && x.calls[2].includes("'updater-sources'") &&
+        x.stdin(2).equals(fs.readFileSync(path.join(DEPLOY, 'sources.json'))) &&
+        x.calls[3].includes("'updater-token' '--source' 'mgu-store'") && x.stdin(3).toString() === `${TOKEN}\n` &&
         x.calls.every((c) => !c.includes(TOKEN)), x.calls.join('\n'));
     x = run(['updater-token', '--remove']);
     check('hu token: --remove sends no token', x.r.status === 0 && x.calls[1].includes("'--remove'") && x.stdin(1).length === 0,
         x.calls.join('\n'));
     x = run(['updater-token']);
     check('hu token: updater-token without a file is a usage error, nothing sent', x.r.status === 2 && x.calls.length === 0, x.r.stderr);
-    const k = hu(['kit', '--out', path.join(T, 'kit-tok'), '--updater-token-file', tokenFile]);
-    check('hu token: kit refuses to carry the token', k.status === 2 && k.stderr.includes('never carries') &&
-        !fs.existsSync(path.join(T, 'kit-tok')), k.stderr);
 }
 
 /* ---- the connection (deploy/transport) ------------------------------------------------------- */
@@ -1807,7 +1849,7 @@ function testRestoreAfterBootstrap() {
         fs.existsSync(path.join(cur, 'mgu-deploy.js')), `${r.out}\nversions: ${fs.existsSync(root.p('var/opt/mgu-deploy/versions')) ?
         fs.readdirSync(root.p('var/opt/mgu-deploy/versions')).join(' ') : '(none)'}`);
     const shim = cp.spawnSync('sh', [root.p('var/opt/mgu-deploy/mgu-deploy.sh'), 'status', '--json'],
-        { encoding: 'utf8', env: Object.assign({}, root.env, { MGU_DEPLOY_NODE: process.execPath }) });
+        { encoding: 'utf8', env: Object.assign({}, root.env, { MGU_DEPLOY_NODE: UNIT_NODE }) });
     check('bootstrap: the shim answers status --json after the restore', shim.status === 0, shim.stdout + shim.stderr);
 }
 
@@ -2124,48 +2166,354 @@ function testRetiredAppManagementOnly() {
         n.status === 0 && n.out.includes('no leftovers') && !fs.existsSync(fresh.p('var/opt/mgu-deploy')), n.out);
 }
 
+/* ---- source packages and packages built elsewhere -------------------------------------------- */
+
+/* A fake root with the made-up donor among the preinstalled apps. */
+function donorRoot(opts) {
+    const root = fakeRoot(opts);
+    donor.tgz(root.preinstalled('donor_app', '1.0.0'));
+    return root;
+}
+
+/* A source package (mgu-app.json) of robertn_demo, packed by oap_link.js. */
+function sourceArtifact(version, extra) {
+    const dir = fs.mkdtempSync(path.join(T, 'srcpkg-'));
+    const m = Object.assign({ schema: 1, id: 'robertn_demo', version, tree: `robertn_demo@${version}`,
+        modules: ['src/demo.js'], sdk: ['oap-sdk/src/core/OnlineApp.js'] }, extra);
+    write(path.join(dir, 'mgu-app.json'), JSON.stringify(m));
+    write(path.join(dir, 'src', 'demo.js'), "'use strict';\nconst { OnlineApp } = require('oap-sdk/src/core/OnlineApp.js');\nnew OnlineApp('demo');\n");
+    write(path.join(dir, m.tree, 'package.json'), JSON.stringify({ name: m.id, version, files: ['javascript', 'package.json'] }));
+    write(path.join(dir, m.tree, 'javascript', 'runner.js'), '// runner\n');
+    const file = path.join(fs.mkdtempSync(path.join(T, 'srcart-')), `robertn_demo@${version}.tgz`);
+    link.packSource(dir, file);
+    return file;
+}
+
+/* An OAP package built elsewhere: no marker, require('oap-sdk') without
+ * node_modules/oap-sdk; layout 'npm' (members under package/) or 'mgu'. */
+function thirdPartyArtifact(id, version, layout, opts) {
+    opts = opts || {};
+    const prefix = layout === 'mgu' ? 'source/' : 'package/';
+    const entries = [
+        { name: `${prefix}package.json`, data: Buffer.from(JSON.stringify({ name: id, version, main: 'javascript/app.js' })), mode: 0o644 },
+        { name: `${prefix}javascript/app.js`, data: Buffer.from("const { OnlineApp } = require('oap-sdk');\nnew OnlineApp('x');\n"), mode: 0o644 },
+        { name: `${prefix}rhmiData/application.json`, data: Buffer.from('{}'), mode: 0o644 }
+    ];
+    if (layout === 'mgu') {
+        entries.push({ name: 'meta.json', data: Buffer.from(JSON.stringify({ id: opts.metaId || id, version, title: id })), mode: 0o644 },
+            { name: 'rhmiData/application.json', data: Buffer.from('{}'), mode: 0o644 },
+            { name: 'oapgen/gen.js', data: Buffer.from('// theirs\n'), mode: 0o644 });
+    }
+    const file = path.join(fs.mkdtempSync(path.join(T, 'tp-')), `${id}@${version}.${layout === 'mgu' ? 'mgu' : 'tgz'}`);
+    fs.writeFileSync(file, tgz(entries.sort((a, b) => (a.name < b.name ? -1 : 1)), 1700000000));
+    return file;
+}
+
+function testSourcePackages() {
+    const root = donorRoot();
+    const file = sourceArtifact('1.2.3', { internet: true });
+    const before = root.hash();
+    const c = root.run(['check', '--artifact', file]);
+    check('source: check builds it on the unit and changes nothing', c.status === 0 &&
+        c.out.includes('built robertn_demo 1.2.3 from its source package') && c.out.includes('oap-sdk from donor_app@1.0.0.tgz:javascript/app.js') &&
+        c.out.includes('app robertn_demo 1.2.3 ok') && root.hash().hash === before.hash, `${c.out}\n${treeDiff(before, root.hash())}`);
+    const r = root.run(['install', '--artifact', file, '--yes']);
+    const pkg = root.preinstalled('robertn_demo', '1.2.3');
+    const m = fs.existsSync(pkg) ? untarBuf(fs.readFileSync(pkg)) : {};
+    check('source: install builds it and installs the result as an app', r.status === 0 &&
+        r.out.includes('built robertn_demo 1.2.3') && m['javascript/app.js'] && m['javascript/runner.js'] &&
+        JSON.parse(m['package.json']).mguLocalOnly === true && JSON.parse(m['package.json']).mguInternet === true &&
+        root.status().components.some((x) => x.id === 'robertn_demo' && x.version === '1.2.3'), r.out);
+    const again = root.run(['install', '--artifact', file, '--yes']);
+    check('source: the same version again is not built', again.status === 0 && again.out.includes('already installed') &&
+        !again.out.includes('built robertn_demo'), again.out);
+    const bare = fakeRoot();
+    const b0 = bare.hash();
+    const nb = bare.run(['install', '--artifact', file, '--yes']);
+    check('source: with no donor on the unit, refused (exit 2), nothing changed', nb.status === 2 &&
+        nb.out.includes('cannot build robertn_demo 1.2.3 on this unit: no donor holds oap-sdk/src/core/OnlineApp.js') &&
+        bare.hash().hash === b0.hash, `${nb.out}\n${treeDiff(b0, bare.hash())}`);
+    const bad = rebuild(file, (entries) => tgz(entries.map((e) => (e.name === 'mgu-app.json' ?
+        Object.assign({}, e, { data: Buffer.from('{"schema":1,"id":"robertn_demo","version":"1.2"}') }) : e)), 1700000000));
+    const nr = donorRoot().run(['install', '--artifact', bad, '--yes']);
+    check('source: a bad mgu-app.json is refused, exit 2', nr.status === 2 && nr.out.includes('mgu-app.json: version is not x.y.z'), nr.out);
+}
+
+function testThirdParty() {
+    const root = donorRoot();
+    const npm = thirdPartyArtifact('warmup', '1.4.3', 'npm');
+    const r = root.run(['install', '--artifact', npm, '--yes']);
+    const pkg = root.preinstalled('warmup', '1.4.3');
+    const m = fs.existsSync(pkg) ? untarBuf(fs.readFileSync(pkg)) : {};
+    check('third party: an npm-format package installs flat, marked, with oap-sdk generated from the donor', r.status === 0 &&
+        r.out.includes('node_modules/oap-sdk generated from donor_app@1.0.0.tgz:javascript/app.js') &&
+        JSON.parse(m['package.json'] || '{}').mguLocalOnly === true && m['node_modules/oap-sdk/index.js'] &&
+        !Object.keys(m).some((k) => k.indexOf('package/') === 0) &&
+        root.status().components.some((x) => x.id === 'warmup' && x.version === '1.4.3'), r.out);
+    const mgu = thirdPartyArtifact('gforce', '2.0.0', 'mgu');
+    const r2 = root.run(['install', '--artifact', mgu, '--yes']);
+    const m2 = untarBuf(fs.readFileSync(root.preinstalled('gforce', '2.0.0')));
+    check('third party: a .mgu installs its source/ as the package', r2.status === 0 && m2['javascript/app.js'] &&
+        m2['rhmiData/application.json'] && !m2['meta.json'] && !m2['oapgen/gen.js'] && m2['node_modules/oap-sdk/index.js'], r2.out);
+    const plain = appArtifact('plain_app', '1.0.0', false);
+    const r3 = root.run(['install', '--artifact', plain, '--yes']);
+    check('third party: an unmarked flat package is marked and installed', r3.status === 0 && r3.out.includes('marked local-only') &&
+        JSON.parse(untarBuf(fs.readFileSync(root.preinstalled('plain_app', '1.0.0')))['package.json']).mguLocalOnly === true, r3.out);
+    const ours = appArtifact('ours_app', '1.0.0', true);
+    const r4 = root.run(['install', '--artifact', ours, '--yes']);
+    check('third party: one of ours installs byte for byte', r4.status === 0 && !r4.out.includes('prepared') &&
+        fs.readFileSync(root.preinstalled('ours_app', '1.0.0')).equals(fs.readFileSync(ours)), r4.out);
+    const bare = fakeRoot();
+    const b0 = bare.hash();
+    const nb = bare.run(['install', '--artifact', npm, '--yes']);
+    check('third party: needing oap-sdk with no donor on the unit is refused, nothing changed', nb.status === 2 &&
+        nb.out.includes('cannot prepare warmup 1.4.3 on this unit: no donor holds the oap-sdk core') &&
+        bare.hash().hash === b0.hash, nb.out);
+    const mis = donorRoot().run(['install', '--artifact', thirdPartyArtifact('gforce', '2.0.0', 'mgu', { metaId: 'other' }), '--yes']);
+    check('third party: a .mgu whose meta.json names another app is refused', mis.status === 2 && mis.out.includes('meta.json names other 2.0.0'), mis.out);
+}
+
+/* A tool artifact built from the fixture tool under another id. */
+function namedTool(id, version, edit) {
+    const out = fs.mkdtempSync(path.join(T, 'art-'));
+    const r = hu(['artifact', fixtureCopy(version, (c) => {
+        c.id = id;
+        c.units = [];
+        c.enable = [];
+        c.recmgr = [];
+        c.restart = [];
+        if (edit) {
+            edit(c);
+        }
+    }), '--out', out]);
+    if (r.status !== 0) {
+        throw new Error(r.stderr);
+    }
+    return path.join(out, `${id}@${version}.tgz`);
+}
+
+function testInternet() {
+    const root = fakeRoot();
+    const uids = root.p('var/opt/mgu-uplink/uids.d/net-tool');
+    const apps = root.p('var/opt/mgu-uplink/apps.d/net_app');
+    let r = root.run(['install', '--artifact', namedTool('net-tool', '1.0.0', (c) => { c.internet = true; c.uids = [12993, 12994]; }), '--yes']);
+    check('internet: without mgu-uplink no drop-in is written', r.status === 0 && !fs.existsSync(root.p('var/opt/mgu-uplink')), r.out);
+    r = root.run(['install', '--artifact', namedTool('mgu-uplink', '1.0.0'), '--yes']);
+    check('internet: installing mgu-uplink writes the drop-ins of what is installed', r.status === 0 &&
+        fs.readFileSync(uids, 'utf8') === '12993\n12994\n' && mode(uids) === 0o644, r.out);
+    r = root.run(['install', '--artifact', appArtifact('net_app', '1.0.0', true, { mguInternet: true }), '--yes']);
+    check('internet: an app with "mguInternet": true gets apps.d/<id>', r.status === 0 && fs.readFileSync(apps, 'utf8') === 'net_app\n', r.out);
+    r = root.run(['uninstall', 'net_app', '--yes']);
+    check('internet: uninstalling the app removes its drop-in', r.status === 0 && !fs.existsSync(apps), r.out);
+    r = root.run(['uninstall', 'net-tool', '--yes']);
+    check('internet: uninstalling the tool removes its drop-in', r.status === 0 && !fs.existsSync(uids) &&
+        fs.existsSync(root.p('var/opt/mgu-uplink/current')), r.out);
+    const bad = fakeRoot().run(['install', '--artifact', namedTool('net-tool', '1.0.0', (c) => { c.internet = true; c.uids = []; }), '--yes']);
+    check('internet: "internet" without uids is refused', bad.status === 2 && bad.out.includes('needs "uids"'), bad.out);
+}
+
+function testSourcesAndDonor() {
+    const root = donorRoot();
+    const sources = fs.readFileSync(path.join(DEPLOY, 'sources.json'));
+    const file = root.p('var/opt/mgu-updater/sources.json');
+    const runIn = (args, input, extra) => {
+        const r = cp.spawnSync(UNIT_NODE, [UNIT_JS].concat(args),
+            { encoding: 'utf8', env: Object.assign({}, root.env, extra || {}), input });
+        r.out = `${r.stdout}${r.stderr}`;
+        return r;
+    };
+    let r = runIn(['updater-sources'], sources);
+    check('sources: nothing written while mgu-updater is not installed', r.status === 0 && r.out.includes('not installed') &&
+        !fs.existsSync(root.p('var/opt/mgu-updater')), r.out);
+    root.run(['install', '--artifact', namedTool('mgu-updater', '0.2.0'), '--yes']);
+    r = runIn(['updater-sources'], sources);
+    check('sources: seeded, root\'s alone', r.status === 0 && JSON.stringify(readJson(file)) === JSON.stringify(JSON.parse(sources)) &&
+        mode(file) === 0o600, r.out);
+    r = runIn(['updater-sources'], '{"schema":1,"sources":[{"id":"other","type":"https","url":"https://x/catalog.json"}]}');
+    check('sources: an existing sources.json is kept', r.status === 0 && r.out.includes('kept') &&
+        JSON.stringify(readJson(file)) === JSON.stringify(JSON.parse(sources)), r.out);
+    [['not json', 'not JSON'], ['{"schema":1,"sources":[{"id":"a","type":"ftp"}]}', 'distinct ids'],
+        ['{"schema":1,"sources":[{"id":"a","type":"file"},{"id":"a","type":"file"}]}', 'distinct ids']].forEach(([input, why]) => {
+        const bad = runIn(['updater-sources'], input);
+        check(`sources: refused (${why}), exit 2`, bad.status === 2 && bad.out.includes(why), bad.out);
+    });
+    const run = root.p('run/mgu-deploy');
+    r = runIn(['sdk-donor', '--json'], '', { MGU_DEPLOY_RUN: run });
+    let j = null;
+    try { j = JSON.parse(r.stdout); } catch (e) { /* checked below */ }
+    check('donor: sdk-donor --json names a readable copy of the donor bundle in an app folder\'s layout', r.status === 0 && j &&
+        j.path === path.join(run, 'sdk-donor', 'javascript', 'app.js') && fs.readFileSync(j.path, 'utf8') === donor.bundle() &&
+        mode(j.path) === 0o644 && mode(path.join(run, 'sdk-donor')) === 0o755 && j.donor === 'donor_app@1.0.0.tgz:javascript/app.js' &&
+        readJson(path.join(run, 'sdk-donor', 'package.json')).dependencies['oap-sdk'] === '9.8.7', r.out);
+    const none = fakeRoot().run(['sdk-donor', '--json'], { MGU_DEPLOY_RUN: run + '-none' });
+    check('donor: no donor on the unit, exit 2', none.status === 2 && none.out.includes('no donor holds the oap-sdk core'), none.out);
+}
+
+/* Sources and credentials belong to the updater even when restoring a
+ * manifest made by a deploy version that copied them. */
+function testUpdaterStateRestore() {
+    const root = fakeRoot();
+    root.run(['install', '--artifact', namedTool('mgu-updater', '0.2.0'), '--yes']);
+    const base = root.p('var/opt/mgu-updater');
+    const sources = path.join(base, 'sources.json');
+    const credential = path.join(base, 'credentials', 'mgu-store');
+    const other = path.join(base, 'credentials', 'other');
+    write(sources, '{"schema":1,"sources":[{"id":"owner","type":"file"}]}');
+    write(credential, TOKEN);
+    write(other, 'OTHER_FIXTURE_TOKEN');
+    const legacy = root.p('var/opt/mgu-deploy/backups/stock/manifest.json');
+    const manifest = readJson(legacy);
+    const absent = (p) => ({ path: p, kind: 'absent' });
+    manifest.entries.push(absent(sources), absent(credential), absent(other), absent(path.dirname(credential)));
+    fs.writeFileSync(legacy, JSON.stringify(manifest));
+    let r = root.run(['restore', 'stock', '--yes']);
+    check('restore: legacy absent entries and updater removal preserve sources and every credential', r.status === 0 &&
+        fs.readFileSync(sources, 'utf8').includes('owner') && fs.readFileSync(credential, 'utf8') === TOKEN &&
+        fs.readFileSync(other, 'utf8') === 'OTHER_FIXTURE_TOKEN' && !fs.existsSync(path.join(base, 'current')), r.out);
+    const oldFile = root.p('var/opt/mgu-deploy/backups/stock/files/old-token');
+    write(oldFile, 'OLD_FIXTURE_TOKEN');
+    manifest.entries = manifest.entries.filter((e) => !e.path.includes('/credentials') && e.path !== sources);
+    manifest.entries.push({ path: credential, kind: 'file', stored: 'files/old-token', sha256: sha256(Buffer.from('OLD_FIXTURE_TOKEN')), mode: 0o600 });
+    fs.writeFileSync(legacy, JSON.stringify(manifest));
+    r = root.run(['restore', 'stock', '--yes']);
+    check('restore: legacy stored credentials are neither restored nor verified against the current token', r.status === 0 &&
+        fs.readFileSync(credential, 'utf8') === TOKEN, r.out);
+    const backups = root.p('var/opt/mgu-deploy/backups');
+    check('restore: new snapshots contain no updater state even when restoring a legacy manifest',
+        fs.readdirSync(backups).filter((d) => d !== 'stock').every((d) =>
+            !readJson(path.join(backups, d, 'manifest.json')).entries.some((e) =>
+                e.path === sources || e.path.indexOf(path.join(base, 'credentials')) === 0)));
+}
+
+/* deploy/hu kit, and its install.sh run against a fake root. The kit
+ * takes the components that build without native toolchains; the updater
+ * is a stand-in installed first. */
+function testKit() {
+    const tokenFile = path.join(fs.mkdtempSync(path.join(T, 'tok-')), 'token');
+    fs.writeFileSync(tokenFile, `${TOKEN}\n`);
+    const out = path.join(fs.mkdtempSync(path.join(T, 'kits-')), 'kit');
+    const ids = ['app-privacy', 'mgu-deploy', 'robertn_store'];
+    const k = hu(['kit', '--out', out, '--updater-token-file', tokenFile].concat(ids));
+    const comps = require('../../release/release.js').components(path.join(DEPLOY, '..'));
+    const want = comps.filter((c) => ids.indexOf(c.id) >= 0).map((c) => `${c.id}@${c.version}.tgz`).sort().join(' ');
+    check('kit: install.sh, the deploy tool, sources.json, the token and the components',
+        k.status === 0 && fs.readdirSync(path.join(out, 'artifacts')).sort().join(' ') === want &&
+        !fs.existsSync(path.join(out, 'optional')) && mode(path.join(out, 'install.sh')) === 0o755 &&
+        fs.readFileSync(path.join(out, 'sources.json')).equals(fs.readFileSync(path.join(DEPLOY, 'sources.json'))) &&
+        fs.readFileSync(path.join(out, 'token'), 'utf8') === `${TOKEN}\n` && mode(path.join(out, 'token')) === 0o600 &&
+        fs.existsSync(path.join(out, 'oap_link.js')) && !`${k.stdout}${k.stderr}`.includes(TOKEN), `${k.stdout}${k.stderr}`);
+    const store = comps.find((c) => c.id === 'robertn_store');
+    check('kit: the Store is its source package', !!untarBuf(fs.readFileSync(path.join(out, 'artifacts', `robertn_store@${store.version}.tgz`)))['mgu-app.json']);
+    const root = donorRoot();
+    root.run(['install', '--artifact', namedTool('mgu-updater', '0.2.0'), '--yes']);
+    const sh = (args) => {
+        const r = cp.spawnSync('sh', [path.join(out, 'install.sh')].concat(args || []), { encoding: 'utf8', env: root.env });
+        r.out = `${r.stdout}${r.stderr}`;
+        return r;
+    };
+    let r = sh();
+    const st = r.status === 0 ? root.status() : { components: [] };
+    const has = (id) => st.components.some((x) => x.id === id);
+    check('kit: install.sh installs the tools and builds and installs the Store', r.status === 0 &&
+        ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every(has) &&
+        r.out.includes('built robertn_store'), r.out.slice(-3000));
+    check('kit: install.sh seeds the sources and the mgu-store token, root\'s alone',
+        fs.existsSync(root.p('var/opt/mgu-updater/sources.json')) && mode(root.p('var/opt/mgu-updater/sources.json')) === 0o600 &&
+        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/mgu-store'), 'utf8') === TOKEN && !r.out.includes(TOKEN));
+    check('kit: install.sh leaves no staging copy', !fs.readdirSync(root.p('var/opt')).some((n) => /^mgu-deploy-kit-/.test(n)));
+    r = sh();
+    check('kit: install.sh again changes nothing installed', r.status === 0 && r.out.includes('robertn_store') &&
+        r.out.includes('already installed') && r.out.includes('updater sources kept') && !r.out.includes('built robertn_store'), r.out.slice(-3000));
+    // An older kit keeps every newer component and still seeds updater state.
+    const nextDir = fs.mkdtempSync(path.join(T, 'next-deploy-'));
+    hu(['artifact', deployCopy(NEXT), '--out', nextDir]);
+    root.run(['install', '--artifact', path.join(nextDir, `mgu-deploy@${NEXT}.tgz`), '--yes']);
+    root.run(['install', '--artifact', namedTool('app-privacy', '9.0.0'), '--yes']);
+    fs.copyFileSync(namedTool('mgu-updater', '0.2.0'), path.join(out, 'artifacts', 'mgu-updater@0.2.0.tgz'));
+    root.run(['install', '--artifact', namedTool('mgu-updater', '9.0.0'), '--yes']);
+    const installed = root.status().components.find((c) => c.id === 'robertn_store');
+    const pkgFile = root.p(`var/opt/public/oap/oap_${installed.uid}/source/package.json`);
+    const pkg = readJson(pkgFile);
+    pkg.version = '9.0.0';
+    fs.writeFileSync(pkgFile, JSON.stringify(pkg));
+    fs.unlinkSync(root.p('var/opt/mgu-updater/sources.json'));
+    fs.unlinkSync(root.p('var/opt/mgu-updater/credentials/mgu-store'));
+    r = sh();
+    const current = root.status().components;
+    check('kit: an older kit skips newer tools (including deploy) and Store, then seeds sources and token', r.status === 0 &&
+        ['app-privacy', 'mgu-updater', 'robertn_store'].every((id) => current.some((c) => c.id === id && c.version === '9.0.0')) &&
+        fs.readlinkSync(root.p('var/opt/mgu-deploy/current')) === `versions/${NEXT}` &&
+        ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every((id) => r.out.includes(id + ' ') &&
+            r.out.includes(id + ' ' + (id === 'mgu-deploy' ? VERSION : id === 'robertn_store' ? store.version :
+                id === 'mgu-updater' ? '0.2.0' : comps.find((c) => c.id === id).version) + ' skipped')) &&
+        fs.existsSync(root.p('var/opt/mgu-updater/sources.json')) &&
+        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/mgu-store'), 'utf8') === TOKEN &&
+        !r.out.includes('built robertn_store'), r.out.slice(-4000));
+    const envKit = path.join(fs.mkdtempSync(path.join(T, 'env-kit-')), 'kit');
+    const envOnly = hu(['kit', '--out', envKit, 'mgu-deploy'], { HU_UPDATER_TOKEN_FILE: tokenFile });
+    check('kit: HU_UPDATER_TOKEN_FILE alone never puts a token in the kit', envOnly.status === 0 &&
+        !fs.existsSync(path.join(envKit, 'token')) && !envOnly.stdout.includes('token:'), envOnly.stderr);
+    const badEnvKit = hu(['kit', '--out', envKit, 'mgu-deploy'], { HU_UPDATER_TOKEN_FILE: tokenFile + '-missing' });
+    check('kit: an environment token file is not read', badEnvKit.status === 0 && !fs.existsSync(path.join(envKit, 'token')), badEnvKit.stderr);
+    r = sh(['--with-uplink']);
+    check('kit: --with-uplink with a kit made without it is refused', r.status === 2 && r.out.includes('no optional/mgu-uplink'), r.out);
+    r = sh(['--bogus']);
+    check('kit: an unknown option is a usage error', r.status === 2 && r.out.includes('usage'), r.out);
+}
+
 /* ---- run ------------------------------------------------------------------------------------- */
 
+// MGU_TEST_ONLY=<name>,...: only those test functions
+const SUITES = [
+    testArtifact,
+    testSelf,
+    testRefusals,
+    testToolInstall,
+    testPendingReboot,
+    testApps,
+    testBounceGuard,
+    testRestore,
+    testPrivacyRevert,
+    testStatusJson,
+    testFallback,
+    testInplace,
+    testInplaceHook,
+    testLocalOnlyListed,
+    testHealth,
+    testRollback,
+    testPrivacyTool,
+    testRestoreRefusals,
+    testStaleFiles,
+    testProvisioningSection,
+    testBackupRetention,
+    testLock,
+    testFallbackOffPrivacy,
+    testTransactions,
+    testTodoLines,
+    testToken,
+    testHuToken,
+    testSourcePackages,
+    testThirdParty,
+    testInternet,
+    testSourcesAndDonor,
+    testKit,
+    testUpdaterStateRestore,
+    testTransport,
+    testHuConnect,
+    testRestoreAfterBootstrap,
+    testRetiredDetect,
+    testRetiredMigrate,
+    testRetiredRollback,
+    testRetiredEdges,
+    testRetiredDrop,
+    testRetiredRestoreGuard,
+    testRetiredRollbackFails,
+    testRetiredAppManagementOnly
+];
+const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;
 try {
-    testArtifact();
-    testSelf();
-    testRefusals();
-    testToolInstall();
-    testPendingReboot();
-    testApps();
-    testBounceGuard();
-    testRestore();
-    testPrivacyRevert();
-    testStatusJson();
-    testFallback();
-    testInplace();
-    testInplaceHook();
-    testLocalOnlyListed();
-    testHealth();
-    testRollback();
-    testPrivacyTool();
-    testRestoreRefusals();
-    testStaleFiles();
-    testProvisioningSection();
-    testBackupRetention();
-    testLock();
-    testFallbackOffPrivacy();
-    testTransactions();
-    testTodoLines();
-    testToken();
-    testHuToken();
-    testTransport();
-    testHuConnect();
-    testRestoreAfterBootstrap();
-    testRetiredDetect();
-    testRetiredMigrate();
-    testRetiredRollback();
-    testRetiredEdges();
-    testRetiredDrop();
-    testRetiredRestoreGuard();
-    testRetiredRollbackFails();
-    testRetiredAppManagementOnly();
+    SUITES.filter((f) => !ONLY.length || ONLY.indexOf(f.name) >= 0).forEach((f) => f());
 } catch (e) {
     crashed = e;
 }
