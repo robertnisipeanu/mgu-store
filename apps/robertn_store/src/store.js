@@ -59,6 +59,7 @@ const WEB_URL_FILE = path.join(DATA_DIR, 'web-url');
 const RECONNECT_MS = 2000;
 const PRESS_DEDUPE_MS = 400;
 const HIDE_SETTLE_MS = 800;
+const WEB_URL_POLL_MS = 1000;           // web-url re-read while Phone access is open and on
 const ROW_KEY = 2;                      // a press's row in a raw userEvent's parameterMap
 const QR_PREFIX = 'qr_';
 
@@ -131,6 +132,7 @@ class Store extends OnlineApp {
         this._states = {};
         this._visibleStates = new Set();
         this._hideTimer = null;
+        this._webUrlTimer = null;
         this._visible = false;
         this._sawForeground = false;
         this._shutdownPromise = null;
@@ -296,6 +298,7 @@ class Store extends OnlineApp {
                 this._visibleStates.add(name);
                 this._sawForeground = true;
                 this._setVisible(true);
+                this._render();
             } else {
                 this._visibleStates.delete(name);
                 clearTimeout(this._hideTimer);
@@ -619,6 +622,20 @@ class Store extends OnlineApp {
         this._text(C.phoneUrl, address.text);
         this._text(C.phoneError, web && web.error ? String(web.error) : '');
         this._showQr('phone', C.phoneQr, address.qr, '');
+        this._pollWebUrl(!!(web && web.enabled && this._visibleStates.has(S.phone)));
+    }
+
+    /* The updater writes web-url after it reports the page on, and again
+     * when the page's address changes, with no state change of its own: so
+     * while Phone access is open and on, the page is drawn again each
+     * WEB_URL_POLL_MS. */
+    _pollWebUrl(on) {
+        if (on && !this._webUrlTimer) {
+            this._webUrlTimer = setInterval(() => this._render(), WEB_URL_POLL_MS);
+        } else if (!on && this._webUrlTimer) {
+            clearInterval(this._webUrlTimer);
+            this._webUrlTimer = null;
+        }
     }
 
     /* A list's row count follows its rows ([1st column, 2nd column]). A cell
@@ -709,6 +726,7 @@ class Store extends OnlineApp {
         }
         this._visible = visible;
         clearTimeout(this._hideTimer);
+        this._pollWebUrl(false);
         logger.info(`screen ${visible ? 'visible' : 'hidden'}`);
         if (visible) {
             this._forgetWritten();
@@ -734,6 +752,7 @@ class Store extends OnlineApp {
         }
         logger.info(`store shutting down (${reason})`);
         clearTimeout(this._hideTimer);
+        this._pollWebUrl(false);
         this._client.close();
         this._shutdownPromise = Promise.resolve()
             .then(() => this.destroyBundles().catch((err) =>
