@@ -326,7 +326,7 @@ A page the car serves to a phone on its hotspot (`js/web.js`): the
 sources with their channel and status, the components with installed and
 catalog versions (and the short commit of a branch build), what is being
 installed, errors, and the logs. On it the owner adds a GitHub source
-(owner/repo with Releases, a branch or Tags) or a catalog URL, removes
+(owner/repo with Releases, a branch, the default branch when none is named, or Tags) or a catalog URL, removes
 one, pastes or clears a source's token, and starts a GitHub sign-in (the
 code and the link show on the page). Off by default; the Store turns it
 on and off (privileged `web` op) and shows its QR code.

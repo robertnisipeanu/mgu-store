@@ -837,11 +837,9 @@ $('addForm').onsubmit = function (ev) {
   var body = { op: 'source-add', type: 'https', url: v };
   if ($('addType').value === 'github') {
     var ch = $('addChannel').value;
-    if (ch === 'branch') {
-      var br = $('addBranch').value.trim();
-      if (!br) { $('addBranch').focus(); return; }
-      ch = 'branch:' + br;
-    }
+    var br = $('addBranch').value.trim();
+    // no name: the repository's default branch
+    if (ch === 'branch' && br) { ch = 'branch:' + br; }
     body = { op: 'source-add', type: 'github', repo: v, channel: ch };
   }
   op(body).then(function () { $('addValue').value = ''; $('addBranch').value = ''; });
@@ -916,7 +914,7 @@ a{color:var(--acc)}
 </div>
 <h2>Sources</h2>
 <div id="sources"></div>
-<form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel"><option value="releases">Releases</option><option value="branch">Branch</option><option value="tags">Tags</option></select><input id="addBranch" aria-label="Branch" placeholder="Branch" autocapitalize="off" autocorrect="off" spellcheck="false" hidden><button class="pri">Add</button></form>
+<form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel"><option value="releases">Releases</option><option value="branch">Branch</option><option value="tags">Tags</option></select><input id="addBranch" aria-label="Branch" placeholder="Default branch" autocapitalize="off" autocorrect="off" spellcheck="false" hidden><button class="pri">Add</button></form>
 <form id="tokenForm" hidden><select id="tokenSource" aria-label="Source"></select><input id="tokenValue" type="password" aria-label="Token" placeholder="Token" autocomplete="off"><button>Save token</button></form>
 <h2>Components</h2>
 <div id="components"></div>
