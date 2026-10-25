@@ -125,9 +125,7 @@ stopped past `build_timeout_s` (600) or once its folder holds more than
 `build_max_bytes` (200 MB); every process of the build uid is killed
 before a build and after it, so nothing a script leaves running reaches
 the next one; its output goes to the log as `build <id>:` lines; the
-folder is emptied as the build uid afterwards. An install asked for while
-a removal of the same component waits (or the other way round) is
-refused.
+folder is emptied as the build uid afterwards.
 
 **Ids.** Component ids are global on the unit. An id two sources list is
 shown once, from the source that installed it (`state/origins.json`), else
@@ -139,7 +137,9 @@ the queue, and the component is asked for again after);
 `optional` components are listed but never counted as updates unless
 installed; `uninstallable` ones can be removed (Store, phone page), through
 `mgu-deploy.sh uninstall <id> --yes`, unless something installed requires
-them. The updater and the deploy tool are never removed.
+them. The updater and the deploy tool are never removed. An install asked
+for while a removal of the same component waits or runs (or the other way
+round) is refused.
 
 **Credentials.** `/var/opt/mgu-updater/credentials/<source id>`
 (`credentials_dir`; root, 0600) holds a source's token, and `<id>.json`
