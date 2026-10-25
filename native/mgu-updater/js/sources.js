@@ -482,6 +482,7 @@ const SEMVER_TAG = /^(?:v|[a-z0-9][a-z0-9_-]{0,63}@)?((?:0|[1-9]\d*)\.(?:0|[1-9]
  *  releases       the `catalog` release's catalog.json, else the packages
  *                 attached to its releases (releases layout);
  *  branch:<name>  mgu-repo.json at the branch's head commit;
+ *  branch         the same, on the repo's default branch;
  *  tags           mgu-repo.json at the highest x.y.z tag (v1.2.3, 1.2.3, <id>@1.2.3).
  * No channel: releases when the repo has a release, else its default branch. */
 function githubReader(s, ctx) {
