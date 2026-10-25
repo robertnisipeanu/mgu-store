@@ -186,12 +186,11 @@ class Store extends OnlineApp {
                 this._login = { waiting: false, refusal: String(msg) };
                 this._render();
             } else if (forOp === 'source-add' || forOp === 'source-remove') {
-                this._note({ kind: 'refused', op: forOp, error: String(msg) });
-                // the refusal shows on Sources
+                // a refused removal goes back to Sources, which shows why
                 if (forOp === 'source-remove') {
                     this._removalRefused = true;
-                    this._leaveRemovedSource();
                 }
+                this._note({ kind: 'refused', op: forOp, error: String(msg) });
             }
         });
 
@@ -444,6 +443,8 @@ class Store extends OnlineApp {
         const src = this._source(this._rows.source[i]);
         if (src) {
             this._sourceId = src.id;
+            this._removingSource = null;
+            this._removalRefused = false;
             this._openState(S.source);
         }
     }
@@ -478,8 +479,12 @@ class Store extends OnlineApp {
         if (src && sourceActions(src).remove) {
             logger.info(`remove source ${src.id}`);
             this._removingSource = src.id;
-            // not sent (no secret yet): back to Sources as on a refusal
-            this._removalRefused = !this._privileged({ op: 'source-remove', id: src.id });
+            this._removalRefused = false;
+            if (!this._privileged({ op: 'source-remove', id: src.id })) {
+                this._removalRefused = true;
+                const error = readSecret() ? 'updater not running' : 'no updater secret';
+                this._note({ kind: 'refused', op: 'source-remove', error });
+            }
         }
     }
 

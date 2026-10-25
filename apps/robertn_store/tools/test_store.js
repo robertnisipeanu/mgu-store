@@ -332,6 +332,25 @@ function run() {
         return tick(300);
     }).then(() => {
         eq(states, [], 'a page this Store did not remove stays open');
+        // not sent without the secret: back to Sources, which says why
+        reset();
+        app._sourceId = 'mgu-apps';
+        const secretFile = path.join(DATA, 'updater-secret');
+        const secretText = fs.readFileSync(secretFile, 'utf8');
+        fs.unlinkSync(secretFile);
+        app._removeSource();
+        fs.writeFileSync(secretFile, secretText);
+        return tick();
+    }).then(() => {
+        eq(sent, [], 'nothing sent');
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Remove failed: no updater secret');
+        eq(states, ['close ST_OnlineApps_StoreSourceRemove', 'close ST_OnlineApps_StoreSource'], 'unsent: back to Sources');
+        // opening a source's page again forgets an earlier removal
+        reset();
+        app._removingSource = 'mgu-apps';
+        app._removalRefused = true;
+        app._onSource(1);
+        eq([app._removingSource, app._removalRefused], [null, false]);
         app._client.emit('state', ST);
         // a refusal answering an unprivileged request does not land on Sources
         reset();
