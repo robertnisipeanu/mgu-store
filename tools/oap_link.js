@@ -19,11 +19,12 @@
  * is a Node builtin (resolved by the runner's require) or one of `sdk`.
  *
  * A donor is a browserify bundle that carries the oap-sdk: a .js file, or an
- * OAP .tgz whose javascript/*.js files are tried in name order. It is split
- * without running it: the module map handed to the browserify prelude is
- * evaluated in an empty context, which creates the module functions and
- * their dependency tables and calls none of them. The first donor that
- * resolves every `sdk` name to exactly one module id, with its whole
+ * OAP .tgz whose javascript/*.js files are tried in name order. The module
+ * map handed to the browserify prelude is
+ * evaluated to capture module functions and dependency tables without
+ * calling the modules. Root runs split in an unprivileged child process;
+ * the parent receives only JSON with function source text. The first donor
+ * that resolves every `sdk` name to exactly one module id, with its whole
  * closure present, is used; that closure is copied with the donor's own ids.
  *
  * That is the "bundle" link mode, for our apps. The "module" mode serves
@@ -42,7 +43,7 @@
  *   link.preparePackage(pkgDir, outFile, { donors })           -> { file, sdk: null | { donor, api } }
  *   link.needsSdk(pkgDir)                                      -> whether preparePackage generates oap-sdk
  *   link.sdkDonor(donors)                                      -> { label, text, sdkVersion } of module mode's donor
- *   link.unitDonors(mainappDir, oapDir)                        -> the head unit's donors, in search order
+ *   link.unitDonors(mainappDir, oapDir, opts)                   -> the head unit's donors, in search order
  */
 const fs = require('fs');
 const os = require('os');
@@ -177,29 +178,76 @@ function donorSources(file) {
     return [{ label: path.basename(file), text: fs.readFileSync(file, 'utf8'), sdkVersion: null }];
 }
 
-/* A browserify bundle's prelude and module map { id: [fn, deps] }, made
- * in an empty context without calling any module. A module function's
- * text is its toString(), with the space Node 8 writes after an anonymous
- * function's keyword dropped when the bundle has none, so a build on the
- * unit gives the bytes a build on a newer Node does. */
+/* A browserify bundle's prelude and module map { id: [sourceText, deps] }.
+ * Root never evaluates donor code: a bounded child runs as the split uid
+ * and gid and returns JSON. Its stdin carries the bundle; a readable
+ * scratch copy holds only the worker code. */
+const SPLIT_TIMEOUT = 30000;
+const SPLIT_MAX = 64 << 20;
+
+function splitIdentity(name) {
+    const value = process.env[name] || '65534';
+    if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 0x7fffffff) {
+        throw new Error(`${name} must be an unprivileged numeric id`);
+    }
+    return Number(value);
+}
+
 function splitBundle(text) {
+    if (process.getuid && process.getuid() === 0) {
+        const uid = splitIdentity('MGU_DEPLOY_SPLIT_UID');
+        const gid = splitIdentity('MGU_DEPLOY_SPLIT_GID');
+        const work = fs.mkdtempSync(path.join(os.tmpdir(), 'oap-split-'));
+        try {
+            /* Kit/staging parents can be 0700. Only our worker code is
+             * copied here; the donor stays on stdin. */
+            ['oap_link.js', 'oap_pack.js'].forEach((name) => {
+                const file = path.join(work, name);
+                fs.writeFileSync(file, fs.readFileSync(path.join(__dirname, name)), { mode: 0o644 });
+                fs.chmodSync(file, 0o644);
+            });
+            fs.chmodSync(work, 0o755);
+            const r = cp.spawnSync(process.execPath, [path.join(work, 'oap_link.js'), 'split'], {
+                input: text, encoding: 'utf8', uid, gid, timeout: SPLIT_TIMEOUT,
+                killSignal: 'SIGKILL', maxBuffer: SPLIT_MAX, cwd: '/', env: {}
+            });
+            if (r.error || r.status !== 0) {
+                throw new Error(`donor split failed: ${r.error ? r.error.message : r.signal || r.stderr.trim()}`);
+            }
+            return JSON.parse(r.stdout);
+        } finally {
+            rmrf(work);
+        }
+    }
+    return splitInProcess(text);
+}
+
+/* The context owns capture. No host function is exposed to donor code.
+ * Anonymous function spacing is normalized for identical Node 8/host
+ * bundles. Only string/number dependency ids survive serialization. */
+function splitInProcess(text) {
     const idx = text.indexOf(PRELUDE_END);
     if (idx < 0) {
         throw new Error('no browserify prelude');
     }
-    const sandbox = {};
-    sandbox.capture = (m) => { sandbox.mods = m; };
-    vm.runInNewContext(`capture${text.slice(idx + PRELUDE_END.length).replace(/;\s*$/, '')}`, sandbox,
-        { timeout: 30000 });
+    const sandbox = Object.create(null);
+    vm.runInNewContext(`var mods; function capture(m) { mods = m; }\ncapture${text.slice(idx + PRELUDE_END.length).replace(/;\s*$/, '')}`,
+        sandbox, { timeout: SPLIT_TIMEOUT });
     if (!sandbox.mods || typeof sandbox.mods !== 'object') {
         throw new Error('no module map');
     }
     const tight = /^\(\{\s*"?\d+"?:\[function\(/.test(text.slice(idx + PRELUDE_END.length, idx + PRELUDE_END.length + 64));
-    return {
-        prelude: text.slice(0, idx + PRELUDE_END.length),
-        mods: sandbox.mods,
-        source: (fn) => (tight ? fn.toString().replace(/^function \(/, 'function(') : fn.toString())
-    };
+    const mods = Object.create(null);
+    Object.keys(sandbox.mods).forEach((id) => {
+        const m = sandbox.mods[id];
+        if (!/^\d+$/.test(id) || !Array.isArray(m) || typeof m[0] !== 'function') {
+            throw new Error('invalid module ' + id);
+        }
+        const source = Function.prototype.toString.call(m[0]);
+        mods[id] = [tight ? source.replace(/^function \(/, 'function(') : source,
+            JSON.parse(serializeDeps(m[1]))];
+    });
+    return { prelude: text.slice(0, idx + PRELUDE_END.length), mods, tight };
 }
 
 /* The one module id a require name has in the donor's dependency tables. */
@@ -327,7 +375,7 @@ function findDonor(files, mustName, pick, what) {
                 const ids = pick(split.mods);
                 const closure = closureOf(split.mods, Object.keys(ids).map((k) => ids[k]));
                 return { label: s.label, text: s.text, sdkVersion: s.sdkVersion, prelude: split.prelude,
-                    mods: split.mods, source: split.source, ids, closure };
+                    mods: split.mods, ids, closure };
             } catch (e) {
                 tried.push(`${s.label}: ${e.message}`);
             }
@@ -338,9 +386,25 @@ function findDonor(files, mustName, pick, what) {
     throw e;
 }
 
-/* The head unit's donors in search order: the preinstalled packages, then
- * installed apps' bundles. */
-function unitDonors(mainappDir, oapDir) {
+/* Only stock BMW packages supply SDK code. Packages carrying the local
+ * marker (even false), or named in either manager list, are excluded from
+ * both the preinstalled and installed searches. Missing/malformed package
+ * metadata cannot establish a stock donor. */
+function unitDonors(mainappDir, oapDir, opts) {
+    opts = opts || {};
+    const data = path.join(oapDir, 'oap_12201', 'data');
+    const read = (file, absent) => {
+        try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+        catch (e) { if (e.code === 'ENOENT') return absent; throw e; }
+    };
+    const local = read(opts.localOnlyFile || path.join(data, 'local-only-apps.json'), []);
+    const custom = read(opts.customAppsFile || path.join(data, 'custom_apps.json'), {});
+    if (!Array.isArray(local) || !custom || typeof custom !== 'object' || Array.isArray(custom)) {
+        throw new Error('invalid donor exclusion lists');
+    }
+    const stock = (pkg) => pkg && typeof pkg.name === 'string' && pkg.name &&
+        !Object.prototype.hasOwnProperty.call(pkg, 'mguLocalOnly') && local.indexOf(pkg.name) < 0 &&
+        !Object.prototype.hasOwnProperty.call(custom, pkg.name);
     const list = (dir, re) => {
         try {
             return fs.readdirSync(dir).filter((n) => re.test(n)).sort().map((n) => path.join(dir, n));
@@ -348,9 +412,19 @@ function unitDonors(mainappDir, oapDir) {
             return [];
         }
     };
-    const out = list(path.join(mainappDir, 'preinstalled_apps'), /\.tgz$/);
+    const out = list(path.join(mainappDir, 'preinstalled_apps'), /\.tgz$/).filter((file) => {
+        try {
+            const pkg = untar(fs.readFileSync(file)).filter((m) => /^(?:package\/)?package\.json$/.test(m.name));
+            return pkg.length === 1 && stock(JSON.parse(pkg[0].data.toString('utf8')));
+        } catch (e) { return false; }
+    });
     list(oapDir, /^oap_\d+$/).forEach((home) => {
-        list(path.join(home, 'source', 'javascript'), /\.js$/).forEach((f) => out.push(f));
+        let pkg;
+        try { pkg = read(path.join(home, 'source', 'package.json'), null); }
+        catch (e) { return; }
+        if (stock(pkg)) {
+            list(path.join(home, 'source', 'javascript'), /\.js$/).forEach((f) => out.push(f));
+        }
     });
     return out;
 }
@@ -368,7 +442,7 @@ function requiresOf(source) {
 }
 
 function moduleEntry(donor, id) {
-    return `${id}:[${donor.source(donor.mods[id][0])},${serializeDeps(donor.mods[id][1])}]`;
+    return `${id}:[${donor.mods[id][0]},${serializeDeps(donor.mods[id][1])}]`;
 }
 
 function serializeDeps(deps) {
@@ -607,3 +681,16 @@ function rmrf(p) {
 }
 
 module.exports = { build, packSource, readManifest, preparePackage, needsSdk, sdkDonor, unitDonors, untar, SDK_API, ENTRY_ID };
+
+/* Private worker protocol: no donor code runs here with root privileges. */
+if (require.main === module) {
+    try {
+        if (process.argv[2] !== 'split' || (process.getuid && process.getuid() === 0)) {
+            throw new Error('split worker requires an unprivileged uid');
+        }
+        process.stdout.write(JSON.stringify(splitInProcess(fs.readFileSync(0, 'utf8'))));
+    } catch (e) {
+        process.stderr.write(e.message + '\n');
+        process.exitCode = 1;
+    }
+}

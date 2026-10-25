@@ -242,6 +242,99 @@ function testUntar() {
     check('untar: ustar prefix names and package/ members', Object.keys(m).join(' ') === `package/package.json ${long}` && m[long].toString() === 'x');
 }
 
+/* ---- stock donor eligibility and the split boundary -------------------------- */
+
+function testUnitDonors() {
+    const root = tmp('unit');
+    const main = path.join(root, 'main');
+    const oap = path.join(root, 'oap');
+    const installed = (uid, pkg) => {
+        const js = path.join(oap, `oap_${uid}`, 'source', 'javascript', 'app.js');
+        write(js, donor.bundle());
+        if (pkg) write(path.join(path.dirname(path.dirname(js)), 'package.json'), JSON.stringify(pkg));
+        return js;
+    };
+    const stock = installed(13000, { name: 'stock', version: '1.0.0' });
+    installed(13001, { name: 'ours', mguLocalOnly: true });
+    installed(13002, { name: 'marked_false', mguLocalOnly: false });
+    installed(13003, { name: 'local_list' });
+    installed(13004, { name: 'custom_list' });
+    installed(13005, null);
+    write(path.join(oap, 'oap_12201', 'data', 'local-only-apps.json'), '["local_list"]');
+    write(path.join(oap, 'oap_12201', 'data', 'custom_apps.json'), '{"custom_list":{}}');
+    const pre = path.join(main, 'preinstalled_apps', 'stock.tgz');
+    write(pre, '');
+    donor.tgz(pre);
+    ['ours', 'marked_false', 'local_list', 'custom_list'].forEach((name) => {
+        const pkg = { name };
+        if (name === 'ours' || name === 'marked_false') pkg.mguLocalOnly = name === 'ours';
+        write(path.join(path.dirname(pre), `${name}.tgz`), tgz([
+            { name: 'package.json', data: Buffer.from(JSON.stringify(pkg)), mode: 0o644 },
+            { name: 'javascript/app.js', data: Buffer.from(donor.bundle()), mode: 0o644 }
+        ], 1700000000));
+    });
+    const found = link.unitDonors(main, oap);
+    check('donors: only stock packages, preinstalled first; markers and both manager lists exclude every layout',
+        found.join(' ') === [pre, stock].join(' '), found.join(' '));
+    write(path.join(oap, 'oap_12201', 'data', 'local-only-apps.json'), 'broken');
+    check('donors: unreadable exclusion lists fail closed', !!throws(() => link.unitDonors(main, oap)));
+}
+
+function testHostileDonor() {
+    const dir = tmp('hostile');
+    const target = path.join(dir, 'escaped');
+    const src = sourceApp();
+    ['this.constructor.constructor', 'capture.constructor'].forEach((escape) => {
+        const js = path.join(dir, 'hostile.js');
+        const attack = `${escape}('return process')().mainModule.require('fs').writeFileSync(${JSON.stringify(target)}, 'escaped')`;
+        // The expression is in the captured arguments, outside every module.
+        write(js, donor.bundle().replace('({1:', `((${attack}),{1:`));
+        const e = throws(() => link.build(src, path.join(tmp('out'), 'hostile.tgz'), { donors: [js] }));
+        check(`split: hostile ${escape} cannot write through the deploy process`, e && e.noDonor && !fs.existsSync(target), e && e.message);
+    });
+    const workerOpts = { input: donor.bundle(), encoding: 'utf8' };
+    if (process.getuid && process.getuid() === 0) {
+        workerOpts.uid = 65534;
+        workerOpts.gid = 65534;
+        const js = path.join(dir, 'valid.js');
+        write(js, donor.bundle());
+        ['MGU_DEPLOY_SPLIT_UID', 'MGU_DEPLOY_SPLIT_GID'].forEach((key) => {
+            const before = process.env[key];
+            process.env[key] = '0';
+            let e;
+            try { e = throws(() => link.sdkDonor([js])); }
+            finally {
+                if (before === undefined) delete process.env[key];
+                else process.env[key] = before;
+            }
+            check(`split: ${key}=0 is refused without evaluating the donor`, e && /unprivileged numeric id/.test(e.message), e && e.message);
+        });
+        const spawn = cp.spawnSync;
+        let options;
+        cp.spawnSync = (exe, args, opts) => { options = opts; return spawn(exe, args, opts); };
+        try { link.sdkDonor([js]); } finally { cp.spawnSync = spawn; }
+        check('split: root runs the worker with nobody uid/gid, a timeout and an output cap', options &&
+            options.uid === 65534 && options.gid === 65534 && options.timeout === 30000 &&
+            options.maxBuffer === (64 << 20) && options.killSignal === 'SIGKILL' && options.cwd === '/' &&
+            Object.keys(options.env).length === 0);
+        write(js, donor.bundle() + 'while (true) {}');
+        let e = throws(() => link.sdkDonor([js]));
+        check('split: a hostile infinite loop is killed at the worker deadline', e && /ETIMEDOUT|Script execution timed out/.test(e.message), e && e.message);
+        write(js, donor.bundle() + "mods[1][1].huge = 'x'.repeat(64 << 20);");
+        e = throws(() => link.sdkDonor([js]));
+        check('split: oversized worker JSON is refused at the output cap', e && /ENOBUFS/.test(e.message), e && e.message);
+    } else {
+        console.log('# skipped: root split uid assertion (Docker runs it as root)');
+    }
+    const r = cp.spawnSync(process.execPath, [path.join(REPO, 'tools', 'oap_link.js'), 'split'], workerOpts);
+    let split;
+    try { split = JSON.parse(r.stdout); } catch (e) { /* check below */ }
+    check('split: worker returns JSON containing only module source text and dependency ids', r.status === 0 && split &&
+        split.tight === true && typeof split.prelude === 'string' && typeof split.mods['2'][0] === 'string' &&
+        /^function\(require,module,exports\)/.test(split.mods['2'][0]) && split.mods['2'][1]['../logging/logging'] === 3,
+    r.stderr);
+}
+
 /* ---- real donors (never part of the repository) -------------------------------- */
 
 function testRealDonors() {
@@ -258,6 +351,7 @@ function testRealDonors() {
     });
     check(`real: the Store links into one javascript/app.js from every donor (${apps.map((a) => a.r.donor).join(', ')})`,
         apps.every((a) => a.app.equals(apps[0].app)), apps.map((a) => `${a.r.donor} ${a.r.moduleCount}`).join('\n'));
+    console.log('# Store bundle sha256: ' + require('crypto').createHash('sha256').update(apps[0].app).digest('hex'));
     const apis = donors.map((d) => {
         const pkg = thirdParty();
         link.preparePackage(pkg, path.join(tmp('o'), 'w.tgz'), { donors: [d] });
@@ -285,6 +379,8 @@ function testRealDonors() {
 
 try {
     testUntar();
+    testUnitDonors();
+    testHostileDonor();
     testBundleMode();
     testPackSource();
     testModuleMode();

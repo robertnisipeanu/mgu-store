@@ -8,7 +8,7 @@
 # the Store (a source package, built here against an app already on the
 # unit), with --with-uplink also the internet uplink, then seeds the
 # updater's sources and, when the kit carries a token, the mgu-store
-# source's token. Running it again changes nothing already installed.
+# source's token. Newer installed apps and tools are kept.
 set -e
 KIT=$(cd "$(dirname "$0")" && pwd)
 # the deploy tool's own overrides (deploy/test runs this against a fake root)
@@ -38,7 +38,7 @@ for f in "$STAGE"/artifacts/*.tgz; do set -- "$@" --artifact "$f"; done
 if [ -n "$uplink" ]; then
     for f in "$STAGE"/optional/mgu-uplink@*.tgz; do set -- "$@" --artifact "$f"; done
 fi
-sh "$STAGE/mgu-deploy.sh" install "$@" --yes
+sh "$STAGE/mgu-deploy.sh" install "$@" --skip-older --yes
 sh "$STAGE/mgu-deploy.sh" updater-sources < "$STAGE/sources.json"
 if [ -f "$STAGE/token" ]; then
     sh "$STAGE/mgu-deploy.sh" updater-token --source mgu-store < "$STAGE/token"

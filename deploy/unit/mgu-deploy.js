@@ -42,7 +42,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.2.0';
+var VERSION = '0.2.1';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -531,8 +531,7 @@ function snapshotEntry(p) {
     }
     return { path: p, kind: 'other', mode: st.mode & 0o7777, uid: st.uid, gid: st.gid };
 }
-/* Stored copies are root's alone: a snapshot can hold the updater's
- * token. */
+/* Stored copies and manifests are root's alone. */
 function writeSnapshot(dir, command, paths) {
     var filesDir = path.join(dir, 'files'), manifest = [], n = 0;
     mkdirp(filesDir, 0o700);
@@ -559,22 +558,27 @@ function writeSnapshot(dir, command, paths) {
 }
 /* Every snapshot also records the files any command may leave changed:
  * this tool's state, the fallback's unit, link, copy and app list, the
- * recmgr list, the updater's sources and the Store source's token. */
+ * recmgr list. The updater owns its sources and credentials. */
 function alwaysSnapshotted() {
     return [STATE_FILE, CFG.recmgr, customAppsFile(), FALLBACK_COPY,
         path.join(CFG.systemd, FALLBACK_UNIT),
-        path.join(CFG.systemd, 'multi-user.target.wants', FALLBACK_UNIT), sourcesFile(),
-        credentialFile(STORE_SOURCE)];
+        path.join(CFG.systemd, 'multi-user.target.wants', FALLBACK_UNIT)];
 }
 /* The deploy tool's own versions/ and current: no snapshot holds them, so a
  * restore never removes the tool that holds the backups. */
 function selfPath(p) {
     return p === path.join(DEPLOY_DIR, 'current') || p.indexOf(path.join(DEPLOY_DIR, 'versions') + '/') === 0;
 }
+/* Source and credential changes survive every restore, including older
+ * manifests that recorded them. */
+function updaterStatePath(p) {
+    p = path.resolve(p);
+    return p === sourcesFile() || p === credentialsDir() || p.indexOf(credentialsDir() + '/') === 0;
+}
 function snapshotPaths(paths) {
     var uniq = [], seen = {};
     paths.concat(alwaysSnapshotted()).forEach(function (p) {
-        if (!seen[p] && !selfPath(p)) { seen[p] = true; uniq.push(p); }
+        if (!seen[p] && !selfPath(p) && !updaterStatePath(p)) { seen[p] = true; uniq.push(p); }
     });
     return uniq;
 }
@@ -634,7 +638,7 @@ function restoreSnapshot(dir) {
         runOk(CFG.umount, [mainJs()]);
     }
     data.entries.forEach(function (e) {
-        if (e.kind === 'record' || selfPath(e.path) || entryMatches(e)) return;
+        if (e.kind === 'record' || selfPath(e.path) || updaterStatePath(e.path) || entryMatches(e)) return;
         (isRootfsPath(e.path) ? rootEntries : plain).push(e);
     });
     plain.forEach(function (e) { putBackEntry(dir, e); });
@@ -654,7 +658,7 @@ function verifySnapshot(dir) {
     data.entries.forEach(function (e) {
         /* rewritten after every restore: the state, and the fallback copy
          * rebuilt from the stock file */
-        if (e.path === STATE_FILE || e.path === FALLBACK_COPY || selfPath(e.path)) return;
+        if (e.path === STATE_FILE || e.path === FALLBACK_COPY || selfPath(e.path) || updaterStatePath(e.path)) return;
         if (e.kind === 'file') {
             try { if (sha256File(e.path) !== e.sha256) bad.push(e.path); }
             catch (err) { bad.push(e.path); }
@@ -923,7 +927,10 @@ function validateSource(file, dir) {
     return { kind: 'app', file: file, dir: dir, pkgDir: null, pkg: pkg, id: m.id, version: m.version, prepare: 'build' };
 }
 /* The donor bundles on this unit, in search order (oap_link.js). */
-function unitDonors() { return linker().unitDonors(CFG.mainapp, CFG.oap); }
+function unitDonors() {
+    return linker().unitDonors(CFG.mainapp, CFG.oap,
+        { localOnlyFile: localOnlyFile(), customAppsFile: customAppsFile() });
+}
 /* Turns a source package or a package that is not ready into the flat,
  * marked OAP tgz in the staging folder, and validates that as the app.
  * Nothing outside the staging folder changes; a package that cannot be
@@ -1416,7 +1423,7 @@ function appTouched(a, existing) {
     return paths;
 }
 function aclFile(uid) { return path.join(appHome(uid), 'someipInterfaces', 'acl.json'); }
-function appDecision(a) {
+function appDecision(a, skipOlder) {
     var existing = installedApp(a.id), entry = readJsonOrNull(appEntryFile(a.id));
     if (entry && !existing) {
         throw refuse(a.id + ': registry entry exists without a matching source; uninstall it first');
@@ -1424,6 +1431,7 @@ function appDecision(a) {
     if (!existing) return { action: 'fresh' };
     var cmp = semverCmp(a.version, existing.version);
     if (cmp === 0) return { action: 'current', existing: existing };
+    if (cmp < 0 && skipOlder) return { action: 'older', existing: existing };
     if (cmp < 0) throw refuse(a.id + ' ' + existing.version + ' is installed; ' + a.version + ' is a downgrade, uninstall first');
     /* the manager fails to start an app without its ACL file and then
      * forgets it, so an update would never run */
@@ -2579,11 +2587,25 @@ function cmdInstall(args) {
         var validated = files.map(function (f) { return validateArtifact(f, stage); });
         validated = orderArtifacts(validated);
         var decisions = {};
-        validated.forEach(function (a) { if (a.kind === 'app') decisions[a.id] = appDecision(a); });
+        validated.forEach(function (a) {
+            if (a.kind === 'app') decisions[a.id] = appDecision(a, args.skipOlder);
+        });
+        if (args.skipOlder) {
+            var tools = installedTools();
+            validated = validated.filter(function (a) {
+                var t = a.kind === 'tool' && tools.filter(function (t) { return t.id === a.id; })[0];
+                var older = t && semverCmp(a.version, t.version) < 0;
+                if (older) say(a.id + ' ' + a.version + ' skipped; ' + t.version + ' is installed');
+                return !older;
+            });
+        }
         var work = validated.filter(function (a) {
-            return a.kind !== 'app' || decisions[a.id].action !== 'current';
+            return a.kind !== 'app' || ['current', 'older'].indexOf(decisions[a.id].action) < 0;
         }).map(function (a) { return a.kind === 'app' ? prepareApp(a, stage) : a; });
         validated.forEach(function (a) {
+            if (a.kind === 'app' && decisions[a.id].action === 'older') {
+                say(a.id + ' ' + a.version + ' skipped; ' + decisions[a.id].existing.version + ' is installed');
+            }
             if (a.kind === 'app' && decisions[a.id].action === 'current') {
                 say(a.id + ' ' + a.version + ' already installed; nothing to change');
             }
@@ -2789,7 +2811,16 @@ function cmdRestore(args) {
         var restored = restoreSnapshot(dir);
         restored.entries.forEach(function (e) {
             var tm = new RegExp('^' + CFG.varOpt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/([^/]+)/current$').exec(e.path);
-            if (e.kind === 'absent' && tm && tm[1] !== 'mgu-deploy') rmrf(path.join(CFG.varOpt, tm[1]));
+            if (e.kind === 'absent' && tm && tm[1] !== 'mgu-deploy') {
+                var root = path.join(CFG.varOpt, tm[1]);
+                if (tm[1] === 'mgu-updater' && fs.existsSync(root)) {
+                    fs.readdirSync(root).forEach(function (n) {
+                        var p = path.join(root, n);
+                        if (!updaterStatePath(p)) rmrf(p);
+                    });
+                    try { fs.rmdirSync(root); } catch (err) { if (err.code !== 'ENOTEMPTY') throw err; }
+                } else rmrf(root);
+            }
             var am = /\/data\/apps\/([^/]+)\.json$/.exec(e.path);
             if (e.kind === 'absent' && am) {
                 say('app ' + am[1] + ' was absent in ' + name + '; removing its source tree and package');
@@ -2905,7 +2936,7 @@ var HELP = [
     'mgu-deploy ' + VERSION,
     'usage: mgu-deploy.sh <command> ...',
     '  check [--artifact <file>...]     read-only checks; exits 2 on a hard problem',
-    '  install [--artifact <file>...] [--yes]',
+    '  install [--artifact <file>...] [--skip-older] [--yes]',
     '                                    install tools/apps (default: ./artifacts/*.tgz)',
     '  status [--json]                  installed components and pending reboots',
     '  uninstall <id> [--yes]           remove one tool or app',
@@ -2928,6 +2959,7 @@ function parseArgs(argv) {
         if (argv[i] === '--artifact') { out.artifacts.push(argv[++i]); }
         else if (argv[i] === '--source') out.source = argv[++i] || '';
         else if (argv[i] === '--json') out.json = true;
+        else if (argv[i] === '--skip-older') out.skipOlder = true;
         else if (argv[i] === '--yes') out.yes = true;
         else if (argv[i] === '--remove') out.remove = true;
         else out.positional.push(argv[i]);

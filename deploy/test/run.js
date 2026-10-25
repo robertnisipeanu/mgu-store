@@ -1649,12 +1649,14 @@ function testToken() {
     const backups = root.p('var/opt/mgu-deploy/backups');
     const stored = fs.readdirSync(backups).map((d) => path.join(backups, d, 'files')).filter((d) => fs.existsSync(d))
         .flatMap((d) => fs.readdirSync(d).map((n) => path.join(d, n)));
-    check('token: snapshot copies are root\'s alone (0600 in a 0700 folder)', mode(backups) === 0o700 &&
-        stored.every((f) => mode(f) === 0o600));
+    check('token: snapshot copies are private and contain no credentials', mode(backups) === 0o700 &&
+        stored.every((f) => mode(f) === 0o600 && !fs.readFileSync(f).includes(Buffer.from(TOKEN))) &&
+        fs.readdirSync(backups).every((d) => !readJson(path.join(backups, d, 'manifest.json')).entries.some((e) =>
+            e.path.includes('/credentials') || e.path.endsWith('/sources.json'))));
     r = root.run(['restore', 'stock', '--yes']);
     outputs.push(r.out);
-    check('token: absent in stock, restore deletes it (and the folders it made)', r.status === 0 && !fs.existsSync(file) &&
-        !fs.existsSync(root.p('var/opt/mgu-updater')), r.out);
+    check('token: restoring stock keeps the updater credential', r.status === 0 &&
+        fs.readFileSync(file, 'utf8') === TOKEN, r.out);
     runIn(['updater-token'], TOKEN);
     r = runIn(['updater-token', '--remove'], '');
     outputs.push(r.out);
@@ -2347,6 +2349,42 @@ function testSourcesAndDonor() {
     check('donor: no donor on the unit, exit 2', none.status === 2 && none.out.includes('no donor holds the oap-sdk core'), none.out);
 }
 
+/* Sources and credentials belong to the updater even when restoring a
+ * manifest made by a deploy version that copied them. */
+function testUpdaterStateRestore() {
+    const root = fakeRoot();
+    root.run(['install', '--artifact', namedTool('mgu-updater', '0.2.0'), '--yes']);
+    const base = root.p('var/opt/mgu-updater');
+    const sources = path.join(base, 'sources.json');
+    const credential = path.join(base, 'credentials', 'mgu-store');
+    const other = path.join(base, 'credentials', 'other');
+    write(sources, '{"schema":1,"sources":[{"id":"owner","type":"file"}]}');
+    write(credential, TOKEN);
+    write(other, 'OTHER_FIXTURE_TOKEN');
+    const legacy = root.p('var/opt/mgu-deploy/backups/stock/manifest.json');
+    const manifest = readJson(legacy);
+    const absent = (p) => ({ path: p, kind: 'absent' });
+    manifest.entries.push(absent(sources), absent(credential), absent(other), absent(path.dirname(credential)));
+    fs.writeFileSync(legacy, JSON.stringify(manifest));
+    let r = root.run(['restore', 'stock', '--yes']);
+    check('restore: legacy absent entries and updater removal preserve sources and every credential', r.status === 0 &&
+        fs.readFileSync(sources, 'utf8').includes('owner') && fs.readFileSync(credential, 'utf8') === TOKEN &&
+        fs.readFileSync(other, 'utf8') === 'OTHER_FIXTURE_TOKEN' && !fs.existsSync(path.join(base, 'current')), r.out);
+    const oldFile = root.p('var/opt/mgu-deploy/backups/stock/files/old-token');
+    write(oldFile, 'OLD_FIXTURE_TOKEN');
+    manifest.entries = manifest.entries.filter((e) => !e.path.includes('/credentials') && e.path !== sources);
+    manifest.entries.push({ path: credential, kind: 'file', stored: 'files/old-token', sha256: sha256(Buffer.from('OLD_FIXTURE_TOKEN')), mode: 0o600 });
+    fs.writeFileSync(legacy, JSON.stringify(manifest));
+    r = root.run(['restore', 'stock', '--yes']);
+    check('restore: legacy stored credentials are neither restored nor verified against the current token', r.status === 0 &&
+        fs.readFileSync(credential, 'utf8') === TOKEN, r.out);
+    const backups = root.p('var/opt/mgu-deploy/backups');
+    check('restore: new snapshots contain no updater state even when restoring a legacy manifest',
+        fs.readdirSync(backups).filter((d) => d !== 'stock').every((d) =>
+            !readJson(path.join(backups, d, 'manifest.json')).entries.some((e) =>
+                e.path === sources || e.path.indexOf(path.join(base, 'credentials')) === 0)));
+}
+
 /* deploy/hu kit, and its install.sh run against a fake root. The kit
  * takes the components that build without native toolchains; the updater
  * is a stand-in installed first. */
@@ -2386,6 +2424,37 @@ function testKit() {
     r = sh();
     check('kit: install.sh again changes nothing installed', r.status === 0 && r.out.includes('robertn_store') &&
         r.out.includes('already installed') && r.out.includes('updater sources kept') && !r.out.includes('built robertn_store'), r.out.slice(-3000));
+    // An older kit keeps every newer component and still seeds updater state.
+    const nextDir = fs.mkdtempSync(path.join(T, 'next-deploy-'));
+    hu(['artifact', deployCopy(NEXT), '--out', nextDir]);
+    root.run(['install', '--artifact', path.join(nextDir, `mgu-deploy@${NEXT}.tgz`), '--yes']);
+    root.run(['install', '--artifact', namedTool('app-privacy', '9.0.0'), '--yes']);
+    fs.copyFileSync(namedTool('mgu-updater', '0.2.0'), path.join(out, 'artifacts', 'mgu-updater@0.2.0.tgz'));
+    root.run(['install', '--artifact', namedTool('mgu-updater', '9.0.0'), '--yes']);
+    const installed = root.status().components.find((c) => c.id === 'robertn_store');
+    const pkgFile = root.p(`var/opt/public/oap/oap_${installed.uid}/source/package.json`);
+    const pkg = readJson(pkgFile);
+    pkg.version = '9.0.0';
+    fs.writeFileSync(pkgFile, JSON.stringify(pkg));
+    fs.unlinkSync(root.p('var/opt/mgu-updater/sources.json'));
+    fs.unlinkSync(root.p('var/opt/mgu-updater/credentials/mgu-store'));
+    r = sh();
+    const current = root.status().components;
+    check('kit: an older kit skips newer tools (including deploy) and Store, then seeds sources and token', r.status === 0 &&
+        ['app-privacy', 'mgu-updater', 'robertn_store'].every((id) => current.some((c) => c.id === id && c.version === '9.0.0')) &&
+        fs.readlinkSync(root.p('var/opt/mgu-deploy/current')) === `versions/${NEXT}` &&
+        ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every((id) => r.out.includes(id + ' ') &&
+            r.out.includes(id + ' ' + (id === 'mgu-deploy' ? VERSION : id === 'robertn_store' ? store.version :
+                id === 'mgu-updater' ? '0.2.0' : comps.find((c) => c.id === id).version) + ' skipped')) &&
+        fs.existsSync(root.p('var/opt/mgu-updater/sources.json')) &&
+        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/mgu-store'), 'utf8') === TOKEN &&
+        !r.out.includes('built robertn_store'), r.out.slice(-4000));
+    const envKit = path.join(fs.mkdtempSync(path.join(T, 'env-kit-')), 'kit');
+    const envOnly = hu(['kit', '--out', envKit, 'mgu-deploy'], { HU_UPDATER_TOKEN_FILE: tokenFile });
+    check('kit: HU_UPDATER_TOKEN_FILE alone never puts a token in the kit', envOnly.status === 0 &&
+        !fs.existsSync(path.join(envKit, 'token')) && !envOnly.stdout.includes('token:'), envOnly.stderr);
+    const badEnvKit = hu(['kit', '--out', envKit, 'mgu-deploy'], { HU_UPDATER_TOKEN_FILE: tokenFile + '-missing' });
+    check('kit: an environment token file is not read', badEnvKit.status === 0 && !fs.existsSync(path.join(envKit, 'token')), badEnvKit.stderr);
     r = sh(['--with-uplink']);
     check('kit: --with-uplink with a kit made without it is refused', r.status === 2 && r.out.includes('no optional/mgu-uplink'), r.out);
     r = sh(['--bogus']);
@@ -2428,6 +2497,7 @@ const SUITES = [
     testInternet,
     testSourcesAndDonor,
     testKit,
+    testUpdaterStateRestore,
     testTransport,
     testHuConnect,
     testRestoreAfterBootstrap,

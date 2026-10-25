@@ -28,7 +28,8 @@
  * themselves and skip the selection, --user (HU_USER, root), --identity
  * <key> (HU_IDENTITY), --ssh-opt <o> (repeatable, passed as ssh -o <o>),
  * --keep-stage. The mgu-store source's token comes from --updater-token-file
- * or HU_UPDATER_TOKEN_FILE and goes to the unit on ssh's stdin only.
+ * or HU_UPDATER_TOKEN_FILE for SSH commands; kits include a token only
+ * with --updater-token-file.
  *
  * Exit codes follow mgu-deploy: 0 done, 1 failed, 2 refused or bad usage.
  */
@@ -217,13 +218,6 @@ function appArtifact(c) {
     const file = path.join(REPO, c.artifact);
     const appDir = path.join(REPO, c.dir);
     if (!fs.existsSync(file)) {
-        (c.release.local || []).forEach((l) => {
-            const p = path.join(appDir, `${c.id}@${c.version}`, l);
-            if (!fs.existsSync(p)) {
-                throw new Error(`${c.id}: local input ${path.relative(REPO, p)} is missing (see ${c.dir}/README.md); ` +
-                    `then build with: cd ${c.dir} && ${c.release.build}`);
-            }
-        });
         process.stderr.write(`${c.id}: ${c.release.build} (in ${c.dir})\n`);
         const r = cp.spawnSync(c.release.build, { cwd: appDir, shell: true, stdio: ['ignore', 2, 2] });
         if (r.status !== 0 || !fs.existsSync(file)) {
@@ -277,7 +271,8 @@ On the unit, as root:
 Before installing: the car is parked, on stable power (engine running or
 a battery charger connected), and stays awake until the command finishes.
 Exit status 0 is done, 1 failed and rolled back, 2 refused with nothing
-changed. Running it again changes nothing already installed.
+changed. Newer installed tools and apps are kept, and sources/token
+seeding still runs.
 `;
 
 /* The installer's files: deploy/unit/ and deploy/component.json. */
@@ -297,7 +292,7 @@ function cmdKit(opts) {
         }
         fs.rmSync(out, { recursive: true, force: true });
     }
-    const token = tokenData(opts);
+    const token = opts.tokenFile ? tokenData(opts) : null;
     const built = buildArtifacts(chosen(opts.ids, opts.withUplink), path.join(out, 'artifacts'),
         path.join(out, 'optional'));
     const files = kitFiles().concat([
@@ -359,9 +354,8 @@ function ssh(opts, remote, spawnOpts) {
     return r.status === null ? 1 : r.status;
 }
 
-/* The updater's token from the given file (or HU_UPDATER_TOKEN_FILE),
- * read here and sent only on ssh's stdin: never in an argument, the
- * staging upload, a kit or the output. */
+/* SSH commands accept the given token file or HU_UPDATER_TOKEN_FILE and
+ * send its bytes on stdin. A kit reads only an explicitly given file. */
 function tokenData(opts) {
     const file = opts.tokenFile || process.env.HU_UPDATER_TOKEN_FILE || null;
     if (!file) {

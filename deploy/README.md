@@ -215,7 +215,8 @@ stick: the deploy tool (`deploy/unit/` files, `oap_link.js`, `oap_pack.js`,
 (`deploy/sources.json`), `artifacts/` with one artifact per component but
 the optional ones (app-privacy, the updater, the deploy tool, the Store's
 source package), `optional/` with the optional ones (`mgu-uplink`) given
-`--with-uplink`, and `token` given a token file. It prints each artifact's
+`--with-uplink`, and `token` only with an explicit `--updater-token-file`
+(`HU_UPDATER_TOKEN_FILE` applies to SSH commands). It prints each artifact's
 sha256. An app whose artifact is not built yet is built with its
 `release.json` command in the working tree. Give ids to take a subset.
 
@@ -228,13 +229,14 @@ sh install.sh --with-uplink   # and the internet uplink
 
 `install.sh` copies the kit to `/var/opt/mgu-deploy-kit-<pid>` (removed
 when it ends), installs every artifact through the kit's own deploy tool
-(`install --artifact ... --yes`: it installs itself as `mgu-deploy`, builds
+(`install --artifact ... --skip-older --yes`: it installs itself as `mgu-deploy`, builds
 the Store's source package on the unit against a donor there, and installs
 it), seeds the updater's sources (`updater-sources`, kept when present),
 writes the kit's token for the `mgu-store` source when there is one, and
-prints `status`. Running it again changes nothing already installed: the
-same tool payloads, and apps at the same version, which are not built
-again. Its exit status is the deploy tool's. After it, every update comes
+prints `status`. Newer installed tools (including deploy) and apps are
+skipped, and sources/token seeding still runs. Same-version tool payloads
+are kept, and same-version apps are not built again. Normal app installs
+retain their downgrade refusal. Its exit status is the deploy tool's. After it, every update comes
 through the Store.
 
 Before installing, the car is parked, on stable power (engine running or a
@@ -244,7 +246,7 @@ charger connected), and stays awake until the command finishes.
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--yes]
 mgu-deploy.sh status [--json]
 mgu-deploy.sh uninstall <id> [--yes]
 mgu-deploy.sh rollback <id> [--yes]
@@ -564,12 +566,19 @@ A source package is a tgz with `mgu-app.json` at its root
 without `javascript/app.js`, its modules (the entry first), and the
 require names its modules take from the oap-sdk. `install` and `check`
 build it in the staging folder before anything changes ("bundle" mode):
-the first **donor** on the unit that resolves every name to exactly one
-module id, searched in the preinstalled packages
+the first **stock BMW donor** on the unit that resolves every name to exactly
+one module id, searched in the firmware preinstalled packages
 (`/usr/lib/oap-mainapp/preinstalled_apps/*.tgz`, their `javascript/*.js`)
-and then the installed apps' bundles (`oap_*/source/javascript/*.js`), is
-split without running it; the closure of those names is copied with the
-donor's ids, the app's modules follow from id 10000, and `javascript/app.js`
+and then the installed stock apps' bundles (`oap_*/source/javascript/*.js`).
+A package with any `mguLocalOnly` field, or named in the manager's
+`local-only-apps.json` or `custom_apps.json`, is excluded from both searches.
+Root splits the donor in a separate Node process as uid/gid 65534 (overrides:
+`MGU_DEPLOY_SPLIT_UID` and `MGU_DEPLOY_SPLIT_GID`, positive numeric ids),
+with a 30 s timeout and a 64 MiB output cap. The child captures the module
+map without calling module functions and returns JSON containing their
+source text and dependency tables; root links those strings without
+evaluating the donor. Non-root host builds use the same string form in
+process. The closure of those names is copied with the donor's ids, the app's modules follow from id 10000, and `javascript/app.js`
 and `javascript/build.json` are written, `node --check`ed and packed
 (`tools/oap_pack.js`). The result installs as any app. The same
 inputs give the same bundle on the unit and on the build machine. An app
@@ -642,9 +651,10 @@ Before every change the installer snapshots every file the operation
 touches: unit files, enablement links, the recmgr list, preinstalled
 packages, registry entries, and each tool's `current` link, each with mode
 and owner, or marked absent. Every snapshot also records `state.json`,
-`custom_apps.json`, the fallback's unit, link and copy, the updater's
-`sources.json` and the mgu-store source's token. The app manager's `main.js` is recorded (checksum, bind-mounted or
-not), not copied, except by a snapshot that covers the retired installer's
+`custom_apps.json`, and the fallback's unit, link and copy. The updater owns
+its `sources.json` and `credentials/`: snapshots neither copy nor restore
+them, including when restoring an older manifest that lists them. The app
+manager's `main.js` is recorded (checksum, bind-mounted or not), not copied, except by a snapshot that covers the retired installer's
 leftovers (below), which copies the file under the fallback copy. Restoring
 one taken before a migration that listed apps is refused (below); otherwise
 the file is put back with the copy unbound, and the rebuilt copy is bound
@@ -665,9 +675,10 @@ gone (staging, rootfs-window and temp files, a tool's unfinished version
 folder) and `/var/opt/mgu-deploy-kit-<n>` folders a day old.
 
 `restore [name]` (default `stock`) first snapshots the current state, then
-puts every recorded file back, removes what the snapshot shows as absent (a
-tool's whole `/var/opt/<id>`, an app's home and package, `custom_apps.json`,
-the sources and the token), verifies every file against its checksum (a mismatch is exit 1
+puts every recorded file back, removes what the snapshot shows as absent
+(a tool's `/var/opt/<id>`, an app's home and package, `custom_apps.json`),
+keeps the updater's sources and credentials, verifies every file against
+its checksum (a mismatch is exit 1
 and rolls back), and rebuilds or unbinds the fallback copy to match. Its
 boundary:
 
@@ -684,6 +695,8 @@ boundary:
   restore that would point a tool's `current` at a version no longer kept is
   refused; install that artifact instead.
 - the app manager's records for removed apps (uids, ACLs, UI state) stay.
+- sources and credentials stay even when the restore removes the updater.
+  Explicitly uninstalling the updater removes its whole folder.
 - the deploy tool itself stays installed: no snapshot records or restores
   `/var/opt/mgu-deploy/versions/` or `current`.
 
