@@ -116,6 +116,7 @@ const cases = [
     [sourceChannel(src({ channel: 'branch:main' })), 'Branch main'],
     [sourceChannel(src({ channel: 'branch:feature/x' })), 'Branch feature/x'],
     [sourceChannel(src({ channel: 'tags' })), 'Tags'],
+    [sourceChannel(src({ channel: 'branch' })), 'Branch'],
     [sourceChannel(src({})), ''],
     [sourceChannel(src({ channel: 'other' })), ''],
     [sourceAccount(src({ auth: { kind: 'github', login: 'robertnisipeanu' } })), 'robertnisipeanu'],

@@ -130,7 +130,7 @@ function sourceChannel(src) {
     if (channel.indexOf('branch:') === 0) {
         return `Branch ${channel.slice(7)}`;
     }
-    return { releases: 'Releases', tags: 'Tags' }[channel] || '';
+    return { releases: 'Releases', tags: 'Tags', branch: 'Branch' }[channel] || '';
 }
 
 function sourceAccount(src) {
