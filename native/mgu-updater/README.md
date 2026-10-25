@@ -332,7 +332,7 @@ code and the link show on the page). Off by default; the Store turns it
 on and off (privileged `web` op) and shows its QR code.
 
 - **Server.** A child of the daemon, `node web.js serve`, as `web_uid`
-  12991 and `web_gid` 12202 (`tm_oap_app`, the socket's group) with no
+  12996 and `web_gid` 12202 (`tm_oap_app`, the socket's group) with no
   other groups, on `web_port` 8470 at `127.0.0.1` and at `web_iface`'s
   (`wlan_bridge`, the hotspot: 172.16.222.97) IPv4 address while it has
   one, looked up every 5 s. It exits when the daemon does. It serves the
