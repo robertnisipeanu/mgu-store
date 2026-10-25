@@ -275,7 +275,7 @@ function run() {
         return tick();
     }).then(() => {
         eq(sent, []);
-        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Not a repo or https address: foo bar');
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Not owner/repo or https://host/path: foo bar');
         eq(last(/storeSourcesStatus\.Visible/), 'storeSourcesStatus.Visible=1');
 
         // the speller cannot be opened

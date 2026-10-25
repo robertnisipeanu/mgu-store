@@ -219,7 +219,7 @@ function channelOf(choice, branchText) {
 /* The Sources page's status line. */
 function sourcesMessage(m) {
     switch (m.kind) {
-    case 'invalid-source': return `Not a repo or https address: ${m.text}`;
+    case 'invalid-source': return `Not owner/repo or https://host/path: ${m.text}`;
     case 'invalid-branch': return `Not a branch name: ${m.text}`;
     case 'speller': return `Text entry failed: ${m.error}`;
     case 'refused': return `${m.op === 'source-remove' ? 'Remove' : 'Add source'} failed: ${m.error}`;

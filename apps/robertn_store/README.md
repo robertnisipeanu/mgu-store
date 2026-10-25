@@ -73,12 +73,15 @@ source*. The text confirmed with OK, trimmed, is:
   default branch (`channel: "branch"`). The choice sends `source-add`
   (`type: "github"`, `repo`, `channel`: `releases`, `tags`, `branch:<name>`
   or `branch`) and returns to Sources.
-- an `https://…` address: `source-add` with `type: "https"`, `url`.
-- anything else: `Not a repo or https address: …` on the status line.
+- an `https://host/path` address (the scheme in any case): `source-add`
+  with `type: "https"`, `url`.
+- anything else: `Not owner/repo or https://host/path: …` on the status
+  line.
 
 Leaving a speller without OK, or OK with nothing typed in *Add source*,
-returns to Sources and sends nothing. A USB stick holding a catalog or a repo tree appears in
-the list by itself ([mgu-updater](../../native/mgu-updater/README.md)).
+returns to Sources and sends nothing. A USB stick holding a catalog or a
+repo tree appears in the list by itself
+([mgu-updater](../../native/mgu-updater/README.md)).
 
 ## Phone access
 

@@ -52,7 +52,7 @@ const cases = [
     [channelOf('branch', 'x.lock'), null],
     [channelOf('branch', '-x'), null],
     [channelOf('branch', 'a b'), null],
-    [sourcesMessage({ kind: 'invalid-source', text: 'foo' }), 'Not a repo or https address: foo'],
+    [sourcesMessage({ kind: 'invalid-source', text: 'foo' }), 'Not owner/repo or https://host/path: foo'],
     [sourcesMessage({ kind: 'invalid-branch', text: 'a..b' }), 'Not a branch name: a..b'],
     [sourcesMessage({ kind: 'speller', error: 'use case factory timed out' }), 'Text entry failed: use case factory timed out'],
     [sourcesMessage({ kind: 'refused', op: 'source-add', error: 'owner/repo is already a source' }),
