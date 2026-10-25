@@ -1,1 +1,1 @@
-{ "build": "node tools/build.js && node tools/test_view.js" }
+{ "build": "node tools/build.js && node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js" }

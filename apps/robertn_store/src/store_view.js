@@ -1,11 +1,14 @@
 'use strict';
 /**
  * The Store's texts, from mgu-updater's state (native/mgu-updater/js/updater.js
- * state()): the status line, each row's second column, and what a press on a
- * row does. No I/O, so tools/test_view.js runs it offline.
+ * state()): the status line, each row's second column, what a press on a
+ * row does, and the Sources, sign-in and Phone access pages. No I/O, so
+ * tools/test_view.js runs it offline. A field an older updater does not
+ * report hides what depends on it.
  */
 
-const PHASE = { download: 'Downloading', verify: 'Verifying', install: 'Installing', check: 'Checking' };
+const PHASE = { download: 'Downloading', verify: 'Verifying', build: 'Building', install: 'Installing',
+    uninstall: 'Removing', check: 'Checking' };
 
 function clock(ms) {
     const d = new Date(ms);
@@ -34,12 +37,16 @@ function rowState(row, busy) {
     }
 }
 
-/* What a press on the row does: install, or nothing. */
+/* What a press on the row does: install, remove (after a confirm step), or
+ * nothing. */
 function rowAction(row, busy) {
     if ((busy && busy.id === row.id) || row.queued) {
         return null;
     }
-    return row.status === 'update' || row.status === 'available' || row.error ? 'install' : null;
+    if (row.status === 'update' || row.status === 'available' || row.error) {
+        return 'install';
+    }
+    return row.uninstallable === true && row.installed ? 'remove' : null;
 }
 
 /* The second column of the start screen's Apps and Head-unit tools rows,
@@ -88,4 +95,72 @@ function statusLine(st, connected) {
     return `${updates ? `${updates} update${updates > 1 ? 's' : ''}` : 'Up to date'}, ${checked}`;
 }
 
-module.exports = { PHASE, percent, rowState, rowAction, groupState, statusLine };
+/* ---- sources ---- */
+
+const SOURCE_STATE = { checking: 'Checking', error: 'Error', 'auth-needed': 'Sign in', offline: 'Offline' };
+
+function sourceLabel(src) {
+    return src.label || src.id;
+}
+
+/* The second column of a source's row. */
+function sourceState(src) {
+    return SOURCE_STATE[src.status] || (src.usb ? 'USB' : 'OK');
+}
+
+/* The second column of the start screen's Sources row: what needs the
+ * owner. */
+function sourcesState(sources) {
+    if (sources.some((s) => s.status === 'auth-needed')) {
+        return 'Sign in';
+    }
+    return sources.some((s) => s.status === 'error') ? 'Error' : '';
+}
+
+/* What the source page offers. */
+function sourceActions(src) {
+    return {
+        signIn: src.type === 'github' && !src.usb,
+        remove: !src.builtin && !src.usb
+    };
+}
+
+function sourceAccount(src) {
+    return (src.auth && src.auth.login) || '';
+}
+
+/* The sign-in page's status line for the GitHub login of `sourceId`. */
+function loginStatus(login, sourceId) {
+    if (!login || login.source !== sourceId) {
+        return 'Starting';
+    }
+    switch (login.status) {
+    case 'pending': return 'Waiting for sign-in';
+    case 'done': return 'Signed in';
+    case 'expired': return 'Code expired';
+    default: return login.error ? `Sign-in failed: ${login.error}` : 'Sign-in failed';
+    }
+}
+
+/* The login's code while it can still be entered. */
+function loginCode(login, sourceId) {
+    return login && login.source === sourceId && login.status === 'pending' && login.code ? login.code : '';
+}
+
+/* ---- phone access ---- */
+
+function phoneState(web) {
+    return web.enabled ? 'On' : 'Off';
+}
+
+/* The page's address a phone on the car's hotspot can open: the first one
+ * that is not the unit's loopback. */
+function phoneUrl(web) {
+    if (!web.enabled) {
+        return '';
+    }
+    return (web.urls || []).find((u) => !/^https?:\/\/(127\.|localhost[:/])/.test(u)) || '';
+}
+
+module.exports = { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+    sourcesState, sourceActions, sourceAccount, loginStatus, loginCode, phoneState, phoneUrl };

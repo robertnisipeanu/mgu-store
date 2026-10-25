@@ -8,8 +8,9 @@
  *  0. Write the RHMI files from tools/gen_rhmi.js.
  *  1. Build javascript/app.js: a browserify-style bundle that links the app
  *     entry (src/store.js, module 10000), its texts (src/store_view.js,
- *     10001) and mgu-updater's socket client (native/mgu-updater/js/client.js,
- *     10002) against the oap-sdk
+ *     10001), mgu-updater's socket client (native/mgu-updater/js/client.js,
+ *     10002) and the QR code PNG writer (src/qr.js 10003, src/qrcodegen.js
+ *     10004) against the oap-sdk
  *     modules carried in the shared SDK bundle (sdk/oap_sdk_bundle.js,
  *     oap-sdk 24.10.2). The donor is split without executing it: the
  *     browserify prelude is evaluated with a capture function in place of
@@ -20,7 +21,7 @@
  *  2. node --check every app module and the emitted bundle.
  *  3. Write javascript/build.json and bundle_inventory.json.
  *  4. Package the flat .tgz (files at the root, no package/ prefix, no
- *     macOS metadata) at robertn_store@0.3.2.tgz.
+ *     macOS metadata) at robertn_store@0.4.0.tgz.
  */
 const fs = require('fs');
 const path = require('path');
@@ -30,19 +31,21 @@ const builtinModules = require('module').builtinModules;
 const HERE = path.join(__dirname, '..');
 const REPO = path.join(HERE, '..', '..');
 const { pack } = require(path.join(REPO, 'tools', 'oap_pack.js'));
-const PKG_DIR = path.join(HERE, 'robertn_store@0.3.2');
+const PKG_DIR = path.join(HERE, 'robertn_store@0.4.0');
 const STOCK_BUNDLE = path.join(REPO, 'sdk', 'oap_sdk_bundle.js');
 const UPDATER_JS = path.join(REPO, 'native', 'mgu-updater', 'js');
 const OUT_PATH = path.join(PKG_DIR, 'javascript', 'app.js');
 const BUILD_JSON = path.join(PKG_DIR, 'javascript', 'build.json');
-const TGZ_PATH = path.join(HERE, 'robertn_store@0.3.2.tgz');
+const TGZ_PATH = path.join(HERE, 'robertn_store@0.4.0.tgz');
 const ENTRY_ID = 10000;
 
 /* App modules in id order, the entry first; required as './<name>'. */
 const APP_MODULES = [
     path.join(HERE, 'src', 'store.js'),
     path.join(HERE, 'src', 'store_view.js'),
-    path.join(UPDATER_JS, 'client.js')
+    path.join(UPDATER_JS, 'client.js'),
+    path.join(HERE, 'src', 'qr.js'),
+    path.join(HERE, 'src', 'qrcodegen.js')
 ];
 
 function captureRegistry(bundlePath) {

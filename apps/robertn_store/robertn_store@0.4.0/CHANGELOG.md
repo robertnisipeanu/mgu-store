@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+The Store lists the components of every source the updater reads. Sources
+lists each source with its status; a source's page shows its account and
+component count, signs in with GitHub (a QR code of the sign-in page with
+the code beside it) and removes the source after a confirm step. Phone
+access turns the updater's phone page on or off and shows its address as a
+QR code; Add source opens it. A component the catalog marks
+`uninstallable` is removed from its row after a confirm step. Privileged
+requests carry the secret the updater leaves in the app's data folder.
+
 ## 0.3.2
 
 Restart head unit on the start screen restarts the head unit through the
