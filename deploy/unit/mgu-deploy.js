@@ -838,7 +838,8 @@ function validateArtifact(file, stage) {
     var list = run(CFG.tar, ['-tzf', file], { allowFail: true });
     if (list.status !== 0) throw refuse('unreadable tgz: ' + file);
     list.stdout.split('\n').forEach(function (n) {
-        if (n && !safeRel(n.replace(/\/$/, ''))) throw refuse('unsafe path in ' + file + ': ' + n);
+        // "./": the archive's own root, as tar -C <dir> . packs it
+        if (n && n !== './' && !safeRel(n.replace(/\/$/, ''))) throw refuse('unsafe path in ' + file + ': ' + n);
     });
     var dir = path.join(stage, 'a' + Math.floor(Math.random() * 1e9));
     mkdirp(dir);
