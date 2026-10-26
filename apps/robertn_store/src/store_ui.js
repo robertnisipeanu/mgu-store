@@ -4,7 +4,7 @@
  * state: view(model) -> { screen, values: { element: opts } } for the page on
  * top. No I/O, so tools/test_screens.js checks every page offline. Based on
  * IterioDev's App Manager 2 view (mgu-app-store apps/oap-appmanager/
- * javascript/store_ui.js, reused with his permission), fed from the
+ * javascript/store_ui.js), fed from the
  * updater's components, sources, accounts, sign-in and phone page.
  *
  * model: { st (the updater's state or null), connected, secret (whether the

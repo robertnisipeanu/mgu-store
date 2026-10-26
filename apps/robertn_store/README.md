@@ -16,9 +16,8 @@ and iDrive 8 (`mguHmi`).
 and speaks its own protocol (mgu-render/1), through its own socket (beside
 any other renderer installed, which draws its own apps): IterioDev's App Manager 2
 screens (his [mgu-app-store](https://github.com/IterioDev/mgu-app-store)
-`apps/oap-appmanager`, reused with his permission: the screens, their
-widgets and the kit they are drawn with, `src/am_*.js` and `src/kit_*.js`,
-MIT notice in `src/LICENSE-kit.txt`), fed from the updater's state
+`apps/oap-appmanager`: the screens, their widgets and the kit they are
+drawn with, `src/am_*.js` and `src/kit_*.js`), fed from the updater's state
 (`src/store_ui.js`). A side menu (Store, Installed with its update count,
 USB, Settings) beside:
 

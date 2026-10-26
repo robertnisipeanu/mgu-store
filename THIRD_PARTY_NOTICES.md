@@ -8,8 +8,7 @@ the `LICENSES.txt` its build writes.
 | Part | Where | Licence | Text |
 |---|---|---|---|
 | idrive7-apps renderer daemon and app kit (cauliflowermossgrape) | `native/mgu-render`, `apps/robertn_store/src/kit_*.js`, `apps/robertn_store/lib/mgu_render_client.js` | MIT | `native/mgu-render/LICENSE.mgu-renderd`, `apps/robertn_store/src/LICENSE-kit.txt` |
-| IterioDev's mgu-renderd (protocol v3, touch, pictures), used with his permission | `native/mgu-render`, `apps/robertn_store/lib/mgu_render_client.js` | MIT | `native/mgu-render/LICENSE.mgu-renderd` |
-| IterioDev's App Manager 2 screens and widgets (mgu-app-store `apps/oap-appmanager`) | `apps/robertn_store/src/am_*.js`, `apps/robertn_store/src/store_ui.js` | used with IterioDev's permission | — |
+| IterioDev's mgu-renderd (protocol v3, touch, pictures) | `native/mgu-render`, `apps/robertn_store/lib/mgu_render_client.js` | MIT | `native/mgu-render/LICENSE.mgu-renderd` |
 | Reference copies of both renderers, for protocol tests | `native/mgu-render/test/reference` | MIT | `LICENSE` in each folder |
 | Freedoom 0.13 frames and Ubuntu font atlases in recorded test sessions | `native/mgu-render/test/sessions` | Freedoom BSD-3-Clause; Ubuntu Font Licence 1.0 | [Freedoom](https://github.com/freedoom/freedoom/blob/master/COPYING.adoc), [Ubuntu Font Licence](https://ubuntu.com/legal/font-licence) |
 | Wayland ivi-application / ivi-controller protocols (DENSO, BMW Car IT) | `native/mgu-render/protocol` | MIT | in each XML file |
