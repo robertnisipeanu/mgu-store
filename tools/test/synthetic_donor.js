@@ -23,8 +23,9 @@ const PRELUDE = '(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i
  * relative require; 6: in no closure. */
 const MODULES = [
     [1, 'const OnlineApp=require("oap-sdk/src/core/OnlineApp.js");const logging=require("oap-sdk/src/logging/logging");' +
-        'const b=require("oap-sdk/src/someip/someipBuilders.js");',
-    '{"oap-sdk/src/core/OnlineApp.js":2,"oap-sdk/src/logging/logging":3,"oap-sdk/src/someip/someipBuilders.js":4}'],
+        'const b=require("oap-sdk/src/someip/someipBuilders.js");const b2=require("oap-sdk/src/someip/someipBuilders");',
+    '{"oap-sdk/src/core/OnlineApp.js":2,"oap-sdk/src/logging/logging":3,"oap-sdk/src/someip/someipBuilders.js":4,' +
+        '"oap-sdk/src/someip/someipBuilders":4}'],
     [2, '"use strict";const logging_1=require("../logging/logging");const err=require("../errors/SDKError");' +
         'class OnlineApp{constructor(name){this.name=name;this.log=logging_1.getLogger()}}' +
         'exports.OnlineApp=OnlineApp;exports.SDKError=err.SDKError;',
