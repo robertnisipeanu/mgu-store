@@ -24,7 +24,7 @@ login-start, login-cancel, web), which carry the secret the updater leaves in th
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,
 `Checking for updates`, `Restarting`, the last error; `Restart the head
 unit to finish setup` while the updater has not run since the Store was
-installed, which after the install kit is until the next start; `Updater
+installed, which after the first install is until the next start; `Updater
 not running` once it has), a **Check for updates** button, a progress bar for the running
 install (hidden when none runs), the rows **Apps** and **Head-unit tools**,
 each showing its running install, `Failed` or its number of updates,

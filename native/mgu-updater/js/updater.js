@@ -631,25 +631,31 @@ class Updater {
         return this.stored.concat(this.usb);
     }
 
-    /* Each component id once: from the source that installed it, if it lists
-     * it, else from the first source (sources.json order, then USB media). */
+    /* Each component id once: the highest version a source lists; of equal
+     * versions, the source that installed it (origins.json), then USB media,
+     * then sources.json order. Without internet, a network source's last
+     * listing counts only for ids no other source lists. */
     resolved() {
-        const map = new Map();
-        this.defs().forEach((def) => {
+        const online = readLease(this.conf).online;
+        const found = new Map();
+        this.defs().forEach((def, order) => {
             const rt = this.src.get(def.id);
             (rt ? rt.components : []).forEach((entry) => {
-                if (!map.has(entry.id)) {
-                    map.set(entry.id, { entry, source: def.id });
-                }
+                const list = found.get(entry.id) || [];
+                list.push({ entry, source: def.id, order, usb: def.type === 'usb', reachable: online || !rt.reader.network });
+                found.set(entry.id, list);
             });
         });
-        map.forEach((r, id) => {
+        const map = new Map();
+        found.forEach((list, id) => {
             const o = this.origins[id];
-            const rt = o && this.src.get(o.source);
-            const entry = rt && rt.components.find((c) => c.id === id);
-            if (entry) {
-                map.set(id, { entry, source: o.source });
-            }
+            const rank = (c) => (o && o.source === c.source ? 0 : c.usb ? 1 : 2);
+            const pool = list.some((c) => c.reachable) ? list.filter((c) => c.reachable) : list;
+            const best = pool.reduce((a, c) => {
+                const cmp = catalogLib.compareVersions(c.entry.version, a.entry.version);
+                return cmp > 0 || (cmp === 0 && (rank(c) < rank(a) || (rank(c) === rank(a) && c.order < a.order))) ? c : a;
+            });
+            map.set(id, { entry: best.entry, source: best.source });
         });
         return map;
     }
@@ -1147,6 +1153,8 @@ class Updater {
             this.errors[id] = 'no longer in its source';
             return Promise.resolve(false);
         }
+        // an uplink installed without internet (from a stick) has none to give back
+        const wasOnline = readLease(this.conf).online;
         this.busy = { id, op: 'install', phase: 'download', progress: 0, total: entry.artifact.size || null };
         this.changed();
         console.log(`${id}@${entry.version}: download from ${item.source}${entry.revision ? ` at ${entry.revision}` : ''}` +
@@ -1189,8 +1197,14 @@ class Updater {
                     before = fs.readlinkSync(path.join(toolDir, 'current'));
                 } catch (e) { /* not installed yet */ }
                 if (self) {
-                    // the version to return to if the new one does not come up
-                    rmIfThere(path.join(this.conf.tool_root, SELF, 'trial-local'));
+                    // the version to return to if the new one does not come up; one from
+                    // a stick or a folder needs no internet to be kept (commitTrial)
+                    const local = path.join(this.conf.tool_root, SELF, 'trial-local');
+                    if (rt.reader.network) {
+                        rmIfThere(local);
+                    } else {
+                        writeAtomic(local, '');
+                    }
                     writeAtomic(trial, fs.readlinkSync(path.join(this.conf.tool_root, SELF, 'current')) + '\n');
                 }
                 return this.deploy(verified);
@@ -1204,7 +1218,7 @@ class Updater {
                 console.log(`installed ${id}@${entry.version}`);
                 this.origins[id] = { source: item.source, commit: entry.commit || null };
                 this.saveOrigins();
-                return this.bootstrapCheck(entry, toolDir, before);
+                return this.bootstrapCheck(entry, toolDir, before, wasOnline);
             })
             .then(() => self)
             .catch((err) => {
@@ -1261,10 +1275,11 @@ class Updater {
     /* The tools the updater itself runs on: the deploy tool (every install
      * goes through it) and the uplink (every download goes through it). A
      * new version of either must work before the updater relies on it: the
-     * deploy tool must answer status, the uplink must give internet again.
+     * deploy tool must answer status, the uplink must give internet again
+     * (when there was internet before it).
      * Otherwise the version installed before is put back. The updater
      * itself is checked by commitTrial and its supervisor (bin/mgu-updater). */
-    bootstrapCheck(entry, toolDir, before) {
+    bootstrapCheck(entry, toolDir, before, wasOnline) {
         const kept = before && path.basename(before) !== entry.version ? path.basename(before) : null;
         const failed = (what) => new Error(`${entry.version} ${what}` +
             (kept ? `; ${kept} kept` : '; no earlier version to return to'));
@@ -1283,7 +1298,7 @@ class Updater {
                 throw failed('does not run');
             });
         }
-        if (entry.id === this.conf.uplink_tool) {
+        if (entry.id === this.conf.uplink_tool && wasOnline) {
             return pendingReboot(this.conf).then((pending) => {
                 if (pending.indexOf(entry.id) >= 0) {
                     return undefined; // not restarted: the running version is untouched

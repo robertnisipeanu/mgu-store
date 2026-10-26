@@ -10,5 +10,3 @@ native/*/build/
 release/out/
 release/published/
 
-# deploy/hu kit output (deploy/README.md)
-deploy/out/

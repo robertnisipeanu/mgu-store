@@ -2494,86 +2494,329 @@ function testUpdaterStateRestore() {
                 e.path === sources || e.path.indexOf(path.join(base, 'credentials')) === 0)));
 }
 
-/* deploy/hu kit, and its install.sh run against a fake root. The kit
- * takes the components that build without native toolchains; the updater
- * is a stand-in installed first. */
-function testKit() {
-    const tokenFile = path.join(fs.mkdtempSync(path.join(T, 'tok-')), 'token');
-    fs.writeFileSync(tokenFile, `${TOKEN}\n`);
-    const out = path.join(fs.mkdtempSync(path.join(T, 'kits-')), 'kit');
-    const ids = ['app-privacy', 'mgu-deploy', 'robertn_store'];
-    const k = hu(['kit', '--out', out, '--updater-token-file', tokenFile].concat(ids));
-    const comps = require('../../release/release.js').components(path.join(DEPLOY, '..'));
-    const want = comps.filter((c) => ids.indexOf(c.id) >= 0).map((c) => `${c.id}@${c.version}.tgz`).sort().join(' ');
-    check('kit: install.sh, the deploy tool, sources.json, the token and the components',
-        k.status === 0 && fs.readdirSync(path.join(out, 'artifacts')).sort().join(' ') === want &&
-        !fs.existsSync(path.join(out, 'optional')) && mode(path.join(out, 'install.sh')) === 0o755 &&
-        fs.readFileSync(path.join(out, 'sources.json')).equals(fs.readFileSync(path.join(DEPLOY, 'sources.json'))) &&
-        fs.readFileSync(path.join(out, 'token'), 'utf8') === `${TOKEN}\n` && mode(path.join(out, 'token')) === 0o600 &&
-        fs.existsSync(path.join(out, 'oap_link.js')) && !`${k.stdout}${k.stderr}`.includes(TOKEN), `${k.stdout}${k.stderr}`);
-    const store = comps.find((c) => c.id === 'robertn_store');
-    check('kit: the Store is its source package', !!untarBuf(fs.readFileSync(path.join(out, 'artifacts', `robertn_store@${store.version}.tgz`)))['mgu-app.json']);
-    const root = donorRoot();
-    root.run(['install', '--artifact', namedTool('mgu-updater', '0.2.0'), '--yes']);
-    const sh = (args) => {
-        const r = cp.spawnSync('sh', [path.join(out, 'install.sh')].concat(args || []), { encoding: 'utf8', env: root.env });
-        r.out = `${r.stdout}${r.stderr}`;
-        return r;
+/* ---- mgu-install ------------------------------------------------------------------------------ */
+
+const MGU_INSTALL = path.join(DEPLOY, 'mgu-install.js');
+const STORE_REPO = 'robertnisipeanu/mgu-store';
+
+function sleepSync(ms) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/* The stand-in GitHub API (fake_github.js) on 127.0.0.1; config is
+ * rewritten with set(). */
+function fakeGithub(config) {
+    const dir = fs.mkdtempSync(path.join(T, 'gh-'));
+    const file = path.join(dir, 'config.json');
+    const log = path.join(dir, 'log');
+    const portFile = path.join(dir, 'port');
+    fs.writeFileSync(file, JSON.stringify(config));
+    fs.writeFileSync(log, '');
+    const child = cp.spawn(process.execPath, [path.join(HERE, 'fake_github.js'), file, log, portFile], { stdio: 'inherit' });
+    inplaceChildren.push(child);
+    for (let i = 0; i < 200 && !fs.existsSync(portFile); i += 1) {
+        sleepSync(25);
+    }
+    return {
+        api: `http://127.0.0.1:${fs.readFileSync(portFile, 'utf8')}`,
+        set: (c) => fs.writeFileSync(file, JSON.stringify(c)),
+        requests: () => fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)),
+        reset: () => fs.writeFileSync(log, ''),
+        stop: () => child.kill()
     };
-    let r = sh();
-    const st = r.status === 0 ? root.status() : { components: [] };
-    const has = (id) => st.components.some((x) => x.id === id);
-    check('kit: install.sh installs the tools and builds and installs the Store', r.status === 0 &&
-        ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every(has) &&
-        r.out.includes('built robertn_store'), r.out.slice(-3000));
-    check('kit: install.sh ends saying a restart finishes setup while the updater is not running',
-        r.out.endsWith('\nRestart the head unit to finish setup (the next ignition cycle does it): the updater will run from then on.\n'),
-        r.out.slice(-1000));
-    check('kit: install.sh seeds the sources and the token, root\'s alone',
-        fs.existsSync(root.p('var/opt/mgu-updater/sources.json')) && mode(root.p('var/opt/mgu-updater/sources.json')) === 0o600 &&
-        Object.values(tokenTexts(root)).join() === TOKEN && !r.out.includes(TOKEN));
-    check('kit: install.sh leaves no staging copy', !fs.readdirSync(root.p('var/opt')).some((n) => /^mgu-deploy-kit-/.test(n)));
-    // the updater running since the next start
-    fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'active\n');
-    r = sh();
-    check('kit: install.sh again changes nothing installed', r.status === 0 && r.out.includes('robertn_store') &&
-        r.out.includes('already installed') && r.out.includes('updater sources kept') && !r.out.includes('built robertn_store'), r.out.slice(-3000));
-    check('kit: with the updater running, install.sh asks for no restart', !r.out.includes('Restart the head unit'), r.out.slice(-1000));
-    // An older kit keeps every newer component and still seeds updater state.
-    const nextDir = fs.mkdtempSync(path.join(T, 'next-deploy-'));
-    hu(['artifact', deployCopy(NEXT), '--out', nextDir]);
-    root.run(['install', '--artifact', path.join(nextDir, `mgu-deploy@${NEXT}.tgz`), '--yes']);
-    root.run(['install', '--artifact', namedTool('app-privacy', '9.0.0'), '--yes']);
-    fs.copyFileSync(namedTool('mgu-updater', '0.2.0'), path.join(out, 'artifacts', 'mgu-updater@0.2.0.tgz'));
-    root.run(['install', '--artifact', namedTool('mgu-updater', '9.0.0'), '--yes']);
-    const installed = root.status().components.find((c) => c.id === 'robertn_store');
-    const pkgFile = root.p(`var/opt/public/oap/oap_${installed.uid}/source/package.json`);
-    const pkg = readJson(pkgFile);
-    pkg.version = '9.0.0';
-    fs.writeFileSync(pkgFile, JSON.stringify(pkg));
-    fs.unlinkSync(root.p('var/opt/mgu-updater/sources.json'));
-    fs.rmSync(root.p('var/opt/mgu-updater/credentials'), { recursive: true });
-    r = sh();
-    const current = root.status().components;
-    check('kit: an older kit skips newer tools (including deploy) and Store, then seeds sources and token', r.status === 0 &&
-        ['app-privacy', 'mgu-updater', 'robertn_store'].every((id) => current.some((c) => c.id === id && c.version === '9.0.0')) &&
-        fs.readlinkSync(root.p('var/opt/mgu-deploy/current')) === `versions/${NEXT}` &&
-        ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every((id) => r.out.includes(id + ' ') &&
-            r.out.includes(id + ' ' + (id === 'mgu-deploy' ? VERSION : id === 'robertn_store' ? store.version :
-                id === 'mgu-updater' ? '0.2.0' : comps.find((c) => c.id === id).version) + ' skipped')) &&
-        fs.existsSync(root.p('var/opt/mgu-updater/sources.json')) &&
-        Object.values(tokenTexts(root)).join() === TOKEN &&
-        !r.out.includes('built robertn_store'), r.out.slice(-4000));
-    const envKit = path.join(fs.mkdtempSync(path.join(T, 'env-kit-')), 'kit');
-    const envOnly = hu(['kit', '--out', envKit, 'mgu-deploy'], { HU_UPDATER_TOKEN_FILE: tokenFile });
-    check('kit: HU_UPDATER_TOKEN_FILE alone never puts a token in the kit', envOnly.status === 0 &&
-        !fs.existsSync(path.join(envKit, 'token')) && !envOnly.stdout.includes('token:'), envOnly.stderr);
-    const badEnvKit = hu(['kit', '--out', envKit, 'mgu-deploy'], { HU_UPDATER_TOKEN_FILE: tokenFile + '-missing' });
-    check('kit: an environment token file is not read', badEnvKit.status === 0 && !fs.existsSync(path.join(envKit, 'token')), badEnvKit.stderr);
-    r = sh(['--with-uplink']);
-    check('kit: --with-uplink with a kit made without it is refused', r.status === 2 && r.out.includes('no optional/mgu-uplink'), r.out);
-    r = sh(['--bogus']);
-    check('kit: an unknown option is a usage error', r.status === 2 && r.out.includes('usage'), r.out);
+}
+
+/* A published catalog's entry for an artifact served as asset n. */
+function publishedEntry(api, file, n, kind, extra) {
+    const [id, version] = path.basename(file).replace(/\.tgz$/, '').split('@');
+    const data = fs.readFileSync(file);
+    return Object.assign({ id, kind, title: id, description: `${id} for the tests`, version,
+        artifact: { name: `${id}@${version}.tgz`, size: data.length, sha256: sha256(data), url: `${api}/repos/${STORE_REPO}/releases/assets/${n}` } }, extra);
+}
+
+/* The Store's source package, built with its release.json command when it is not there yet. */
+function storeArtifact() {
+    const c = require('../../release/release.js').components(path.join(DEPLOY, '..')).find((x) => x.id === 'robertn_store');
+    const file = path.join(DEPLOY, '..', c.artifact);
+    if (!fs.existsSync(file)) {
+        cp.execSync(c.release.build, { cwd: path.join(DEPLOY, '..', c.dir), stdio: ['ignore', 2, 2] });
+    }
+    const out = path.join(fs.mkdtempSync(path.join(T, 'store-')), `robertn_store@${c.version}.tgz`);
+    fs.copyFileSync(file, out);
+    return out;
+}
+
+/* The mgu-store release as fake_github serves it: the deploy tool, app-privacy, the
+ * Store's source package, stand-ins for the updater and the uplink. */
+function fakeRelease(api) {
+    const art = fs.mkdtempSync(path.join(T, 'rel-'));
+    hu(['artifact', DEPLOY, '--out', art]);
+    hu(['artifact', path.join(DEPLOY, '..', 'native', 'app-privacy'), '--out', art]);
+    const privacy = fs.readdirSync(art).find((n) => n.startsWith('app-privacy@'));
+    const files = [path.join(art, `mgu-deploy@${VERSION}.tgz`), path.join(art, privacy), namedTool('mgu-updater', '0.2.0'),
+        namedTool('mgu-uplink', '0.4.0'), storeArtifact()];
+    const entries = [publishedEntry(api, files[0], 0, 'tool'), publishedEntry(api, files[1], 1, 'tool'), publishedEntry(api, files[2], 2, 'tool'),
+        publishedEntry(api, files[3], 3, 'tool', { optional: true, uninstallable: true }),
+        publishedEntry(api, files[4], 4, 'app', { build: 'unit', requires: { 'mgu-deploy': '0.2.0' } })];
+    const catalog = path.join(art, 'catalog.json');
+    fs.writeFileSync(catalog, JSON.stringify({ schema: 2, commit: 'c0ffee', components: entries }, null, 2));
+    files.push(catalog);
+    return { files, entries, catalogIndex: files.length - 1, dir: art };
+}
+
+/* bin/ with ssh (fake_ssh_exec.js against root), systemctl and gh stand-ins. */
+function installBin(root) {
+    const bin = fs.mkdtempSync(path.join(T, 'bin-'));
+    fs.writeFileSync(path.join(bin, 'ssh'), `#!/bin/sh\nexec '${process.execPath}' '${path.join(HERE, 'fake_ssh_exec.js')}' "$@"\n`, { mode: 0o755 });
+    fs.symlinkSync(path.join(HERE, 'fake_systemctl.sh'), path.join(bin, 'systemctl'));
+    fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\n[ "$1 $2" = "auth token" ] && [ -n "$FAKE_GH_TOKEN" ] && echo "$FAKE_GH_TOKEN" && exit 0\nexit 1\n', { mode: 0o755 });
+    const envFile = path.join(bin, 'env.json');
+    if (root) {
+        fs.writeFileSync(envFile, JSON.stringify(Object.assign({}, root.env, { PATH: `${bin}:${root.env.PATH}` })));
+    }
+    return { bin, envFile };
+}
+
+function mguInstall(args, opts) {
+    const log = path.join(fs.mkdtempSync(path.join(T, 'ssh-')), 'log');
+    fs.writeFileSync(log, '');
+    const env = Object.assign({}, process.env, { PATH: `${opts.bin.bin}:${process.env.PATH}`, FAKE_SSH_LOG: log,
+        FAKE_SSH_ENV: opts.bin.envFile, MGU_INSTALL_GITHUB_API: opts.api, FAKE_GH_TOKEN: '' }, opts.env || {});
+    const r = cp.spawnSync(process.execPath, [MGU_INSTALL].concat(args), { encoding: 'utf8', env, input: opts.input || '' });
+    r.out = `${r.stdout}${r.stderr}`;
+    r.calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((a) => a[0] !== '-V');
+    return r;
+}
+
+/* first-install and token against a fake root, the release from the stand-in GitHub. */
+function testMguInstall() {
+    const gh = fakeGithub({ files: [], repos: {} });
+    try {
+        const rel = fakeRelease(gh.api);
+        const config = { files: rel.files, repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.catalogIndex } } };
+        gh.set(config);
+        const root = donorRoot();
+        const bin = installBin(root);
+        const opts = { bin, api: gh.api };
+        let r = mguInstall(['first-install', '--host', '10.0.0.9', '--token'], Object.assign({ input: `${TOKEN}\n` }, opts));
+        const st = r.status === 0 ? root.status() : { components: [] };
+        const has = (id) => st.components.some((x) => x.id === id);
+        check('mgu-install first-install: the release\'s tools and the Store, built on the unit, without the optional uplink', r.status === 0 &&
+            ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every(has) && !has('mgu-uplink') &&
+            r.out.includes('built robertn_store'), r.out.slice(-3000));
+        check('mgu-install first-install: the deploy tool is the release\'s, installed from its own files',
+            fs.readlinkSync(root.p('var/opt/mgu-deploy/current')) === `versions/${VERSION}` &&
+            fs.readFileSync(root.p(`var/opt/mgu-deploy/versions/${VERSION}/mgu-deploy.js`)).equals(fs.readFileSync(UNIT_JS)));
+        check('mgu-install first-install: seeds the sources and adds the token, root\'s alone',
+            JSON.parse(fs.readFileSync(root.p('var/opt/mgu-updater/sources.json'), 'utf8')).sources[0].repo === STORE_REPO &&
+            mode(root.p('var/opt/mgu-updater/sources.json')) === 0o600 &&
+            Object.values(tokenTexts(root)).join() === TOKEN);
+        check('mgu-install first-install: ends saying a restart finishes setup while the updater is not running',
+            r.stdout.endsWith('Restart the head unit to finish setup (a normal ignition cycle does it): the updater starts then.\n'), r.stdout.slice(-500));
+        check('mgu-install first-install: the token is in no output and no ssh argument; it went on stdin to updater-token',
+            !r.out.includes(TOKEN) && r.calls.every((a) => !a.join(' ').includes(TOKEN)) &&
+            r.calls.some((a) => / updater-token( |$)/.test(a[a.length - 1])), r.calls.map((a) => a[a.length - 1]).join('\n'));
+        const reqs = gh.requests();
+        check('mgu-install first-install: anonymous first, then the token, to the API host only; never to the host a download redirects to',
+            reqs[0].path === `/repos/${STORE_REPO}` && reqs[0].auth === null && reqs[1].auth === `Bearer ${TOKEN}` &&
+            reqs.filter((x) => x.path.startsWith('/blob/')).length === 5 && reqs.filter((x) => x.path.startsWith('/blob/')).every((x) => x.auth === null),
+            JSON.stringify(reqs));
+        check('mgu-install first-install: ssh to the given host as root on port 22, with ssh-rsa allowed for the unit\'s sshd',
+            r.calls.every((a) => a.includes('root@10.0.0.9') && a[0] === '-p' && a[1] === '22' && a.includes('HostKeyAlgorithms=+ssh-rsa')),
+            JSON.stringify(r.calls[0]));
+        check('mgu-install first-install: no remote command carries a double quote or a backslash (Windows passes them through its own quoting)',
+            r.calls.every((a) => !/["\\]/.test(a[a.length - 1])), r.calls.map((a) => a[a.length - 1]).join('\n'));
+        check('mgu-install first-install: leaves no staging folder', !fs.readdirSync(root.p('var/opt')).some((n) => /^mgu-deploy-kit-/.test(n)));
+        // again, the updater running since the next start, the token from the GitHub CLI
+        fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'active\n');
+        gh.reset();
+        r = mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
+        check('mgu-install first-install again: changes nothing installed, and says setup is done', r.status === 0 &&
+            r.out.includes('already installed') && !r.out.includes('built robertn_store') && r.out.includes('updater sources kept') &&
+            r.stdout.endsWith('Setup is done: the Store installs and updates everything from here on.\n') &&
+            gh.requests()[1].auth === `Bearer ${TOKEN}` && !r.calls.some((a) => / updater-token/.test(a[a.length - 1])), r.out.slice(-2000));
+        r = mguInstall(['first-install', '--host', '10.0.0.9', '--with-uplink'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
+        check('mgu-install first-install --with-uplink: installs the optional uplink, which starts at the next start', r.status === 0 &&
+            root.status().components.some((x) => x.id === 'mgu-uplink') &&
+            r.stdout.endsWith('Restart the head unit to finish setup (a normal ignition cycle does it): the uplink starts then.\n'), r.out.slice(-2000));
+        r = mguInstall(['first-install', '--host', '10.0.0.9'], opts);
+        check('mgu-install first-install: a private release without a token is refused before connecting', r.status === 1 &&
+            r.stderr.includes('no access') && !r.calls.length, r.out);
+        const bad = JSON.parse(fs.readFileSync(rel.files[rel.catalogIndex], 'utf8'));
+        bad.components[1].artifact.sha256 = '0'.repeat(64);
+        const badFile = path.join(rel.dir, 'bad-catalog.json');
+        fs.writeFileSync(badFile, JSON.stringify(bad));
+        gh.set(Object.assign({}, config, { files: rel.files.concat([badFile]), repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.files.length } } }));
+        r = mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
+        check('mgu-install first-install: an artifact that does not match its catalog stops it before connecting', r.status === 1 &&
+            r.stderr.includes('sha256 does not match') && !r.calls.length, r.out);
+        gh.set(config);
+        // token
+        const other = `${TOKEN}x`;
+        r = mguInstall(['token', '--host', '10.0.0.9'], Object.assign({ input: other }, opts));
+        check('mgu-install token: adds a token from stdin through updater-token; the running updater reads its sources again', r.status === 0 &&
+            Object.values(tokenTexts(root)).sort().join() === [TOKEN, other].sort().join() && !r.out.includes(other) &&
+            /^sh \/var\/opt\/mgu-deploy\/mgu-deploy\.sh updater-token && /.test(r.calls[0][r.calls[0].length - 1]) &&
+            r.calls[0][r.calls[0].length - 1].includes('updater.js check') && r.calls.every((a) => !a.join(' ').includes(other)), r.out);
+        r = mguInstall(['token', '--host', '10.0.0.9', '--list'], opts);
+        check('mgu-install token --list: updater-token --list on the unit', r.calls.length === 1 &&
+            r.calls[0][r.calls[0].length - 1] === 'sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --list', JSON.stringify(r.calls));
+        r = mguInstall(['token', '--host', '10.0.0.9', '--list', '--json'], opts);
+        const listed = JSON.parse(r.stdout);
+        const otherId = Object.keys(tokenTexts(root)).find((id) => tokenTexts(root)[id] === other);
+        check('mgu-install token --list --json: the tokens as JSON, no token text', r.status === 0 &&
+            r.calls[0][r.calls[0].length - 1] === 'sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --list --json' &&
+            listed.length === 2 && listed.some((t) => t.id === otherId) && !r.out.includes(TOKEN), r.out);
+        r = mguInstall(['token', '--host', '10.0.0.9', '--remove', otherId], opts);
+        check('mgu-install token --remove <id>: updater-token --remove <id> on the unit', r.status === 0 && r.calls.length === 1 &&
+            r.calls[0][r.calls[0].length - 1] === `sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --remove '${otherId}'` &&
+            !tokenTexts(root)[otherId] && Object.keys(tokenTexts(root)).length === 1, JSON.stringify(r.calls));
+        const jsonAlone = mguInstall(['token', '--json'], opts);
+        const notHex = mguInstall(['token', '--remove', 't-1a2b'], opts);
+        check('mgu-install token: --json without --list, or an id that is not one, is refused, nothing sent',
+            jsonAlone.status === 2 && notHex.status === 2 && !jsonAlone.calls.length && !notHex.calls.length, `${jsonAlone.out}${notHex.out}`);
+        r = mguInstall(['token', '--remove', "x'; rm -rf /"], opts);
+        const empty = mguInstall(['token'], opts);
+        const argv = mguInstall(['token', TOKEN], opts);
+        check('mgu-install token: a bad id, no token, or a token as an argument is refused, nothing sent',
+            r.status === 2 && empty.status === 2 && empty.stderr.includes('no token given') && argv.status === 2 &&
+            !r.calls.length && !empty.calls.length && !argv.calls.length, `${r.out}${empty.out}${argv.out}`);
+        r = mguInstall(['first-install', '--host', '10.0.0.9', '--source', 'x'], opts);
+        check('mgu-install: an unknown option is a usage error', r.status === 2 && r.stderr.includes('unknown option --source'), r.out);
+        check('mgu-install: seeds the same sources as deploy/hu', JSON.stringify(require(MGU_INSTALL).SOURCES) ===
+            JSON.stringify(readJson(path.join(DEPLOY, 'sources.json'))));
+    } finally {
+        gh.stop();
+    }
+}
+
+/* usb-repo from every kind of input, read back the way the updater reads a stick (on the unit's Node). */
+function testMguInstallUsb() {
+    const gh = fakeGithub({ files: [], repos: {} });
+    try {
+        const rel = fakeRelease(gh.api);
+        const relApp = thirdPartyArtifact('rel_app', '1.1.0', 'npm');
+        const relMgu = thirdPartyArtifact('rel_app', '1.1.0', 'mgu');
+        const mguOnly = thirdPartyArtifact('mgu_only', '0.1.0', 'mgu');
+        const draft = thirdPartyArtifact('rel_app', '9.9.9', 'npm');
+        const titles = path.join(fs.mkdtempSync(path.join(T, 'titles-')), 'mgu-store.json');
+        fs.writeFileSync(titles, JSON.stringify({ apps: { rel_app: { title: 'Release App' } } }));
+        const files = rel.files.concat([relApp, relMgu, mguOnly, draft, titles]);
+        const n = rel.files.length;
+        gh.set({ files, repos: {
+            [STORE_REPO]: { token: TOKEN, catalog: rel.catalogIndex },
+            'third/rel': { releases: [{ draft: true, assets: [{ name: 'rel_app@9.9.9.tgz', n: n + 3 }] },
+                { assets: [{ name: 'rel_app@1.1.0.tgz', n }, { name: 'rel_app@1.1.0.mgu', n: n + 1 }, { name: 'mgu-store.json', n: n + 4 }] },
+                { assets: [{ name: 'mgu_only@0.1.0.mgu', n: n + 2 }] }] }
+        } });
+        // a dir: publish and a checkout with mgu-repo.json
+        const pub = path.join(fs.mkdtempSync(path.join(T, 'pub-')), 'Dir Publish');
+        fs.mkdirSync(pub);
+        const dirApp = appArtifact('dir_app', '1.0.0', true);
+        fs.copyFileSync(dirApp, path.join(pub, 'dir_app@1.0.0.tgz'));
+        const dd = fs.readFileSync(dirApp);
+        fs.writeFileSync(path.join(pub, 'catalog.json'), JSON.stringify({ schema: 1, components: [{ id: 'dir_app', kind: 'app', title: 'Dir', version: '1.0.0',
+            artifact: { name: 'dir_app@1.0.0.tgz', size: dd.length, sha256: sha256(dd), url: './dir_app@1.0.0.tgz' } }] }));
+        const co = path.join(fs.mkdtempSync(path.join(T, 'co-')), 'checkout');
+        write(path.join(co, 'mgu-repo.json'), JSON.stringify({ schema: 1, components: [{ id: 'co-tool', kind: 'tool', path: 'native/co-tool' }] }));
+        write(path.join(co, 'native', 'co-tool', 'component.json'), JSON.stringify({ id: 'co-tool', kind: 'tool', version: '0.1.0',
+            files: [{ path: 'co.sh', mode: '0755' }], units: [], enable: [], recmgr: [], restart: [] }));
+        write(path.join(co, 'native', 'co-tool', 'co.sh'), '#!/bin/sh\n');
+        write(path.join(co, 'node_modules', 'x', 'index.js'), '// not on GitHub\n');
+        // package files: an app built elsewhere, a .mgu, a tool kit, a source package
+        const pk = fs.mkdtempSync(path.join(T, 'pk-'));
+        const pkgs = [thirdPartyArtifact('loose_app', '1.0.0', 'npm'), thirdPartyArtifact('mgu_app', '2.0.0', 'mgu'),
+            namedTool('loose-tool', '0.3.0'), sourceArtifact('1.0.0')].map((f, i) => {
+            const to = path.join(pk, `${i} ${path.basename(f)}`);
+            fs.copyFileSync(f, to);
+            return to;
+        });
+        const media = fs.mkdtempSync(path.join(T, 'media-'));
+        const stick = path.join(media, 'MY STICK');
+        fs.mkdirSync(stick);
+        const bin = installBin(null);
+        const opts = { bin, api: gh.api, env: { FAKE_GH_TOKEN: TOKEN } };
+        let r = mguInstall(['usb-repo', stick, `github:${STORE_REPO}`, 'github:third/rel', pub, co].concat(pkgs), opts);
+        const repo = path.join(stick, 'mgu-repo');
+        check('mgu-install usb-repo: one folder per input, package files together in local/', r.status === 0 &&
+            fs.readdirSync(repo).sort().join() === 'checkout,dir-publish,local,mgu-store,rel', `${r.out}\n${fs.existsSync(repo) && fs.readdirSync(repo)}`);
+        const reqs = gh.requests();
+        check('mgu-install usb-repo: the GitHub CLI\'s token for the private repo, only to the API host', reqs.some((x) => x.auth === `Bearer ${TOKEN}`) &&
+            reqs.filter((x) => x.path.startsWith('/blob/')).every((x) => x.auth === null) &&
+            reqs.filter((x) => x.path.startsWith('/repos/third/rel')).every((x) => x.auth === null), JSON.stringify(reqs));
+        const read = () => {
+            const x = cp.spawnSync(UNIT_NODE, [path.join(HERE, 'stick_read.js'), media], { encoding: 'utf8' });
+            try {
+                return JSON.parse(x.stdout);
+            } catch (e) {
+                return { error: x.stderr };
+            }
+        };
+        // what an interrupted run leaves at the stick's root is no source
+        write(path.join(stick, '.mgu-repo-rel.partial', 'catalog.json'), fs.readFileSync(path.join(repo, 'rel', 'catalog.json')));
+        let seen = read();
+        const src = (name) => seen[`usb:MY STICK/mgu-repo/${name}`] || {};
+        const ids = (name) => (src(name).components || []).map((c) => `${c.id}@${c.version}${c.build ? `:${c.build}` : ''}`).sort().join(' ');
+        const allOk = Object.keys(seen).every((k) => seen[k].components && seen[k].components.every((c) => c.ok === true) && !seen[k].skipped.length);
+        check('mgu-install usb-repo: the updater reads every folder, and every artifact matches its listed size and sha256 (unit Node)',
+            Object.keys(seen).length === 5 && allOk, JSON.stringify(seen));
+        check('mgu-install usb-repo: a published catalog keeps its schema-2 fields',
+            ids('mgu-store') === `app-privacy@${rel.entries[1].version} mgu-deploy@${VERSION} mgu-updater@0.2.0 mgu-uplink@0.4.0 robertn_store@${rel.entries[4].version}:unit`,
+            ids('mgu-store'));
+        const relCat = JSON.parse(fs.readFileSync(path.join(repo, 'rel', 'catalog.json'), 'utf8'));
+        check('mgu-install usb-repo: a releases-mode repo gets a catalog: the newest of each id, the .tgz over the .mgu, titles from mgu-store.json',
+            ids('rel') === 'mgu_only@0.1.0 rel_app@1.1.0' && relCat.components.find((c) => c.id === 'rel_app').title === 'Release App' &&
+            relCat.components.find((c) => c.id === 'mgu_only').artifact.url === 'mgu_only@0.1.0.mgu' &&
+            relCat.components.every((c) => c.uninstallable === true), JSON.stringify(relCat));
+        check('mgu-install usb-repo: a dir: publish and a checkout (the updater builds it as a repo tree, node_modules left out)',
+            ids('dir-publish') === 'dir_app@1.0.0' && src('checkout').mode === 'repo' && ids('checkout') === 'co-tool@0.1.0' &&
+            !fs.existsSync(path.join(repo, 'checkout', 'node_modules')), JSON.stringify([src('dir-publish'), src('checkout')]));
+        check('mgu-install usb-repo: package files by their content: an app, a .mgu, a tool kit and a source package built on the unit',
+            ids('local') === 'loose-tool@0.3.0 loose_app@1.0.0 mgu_app@2.0.0 robertn_demo@1.0.0:unit', ids('local'));
+        // again: a newer and an older package; the newer replaces, the older leaves the newer
+        const pk2 = [thirdPartyArtifact('loose_app', '1.1.0', 'npm'), thirdPartyArtifact('mgu_app', '1.0.0', 'mgu')];
+        r = mguInstall(['usb-repo', stick].concat(pk2), opts);
+        seen = read();
+        check('mgu-install usb-repo again: local/ keeps the higher version of each id and the rest', r.status === 0 &&
+            ids('local') === 'loose-tool@0.3.0 loose_app@1.1.0 mgu_app@2.0.0 robertn_demo@1.0.0:unit' &&
+            !fs.existsSync(path.join(repo, 'local', 'loose_app@1.0.0.tgz')) && r.out.includes('mgu_app 2.0.0 stays'), `${r.out}\n${ids('local')}`);
+        const before = treeHash(stick).hash;
+        const service = path.join(fs.mkdtempSync(path.join(T, 'svc-')), 'renderer.tgz');
+        fs.writeFileSync(service, tgz([{ name: 'package/package.json', data: Buffer.from(JSON.stringify({ name: 'mgu-renderd', version: '1.0.0', mguService: {} })), mode: 0o644 }], 1700000000));
+        r = mguInstall(['usb-repo', stick, service], opts);
+        const badPub = path.join(fs.mkdtempSync(path.join(T, 'badpub-')), 'dir-publish');
+        cp.execFileSync('cp', ['-R', pub + '/.', badPub]);
+        fs.appendFileSync(path.join(badPub, 'dir_app@1.0.0.tgz'), 'x');
+        const r2 = mguInstall(['usb-repo', stick, badPub], opts);
+        check('mgu-install usb-repo: a root-service package and an artifact that does not match are refused; the stick is unchanged',
+            r.status === 2 && r.stderr.includes('root-service') && r2.status === 1 && /bytes, the source lists|sha256/.test(r2.stderr) &&
+            treeHash(stick).hash === before, `${r.out}\n${r2.out}`);
+        r = mguInstall(['usb-repo', stick, `github:${STORE_REPO}`], Object.assign({}, opts, { env: { FAKE_GH_TOKEN: '' } }));
+        check('mgu-install usb-repo: a private repo with no token is refused, its folder kept', r.status === 1 && r.stderr.includes('no access') &&
+            treeHash(stick).hash === before, r.out);
+    } finally {
+        gh.stop();
+    }
+}
+
+/* What mgu-install does with paths on Windows (path.win32): local paths stay
+ * one argument, the unit gets POSIX ones, names on the stick are valid there. */
+function testMguInstallPaths() {
+    const mi = require(MGU_INSTALL);
+    const o = mi.parse(['token', '--host', '172.16.222.97', '--identity', 'C:\\Users\\Me Here\\.ssh\\id_rsa', '--ssh-opt', 'StrictHostKeyChecking=no']);
+    const args = mi.sshArgs(o, 'sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --list');
+    check('mgu-install paths: a Windows key path is one ssh argument, the owner\'s options first, the remote command last',
+        args[args.indexOf('-i') + 1] === 'C:\\Users\\Me Here\\.ssh\\id_rsa' && args.indexOf('StrictHostKeyChecking=no') < args.indexOf('-i') &&
+        args[args.length - 2] === 'root@172.16.222.97' && args[args.length - 1].startsWith('sh /var/opt/'), JSON.stringify(args));
+    const winBad = /[<>:"/\\|?*\x00-\x1f]|^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i;
+    const names = ['Owner/Repo:Name*?', 'nul', 'COM1', 'updates.example.org-repo', '..', 'a\\b'].map(mi.folderName);
+    check('mgu-install paths: folder names on the stick are valid on Windows (FAT, exFAT, NTFS)',
+        names.every((x) => x && !winBad.test(x) && !/^\.|\.$/.test(x)), JSON.stringify(names));
+    check('mgu-install paths: an artifact file name from a catalog is one plain name',
+        ['a\\b.tgz', 'C:x.tgz', '../x.tgz', 'a/b.tgz', '..'].every((x) => !mi.plainName(x)) && mi.plainName('robertn_store@0.4.1.tgz'));
+    const packed = mi.untgz(mi.tgz([{ name: 'files/a.sh', data: Buffer.from('x'), mode: 0o755 }], 1700000000));
+    check('mgu-install paths: the kit is packed in Node with POSIX member names and modes',
+        packed.length === 1 && packed[0].name === 'files/a.sh' && packed[0].mode === 0o755);
 }
 
 /* ---- run ------------------------------------------------------------------------------------- */
@@ -2612,7 +2855,9 @@ const SUITES = [
     testThirdParty,
     testInternet,
     testSourcesAndDonor,
-    testKit,
+    testMguInstall,
+    testMguInstallUsb,
+    testMguInstallPaths,
     testUpdaterStateRestore,
     testTransport,
     testHuConnect,

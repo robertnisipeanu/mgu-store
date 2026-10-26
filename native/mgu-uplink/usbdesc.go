@@ -186,11 +186,6 @@ type netFunction struct {
 	macIndex   int  // string index of the host-side MAC address, 0 if none
 	maxSegment int  // Ethernet functional descriptor's wMaxSegmentSize
 	ncmCaps    byte
-	// iPhone: the usbmux interface, used for pairing.
-	muxIface          int
-	muxIn, muxOut     byte
-	muxOutPacket      int
-	numConfigurations int
 }
 
 // rndisControl are the control interface triples RNDIS functions present:
@@ -246,11 +241,10 @@ func cdcFunction(c usbConfig, kind string) (netFunction, bool) {
 	return netFunction{}, false
 }
 
-// iphoneFunction picks an Apple device's configuration the way usbmuxd
-// does, the highest one holding a usbmux interface (ff/fe/02, a bulk
-// pair), and requires the Personal Hotspot interface (ff/fd/01, bulk pair
-// under an alternate setting) in it: configuration 4 of an iPhone in its
-// default mode.
+// iphoneFunction finds the Personal Hotspot interface (ff/fd/01, Linux's
+// ipheth: a bulk pair under an alternate setting) in the highest
+// configuration that holds it: configuration 4 of an iPhone in its default
+// mode.
 func iphoneFunction(configs []usbConfig) (netFunction, bool) {
 	best := -1
 	for i, c := range configs {
@@ -258,7 +252,7 @@ func iphoneFunction(configs []usbConfig) (netFunction, bool) {
 			continue
 		}
 		for _, a := range c.alts {
-			if a.triple() == [3]byte{0xff, 0xfe, 0x02} {
+			if a.triple() == [3]byte{0xff, 0xfd, 0x01} {
 				if _, _, ok := a.bulkPair(); ok {
 					best = i
 				}
@@ -269,25 +263,20 @@ func iphoneFunction(configs []usbConfig) (netFunction, bool) {
 		return netFunction{}, false
 	}
 	c := configs[best]
-	fn := netFunction{kind: kindIPhone, config: c.value, numConfigurations: len(configs)}
-	found := false
+	fn := netFunction{kind: kindIPhone, config: c.value}
 	for _, a := range c.alts {
+		if a.triple() != [3]byte{0xff, 0xfd, 0x01} {
+			continue
+		}
 		in, out, ok := a.bulkPair()
 		if !ok {
 			continue
 		}
-		switch a.triple() {
-		case [3]byte{0xff, 0xfe, 0x02}:
-			fn.muxIface, fn.muxIn, fn.muxOut, fn.muxOutPacket = a.num, in.addr, out.addr, out.maxPacket
-		case [3]byte{0xff, 0xfd, 0x01}:
-			if !found {
-				fn.commIface, fn.dataIface, fn.dataAlt = a.num, a.num, a.alt
-				fn.bulkIn, fn.bulkOut, fn.inPacket, fn.outPacket = in.addr, out.addr, in.maxPacket, out.maxPacket
-				found = true
-			}
-		}
+		fn.commIface, fn.dataIface, fn.dataAlt = a.num, a.num, a.alt
+		fn.bulkIn, fn.bulkOut, fn.inPacket, fn.outPacket = in.addr, out.addr, in.maxPacket, out.maxPacket
+		return fn, true
 	}
-	return fn, found
+	return netFunction{}, false
 }
 
 // parseMACString decodes a USB string descriptor holding twelve hex digits
@@ -380,24 +369,6 @@ func (u usbDeviceInfo) ifaceDriver(n int) string {
 		return ""
 	}
 	return filepath.Base(link)
-}
-
-// boundIfaces lists the interfaces of the active configuration a driver
-// holds, as "n=driver".
-func (u usbDeviceInfo) boundIfaces() []string {
-	c, _ := u.active()
-	seen := map[int]bool{}
-	var out []string
-	for _, a := range c.alts {
-		if seen[a.num] {
-			continue
-		}
-		seen[a.num] = true
-		if d := u.ifaceDriver(a.num); d != "" {
-			out = append(out, fmt.Sprintf("%d=%s", a.num, d))
-		}
-	}
-	return out
 }
 
 // scanUSBDevices lists the USB devices under sysBusUSB with their ids,

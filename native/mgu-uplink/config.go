@@ -29,7 +29,7 @@ type config struct {
 	RunDir    string   // lease.json and the DHCP hook socket
 	USBDevice string   // optional VID:PID: the usb uplink uses only this adapter
 	LocalConf string   // read on top of this file when it exists; survives updates
-	StateDir  string   // uids.d/, apps.d/ and pair/; survives updates
+	StateDir  string   // uids.d/ and apps.d/; survives updates
 }
 
 func defaults() config {
@@ -196,7 +196,6 @@ func (c config) leaseFile() string  { return c.RunDir + "/lease.json" }
 func (c config) hookSocket() string { return c.RunDir + "/hook.sock" }
 func (c config) linkFile() string   { return c.RunDir + "/link.json" }
 func (c config) statusFile() string { return c.RunDir + "/status.json" }
-func (c config) pairDir() string    { return c.StateDir + "/pair" }
 
 // Drop-in folders the deploy tool fills per installed component that
 // declares "internet": true: uids.d/<id> holds numeric uids, apps.d/<id>

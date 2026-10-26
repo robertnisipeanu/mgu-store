@@ -1015,7 +1015,26 @@ function testDaemon(certs, pubDir) {
         .then(() => {
             ok('trial: a version the local installer puts there is kept without internet',
                 current() === 'versions/0.7.0' && !fs.existsSync(path.join(opt, 'mgu-updater', 'trial-local')));
-            fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
+            // still offline: a newer version on a USB stick
+            const stick = path.join('/media', 'SELFSTICK');
+            mkdirp(stick);
+            publish(stick, [entry(updaterKit(stick, '0.8.0'), 'tool', 'Updater')]);
+            fs.writeFileSync(path.join(T, 'no-mounts'), `/dev/sdz1 ${stick} vfat ro 0 0\n`);
+            return waitFor(client, (s) => row(s, 'mgu-updater').version === '0.8.0' && row(s, 'mgu-updater').status === 'update' &&
+                row(s, 'mgu-updater').source === 'usb:SELFSTICK', 20000, 'the stick\'s updater offered offline')
+                .then(() => {
+                    restarting();
+                    client.install('mgu-updater');
+                    return sleep(3000).then(() => waitFor(client, (s) => version(s) === '0.8.0' && !fs.existsSync(trialFile) && settled(s), 60000,
+                        'the stick\'s updater kept offline'));
+                })
+                .then(() => {
+                    ok('trial: a version from a USB stick is kept without internet',
+                        current() === 'versions/0.8.0' && !fs.existsSync(path.join(opt, 'mgu-updater', 'trial-local')));
+                    fs.unlinkSync(path.join(T, 'no-mounts'));
+                    cp.execFileSync('rm', ['-rf', stick]);
+                    fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
+                });
         })
         .then(() => {
             // a download that does not match the catalog
@@ -1143,6 +1162,24 @@ function testDaemon(certs, pubDir) {
                         /0\.2\.3 gives no internet; going back to 0\.2\.2 failed \(exit 1\)/.test(row(st, 'mgu-uplink').error),
                         row(st, 'mgu-uplink').error);
                     fs.unlinkSync(`${log}.rollbackfail`);
+                    // still without internet: an uplink from a USB stick has none to give back, and is kept
+                    const stick = path.join('/media', 'UPLSTICK');
+                    mkdirp(stick);
+                    publish(stick, [entry(toolKit(stick, 'mgu-uplink', '0.2.4', { 'mgu-uplink': ['#!/bin/sh\n', 0o755] }, { test_broken: true }),
+                        'tool', 'Internet uplink')]);
+                    fs.writeFileSync(path.join(T, 'no-mounts'), `/dev/sdz1 ${stick} vfat ro 0 0\n`);
+                    return waitFor(client, (x) => x.online === false && row(x, 'mgu-uplink').source === 'usb:UPLSTICK', 30000, 'the stick\'s uplink offered offline');
+                })
+                .then(() => {
+                    client.install('mgu-uplink');
+                    return sleep(500).then(() => waitFor(client, (x) => row(x, 'mgu-uplink').installed === '0.2.4' && !x.busy, 60000, 'the stick\'s uplink'));
+                })
+                .then((st) => {
+                    ok('bootstrap: an uplink installed from a stick without internet is kept, not checked',
+                        uplinkLink() === 'versions/0.2.4' && !row(st, 'mgu-uplink').error &&
+                        (fs.readFileSync(log, 'utf8').match(/rollback mgu-uplink/g) || []).length === 2, JSON.stringify(row(st, 'mgu-uplink')));
+                    fs.unlinkSync(path.join(T, 'no-mounts'));
+                    cp.execFileSync('rm', ['-rf', '/media/UPLSTICK']);
                     fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
                 });
         })
@@ -1511,8 +1548,8 @@ function testSources(certs) {
             ok('sources: a public repo is read without a token', src('mgu-store').auth === null && s.tokens.length === 0);
             ok('sources: an https source is read without a token; one answering 401 is an error', src('hp').status === 'error' &&
                 /401/.test(src('hp').error) && !seen.some((x) => x.url.indexOf('/private/') === 0 && x.auth), JSON.stringify(src('hp')));
-            ok('collision: an id two sources list is shown once, from the first source',
-                s.components.filter((c) => c.id === 'dup_app').length === 1 && comp('dup_app').source === 'mgu-store' && comp('dup_app').version === '1.0.0');
+            ok('collision: an id two sources list is shown once, at the highest version any lists',
+                s.components.filter((c) => c.id === 'dup_app').length === 1 && comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
             ok('state: rows carry their source and schema-2 fields', comp('needs_app').uninstallable === true && comp('opt_tool').optional === true &&
                 comp('robertn_demo').build === null && comp('p_app').build === 'unit' && comp('robertn_demo').revision === null);
             ok('releases: the newest package of each id, drafts and prereleases left out, the .tgz over the .mgu',
@@ -1705,10 +1742,11 @@ function testSources(certs) {
             ok('uninstall: through the deploy tool\'s uninstall; the row is available again', err === null &&
                 /^uninstall needs_app --yes$/m.test(fs.readFileSync(deployLog, 'utf8')) &&
                 !JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).needs_app);
-            // collision: the source that installed an id wins over the order
+            // collision: a higher version wins over the source that installed an id
             fs.writeFileSync(deployLog, '');
-            u.origins.dup_app = { source: 'second', commit: null };
-            ok('collision: the source that installed an id is the one it updates from', comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
+            u.origins.dup_app = { source: 'mgu-store', commit: null };
+            ok('collision: a newer version elsewhere is offered over the source that installed it',
+                comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
             delete u.origins.dup_app;
             return ask(sock, { op: 'install', id: 'rel_app' });
         })
@@ -1841,7 +1879,15 @@ function testSources(certs) {
             fs.symlinkSync('/etc', path.join(stick, 'mgu-repo'));
             const spaced = path.join(media, 'My Stick');
             mkdirp(path.join(spaced, 'mgu-repo', 'one'));
-            publish(path.join(spaced, 'mgu-repo', 'one'), [entry(appTgz(path.join(spaced, 'mgu-repo', 'one'), 'usb_app', '0.1.0'), 'app', 'From USB')]);
+            const one = path.join(spaced, 'mgu-repo', 'one');
+            const copyInto = (dir, file) => {
+                fs.copyFileSync(file, path.join(dir, path.basename(file)));
+                return path.join(dir, path.basename(file));
+            };
+            // besides its own app: a newer base_tool (installed from mgu-store) and robertn_demo at mgu-store's version
+            publish(one, [entry(appTgz(one, 'usb_app', '0.1.0'), 'app', 'From USB'),
+                entry(copyInto(one, toolKit(path.join(T, 'src'), 'base_tool', '1.1.0', { 'base.sh': ['#!/bin/sh\n', 0o755] })), 'tool', 'Base'),
+                entry(appTgz(one, 'robertn_demo', '1.0.0'), 'app', 'Demo')]);
             // the App Manager's folder: packages under any name, npm package/ prefix or flat, .mgu, a root service
             const oapDir = path.join(stick, 'oap');
             mkdirp(oapDir);
@@ -1895,6 +1941,23 @@ function testSources(certs) {
                 .then(() => installed('oap-appmanager'))
                 .then(() => {
                     ok('usb oap/: a package installs under its id and version', /oap-appmanager@1\.0\.9\.tgz --yes/.test(deployed()[0]), deployed()[0]);
+                    ok('usb: a newer version on a stick is an update of a component installed from a GitHub source',
+                        JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'mgu-store' &&
+                        comp('base_tool').status === 'update' && comp('base_tool').version === '1.1.0' &&
+                        comp('base_tool').source === 'usb:My Stick/mgu-repo/one', JSON.stringify(comp('base_tool')));
+                    ok('usb: of equal versions a stick comes before a stored source', comp('robertn_demo').source === 'usb:My Stick/mgu-repo/one');
+                    u.origins.robertn_demo = { source: 'mgu-store', commit: null };
+                    ok('usb: ...and the source that installed it before a stick', comp('robertn_demo').source === 'mgu-store');
+                    delete u.origins.robertn_demo;
+                    fs.writeFileSync(deployLog, '');
+                    return ask(sock, { op: 'install', id: 'base_tool' });
+                })
+                .then(() => installed('base_tool'))
+                .then(() => {
+                    ok('usb: the update installs from the stick, which becomes its origin',
+                        /base_tool@1\.1\.0\.tgz --yes/.test(deployed()[0]) && comp('base_tool').installed === '1.1.0' &&
+                        JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'usb:My Stick/mgu-repo/one',
+                        JSON.stringify(deployed()));
                     return before;
                 });
         })
@@ -1909,6 +1972,9 @@ function testSources(certs) {
             fs.writeFileSync(mounts, 'proc /proc proc rw 0 0\n');
             u.scanUsb();
             ok('usb: a stick taken out is no longer a source', !st().sources.some((x) => x.usb) && !comp('usb_app').id);
+            ok('usb: with the stick out, a component it installed follows the stored source again',
+                comp('base_tool').source === 'mgu-store' && comp('base_tool').installed === '1.1.0' && comp('base_tool').status === 'newer',
+                JSON.stringify(comp('base_tool')));
             return fs.existsSync(path.join(ROOT, 'js', 'web.js')) ? null : priv({ op: 'web', enable: true });
         })
         .then((err) => {

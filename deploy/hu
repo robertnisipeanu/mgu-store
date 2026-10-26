@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * deploy/hu: the Mac side of the deploy tool. It packs tool artifacts,
- * assembles the offline USB kit, and runs the on-unit installer
- * (deploy/unit/mgu-deploy.js) over SSH. deploy/README.md has the details.
+ * deploy/hu: the Mac side of the deploy tool for development. It packs
+ * tool artifacts and runs the on-unit installer (deploy/unit/mgu-deploy.js)
+ * over SSH with components built from this checkout. deploy/README.md has
+ * the details; deploy/mgu-install.js installs the published release.
  *
  *   deploy/hu artifact <dir> --out <dir>      (native/<id>, or deploy)
- *   deploy/hu kit [--out <dir>] [--tar] [--with-uplink] [--updater-token-file <f>] [<id>...]
  *   deploy/hu check [<id>...] [--artifact <file>...]
  *   deploy/hu install [<id>...] [--with-uplink] [--artifact <file>...] [--updater-token-file <f>] [--yes]
  *   deploy/hu status [--json]
@@ -28,8 +28,7 @@
  * themselves and skip the selection, --user (HU_USER, root), --identity
  * <key> (HU_IDENTITY), --ssh-opt <o> (repeatable, passed as ssh -o <o>),
  * --keep-stage. The updater's token comes from --updater-token-file
- * or HU_UPDATER_TOKEN_FILE for SSH commands; kits include a token only
- * with --updater-token-file.
+ * or HU_UPDATER_TOKEN_FILE.
  *
  * Exit codes follow mgu-deploy: 0 done, 1 failed, 2 refused or bad usage.
  */
@@ -52,12 +51,10 @@ const UNIT_FILES = [
     { name: 'oap_link.js', mode: 0o644, dir: path.join(__dirname, '..', 'tools') },
     { name: 'oap_pack.js', mode: 0o644, dir: path.join(__dirname, '..', 'tools') }
 ];
-/* deploy/component.json, beside the script in the kit and the staging
- * folder: the deploy tool installs itself under that manifest. */
+/* deploy/component.json, beside the script in the staging folder: the
+ * deploy tool installs itself under that manifest. */
 const SELF_COMPONENT = { name: 'component.json', mode: 0o644, from: path.join(__dirname, 'component.json') };
-const DEFAULT_KIT = path.join(__dirname, 'out', 'kit');
-const INSTALL_SH = path.join(__dirname, 'install.sh');
-/* the updater's sources the installers seed: the Store's own */
+/* the updater's sources the installers seed: the Store's own (deploy/mgu-install.js holds the same) */
 const SOURCES = path.join(__dirname, 'sources.json');
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const SSH_COMMANDS = ['check', 'install', 'status', 'uninstall', 'rollback', 'restore', 'backups', 'fallback', 'updater-token'];
@@ -178,7 +175,7 @@ function buildArtifact(compDir, outDir) {
     return { id: c.id, kind: 'tool', version: c.version, file: out, sha256: sha256(data) };
 }
 
-/* ---- kit ------------------------------------------------------------------------- */
+/* ---- components -------------------------------------------------------------------- */
 
 /* Every releasable component (release/release.js): tools with
  * native/<id>/component.json, apps with apps/<id>/release.json. */
@@ -228,11 +225,9 @@ function appArtifact(c) {
     return { id: c.id, kind: 'app', version: c.version, file, sha256: sha256(data) };
 }
 
-/* The artifacts as <id>@<version>.tgz in outDir; optionalDir, when given,
- * takes the optional components'. */
-function buildArtifacts(list, outDir, optionalDir) {
+/* The artifacts as <id>@<version>.tgz in dir. */
+function buildArtifacts(list, dir) {
     return list.map((c) => {
-        const dir = c.optional && optionalDir ? optionalDir : outDir;
         if (c.kind === 'tool') {
             return buildArtifact(path.join(REPO, c.dir), dir);
         }
@@ -244,82 +239,10 @@ function buildArtifacts(list, outDir, optionalDir) {
     });
 }
 
-const KIT_README = `mgu-store install kit
-=====================
-
-Installs the Store on the head unit from this folder. The updater starts
-at the head unit's next start (the next ignition cycle), which finishes
-setup; after it, every update comes through the Store.
-
-  install.sh                the installer: sh install.sh [--with-uplink]
-  mgu-deploy.sh, .js        the deploy tool (runs the unit's /usr/bin/node)
-  oap_link.js, oap_pack.js  build the Store's source package on the unit
-  fallback_build.js         builds the provisioning fallback
-  mgu-app-fallback.service  its boot unit
-  component.json            the deploy tool's own manifest
-  artifacts/                app-privacy, the updater, the deploy tool, the Store
-  optional/                 the internet uplink (kits made with --with-uplink)
-  sources.json              the updater's sources (written when it has none)
-  token                     the updater's token (kits made with one)
-
-On the unit, as root:
-
-  sh install.sh                 install everything in artifacts/
-  sh install.sh --with-uplink   and the internet uplink
-  sh mgu-deploy.sh status       installed components and pending reboots
-  sh mgu-deploy.sh restore --yes   go back to the stock snapshot
-
-Before installing: the car is parked, on stable power (engine running or
-a battery charger connected), and stays awake until the command finishes.
-Exit status 0 is done, 1 failed and rolled back, 2 refused with nothing
-changed. Newer installed tools and apps are kept, and sources/token
-seeding still runs.
-`;
-
 /* The installer's files: deploy/unit/ and deploy/component.json. */
-function kitFiles() {
+function unitFiles() {
     return UNIT_FILES.map((f) => ({ name: f.name, data: fs.readFileSync(path.join(f.dir || UNIT_DIR, f.name)), mode: f.mode }))
         .concat([{ name: SELF_COMPONENT.name, data: fs.readFileSync(SELF_COMPONENT.from), mode: SELF_COMPONENT.mode }]);
-}
-
-/* The kit: the deploy tool's files, install.sh, README.txt, sources.json,
- * the token when given, artifacts/ and optional/. */
-function cmdKit(opts) {
-    const out = path.resolve(opts.out || DEFAULT_KIT);
-    if (fs.existsSync(out)) {
-        const names = fs.readdirSync(out);
-        if (names.length && !names.includes('mgu-deploy.sh')) {
-            throw new Usage(`${out} exists and is not a kit; choose another --out`);
-        }
-        fs.rmSync(out, { recursive: true, force: true });
-    }
-    const token = opts.tokenFile ? tokenData(opts) : null;
-    const built = buildArtifacts(chosen(opts.ids, opts.withUplink), path.join(out, 'artifacts'),
-        path.join(out, 'optional'));
-    const files = kitFiles().concat([
-        { name: 'install.sh', data: fs.readFileSync(INSTALL_SH), mode: 0o755 },
-        { name: 'README.txt', data: Buffer.from(KIT_README), mode: 0o644 },
-        { name: 'sources.json', data: fs.readFileSync(SOURCES), mode: 0o644 }
-    ]).concat(token ? [{ name: 'token', data: token, mode: 0o600 }] : []);
-    files.forEach((f) => {
-        fs.writeFileSync(path.join(out, f.name), f.data);
-        fs.chmodSync(path.join(out, f.name), f.mode);
-    });
-    console.log(`kit: ${out}`);
-    built.forEach((a) => console.log(`  ${a.sha256}  ${path.relative(out, a.file)}`));
-    if (token) {
-        console.log('  token: the kit carries the updater\'s token; keep the stick private');
-    }
-    if (opts.tar) {
-        const top = path.basename(out);
-        const entries = files.map((f) => ({ name: `${top}/${f.name}`, data: f.data, mode: f.mode }))
-            .concat(built.map((a) => ({ name: `${top}/${path.relative(out, a.file)}`, data: fs.readFileSync(a.file), mode: 0o644 })));
-        entries.sort(byName);
-        const data = tgz(entries, mtime());
-        fs.writeFileSync(`${out}.tar.gz`, data);
-        console.log(`  ${sha256(data)}  ${out}.tar.gz`);
-    }
-    return 0;
 }
 
 /* ---- SSH ------------------------------------------------------------------------- */
@@ -356,7 +279,7 @@ function ssh(opts, remote, spawnOpts) {
 }
 
 /* SSH commands accept the given token file or HU_UPDATER_TOKEN_FILE and
- * send its bytes on stdin. A kit reads only an explicitly given file. */
+ * send its bytes on stdin. */
 function tokenData(opts) {
     const file = opts.tokenFile || process.env.HU_UPDATER_TOKEN_FILE || null;
     if (!file) {
@@ -417,7 +340,7 @@ function prepareRemote(command, opts, keepTmp) {
 function runRemote(job, opts) {
     const { command, token, artifacts } = job;
     const stage = `/var/opt/mgu-deploy-kit-${process.pid}`;
-    const entries = kitFiles()
+    const entries = unitFiles()
         .concat(artifacts.map((a) => ({ name: `artifacts/${a.name}`, data: fs.readFileSync(a.file), mode: 0o644 })));
     entries.sort(byName);
     const args = job.rest.slice();
@@ -596,7 +519,7 @@ const USAGE = fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').sli
  * opts.pass for the command itself. */
 function parse(argv) {
     const opts = {
-        command: argv[0], pass: [], sshOpts: [], out: null, tar: false, keepStage: false, withUplink: false,
+        command: argv[0], pass: [], sshOpts: [], out: null, keepStage: false, withUplink: false,
         host: process.env.HU_HOST || WIFI_HU_IP,
         port: process.env.HU_PORT || '22',
         explicitHost: !!(process.env.HU_HOST || process.env.HU_PORT),
@@ -630,7 +553,6 @@ function parse(argv) {
         else if (a === '--ssh-opt') opts.sshOpts.push(value(++i, a));
         else if (a === '--keep-stage') opts.keepStage = true;
         else if (a === '--out') opts.out = value(++i, a);
-        else if (a === '--tar') opts.tar = true;
         else if (a === '--with-uplink') opts.withUplink = true;
         else if (a === '--artifact') opts.pass.push(a, value(++i, a));
         else if (a === '--updater-token-file') opts.tokenFile = value(++i, a);
@@ -686,9 +608,6 @@ async function main(argv) {
         const a = buildArtifact(opts.ids[0], path.resolve(opts.out));
         console.log(`${a.file}\n${a.sha256}`);
         return 0;
-    }
-    if (cmd === 'kit') {
-        return cmdKit(opts);
     }
     if (cmd === 'install' || cmd === 'check') {
         return cmdRemote(cmd, opts);

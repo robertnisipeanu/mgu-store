@@ -6,8 +6,8 @@ snapshots every change first, and restores a snapshot on request.
 
 | Part | Runs on | What it does |
 |---|---|---|
-| `deploy/hu` | the Mac (system Node) | packs tool artifacts, assembles the install kit, runs the installer over SSH |
-| `deploy/install.sh` | the unit, as root | the install kit's installer |
+| `deploy/mgu-install.js` | the owner's computer (Node 18+; Windows, macOS, Linux) | the first install over SSH from the published release, the updater's tokens, USB sticks as local repos |
+| `deploy/hu` | the Mac (system Node) | packs tool artifacts, installs components built from this checkout over SSH (development) |
 | `deploy/sources.json` | | the updater's sources the installers seed: the Store's own |
 | `deploy/transport/` | the Mac (system `python3`) | finds the unit's sshd over ENET or the hotspot, relays ENET, and the `--arm-debug` bootstrap |
 | `deploy/unit/mgu-deploy.sh` → `mgu-deploy.js` | the unit, as root, under its Node 8 | the installer itself |
@@ -17,10 +17,10 @@ snapshots every change first, and restores a snapshot on request.
 
 ## Two installers
 
-- **The local deploy tool** (this folder) bootstraps the car: over SSH from
-  the Mac or from the USB install kit it installs app-privacy, the updater
-  and the Store, seeds the updater's sources and stores the updater's
-  token.
+- **The local deploy tool** (this folder) bootstraps the car over SSH:
+  `mgu-install.js` from the published release, `deploy/hu` from a
+  checkout. It installs app-privacy, the updater and the Store, seeds the
+  updater's sources and adds a GitHub token.
 - **The updater** (`native/mgu-updater`) is the cloud installer: it
   downloads from its sources and installs each artifact by calling the
   installed deploy tool, `/var/opt/mgu-deploy/mgu-deploy.sh install
@@ -45,8 +45,6 @@ deploy/hu restore [name] --yes                      # default: stock
 deploy/hu fallback on|off|status|migrate
 deploy/hu updater-token [--updater-token-file <file>] | --list [--json] | --remove <id>
 deploy/hu artifact <dir> --out <dir>                # one tool artifact: native/<id>, or deploy
-deploy/hu kit [--out <dir>] [--tar] [--with-uplink] [--updater-token-file <file>] [<id>...]
-                                                    # the install kit
 deploy/hu connect [--hold <seconds>] [--cmd <command>]   # reach root on the unit (below)
 deploy/hu help
 ```
@@ -173,14 +171,13 @@ updater-token --updater-token-file <file>` stores it alone; both default to
 `HU_UPDATER_TOKEN_FILE`. `deploy/hu updater-token --list [--json]` names the
 stored tokens (id, label, account; never a token) and `--remove <id>`
 removes one. Over SSH the file's content travels on ssh's stdin only: it is
-never an argument or part of the staging upload, nor printed. A kit carries
-it only when made with `--updater-token-file` (the file `token`, mode 0600,
-which `install.sh` stores; keep such a stick private). On the unit, `sh
-mgu-deploy.sh updater-token < <file>` stores a token, as a new id, unless
-one with that text is stored already; it writes the files only (the
-running updater notices them within 5 s, asks GitHub whose the token is
-and reads the sources that need it). `--list [--json]` and `--remove <id>`
-as above.
+never an argument or part of the staging upload, nor printed.
+`mgu-install.js token` sends one typed at a hidden prompt the same way
+(below). On the unit, `sh mgu-deploy.sh updater-token < <file>` stores a
+token, as a new id, unless one with that text is stored already; it writes
+the files only (the running updater notices them within 5 s, asks GitHub
+whose the token is and reads the sources that need it). `--list [--json]`
+and `--remove <id>` as above.
 
 ## Artifacts
 
@@ -211,50 +208,93 @@ An **app artifact** is one of:
 - a **source package**: a tgz with `mgu-app.json` at its root, built on the
   unit (below). The Store is published this way.
 
-## The install kit
+## mgu-install
+
+`deploy/mgu-install.js` is the owner's side: one file, no dependencies,
+Node 18 or newer (its own `fetch`, `crypto` and `zlib`; what it sends is
+packed in Node, no `tar`, shell or Python on the computer), driving the system's
+OpenSSH client (`ssh`, built into Windows 10/11, macOS and Linux). Every
+command reaches the unit with `--host <address>` (`172.16.222.97`, the
+car's hotspot), `--port <n>` (22), `--user <name>` (root), `--identity <key
+file>` and repeatable `--ssh-opt <option>` (`ssh -o`, before the tool's
+own); with OpenSSH 8.8 or newer it adds `HostKeyAlgorithms=+ssh-rsa` and
+`PubkeyAcceptedAlgorithms=+ssh-rsa`, which the unit's sshd needs. The ENET
+relay and `--arm-debug` stay with `deploy/hu`: `deploy/hu connect --hold
+<s>` holds the relay, and `--host 127.0.0.1 --port 2222` reaches it.
 
 ```sh
-deploy/hu kit --tar [--with-uplink] [--updater-token-file <file>]
+node mgu-install.js first-install [--with-uplink] [--token] [ssh options]
+node mgu-install.js token [--list [--json] | --remove <id>] [ssh options]
+node mgu-install.js usb-repo <stick folder> [<input>...]
 ```
 
-writes `deploy/out/kit/` (and `deploy/out/kit.tar.gz`), a folder for a USB
-stick: the deploy tool (`deploy/unit/` files, `oap_link.js`, `oap_pack.js`,
-`component.json`), `install.sh`, `README.txt`, `sources.json`
-(`deploy/sources.json`), `artifacts/` with one artifact per component but
-the optional ones (app-privacy, the updater, the deploy tool, the Store's
-source package), `optional/` with the optional ones (`mgu-uplink`) given
-`--with-uplink`, and `token` only with an explicit `--updater-token-file`
-(`HU_UPDATER_TOKEN_FILE` applies to SSH commands). It prints each artifact's
-sha256. An app whose artifact is not built yet is built with its
-`release.json` command in the working tree. Give ids to take a subset.
-
-On the unit, as root, from the stick:
-
-```sh
-sh install.sh                 # app-privacy, the updater, the deploy tool, the Store
-sh install.sh --with-uplink   # and the internet uplink
+```powershell
+node .\mgu-install.js first-install --identity $HOME\.ssh\mgu_root_key --token
+node .\mgu-install.js token --host 192.168.1.50 --identity $HOME\.ssh\mgu_root_key --list
+node .\mgu-install.js usb-repo E:\ github:robertnisipeanu/mgu-store
 ```
 
-`install.sh` copies the kit to `/var/opt/mgu-deploy-kit-<pid>` (removed
-when it ends), installs every artifact through the kit's own deploy tool
-(`install --artifact ... --skip-older --yes`: it installs itself as `mgu-deploy`, builds
-the Store's source package on the unit against a donor there, and installs
-it), seeds the updater's sources (`updater-sources`, kept when present),
-stores the kit's token for the updater when there is one, and
-prints `status`. Newer installed tools (including deploy) and apps are
-skipped, and sources/token seeding still runs. Same-version tool payloads
-are kept, and same-version apps are not built again. Normal app installs
-retain their downgrade refusal. Its exit status is the deploy tool's.
-recmgr reads its list only at boot, so a freshly installed updater (and
-uplink) is left for the head unit's next start (a normal ignition cycle):
-while `mgu-updater.service` (or, with `--with-uplink`, `mgu-uplink.service`)
-is not active, the last line is `Restart the head unit to finish setup (the
-next ignition cycle does it): the updater will run from then on.`, and the
-Store's status line reads `Restart the head unit to finish setup` until
-then. After that, every update comes through the Store.
+**first-install** reads the `catalog` release of
+`robertnisipeanu/mgu-store` (release/README.md), takes every entry but the
+optional ones (with `--with-uplink` also `mgu-uplink`), downloads each
+artifact and checks its size and sha256 against the catalog; a mismatch
+stops it before it connects. The deploy tool's own files come from the
+published `mgu-deploy` artifact, each checked against its manifest; nothing
+is built on the computer, and the Store's source package is built on the
+unit. One ssh call sends them as a tar stream to
+`/var/opt/mgu-deploy-kit-<pid>` (0700) and runs there: `mgu-deploy.sh
+install --artifact ... --skip-older --yes` with the release's deploy tool
+(it installs itself as `mgu-deploy`, keeps newer installed tools and apps,
+does not build an installed Store version again) and `updater-sources`
+with the mgu-store source (kept when the unit has its own); then removes
+the folder. With `--token` a token is added (below), then `status` is
+printed. Its last line
+is `Restart the head unit to finish setup (a normal ignition cycle does
+it): the updater starts then.` while `mgu-updater.service` (or, with
+`--with-uplink`, `mgu-uplink.service`) is not active, else `Setup is
+done`. Exit status: 0 done, 1 failed, 2 refused (the deploy tool's own).
 
 Before installing, the car is parked, on stable power (engine running or a
 charger connected), and stays awake until the command finishes.
+
+**token** adds a GitHub token for the updater: read from a hidden prompt
+(not echoed), or from stdin when stdin is not a terminal, never from an
+argument or the environment, never printed. It goes on ssh's stdin to the
+installed deploy tool's `updater-token`; while the updater runs, `updater.js
+check` then has it read its sources again. `--list [--json]` (id, label,
+account; never a token) and `--remove <id>` (an id `--list` names) run
+`updater-token --list [--json]` and `--remove <id>` with nothing on stdin.
+A token added while the updater does not run is used once it runs.
+
+**Downloads** go over https; a token goes to the GitHub API host only and
+never to the host a download redirects to. A repository is read without a
+token first, then with the one given to `--token`, then the GitHub CLI's
+(`gh auth token`), then one typed at a hidden prompt.
+
+**usb-repo** writes a local repository onto a stick for a car without
+internet. Each input becomes `mgu-repo/<name>/` (names lower-case, safe on
+FAT, exFAT and NTFS), which the updater reads as source
+`usb:<label>/mgu-repo/<name>` (native/mgu-updater/README.md, "USB media"):
+
+| Input | Folder | Written |
+|---|---|---|
+| `github:<owner>/<repo>` with a `catalog` release | `<repo>` | its catalog.json and every artifact, each checked against the catalog's size and sha256 |
+| `github:<owner>/<repo>` with release assets `<id>@<x.y.z>.tgz` / `.mgu` | `<repo>` | a catalog of the newest of each id (the `.tgz` over the `.mgu`, titles from `mgu-store.json`), each asset checked against its size |
+| `https://.../catalog.json` | `<host>-<folder>` | as a catalog release |
+| a folder with `catalog.json` (a `dir:` publish) | its name | as a catalog release |
+| a folder with `mgu-repo.json` (a checkout) | its name | the repository's files (git's tracked files, else all but `.git` and `node_modules`), which the unit builds |
+| package files `*.tgz`, `*.mgu` | `local` | added to `local/`'s catalog by their content: an app (`package.json` flat, under `package/`, or a `.mgu`), a source package (`mgu-app.json`, `build: "unit"`), a tool kit (`component.json`); of an id the higher version stays |
+
+No input: `github:robertnisipeanu/mgu-store`. A written catalog is schema
+2 with the source's fields (`build`, `requires`, `optional`,
+`uninstallable`; apps from releases or package files are `uninstallable`)
+and each artifact beside it under a relative URL; an `.mgu` keeps its file
+name and is listed as `<id>@<version>.tgz`, which the deploy tool installs
+by its content. A folder is written next to the old one and replaces it
+once complete, so the stick holds the newer versions only; other folders
+and the stick's other files stay. A root-service package (`mguService`), a
+folder over the updater's limits (catalog.json over 1 MiB, a checkout over
+200 MB or 20000 files) or an artifact that does not match is refused.
 
 ## On the unit
 
@@ -313,8 +353,8 @@ read-only on any exit; a `/` found read-write stays read-write.
 ### The deploy tool as a tool
 
 `mgu-deploy` is a tool component like the others (`deploy/component.json`;
-`VERSION` in `mgu-deploy.js` equals its version). Run from a kit or a
-staging folder, every successful install or uninstall, and turning the
+`VERSION` in `mgu-deploy.js` equals its version). Run from a staging
+folder, every successful install or uninstall, and turning the
 fallback on, installs the files it runs from into
 `/var/opt/mgu-deploy/versions/<VERSION>/`, under the `component.json` beside
 the script (synthesized from `VERSION` and its six files when there is
@@ -339,7 +379,7 @@ itself. `restore` puts back what the tool changed and keeps the tool;
 **Version rule.** Bump `deploy/component.json`'s version, and `VERSION` with
 it (`node release/release.js bump mgu-deploy <x.y.z>` sets both), whenever a
 file under `deploy/unit/`, `tools/oap_link.js` or `tools/oap_pack.js`
-changes; `deploy/hu`, `install.sh`, the tests and this README are not part
+changes; `deploy/hu`, `mgu-install.js`, the tests and this README are not part
 of the artifact.
 
 ### Tools
@@ -893,8 +933,14 @@ unit and through `deploy/hu`), source packages built against the made-up
 donor in `tools/test/synthetic_donor.js` (installed, not built again, no
 donor refused), packages built elsewhere (npm format, `.mgu`, unmarked,
 oap-sdk generated, no donor refused), the internet drop-ins, `sdk-donor`,
-and the install kit with `install.sh` run against a fake root (twice: the
-restart line while the updater is not running, none once it is).
+and `mgu-install.js`: `first-install` and `token` against a fake root
+through a stand-in `ssh` (`fake_ssh_exec.js`) with the release from a
+stand-in GitHub API (`fake_github.js`: a private repository, downloads
+redirected to another host), run twice (the restart line while the
+updater is not running, none once it is), with the uplink, without a
+token, with an artifact that does not match; `usb-repo` from every kind of
+input, the stick then read by the updater's own `sources.js` on the unit's
+Node (`stick_read.js`); and Windows paths and names (`path.win32`).
 `tools/test/run.js` builds and runs linked and module-mode apps against
 that donor; with `MGU_TEST_DONORS` and `MGU_TEST_THIRDPARTY` it also
 checks real donors and third-party packages on the machine (never part of

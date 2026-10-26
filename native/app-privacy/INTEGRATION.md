@@ -1,7 +1,7 @@
 # app-privacy integration contract
 
 Both channels that install our apps on the head unit follow these rules:
-the deploy tool (`deploy/`, run over SSH from the Mac or from the USB kit,
+the deploy tool (`deploy/`, run over SSH from the owner's computer,
 installed as `/var/opt/mgu-deploy/mgu-deploy.sh`) and the updater
 (`native/mgu-updater`, also behind the Store), which installs through the
 deploy tool. They keep our apps out of oap-mainapp's backend
