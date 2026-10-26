@@ -28,7 +28,7 @@ struct cfg {
     int touch_finger_tag;       /* finger data's payload byte 12 >> 4; -1: any */
     char controller_gate[128];  /* the HMI controller gate's file (upstream inputgate) */
     char controller_lib[64];    /* its library name, looked for in the HMI's maps */
-    char record_dir[128];       /* debug: each connection's incoming bytes to <dir>/<app>-<n>.bin */
+    char record_dir[128];       /* debug: each connection's incoming bytes to <dir>/<app>-<pid>-<n>.bin */
     int verbose;
 };
 
