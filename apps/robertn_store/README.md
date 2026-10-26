@@ -5,7 +5,7 @@ state, the progress of the running install, the sources and the phone page.
 It is the screen of [mgu-updater](../../native/mgu-updater/README.md),
 which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
-privileged ones (uninstall, source-add, source-remove, token-remove,
+privileged ones (uninstall, source-add, source-remove, token-add, token-remove,
 login-start, login-cancel, web), which carry the secret the updater leaves in the app's data folder
 (`data/updater-secret`, read again for every request). It is for iDrive 7
 and iDrive 8 (`mguHmi`).
