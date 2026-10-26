@@ -158,8 +158,10 @@ framing on current iOS, and whether the phone needs the zero-length packet
 after a frame of a whole number of USB packets that the unit sends.
 
 mgu-uplink is a tool component ([`component.json`](component.json)): the
-deploy tool installs it, from the Mac, from the offline kit, or from the
-updater (the Store's "Internet uplink" row). The version is
+deploy tool installs it, over SSH from the owner's computer
+(`deploy/mgu-install.js first-install --with-uplink`), or from the updater
+(the Store's "Internet uplink" row, from any source, a USB stick holding a
+local repo included). The version is
 `component.json`'s; `mgu-uplink --version` prints it.
 
 | Path | What |

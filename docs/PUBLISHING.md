@@ -14,9 +14,10 @@ GitHub Releases.
 What every layout shares:
 
 - **No SDK in the repository.** BMW's oap-sdk is not redistributable. The
-  unit takes it from a stock BMW app already on it (a *donor*: the
-  firmware's preinstalled packages first, then BMW's installed apps; never a
-  package the Store installed).
+  unit takes it, and for a source package without one its entry point, from
+  a stock BMW app already on it (a *donor*: the firmware's preinstalled
+  packages first, then BMW's installed apps; never a package the Store
+  installed).
 - **App ids are global on the unit**, and the head unit's provisioning
   knows apps by id: an id BMW uses (`store`, `x_call`, ...) can hide the
   tile. Pick a prefix of your own.
@@ -140,9 +141,10 @@ An app builds on the unit in one of two ways:
      "sdk": ["oap-sdk/src/core/OnlineApp.js", "oap-sdk/src/logging/logging"] }
    ```
 
-   - `tree`: the staged package tree (`package.json`, `rhmiData/`, a
-     `javascript/` main file that loads `javascript/app.js`; no
-     `javascript/app.js` of its own).
+   - `tree`: the staged package tree (`package.json` with its `main`,
+     `rhmiData/`; no `javascript/app.js` of its own). A tree without a file
+     at `main` (`javascript/<file>.js`) gets the donor package's own entry
+     point there, which loads `javascript/app.js`.
    - `modules`: the app's own javascript, the entry first. A module
      requires another as `'./<file name>'`, the oap-sdk by the exact names
      in `sdk`, and Node builtins by name; nothing else.

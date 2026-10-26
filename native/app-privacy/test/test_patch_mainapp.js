@@ -129,7 +129,7 @@ test('check, apply, apply again, revert round trip', () => withBundles((b) => {
 
 test('a missing anchor refuses without writing', () => withBundles((b) => {
     const broken = b.read('main').replace(
-        'const installedApps=this._appRegistry.getAll();', 'const installedApps=[];');
+        'installedApps=this._appRegistry.getAll();', 'installedApps=[];');
     fs.writeFileSync(b.paths.main, broken);
     const r = runTool(b.args('apply').concat('--json'));
     assert.strictEqual(r.code, 2, r.stdout);
@@ -201,10 +201,26 @@ test('boot exits 0 on a mismatch and leaves the files', () => withBundles((b) =>
     assert.strictEqual(b.read('main'), 'not a bundle');
 }));
 
-// sha256 of JSON.stringify(PATCH_SETS) as shipped by 1.2.0, and as shipped
-// by 1.0.0 and 1.1.0.
-const PATCH_SETS_SHA256 = '340109e740ea683e12c95cdf2bdceb275359ddb7f7ea415db07c73fd238c6dc8';
-const PATCH_SETS_SHA256_1_1_0 = 'cc6e6b9cdd1872f6e90c43f467d4aab890f0bc32537bb7e191b28961342087fd';
+// sha256 of JSON.stringify(PATCH_SETS) as shipped by 1.2.1, and of the
+// 1.1.0 entry of EARLIER_PATCH_SETS.
+const PATCH_SETS_SHA256 = 'd494bf13326a07a6275f762b25d0639efb6eb12258718289000bb05ecbca5d8c';
+const PATCH_SETS_SHA256_1_1_0 = '65fdf5a71cb95d465b37811cb2f326495686d4edcbd33566c07bad6c3ddc484e';
+// sha256 of the reference firmware bundles as each release patches them:
+// the current edits (1.2.0 and later) and 1.1.0's (and 1.0.0's).
+const PATCHED_SHA256 = {
+    current: {
+        main: '67419d74a77fa17ec4d13bef88c9deb3fb70c7bd8ba893ba62ad5129b12ff8ad',
+        appmanagement: '4582ab2a6a674a9fb6e1d544dd10674f9785d0906d4478b1dae625734d609997'
+    },
+    '1.1.0': {
+        main: 'd10c2fe2c0f67e73bb099e7363bc9155a825791f586df43e97db700a56077fda',
+        appmanagement: '4475f13d50922965796cb43ce52b33c57378c890a01136fdce75f8ffb27e2c18'
+    }
+};
+
+function sha256(text) {
+    return crypto.createHash('sha256').update(text).digest('hex');
+}
 
 function setsSha(sets) {
     return crypto.createHash('sha256')
@@ -214,11 +230,12 @@ function setsSha(sets) {
 test('the patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS);
     assert.strictEqual(sha, PATCH_SETS_SHA256,
-        'PATCH_SETS differs from the released one: add the released sets to EARLIER_PATCH_SETS ' +
-        'under the last version that shipped them, bump the version, then record ' + sha + ' here');
+        'PATCH_SETS differs from the released one: when the text an edit writes or HELPER_JS changes, add the ' +
+        'released sets to EARLIER_PATCH_SETS under the last version that shipped them and bump the version; ' +
+        'then record ' + sha + ' here (the reference firmware case checks the edits\' output)');
 });
 
-test('the earlier release\'s patch set is the one it shipped', () => {
+test('the earlier release\'s patch set is recorded', () => {
     const earlier = patcher.EARLIER_PATCH_SETS.filter((s) => s.version === '1.1.0')[0];
     assert.ok(earlier, 'EARLIER_PATCH_SETS has no 1.1.0 entry');
     assert.strictEqual(setsSha(earlier), PATCH_SETS_SHA256_1_1_0);
@@ -230,8 +247,8 @@ test('the earlier release\'s patch set is the one it shipped', () => {
 const NEXT_HELPER = patcher.HELPER_JS.replace('isLocalOnlyApp(appId){', 'isLocalOnlyApp(appId){/*next*/');
 const NEXT_SETS = {
     current: {
-        main: patcher.PATCH_SETS.main.map((p) => [p[0], p[0] === 'const installedApps=this._appRegistry.getAll();' ?
-            'const installedApps=this._appRegistry.getAll().filter(app=>!isLocalOnlyApp(app.getAppId())&&!0);' :
+        main: patcher.PATCH_SETS.main.map((p) => [p[0], p[0] === 'installedApps=this._appRegistry.getAll();' ?
+            'installedApps=this._appRegistry.getAll().filter(app=>!isLocalOnlyApp(app.getAppId())&&!0);' :
             p[1].split(patcher.HELPER_JS).join(NEXT_HELPER), p[2]]),
         appmanagement: patcher.PATCH_SETS.appmanagement
     },
@@ -331,7 +348,7 @@ test('a bundle is matched to the earlier release that wrote all its edits', () =
 }));
 
 test('revert removes an earlier release\'s edits where the current ones do not fit', () => withBundles((b) => {
-    const dropped = 'const entryValue=entries.map(entry=>';
+    const dropped = 'entryValue=entries.map(';
     const older = { version: '0.9.0', main: patcher.PATCH_SETS.main.filter((p) => p[0] !== dropped),
         appmanagement: patcher.PATCH_SETS.appmanagement };
     const sets = { current: patcher.PATCH_SETS, earlier: [older] };
@@ -651,7 +668,14 @@ test('reference firmware bundles patch, upgrade, parse and revert exactly', () =
             main: fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8'),
             appmanagement: fs.readFileSync(path.join(root, 'src', 'AppManagement', 'AppManagement.js'), 'utf8')
         };
-        Object.keys(paths).forEach((kind) => fs.writeFileSync(paths[kind], stock[kind]));
+        Object.keys(paths).forEach((kind) => {
+            fs.writeFileSync(paths[kind], stock[kind]);
+            assert.strictEqual(sha256(patcher.applyPatches(stock[kind], patcher.PATCH_SETS[kind])),
+                PATCHED_SHA256.current[kind], kind + ': the edits differ from the released ones');
+            patcher.EARLIER_PATCH_SETS.forEach((earlier) => assert.strictEqual(
+                sha256(patcher.applyPatches(stock[kind], earlier[kind])), PATCHED_SHA256[earlier.version][kind],
+                kind + ': ' + earlier.version + '\'s edits differ from the released ones'));
+        });
         const args = ['--main', paths.main, '--appmanagement', paths.appmanagement];
         let r = runTool(['check', '--json'].concat(args));
         assert.strictEqual(r.code, 1, r.stdout);

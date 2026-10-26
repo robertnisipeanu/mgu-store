@@ -42,7 +42,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const MARKER_KEY = 'mguLocalOnly';
 const OAP_ROOT = '/var/opt/public/oap/';
 const OVERRIDE_FILE = OAP_ROOT + 'oap_12201/data/local-only-apps.json';
@@ -114,6 +114,18 @@ function helperInjection(anchor) {
     return [anchor, HELPER_JS + anchor, 1];
 }
 
+/* An edit that inserts `insert` between the stock text `before` and
+ * `after`, as [anchor, replacement, expected anchor occurrences]. Each
+ * anchor is the shortest readable stock text that pins its insertion point
+ * in the reference bundles and names the stock bindings the inserted code
+ * assigns or reads beyond the function's appId. */
+function ins(before, insert, after, n) {
+    return [before + after, before + insert + after, n];
+}
+
+const KEEP_APP = '.filter(app=>!isLocalOnlyApp(app.getAppId()))';
+const KEEP_APP_ID = '.filter(appId=>!isLocalOnlyApp(appId))';
+
 // Each patch: [anchor, replacement, expected anchor occurrences].
 const MAIN_PATCHES = [
     // Predicate, one copy per bundle module that uses it.
@@ -125,165 +137,50 @@ const MAIN_PATCHES = [
     helperInjection('class DiagOapProvider{'),
     // Backend inventory (AppManagement_ff.getAllInstalledApps) and the
     // backend-triggered update of every app (updateAllApps).
-    [
-        'const installedApps=this._appRegistry.getAll();',
-        'const installedApps=this._appRegistry.getAll()' +
-        '.filter(app=>!isLocalOnlyApp(app.getAppId()));',
-        1
-    ],
-    [
-        'const installedAppIds=this._appRegistry.getAllAppIds(),' +
-        'resultArgs={sessionId:opArgs.sessionId,updateAllAppsErrors:null};',
-        'const installedAppIds=this._appRegistry.getAllAppIds()' +
-        '.filter(appId=>!isLocalOnlyApp(appId)),' +
-        'resultArgs={sessionId:opArgs.sessionId,updateAllAppsErrors:null};',
-        1
-    ],
+    ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';', 1),
+    ins('getAllAppIds()', KEEP_APP_ID, ',resultArgs=', 1),
     // Update-availability sweep against the app repository.
-    [
-        'PromiseExt_1.default.map(this.appRegistry.getAll(),' +
-        'app=>{const appId=app.getAppId();',
-        'PromiseExt_1.default.map(this.appRegistry.getAll()' +
-        '.filter(app=>!isLocalOnlyApp(app.getAppId())),' +
-        'app=>{const appId=app.getAppId();',
-        1
-    ],
+    ins('this.appRegistry.getAll()', KEEP_APP, ',app=>{const appId', 1),
     // Platform analytics APP_INSTALL events, success and failure.
-    [
-        'appId&&AnalyticsServiceBuilders_1.buildAnalyticsService()' +
-        '.sendPlatformEvent({eventType:analyticsservice_1' +
-        '.AnalyticsPlatformEventType.APP_INSTALL,payload:{appName:appId,' +
-        'appVersion:appVersion,result:analyticsservice_1.Result.SUCCESS}',
-        'appId&&!isLocalOnlyApp(appId)&&AnalyticsServiceBuilders_1' +
-        '.buildAnalyticsService().sendPlatformEvent({eventType:' +
-        'analyticsservice_1.AnalyticsPlatformEventType.APP_INSTALL,' +
-        'payload:{appName:appId,appVersion:appVersion,' +
-        'result:analyticsservice_1.Result.SUCCESS}',
-        1
-    ],
-    [
-        'err.code!==NetworkErrorCodes_1.default.EAI_AGAIN&&appId&&' +
-        'AnalyticsServiceBuilders_1.buildAnalyticsService()' +
-        '.sendPlatformEvent({eventType:analyticsservice_1' +
-        '.AnalyticsPlatformEventType.APP_INSTALL,payload:{appName:appId,' +
-        'appVersion:appVersion,result:analyticsservice_1.Result.INSTALL_ERROR,',
-        'err.code!==NetworkErrorCodes_1.default.EAI_AGAIN&&appId&&' +
-        '!isLocalOnlyApp(appId)&&AnalyticsServiceBuilders_1' +
-        '.buildAnalyticsService().sendPlatformEvent({eventType:' +
-        'analyticsservice_1.AnalyticsPlatformEventType.APP_INSTALL,' +
-        'payload:{appName:appId,appVersion:appVersion,' +
-        'result:analyticsservice_1.Result.INSTALL_ERROR,',
-        1
-    ],
+    ins('appId&&', '!isLocalOnlyApp(appId)&&', 'AnalyticsServiceBuilders_1', 2),
     // Platform analytics APP_CRASH events and the corrupt-app report.
-    [
-        'buildAnalyticsService().sendPlatformEvent({eventType:' +
-        'AnalyticsPlatformEventType.APP_CRASH,payload:{crashCount:',
-        'isLocalOnlyApp(appId)||buildAnalyticsService().sendPlatformEvent(' +
-        '{eventType:AnalyticsPlatformEventType.APP_CRASH,payload:{crashCount:',
-        1
-    ],
-    [
-        '.then(()=>this._backendTransport.reportCorruptApp(appId,version,vin))',
-        '.then(()=>isLocalOnlyApp(appId)?Promise.resolve():' +
-        'this._backendTransport.reportCorruptApp(appId,version,vin))',
-        1
-    ],
+    ins('Corruption:0});', 'isLocalOnlyApp(appId)||', 'buildAnalyticsService()', 1),
+    ins('()=>', 'isLocalOnlyApp(appId)?Promise.resolve():', 'this._backendTransport.reportCorruptApp(appId,version', 1),
     // Periodic autonomous update of every app, and the user-triggered
     // update of every app.
-    [
-        'appsToUpdate=allApps.filter(entry=>!appsUpdated.includes(entry))',
-        'appsToUpdate=allApps.filter(entry=>!appsUpdated.includes(entry)' +
-        '&&!isLocalOnlyApp(entry))',
-        1
-    ],
-    [
-        'const installedAppIds=this._appRegistry.getAllAppIds();' +
-        'return logger.info(`${logPrefix} Trying to update all installed ' +
-        'apps due to user triggering app update `)',
-        'const installedAppIds=this._appRegistry.getAllAppIds()' +
-        '.filter(appId=>!isLocalOnlyApp(appId));' +
-        'return logger.info(`${logPrefix} Trying to update all installed ' +
-        'apps due to user triggering app update `)',
-        1
-    ],
+    ins('!appsUpdated.includes(entry)', '&&!isLocalOnlyApp(entry)', ')', 1),
+    ins('getAllAppIds()', KEEP_APP_ID, ';return logger.info(`${logPrefix} Trying', 1),
     // Diagnostic readout (DiagOap StatusOap).
-    [
-        'const allApps=_.union(this.installableApps,this.appRegistry' +
-        '.getAllAppIds());',
-        'const allApps=_.union(this.installableApps,this.appRegistry' +
-        '.getAllAppIds()).filter(appId=>!isLocalOnlyApp(appId));',
-        2
-    ],
-    [
-        'persistCrashedStartingRunning(key,data){const logPrefix=' +
-        '`${this.CLASS_NAME}::persistCrashedStartingRunning`;' +
-        'return logger.info',
-        'persistCrashedStartingRunning(key,data){const logPrefix=' +
-        '`${this.CLASS_NAME}::persistCrashedStartingRunning`;' +
-        'if(isLocalOnlyApp(data.name))return Promise.resolve();' +
-        'return logger.info',
-        1
-    ],
-    [
-        'for(const entry of entries)section===' +
-        'this.LAST_FIVE_CRASHED_STARTING_APPS?',
-        'for(const entry of entries.filter(_e=>!isLocalOnlyApp(_e.name)))' +
-        'section===this.LAST_FIVE_CRASHED_STARTING_APPS?',
-        1
-    ],
-    [
-        'const entryValue=entries.map(entry=>',
-        'const entryValue=entries.filter(_e=>!isLocalOnlyApp(_e.appId))' +
-        '.map(entry=>',
-        1
-    ]
+    ins('getAllAppIds())', KEEP_APP_ID, ';', 2),
+    ins('data){const logPrefix=`${this.CLASS_NAME}::persistCrashedStartingRunning`;',
+        'if(isLocalOnlyApp(data.name))return Promise.resolve();', '', 1),
+    ins('for(const entry of entries', '.filter(_e=>!isLocalOnlyApp(_e.name))', ')', 1),
+    ins('entryValue=entries', '.filter(_e=>!isLocalOnlyApp(_e.appId))', '.map(', 1)
 ];
 
 const APPMANAGEMENT_PATCHES = [
     helperInjection('class AppManager{'),
     helperInjection('class NpmPackageManager{'),
     // Repository version query: local-only apps resolve from ./preinstalled.
-    [
-        'getLatestAppVersion(appId){const logPrefix=' +
-        '"NpmPackageManager::getLatestAppVersion";' +
-        'return logger.verbose(logPrefix),this._npmClient.view(appId)',
-        'getLatestAppVersion(appId){const logPrefix=' +
-        '"NpmPackageManager::getLatestAppVersion";' +
-        'return logger.verbose(logPrefix),isLocalOnlyApp(appId)?' +
+    ins('logPrefix),', 'isLocalOnlyApp(appId)?' +
         'Promise.reject(new OAPError(`${logPrefix} ${appId} is local-only; ' +
-        'the app repository is not queried.`,"LOCAL_ONLY_APP"))' +
-        ':this._npmClient.view(appId)',
-        1
-    ],
+        'the app repository is not queried.`,"LOCAL_ONLY_APP")):', 'this._npmClient.view(appId)', 1),
     // Package download: local-only apps never use the repository.
-    [
-        'download(appId,destinationFolder,ignorePreinstalled=!1,' +
-        'ignoreNpmRegistry=!1){const logPrefix="NpmPackageManager::download";' +
-        'if(logger.verbose(logPrefix),ignoreNpmRegistry&&ignorePreinstalled)',
-        'download(appId,destinationFolder,ignorePreinstalled=!1,' +
-        'ignoreNpmRegistry=!1){const logPrefix="NpmPackageManager::download";' +
-        'isLocalOnlyApp(appId)&&(ignoreNpmRegistry=!0);' +
-        'if(logger.verbose(logPrefix),ignoreNpmRegistry&&ignorePreinstalled)',
-        1
-    ],
+    ins('ignoreNpmRegistry=!1){const logPrefix="NpmPackageManager::download";',
+        'isLocalOnlyApp(appId)&&(ignoreNpmRegistry=!0);', '', 1),
     // Corrupt-app report on package verification failure.
-    [
-        'this._getVin().then(vin=>{this._backendTransport' +
-        '.reportCorruptApp(appId,appVersion,vin)})',
-        'this._getVin().then(vin=>{isLocalOnlyApp(appId)||' +
-        'this._backendTransport.reportCorruptApp(appId,appVersion,vin)})',
-        1
-    ]
+    ins('vin=>{', 'isLocalOnlyApp(appId)||', 'this._backendTransport.reportCorruptApp(', 1)
 ];
 
 const PATCH_SETS = { main: MAIN_PATCHES, appmanagement: APPMANAGEMENT_PATCHES };
 
 // Patch sets of earlier releases whose edits differ from PATCH_SETS, as
-// { version, main, appmanagement }, newest first. A release that changes an
-// anchor, a replacement or HELPER_JS moves the outgoing sets here under the
-// last version that shipped them (test: "the patch set is recorded").
-// 1.1.0 (and 1.0.0) differ from this release in the helper only.
+// { version, main, appmanagement }, newest first. A release that changes the
+// text an edit writes or HELPER_JS moves the outgoing sets here under the
+// last version that shipped them; an anchor that pins the same insertion
+// point needs no entry (tests: "the patch set is recorded", and the
+// reference firmware case). 1.1.0 (and 1.0.0) differ from this release in
+// the helper only.
 function withHelper(patches, helper) {
     return patches.map((p) => [p[0], p[1].split(HELPER_JS).join(helper), p[2]]);
 }

@@ -7,7 +7,9 @@
  *   const donor = require('<repo>/tools/test/synthetic_donor.js');
  *   donor.bundle()            the bundle text
  *   donor.tgz(file, opts)     an OAP package holding it as javascript/app.js
- *                             (opts.version: the oap-sdk version its package.json names)
+ *                             (opts.version: the oap-sdk version its package.json names;
+ *                             opts.main: its package.json main, javascript/entry.js holding ENTRY)
+ *   donor.ENTRY               a stand-in entry point: runs the bundle runnerConfig.json names
  */
 const fs = require('fs');
 const { tgz } = require('../oap_pack.js');
@@ -39,14 +41,21 @@ function bundle() {
     return `${PRELUDE}({${MODULES.map((m) => `${m[0]}:[function(require,module,exports){\n${m[1]}\n},${m[2]}]`).join(',')}},{},[1]);\n`;
 }
 
+const ENTRY = "'use strict';\nconst path = require('path');\n" +
+    "const config = JSON.parse(require('fs').readFileSync(path.join(__dirname, 'runnerConfig.json'), 'utf8'));\n" +
+    'require(path.join(__dirname, config.JS_RELATIVE_PATH));\n';
+
 function tgzFile(file, opts) {
     opts = opts || {};
     const pkg = { name: 'donor_app', version: '1.0.0', dependencies: { 'oap-sdk': opts.version || '9.8.7' } };
-    fs.writeFileSync(file, tgz([
-        { name: 'javascript/app.js', data: Buffer.from(bundle()), mode: 0o644 },
-        { name: 'package.json', data: Buffer.from(JSON.stringify(pkg)), mode: 0o644 }
-    ], 1700000000));
+    const files = [{ name: 'javascript/app.js', data: Buffer.from(bundle()), mode: 0o644 }];
+    if (opts.main) {
+        pkg.main = opts.main;
+        files.push({ name: 'javascript/entry.js', data: Buffer.from(ENTRY), mode: 0o644 });
+    }
+    files.push({ name: 'package.json', data: Buffer.from(JSON.stringify(pkg)), mode: 0o644 });
+    fs.writeFileSync(file, tgz(files, 1700000000));
     return file;
 }
 
-module.exports = { bundle, tgz: tgzFile };
+module.exports = { bundle, tgz: tgzFile, ENTRY };

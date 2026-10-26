@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Writes robertn_store@0.5.0's application.xml and uiDescription.json from
+ * Writes robertn_store@0.6.0's application.xml and uiDescription.json from
  * the tables below, so container and component ids, names, widgets and cells
  * stay in lockstep. LT_State_Wide states, as in the reference apps:
  *
@@ -49,7 +49,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PKG = path.join(__dirname, '..', 'robertn_store@0.5.0');
+const PKG = path.join(__dirname, '..', 'robertn_store@0.6.0');
 const ID7 = path.join(PKG, 'rhmiData', 'uiDescriptions', 'ID7');
 const ROW = 'LT_Button_1Row_2Col7030_2Text';
 const TWO_COLS = [{ Text1stCol: '', Text2ndCol: '' }];

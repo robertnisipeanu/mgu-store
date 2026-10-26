@@ -36,9 +36,9 @@ const LINK_FILES = ['oap_link.js', 'oap_pack.js'];
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-deploy-test-'));
 const MGR = 12201;
 const PENDING = 'recmgr entry takes effect after reboot';
-const CLASS_ANCHOR = 'class ProvisioningNotifier extends events_1.EventEmitter{';
-const HOOK_ANCHOR = 'isMainapp&&section===mainAppSection&&(newProvisioning.installable_apps=';
-const INPLACE_ANCHOR = 'kpiLogger.info("MARKER All components instantiated. Initializing."),mainApp.init()}).then(()=>{';
+const CLASS_ANCHOR = 'class ProvisioningNotifier ';
+const HOOK_ANCHOR = 'isMainapp&&section===mainAppSection&&(newProvisioning.';
+const INPLACE_ANCHOR = 'mainApp.init()}).then(()=>{';
 
 let n = 0;
 let failed = 0;
@@ -835,7 +835,7 @@ function testFallback() {
 
     const main = stockMain();
     [['a duplicated class anchor', main.replace(CLASS_ANCHOR, `${CLASS_ANCHOR}}${CLASS_ANCHOR}`)],
-        ['a missing hook anchor', main.replace(HOOK_ANCHOR, 'isMainapp&&(newProvisioning.installable_apps=')]]
+        ['a missing hook anchor', main.replace(HOOK_ANCHOR, 'isMainapp&&(newProvisioning.')]]
         .forEach(([what, text]) => {
             const bad = fakeRoot({ main: text });
             const before = bad.hash();

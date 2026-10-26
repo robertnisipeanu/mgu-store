@@ -66,7 +66,7 @@ function groupState(rows, busy) {
 
 /* The start screen's status line. Unreachable, the updater has either run
  * since this Store was installed (it left its secret here: secret true) or
- * not yet, which after the kit's install is until the next start. */
+ * not yet, which after the first install over SSH is until the next start. */
 function statusLine(st, connected, secret) {
     if (!connected) {
         return secret ? 'Updater not running' : 'Restart the head unit to finish setup';

@@ -22,9 +22,9 @@
  * 2 preflight refused (nothing changed).
  *
  * Without --artifact, install takes every *.tgz in ./artifacts beside
- * this script (the USB kit layout), tools before apps, the app-privacy
- * tool first. A tool artifact carries component.json at its root with
- * files/ and units/ payloads. An app artifact is an OAP package (package.json
+ * this script, tools before apps, the app-privacy tool first. A tool
+ * artifact carries component.json at its root with files/ and units/
+ * payloads. An app artifact is an OAP package (package.json
  * at its root or under package/, or a .mgu with source/), or a source
  * package (mgu-app.json), which is built here with oap_link.js.
  *
@@ -42,7 +42,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.2.3';
+var VERSION = '0.2.4';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -941,7 +941,7 @@ function prepareApp(a, stage) {
         if (a.prepare === 'build') {
             r = linker().build(a.dir, out, { donors: unitDonors(), workDir: stage });
             say('built ' + a.id + ' ' + a.version + ' from its source package (' + r.moduleCount +
-                ' modules, oap-sdk from ' + r.donor + ')');
+                ' modules, oap-sdk from ' + r.donor + (r.entry ? ', main from ' + r.entry : '') + ')');
         } else {
             r = linker().preparePackage(a.pkgDir, out, { donors: unitDonors() });
             say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +
