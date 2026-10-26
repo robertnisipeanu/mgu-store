@@ -9,8 +9,9 @@ the owner's hardware.
   names on the build machine); never commit a built `javascript/app.js`.
 - Everything on the car happens through the Store's UI or its updates: never
   hand the owner SSH, shell steps or files to place.
-- Test in the head-unit emulator (reachable over SSH on 127.0.0.1:2225,
-  see `deploy/README.md`) before calling anything done.
+- Test in the head-unit emulator before calling anything done: its own VM
+  (mgu-emulator `AGENTS.md`), `./emu.py up --systemd` (`--unit id8` for
+  iDrive 8), which prints the SSH port and the `deploy/hu` options to use.
 - Describe the final state in comments and docs (no "changed from" /
   "previously"), build the smallest thing that solves the problem, and don't
   add UI helper text that restates a label.
