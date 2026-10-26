@@ -844,9 +844,9 @@ function usbSources(mountsFile, roots) {
 
 const LOOSE = /^[^.].*\.(tgz|tar\.gz|mgu)$/i;
 
-/* An app package's package.json and en_GB entry-point text, from its
- * members: an OAP tgz flat or under package/, or an .mgu (source/,
- * rhmiData/ beside it). */
+/* An app package's package.json, en_GB entry-point text, HMIs and icon
+ * (icon.png beside package.json), from its members: an OAP tgz flat or
+ * under package/, or an .mgu (source/, rhmiData/ beside it). */
 function packageInfo(members) {
     const byName = new Map(members.map((m) => [m.name.replace(/^\.\//, ''), m.data]));
     const base = ['package/', '', 'source/'].find((b) => byName.has(`${b}package.json`));
@@ -911,8 +911,8 @@ function packageEntry(members, data, artifact, ext) {
         id: pkg.name, kind: service ? 'tool' : 'app', version: pkg.version,
         title: title || (typeof pkg.productName === 'string' && pkg.productName) || pkg.name,
         // App Manager 2's store fields: store.description over description, author or author.name
-        description: pkg.store && typeof pkg.store.description === 'string' ? pkg.store.description
-            : typeof pkg.description === 'string' ? pkg.description : '',
+        description: (pkg.store && typeof pkg.store.description === 'string' && pkg.store.description) ||
+            (typeof pkg.description === 'string' ? pkg.description : ''),
         author: pkg.author && typeof pkg.author === 'object' ? pkg.author.name : pkg.author,
         mguHmi: pkg.mguHmi !== undefined ? pkg.mguHmi : service ? undefined : hmi,
         mguProvides: service || undefined, service,
@@ -927,7 +927,8 @@ function packageEntry(members, data, artifact, ext) {
 /* A package's own icon (packageInfo: a member of it, packaged), from its bytes. */
 function packagedIcon(data, entry, max) {
     return tar.untgz(data, max).then((members) => {
-        const m = members.find((x) => x.name.replace(/^\.\//, '') === entry.icon.ref);
+        // the last of a name, as packageInfo reads it
+        const m = members.filter((x) => x.name.replace(/^\.\//, '') === entry.icon.ref).pop();
         if (!m) {
             throw new Error(`no ${entry.icon.ref} in the package`);
         }

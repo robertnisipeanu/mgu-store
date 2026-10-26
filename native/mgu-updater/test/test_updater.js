@@ -2295,7 +2295,7 @@ function testIndexV2(certs, pubDir) {
     mkdirp(path.join(stick, 'oap'));
     storePkg(path.join(stick, 'oap', 'usb store app.tgz'), { name: 'usb_store', version: '1.0.0', productName: 'USB Store App',
         author: { name: 'IterioDev' }, description: 'npm text', store: { description: 'Store text' } }, stickIcon);
-    storePkg(path.join(stick, 'oap', 'plain.tgz'), { name: 'usb_plain', version: '1.0.0', author: 'Someone', description: 'Plain text' },
+    storePkg(path.join(stick, 'oap', 'plain.tgz'), { name: 'usb_plain', version: '1.0.0', author: 'Someone', description: 'Plain text', store: { description: '' } },
         png(20 + (130 << 10), 9));
     fs.writeFileSync(path.join(M, 'mounts'), `/dev/sda1 ${stick} vfat rw 0 0\n`);
     const v1 = fs.readFileSync(storePkg(path.join(pubDir, 'v1store@1.0.0.tgz'), { name: 'v1store', version: '1.0.0', author: 'V1',
@@ -2361,7 +2361,7 @@ function testIndexV2(certs, pubDir) {
             ok('package: a stick\'s package gives its icon.png, author.name and store.description', us.source === 'usb:STICK/oap' &&
                 us.icon === path.join(iconDir, `${sha256(stickIcon)}.png`) && fs.readFileSync(us.icon).equals(stickIcon) &&
                 us.author === 'IterioDev' && us.description === 'Store text', JSON.stringify(us));
-            ok('package: author as a string, description without store, an icon.png over 128 KiB left out',
+            ok('package: author as a string, description under an empty store.description, an icon.png over 128 KiB left out',
                 comp('usb_plain').author === 'Someone' && comp('usb_plain').description === 'Plain text' && comp('usb_plain').icon === null,
                 JSON.stringify(comp('usb_plain')));
             ok('package: a version 1 index\'s package gives them too', comp('v1store').icon && fs.readFileSync(comp('v1store').icon).equals(v1Icon) &&
