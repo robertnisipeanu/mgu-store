@@ -73,18 +73,19 @@ update, the Store's own included, comes through the Store. Running
 |---|---|
 | `--identity <file>` | root's private SSH key |
 | `--token` | asks for a GitHub token (hidden prompt) and gives it to the updater, for private repositories |
-| `--no-renderer` | leaves out the renderer; the Store then shows its plain list screens |
+| `--no-renderer` | leaves out the renderer; the Store then shows its plain list screens until a Store update installs the renderer it requires |
 | `--no-uplink` | leaves out the internet uplink |
 | `--host <address>`, `--port <n>` | reach the head unit somewhere other than `172.16.222.97:22` |
 | `--user <name>` | SSH user (default `root`) |
 | `--ssh-opt <option>` | an extra `ssh -o` option; repeatable |
 
-GitHub tokens can also be managed later from the computer:
+GitHub tokens can also be managed later from the computer, with the same
+`--identity` (and connection options) as the install:
 
 ```sh
-node mgu-install.js token                  # add one (hidden prompt, or piped on stdin)
-node mgu-install.js token --list           # list them
-node mgu-install.js token --remove <id>    # remove one
+node mgu-install.js token --identity ~/.ssh/mgu_root_key                # add one (hidden prompt, or piped on stdin)
+node mgu-install.js token --identity ~/.ssh/mgu_root_key --list         # list them
+node mgu-install.js token --identity ~/.ssh/mgu_root_key --remove <id>  # remove one
 ```
 
 On Windows, run these in PowerShell or cmd. Git Bash shows no hidden
@@ -159,7 +160,9 @@ whichever account can reach it. Tokens can also be added from the computer
 Settings → **Phone access** → On shows a QR code. Scan it with a phone
 joined to the car's hotspot. The page (port 8470 on the head unit) shows the
 sources, components, installs in progress, errors and logs, and lets you add
-and remove sources and accounts with the phone's keyboard. Every time phone
+and remove sources and accounts with the phone's keyboard. When adding a
+repository there, pick its channel: **Releases** (the default), **Branch**
+or **Tags**; a repository with only `mgu-repo.json` needs **Branch**. Every time phone
 access is turned on, it gets a new access code; turn it off when done.
 
 ### Internet: the uplink
@@ -240,7 +243,8 @@ built by your own script, as in
       "output": "dist/{id}@{version}.tgz" } } }
 ```
 
-Every subfolder of `apps/` that holds an `app.json` is an app. The build
+Every subfolder of `apps/` that holds an `app.json` is an app: the folder
+name is its id, and `app.json` gives its `version` (`x.y.z`). The build
 script runs on the head unit, without internet unless the entry allows it,
 and must leave the package at `output`.
 
@@ -262,7 +266,8 @@ What every app needs:
   oap-sdk of an app already installed on it.
 - **An id of your own**, with a prefix (`acme_gauges`). Ids are shared by
   every source on the head unit, and an id BMW uses can hide your tile.
-- **The head units it is for**: `"mguHmi": ["ID7"]`, `["ID8"]` or both.
+- **The head units it is for**: `"mguHmi": ["ID7"]`, `["ID8"]` or both,
+  in the app's `package.json`, its catalog entry or its `mgu-repo.json` entry.
   The Store lists an app for another head unit but does not install it.
 - **Apps or tools.** `kind` is `app` (an OAP app) or `tool` (a root
   program, such as a renderer or a service, packed with its
@@ -273,8 +278,9 @@ What every app needs:
   `package.json` (`"internet": true` in `mgu-app.json`). It gets internet
   while the uplink is online.
 
-Nothing is signed: adding a source means trusting it. Every download is
-checked against the size and sha256 its source lists.
+Nothing is signed: adding a source means trusting it. A download is
+checked against the size and sha256 its catalog lists; release assets and
+repo trees list no hash.
 
 [docs/PUBLISHING.md](docs/PUBLISHING.md) is the full reference: every
 layout and field, source packages (`mgu-app.json`), build scripts on the

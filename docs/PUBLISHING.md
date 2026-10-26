@@ -45,7 +45,7 @@ its releases unless the owner adds it with a branch.
   stick, an index, the install). A catalog entry or a release asset without
   it shows as unknown, and the install still refuses it when its rhmiData
   has a UI for the other head unit only.
-- **Apps, and tools only as tools.** Native companions (a renderer, a
+- **Native programs ship as tools.** Native companions (a renderer, a
   daemon) are root tools: they install only as a tool kit with
   `component.json` (deploy/README.md, "Artifacts"), listed in a catalog or
   committed prebuilt in a repo tree, or as one of IterioDev's App Manager
@@ -240,9 +240,8 @@ and installs the package. The same build runs on a desktop with
 **Every app in a folder.** In place of one entry per app, `apps` names a
 folder of apps. Each subfolder holding the manifest is one app, its id the
 subfolder's name, its version, title and description from the manifest, so
-a new app needs no change to `mgu-repo.json`. This is
-[idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps)'s
-`mgu-repo.json`:
+a new app needs no change to `mgu-repo.json`. An `apps` entry like
+[idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps)'s:
 
 ```json
 { "schema": 1,
