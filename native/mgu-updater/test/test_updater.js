@@ -406,7 +406,14 @@ function testShipped() {
         needed.filter((n) => n !== 'web.js').every((n) => shipped.indexOf(n) >= 0), JSON.stringify(needed));
     ok('shipped: component.json installs each file it names (web.js once the phone page is in this tree)',
         component.files.every((f) => f.path === 'web.js' || fs.existsSync(path.join(ROOT, f.from))) && shipped.indexOf('web.js') >= 0);
-    ok('shipped: no GitHub App client id, so GitHub sign-in is not offered', conf.github_client_id === '');
+    ok('shipped: the mgu-store GitHub App\'s client id and page', conf.github_client_id === 'Iv23li9nab1iob4a6eyC' &&
+        conf.github_app_url === 'https://github.com/apps/mgu-store');
+    const { Updater } = require('../js/updater');
+    const dir = fs.mkdtempSync(path.join(T, 'shipped-'));
+    const shippedState = new Updater(Object.assign({}, conf, { state_dir: dir, credentials_dir: path.join(dir, 'cred'),
+        sources: path.join(dir, 'sources.json'), lease: path.join(dir, 'lease.json'), log_file: '' })).state();
+    ok('shipped: GitHub sign-in is offered, with the App\'s install page', shippedState.signin === true &&
+        JSON.stringify(shippedState.signinApp) === JSON.stringify({ installUrl: 'https://github.com/apps/mgu-store/installations/new' }));
     ok('shipped: no catalog key and no signing settings',
         !shipped.some((f) => /\.pem$/.test(f)) && conf.public_key === undefined && conf.catalog === undefined &&
         !fs.readdirSync(ROOT).some((f) => /\.pem$/.test(f)));
@@ -456,6 +463,8 @@ function testCatalog() {
 
     const r = (c) => ({ entry: catalogLib.checkExtras(Object.assign({}, c)), source: 's' });
     const rows = catalogLib.plan(good.components.map(r), [{ id: 'doom', kind: 'app', version: '1.0.0' }]);
+    const described = catalogLib.plan([r(Object.assign({}, good.components[0], { description: 'Plays DOOM' }))], [])[0];
+    ok('plan: a row carries the catalog\'s description', described.description === 'Plays DOOM' && rows[0].description === '');
     ok('plan: an older installed version is an update', rows[0].status === 'update' && rows[0].installed === '1.0.0');
     ok('plan: a missing component is available', rows[1].status === 'available' && rows[1].installed === null);
     ok('plan: a row names its source', rows[0].source === 's' && rows[0].build === null && rows[0].optional === false);
@@ -1494,7 +1503,7 @@ function testSources(certs) {
     const conf = {
         sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
         store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
-        github_api: API, github_web: GH_WEB, github_client_id: 'Iv1.test', builtin_repo: 'robertnisipeanu/mgu-store',
+        github_api: API, github_web: GH_WEB, github_client_id: 'Iv1.test', github_app_url: 'https://github.com/apps/mgu-store/', builtin_repo: 'robertnisipeanu/mgu-store',
         fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
         build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
         mounts, usb_roots: media, web_secret: path.join(M, 'run', 'web-secret'), web_uid: '12996', web_gid: '12202',
@@ -1639,6 +1648,8 @@ function testSources(certs) {
         })
         .then(() => {
             ok('login: offered with a GitHub App client id configured', st().signin === true);
+            ok('login: the GitHub App\'s install page from github_app_url',
+                JSON.stringify(st().signinApp) === JSON.stringify({ installUrl: 'https://github.com/apps/mgu-store/installations/new' }));
             seen.length = 0;
             return priv({ op: 'login-start' });
         })
@@ -2138,6 +2149,7 @@ function testUnitServices(certs, pubDir) {
         .then(() => u.check())
         .then(() => {
             const s = st();
+            ok('login: no install page without github_app_url', s.signinApp === null);
             ok('unit: the state names the head unit the deploy tool reports', JSON.stringify(s.unit) === JSON.stringify({ hmi: 'ID7', firmware: 'test firmware' }),
                 JSON.stringify(s.unit));
             ok('index: an https URL serving {packages: [{url, sha256}]} is read as an App Manager index',

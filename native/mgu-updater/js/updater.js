@@ -61,6 +61,12 @@ function readConf(file, into) {
 
 /* updater.conf next to this file (in the repo: one folder up), then the
  * unit's own overrides. */
+/* The install page of the GitHub App at url (https://github.com/apps/<slug>), or null. */
+function appInstall(url) {
+    const m = /^(https:\/\/[^/\s?#]+\/apps\/[A-Za-z0-9-]+)\/?$/.exec(String(url || '').trim());
+    return m ? { installUrl: `${m[1]}/installations/new` } : null;
+}
+
 function loadConf() {
     const own = path.join(HERE, 'updater.conf');
     const file = fs.existsSync(own) ? own : path.join(HERE, '..', 'updater.conf');
@@ -760,6 +766,8 @@ class Updater {
             tokens,
             // GitHub sign-in is offered only with a GitHub App client id configured
             signin: !!this.conf.github_client_id,
+            // the App's install page, for a repo its sign-in does not reach yet
+            signinApp: appInstall(this.conf.github_app_url),
             login: this.login.state(),
             busy: this.busy,
             rebooting: this.rebooting,

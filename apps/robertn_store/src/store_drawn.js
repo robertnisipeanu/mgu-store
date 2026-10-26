@@ -1,0 +1,403 @@
+'use strict';
+/**
+ * The Store's screens drawn by mgu-render (native/mgu-render, its own
+ * dialect mgu-render/1 through lib/mgu_render_client.js): the connection,
+ * the placement, the page stack, the HMI host states and their proxies,
+ * touch, the controller and the package pictures. src/store_frame.js makes
+ * each frame.
+ *
+ * Placement: embed (inside the host state's page template, iDrive 7, while
+ * the renderer offers it) or layer (the renderer's own layer over the host
+ * state, placed on the app area). The screens are laid out in iDrive 8
+ * design pixels; the placement scales their content into the box, so
+ * logical pixels (touch, claims) are design pixels on either head unit.
+ *
+ * Pages: the stack's first page is the tabs; each page opened from it is
+ * the host state of the next depth (src/store.js HOSTS), so the HMI's BACK
+ * closes it. A host state's proxies are its focusable buttons, one per
+ * pressable item of the drawn page in focus order: the HMI's focus on one
+ * draws the focus ring there, a press on one presses the item. Touch in the
+ * renderer's claimed area hits the items themselves; a drag scrolls. With
+ * the HMI's controller gate (the renderer's `controller`), the dial moves
+ * the focus and a push presses.
+ *
+ * Emits 'mode' (null, 'layer' or 'embed') when what the renderer offers
+ * changes; null: the widget screens show.
+ */
+const EventEmitter = require('events');
+const { RenderClient } = require('./mgu_render_client.js');
+const fs = require('fs');
+const kit = require('./kit_record.js');
+const png = require('./kit_png.js');
+const { setPicture } = require('./am_widgets.js');
+const { frame, hit, placement, VIEWPORT } = require('./store_frame.js');
+
+const DEPTHS = 3;
+const ICON_BYTES = 128 * 1024;          // a package picture: at most this big
+const ICONS_KEPT = 48;                  // decoded pictures kept, the most recently shown
+const KEEPALIVE_MS = 1000;              // the renderer hides an app silent for 3 s
+const CLOSED_RESHOW_MS = 700;           // a touch outside that left the page where it was
+const DRAG_PX = 14;
+
+class Drawn extends EventEmitter {
+    /**
+     * host: { log, model() (the updater's side of store_screens' model),
+     * act(act) (a press), set(name, text), show(name, on), openState(name),
+     * closeState(name), hostName(mode, depth), proxyName(mode, depth, i),
+     * proxies (count per depth), modes (the host modes the RHMI has) }.
+     */
+    constructor(host, opts) {
+        super();
+        this.host = host;
+        this.log = host.log;
+        this.gpu = (opts && opts.client) || new RenderClient('robertn_store', this.log, { kit, mode: 'layer' });
+        this.mode = null;
+        this.w = 0;
+        this.scale = 1;
+        this.stack = [{ name: 'main' }];
+        this.tab = 'store';
+        this.filter = 'all';
+        this.focus = 0;
+        this.scroll = {};
+        this.items = [];
+        this.regions = [];
+        this.visibleHosts = new Set();      // depths whose host state is visible
+        this.focusLost = false;             // the top host state lost the HMI focus (a popup)
+        this.suspended = false;             // the HMI's speller is up
+        this.closedHide = false;
+        this.on_ = false;
+        this.dirty = false;
+        this.sentAt = 0;
+        this.keepalive = null;
+        this.touch = null;
+        this.ccu = null;
+        this.pics = new Map();              // picture file -> { img, used }
+        this.decoding = new Set();
+        this.gpu.on('ready', (screen, info) => this._ready(info));
+        this.gpu.on('close', () => this._setMode(null));
+        this.gpu.on('tick', () => {
+            if (this.dirty) {
+                this.render();
+            }
+        });
+        this.gpu.on('touch', (phase, x, y) => this._touch(phase, x, y));
+        this.gpu.on('closed', () => {
+            this.closedHide = true;
+            this.on_ = false;
+            setTimeout(() => {
+                this.closedHide = false;
+                this._updateShow();
+            }, CLOSED_RESHOW_MS);
+        });
+        this.gpu.on('ccu', (e) => this._ccu(e));
+    }
+
+    connect() {
+        this.gpu.connect();
+    }
+
+    close() {
+        clearInterval(this.keepalive);
+        this.gpu.close();
+    }
+
+    _ready(info) {
+        let mode = null;
+        if (info) {
+            if (info.modes.indexOf('embed') >= 0 && this.host.modes.indexOf('embed') >= 0) {
+                mode = 'embed';
+            } else if (info.modes.indexOf('layer') >= 0 && this.host.modes.indexOf('layer') >= 0) {
+                mode = 'layer';
+            }
+        }
+        if (mode) {
+            const box = mode === 'embed' ? info.embedBox : info.appArea;
+            const p = placement(box.w, box.h);
+            this.scale = p.scale;
+            this.w = box.w;
+            this.gpu.mode(mode);
+            this.gpu.place({ x: box.x, y: box.y, w: box.w, h: box.h, scale: p.scale, ox: p.ox, oy: p.oy });
+            this.controller = !!info.controller;
+            this.log.info(`renderer: ${mode} ${box.w}x${box.h} at ${box.x},${box.y}, scale ${this.scale.toFixed(3)}`);
+        } else {
+            this.log.info(`renderer: ${info ? 'no mode the Store has' : 'not mgu-render/1'}; widget screens`);
+        }
+        this._setMode(mode);
+    }
+
+    _setMode(mode) {
+        if (mode === this.mode) {
+            return;
+        }
+        this.mode = mode;
+        this.visibleHosts.clear();
+        this.focusLost = false;
+        this.reset();
+        this._updateShow();
+        this.emit('mode', mode);
+    }
+
+    reset() {
+        this.stack = [{ name: 'main' }];
+        this.focus = 0;
+    }
+
+    top() {
+        return this.stack[this.stack.length - 1];
+    }
+
+    hostOf(depth) {
+        return this.host.hostName(this.mode, depth);
+    }
+
+    /* A page over the current one: the next depth's host state. */
+    push(page) {
+        if (!this.mode) {
+            return;
+        }
+        if (this.stack.length >= DEPTHS) {
+            this.stack[DEPTHS - 1] = page;
+        } else {
+            this.top().focus = this.focus;       // where the HMI's focus comes back to
+            this.stack.push(page);
+            this.host.openState(this.hostOf(this.stack.length));
+        }
+        this.focus = 0;
+        this.render();
+    }
+
+    pop() {
+        if (this.stack.length > 1) {
+            const depth = this.stack.length;
+            this.stack.pop();
+            this._backTo();
+            this.host.closeState(this.hostOf(depth));
+            this.render();
+        }
+    }
+
+    /* Closes the top page when pred says it is the one. */
+    close(pred) {
+        if (this.stack.length > 1 && pred(this.top())) {
+            this.pop();
+        }
+    }
+
+    _backTo() {
+        const f = this.top().focus;
+        this.focus = typeof f === 'number' ? f : -1;
+    }
+
+    setTab(tab) {
+        while (this.stack.length > 1) {
+            this.pop();
+        }
+        this.tab = tab;
+        this.render();
+    }
+
+    setFilter(filter) {
+        this.filter = filter;
+        this.render();
+    }
+
+    suspend(on) {
+        this.suspended = on;
+        this._updateShow();
+    }
+
+    /* The HMI showed or hid a host state. */
+    hostVisible(depth, visible) {
+        if (visible) {
+            this.visibleHosts.add(depth);
+            if (depth < this.stack.length) {
+                this.stack.length = depth;
+                this._backTo();
+            }
+            this.focusLost = false;
+            this.render();
+        } else {
+            this.visibleHosts.delete(depth);
+        }
+        this._updateShow();
+    }
+
+    /* The HMI's focus on a host state. A state under the top one keeps its
+     * visibility while pages cover it and gets the focus back when they
+     * close (BACK); the top one loses it to an HMI popup. */
+    hostFocus(depth, focus) {
+        if (focus && depth < this.stack.length) {
+            this.stack.length = depth;
+            this._backTo();
+            this.render();
+        }
+        if (depth === this.stack.length) {
+            this.focusLost = !focus;
+        }
+        this._updateShow();
+    }
+
+    proxyFocus(depth, i, value) {
+        if (depth === this.stack.length && value) {
+            this.focus = i;
+            this.render();
+        }
+    }
+
+    proxyPress(depth, i) {
+        if (depth === this.stack.length && this.items[i]) {
+            this.focus = i;
+            this.host.act(this.items[i].act);
+        }
+    }
+
+    _shouldShow() {
+        return !!this.mode && this.visibleHosts.size > 0 && !this.suspended && !this.closedHide &&
+            !(this.mode === 'layer' && this.focusLost);
+    }
+
+    _updateShow() {
+        const on = this._shouldShow();
+        if (on === this.on_ && !(on && !this.gpu.visible)) {
+            return;
+        }
+        this.on_ = on;
+        this.gpu.claim(on ? [VIEWPORT] : []);
+        this.gpu.grab(on && !!this.controller);
+        if (on) {
+            this.render();
+        }
+        this.gpu.show(on);
+        clearInterval(this.keepalive);
+        this.keepalive = on ? setInterval(() => this.render(), KEEPALIVE_MS) : null;
+    }
+
+    /* Draws the frame (sent while the renderer is ready and the page is
+     * shown, one at a time) and writes the top host state's proxies. */
+    render() {
+        if (!this.mode || !this.w) {
+            return;
+        }
+        const m = Object.assign(this.host.model(), { stack: this.stack, tab: this.tab, filter: this.filter });
+        const r = frame(m, { textScale: this.scale, focus: this.focus, scroll: this.scroll });
+        const rec = r.rec;
+        this.items = r.items;
+        this.regions = r.regions;
+        this._proxies();
+        this._pictures(r.icons);
+        if (!this.on_) {
+            return;
+        }
+        const now = Date.now();
+        if (this.gpu.waiting && now - this.sentAt < KEEPALIVE_MS) {
+            this.dirty = true;
+            return;
+        }
+        this.dirty = false;
+        this.sentAt = now;
+        this.gpu.frame(rec);
+    }
+
+    _proxies() {
+        const depth = this.stack.length;
+        const n = this.host.proxies[depth - 1] || 0;
+        for (let i = 0; i < n; i++) {
+            const name = this.host.proxyName(this.mode, depth, i);
+            const it = this.items[i];
+            if (it) {
+                this.host.set(name, it.label);
+            }
+            this.host.show(name, !!it);
+        }
+    }
+
+    _touch(phase, x, y) {
+        if (phase === 'down') {
+            this.touch = { x, y, item: hit(this.items, x, y), drag: false, region: this.regions.find((g) =>
+                x >= g.x && x < g.x + g.w && y >= g.y && y < g.y + g.h) || null };
+            if (this.touch.region) {
+                this.touch.from = this.scroll[this.touch.region.key] || 0;
+            }
+        } else if (this.touch && phase === 'move') {
+            const t = this.touch;
+            if (!t.drag && t.region && Math.abs(y - t.y) > DRAG_PX) {
+                t.drag = true;
+            }
+            if (t.drag) {
+                this.scroll[t.region.key] = Math.max(0, Math.min(t.region.max, t.from + Math.round((t.y - y) / t.region.step)));
+                this.focus = -1;
+                this.render();
+            }
+        } else if (this.touch && phase === 'up') {
+            const t = this.touch;
+            this.touch = null;
+            if (!t.drag && t.item >= 0 && hit(this.items, x, y) === t.item) {
+                this.host.act(this.items[t.item].act);
+            }
+        }
+    }
+
+    /* The package pictures the frame shows (components[].icon, files the
+     * updater leaves readable): decoded once, the ICONS_KEPT most recently
+     * shown kept, drawn from the next frame on. A file that is missing, too
+     * big or no PNG draws the letter tile. */
+    _pictures(files) {
+        const now = Date.now();
+        files.forEach((f) => {
+            const p = this.pics.get(f);
+            if (p) {
+                p.used = now;
+            }
+        });
+        files.filter((f) => !this.pics.has(f) && !this.decoding.has(f)).forEach((f) => {
+            this.decoding.add(f);
+            fs.readFile(f, (err, buf) => {
+                if (err || buf.length > ICON_BYTES) {
+                    this.decoding.delete(f);
+                    this.pics.set(f, { img: null, used: Date.now() });
+                    return;
+                }
+                png.decodeAsync(buf, (e, img) => {
+                    this.decoding.delete(f);
+                    let pic = null;
+                    if (!e) {
+                        const small = png.fit(img, 256);
+                        pic = kit.makeImage(small.w, small.h, small.data);
+                        setPicture(f, pic);
+                    }
+                    this.pics.set(f, { img: pic, used: Date.now() });
+                    Array.from(this.pics.entries()).filter(([k]) => files.indexOf(k) < 0).sort((a, b) => a[1].used - b[1].used)
+                        .slice(0, Math.max(0, this.pics.size - ICONS_KEPT)).forEach(([k, v]) => {
+                            this.pics.delete(k);
+                            setPicture(k, null);
+                            if (v.img) {
+                                this.gpu.dropImage(v.img);
+                                kit.dropImage(v.img);
+                            }
+                        });
+                    this.render();
+                });
+            });
+        });
+    }
+
+    /* The controller gate's events: the dial counter moves the focus, a push
+     * presses the focused item. */
+    _ccu(e) {
+        const last = this.ccu;
+        this.ccu = e;
+        if (!last || !this.on_) {
+            return;
+        }
+        if (e.knob !== 0xffff && last.knob !== 0xffff && e.knob !== last.knob) {
+            const steps = ((e.knob - last.knob + 0x18000) % 0x10000) - 0x8000;
+            this.focus = Math.max(0, Math.min(this.items.length - 1, (this.focus < 0 ? 0 : this.focus + steps)));
+            this.render();
+        }
+        if (e.press && e.press !== last.press && e.seq !== last.seq && this.items[this.focus]) {
+            this.host.act(this.items[this.focus].act);
+        }
+    }
+}
+
+module.exports = { Drawn, DEPTHS };

@@ -189,9 +189,9 @@ the folder again every `usb_poll_s` and on each check.
   supervisor goes back to still has them.
 
 **Signing in to GitHub.** `login-start` runs GitHub's device flow for a
-GitHub App (`github_client_id`; while it is empty the state's `signin` is
-false, clients offer no sign-in, `login-start` is refused, and a pasted token
-still works): the state's `login`
+GitHub App (`github_client_id`, shipped as the mgu-store App's public client
+id; set empty, the state's `signin` is false, clients offer no sign-in,
+`login-start` is refused, and a pasted token still works): the state's `login`
 shows the address and the code, which the owner enters on a phone; the
 updater polls at the interval GitHub gives (5 s more on `slow_down`) until
 the code expires, and stores the token it gets as a token labelled with
@@ -199,8 +199,12 @@ the account from `/user`, in place of an earlier sign-in's token of that
 account. An expiring token is renewed from its refresh token before a
 source is read. The App: *Enable Device Flow* on,
 repository permission *Contents: Read-only* (Metadata comes with it),
-installed on the repos the car reads; its client id goes in
-`github_client_id`. Requests to `github.com` carry the client id with the
+installable by any account, installed on the repos the car reads; no
+secret or private key exists or is used. Its client id goes in
+`github_client_id`, and its page (`https://github.com/apps/mgu-store`) in
+`github_app_url`: the state's `signinApp.installUrl` is then the App's
+install page, which the Store shows as a QR code for a private source that
+still needs a sign-in. Requests to `github.com` carry the client id with the
 device code, or with the refresh token on a renewal; never an access
 token.
 
@@ -444,7 +448,7 @@ container's address as the hotspot's.
 `updater.conf` (in the version folder) holds the defaults;
 `/var/opt/mgu-updater/updater.local.conf` overrides any key and survives
 updates. Keys: `sources`, `credentials_dir`, `builtin_repo`,
-`github_client_id`, `github_api`, `github_web`, `ca_file`,
+`github_client_id`, `github_app_url`, `github_api`, `github_web`, `ca_file`,
 `check_interval_s`, `first_check_s`, `mounts`, `usb_roots`, `usb_poll_s`,
 `repo_max_bytes`, `build_uid`, `build_gid`, `build_timeout_s`,
 `build_max_bytes`, `fetch_uid`, `fetch_gid`, `lease`, `deploy`,
@@ -490,13 +494,13 @@ each request, and whenever it changes (at most every 250 ms):
     "auth": { "kind": "github", "token": "3f9a01c2", "login": "someone" }, "checkedAt": 1792620000000, "components": 7 } ],
   "tokens": [ { "id": "3f9a01c2", "kind": "github", "label": "someone", "login": "someone",
     "addedAt": 1792610000000, "rejected": false, "usedBy": ["mgu-store", "idrive7-apps"] } ],
-  "signin": true,
+  "signin": true, "signinApp": { "installUrl": "https://github.com/apps/mgu-store/installations/new" },
   "login": { "url": "https://github.com/login/device", "code": "ABCD-1234",
     "expiresAt": 1792620900000, "status": "pending", "error": null },
   "web": { "enabled": false, "urls": [], "error": null },
   "busy": { "id": "doom", "phase": "download", "progress": 524288, "total": 2080457 },
   "rebooting": false, "rebootError": null,
-  "components": [ { "id": "doom", "kind": "app", "title": "DOOM", "version": "1.0.1",
+  "components": [ { "id": "doom", "kind": "app", "title": "DOOM", "description": "…", "version": "1.0.1",
     "installed": "1.0.0", "size": 2080457, "status": "update", "source": "idrive7-apps",
     "build": null, "optional": false, "uninstallable": true, "revision": null,
     "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null, "replaces": null,
@@ -505,6 +509,7 @@ each request, and whenever it changes (at most every 250 ms):
 
 - `components`: each id once (Sources, "Ids"). `status` is `installed`,
   `update`, `available` or `newer` (a local build ahead of its source);
+  `description` the source's (empty without one);
   `build` is `"unit"` for what is built on the unit; `revision` the short
   commit a branch would install; `size` null where the source states none.
 - `unit`: the head unit (`hmi` `ID7`, `ID8` or null, `firmware` its build
@@ -523,7 +528,8 @@ each request, and whenever it changes (at most every 250 ms):
 - `tokens`: the stored tokens ("Tokens"), never their text; `usedBy` the
   sources each one reads, `rejected` when GitHub refuses it.
 - `signin`: true when a GitHub App client id is configured; only then do
-  clients offer Sign in with GitHub.
+  clients offer Sign in with GitHub. `signinApp`: the App's install page
+  (`github_app_url`), or null.
 - `login`: the GitHub sign-in in progress (`pending`, `done`, `error`,
   `expired`), or null.
 - `web`: the phone page's state (`js/web.js`), present when the updater has it.

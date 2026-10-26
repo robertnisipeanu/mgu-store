@@ -19,6 +19,23 @@ function percent(busy) {
     return busy.total ? Math.min(100, Math.floor((100 * busy.progress) / busy.total)) : 0;
 }
 
+const HMI_NAMES = { ID7: 'iDrive 7', ID8: 'iDrive 8' };
+
+function hmiNames(list) {
+    return (list || []).map((h) => HMI_NAMES[h] || h).join(' and ');
+}
+
+/* A component the updater says is not for this head unit (its mguHmi). */
+function incompatible(row) {
+    return row.compat === 'no' && !row.installed;
+}
+
+/* Why it is not installable: `<title> is for iDrive 8; this head unit is iDrive 7`. */
+function compatReason(row, unit) {
+    const hmi = unit && unit.hmi;
+    return `${row.title} is for ${hmiNames(row.mguHmi)}${hmi ? `; this head unit is ${hmiNames([hmi])}` : ''}`;
+}
+
 /* The second column of a component's row. */
 function rowState(row, busy) {
     if (busy && busy.id === row.id) {
@@ -26,6 +43,9 @@ function rowState(row, busy) {
     }
     if (row.queued) {
         return 'Waiting';
+    }
+    if (incompatible(row)) {
+        return `For ${hmiNames(row.mguHmi)}`;
     }
     if (row.error) {
         return 'Failed, retry';
@@ -37,16 +57,28 @@ function rowState(row, busy) {
     }
 }
 
-/* What a press on the row does: install, remove (after a confirm step), or
- * nothing. */
+/* What a press on the row does: install, replace (an installed tool that
+ * provides the same capability, after a confirm step), remove (after a
+ * confirm step), or nothing. */
 function rowAction(row, busy) {
-    if ((busy && busy.id === row.id) || row.queued) {
+    if ((busy && busy.id === row.id) || row.queued || incompatible(row)) {
         return null;
     }
     if (row.status === 'update' || row.status === 'available' || row.error) {
-        return 'install';
+        return row.replaces ? 'replace' : 'install';
     }
     return row.uninstallable === true && row.installed ? 'remove' : null;
+}
+
+/* Whether the component can be removed now (after a confirm step). */
+function removable(row, busy) {
+    return row.uninstallable === true && !!row.installed && !row.queued && !(busy && busy.id === row.id);
+}
+
+/* The installed component a replace removes, by title. */
+function replacedTitle(row, components) {
+    const holder = (components || []).find((c) => c.id === row.replaces);
+    return holder ? holder.title : row.replaces;
 }
 
 /* The second column of the start screen's Apps and Head-unit tools rows,
@@ -258,6 +290,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { removable, hmiNames, incompatible, compatReason, replacedTitle, parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

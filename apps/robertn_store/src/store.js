@@ -3,6 +3,13 @@
  * with its state, the progress of the running install, the sources, and
  * the phone page.
  *
+ * Two sets of screens show the same: the ones mgu-render draws
+ * (src/store_drawn.js, src/store_screens.js), while it runs and speaks
+ * mgu-render/1, and the HMI's own widgets otherwise (below), which take
+ * over whenever the renderer goes away (while the Store installs or
+ * updates it) and hand back when it is there again. The tile opens the
+ * entry state of the screens in use: mapEntryState follows the renderer.
+ *
  * The app holds no install logic. mgu-updater (native/mgu-updater), the
  * root daemon, reads the sources' catalogs, downloads and installs; this app
  * shows the state it streams over its socket and sends it requests: "check"
@@ -49,9 +56,10 @@ const logging = require('oap-sdk/src/logging/logging');
 const { UpdaterClient } = require('./client.js');
 const { qrPng } = require('./qr.js');
 const { spell } = require('./speller.js');
+const { Drawn } = require('./store_drawn.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
-    loginStatus, loginCode, phoneState, phoneAddress, parseSource, channelOf, sourcesMessage } = require('./store_view.js');
+    loginStatus, loginCode, phoneState, phoneAddress, parseSource, channelOf, sourcesMessage, replacedTitle, removable } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 
@@ -67,7 +75,24 @@ const PRESS_DEDUPE_MS = 400;
 const HIDE_SETTLE_MS = 800;
 const WEB_URL_POLL_MS = 1000;           // web-url re-read while Phone access is open and on
 const ROW_KEY = 2;                      // a press's row in a raw userEvent's parameterMap
+const VALUE_KEY = 0;                    // a focus event's value
 const QR_PREFIX = 'qr_';
+const RENDERER_WAIT_MS = 1500;          // at start, how long the renderer may take to answer
+
+/* The drawn screens' host states and their proxies (tools/gen_rhmi.js). */
+const PROXIES = [48, 24, 12];
+const HOST_NAMES = { layer: 'Layer', embed: 'Embed' };
+const hostName = (mode, depth) => `ST_OnlineApps_Store${HOST_NAMES[mode]}${depth}`;
+const proxyName = (mode, depth, i) => `store${HOST_NAMES[mode]}${depth}P${i}`;
+/* The entry state of each set of screens. */
+const ROOTS = { widgets: 'ST_OnlineApps_Store', layer: hostName('layer', 1), embed: hostName('embed', 1) };
+
+/* iDrive 8's widgets name their cells differently (LT_Button_MediaEntry_1Row). */
+const ID8_CELLS = { Text: 'PrimaryText', Text1stCol: 'PrimaryText', Text2ndCol: 'FrequencyText', TextLeft: 'PrimaryText',
+    TextRight: 'FrequencyText' };
+const ID8_LABELS = new Set(['storeStatus', 'storeSourcesStatus', 'storeSrcError', 'storeAccountName', 'storeAccountSources',
+    'storeLoginCode', 'storeLoginUrl', 'storeLoginStatus', 'storeRemoveName', 'storeReplaceName', 'storeAddRepo', 'storePhoneUrl',
+    'storePhoneError', 'storeSrcAppLabel', 'storeSrcAppUrl']);
 
 /* tools/gen_rhmi.js */
 const S = {
@@ -80,6 +105,7 @@ const S = {
     login: 'ST_OnlineApps_StoreLogin',
     sourceRemove: 'ST_OnlineApps_StoreSourceRemove',
     remove: 'ST_OnlineApps_StoreRemove',
+    replace: 'ST_OnlineApps_StoreReplace',
     phone: 'ST_OnlineApps_StorePhone',
     channel: 'ST_OnlineApps_StoreChannel'
 };
@@ -102,12 +128,17 @@ const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress
     loginStatus: 'storeLoginStatus', loginCancel: 'storeLoginCancel',
     srcRemoveCancel: 'storeSrcRemoveCancel', srcRemoveConfirm: 'storeSrcRemoveConfirm',
     removeName: 'storeRemoveName', removeCancel: 'storeRemoveCancel', removeConfirm: 'storeRemoveConfirm',
+    replaceName: 'storeReplaceName', replaceCancel: 'storeReplaceCancel', replaceConfirm: 'storeReplaceConfirm',
+    srcAppLabel: 'storeSrcAppLabel', srcAppQr: 'storeSrcAppQr', srcAppUrl: 'storeSrcAppUrl',
     phoneToggle: 'storePhoneToggle', phoneQr: 'storePhoneQr', phoneUrl: 'storePhoneUrl',
     phoneError: 'storePhoneError' };
 /* RHMI event values arrive as booleans, or as 1/0 on some HMIs. */
 function isTrue(raw) {
     return raw === true || raw === 'true' || raw === 1 || raw === '1';
 }
+
+const isPage = (name) => (p) => p.name === name;
+const isConfirm = (kind) => (p) => p.name === 'confirm' && p.kind === kind;
 
 function readFile(file) {
     try {
@@ -151,6 +182,7 @@ class Store extends OnlineApp {
         this._shutdownPromise = null;
         this._components = {};
         this._actionById = {};
+        this._focusById = {};
         this._lastPress = {};
         this._written = {};
         this._rows = { app: [], tool: [], source: [], token: [] };
@@ -159,6 +191,7 @@ class Store extends OnlineApp {
         this._removingSource = null;    // the source this Store asked the updater to remove
         this._removalRefused = false;
         this._removeId = null;          // the component the Remove confirm step names
+        this._replaceId = null;         // the component the Replace confirm step names
         this._tokenId = null;           // the account the Remove account confirm step names
         /* The sign-in this app started: waiting until the updater reports it
          * pending, or the updater's refusal. */
@@ -168,7 +201,25 @@ class Store extends OnlineApp {
         this._spellSeq = 0;             // only the latest speller's text counts
         this._sourcesNote = '';         // the Sources page's status line
         this._qr = { login: { key: null, file: null, chain: Promise.resolve() },
-            phone: { key: null, file: null, chain: Promise.resolve() } };
+            phone: { key: null, file: null, chain: Promise.resolve() }, app: { key: null, file: null, chain: Promise.resolve() } };
+        this._hmi = 'ID7';
+        this._ui = 'widgets';           // the screens in use: widgets, layer or embed
+        this._entryUuid = null;         // the tile's entry point, once registered
+        this._hostModes = [];
+        this._drawn = new Drawn({
+            log: logger,
+            model: () => this._drawnModel(),
+            act: (act) => this._act(act),
+            set: (name, text) => this._set(name, 'Text', text, 'Text'),
+            show: (name, on) => this._show(name, on),
+            openState: (name) => this._openState(name),
+            closeState: (name) => this._closeState(name),
+            hostName,
+            proxyName,
+            proxies: PROXIES,
+            modes: this._hostModes
+        });
+        this._drawn.on('mode', (mode) => this._useUi(mode || 'widgets'));
         this._st = null;
         this._connected = false;
         this._client = new UpdaterClient(SOCKET, { reconnectMs: RECONNECT_MS });
@@ -225,6 +276,7 @@ class Store extends OnlineApp {
         }
         const foregroundStart = this._startedForeground();
         return this._setupRhmi()
+            .then(() => this._rendererAnswer())
             .then(() => this._registerEntryPoints())
             .then(() => {
                 if (foregroundStart) {
@@ -253,6 +305,26 @@ class Store extends OnlineApp {
 
     /* ---- RHMI ---- */
 
+    /* At start the renderer's answer decides the first screens, unless it
+     * takes longer than RENDERER_WAIT_MS. */
+    _rendererAnswer() {
+        this._drawn.connect();
+        if (!this._hostModes.length) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+            const done = () => {
+                clearTimeout(timer);
+                this._drawn.removeListener('mode', done);
+                this._drawn.gpu.removeListener('ready', done);
+                resolve();
+            };
+            const timer = setTimeout(done, RENDERER_WAIT_MS);
+            this._drawn.gpu.once('ready', done);
+            this._drawn.on('mode', done);
+        });
+    }
+
     _setupRhmi() {
         const rhmi = this.rhmiApplication;
         const stateNames = Object.values(S).concat(KINDS.map((k) => LISTS[k].state));
@@ -263,6 +335,41 @@ class Store extends OnlineApp {
             }
         }
         this._state = this._states[S.main];
+        this._hmi = rhmi.getByName('storeHmiID8') ? 'ID8' : 'ID7';
+        // the drawn screens' host states this HMI's description has (iDrive 8: no embed)
+        const hosts = [];
+        Object.keys(HOST_NAMES).forEach((mode) => {
+            const names = PROXIES.map((n, d) => hostName(mode, d + 1));
+            if (names.every((n) => rhmi.getByName(n))) {
+                this._hostModes.push(mode);
+                names.forEach((n, d) => hosts.push({ name: n, mode, depth: d + 1 }));
+            }
+        });
+        hosts.forEach((h) => {
+            this._states[h.name] = rhmi.getByName(h.name);
+            stateNames.push(h.name);
+            this._states[h.name].on('focus', (ev) => {
+                logger.info(`${h.name} focus ${isTrue(ev && ev.focus)}`);
+                if (h.mode === this._ui) {
+                    this._drawn.hostFocus(h.depth, isTrue(ev && ev.focus));
+                }
+            });
+            for (let i = 0; i < PROXIES[h.depth - 1]; i++) {
+                const name = proxyName(h.mode, h.depth, i);
+                this._components[name] = rhmi.getByName(name);
+                this._bind(name, () => {
+                    if (h.mode === this._ui) {
+                        this._drawn.proxyPress(h.depth, i);
+                    }
+                });
+                this._bindFocus(name, (value) => {
+                    if (h.mode === this._ui) {
+                        this._drawn.proxyFocus(h.depth, i, value);
+                    }
+                });
+            }
+        });
+        this._hosts = hosts;
         const names = Object.values(C);
         KINDS.forEach((kind) => names.push(LISTS[kind].nav, LISTS[kind].list));
         names.forEach((name) => {
@@ -282,6 +389,8 @@ class Store extends OnlineApp {
         });
         this._bind(C.removeCancel, () => this._closeState(S.remove));
         this._bind(C.removeConfirm, () => this._remove());
+        this._bind(C.replaceCancel, () => this._closeState(S.replace));
+        this._bind(C.replaceConfirm, () => this._replace());
         this._bind(C.navSources, () => this._openState(S.sources));
         this._bind(C.sourceList, (row) => this._onSource(row));
         this._bind(C.sourceAdd, () => this._addSource());
@@ -307,6 +416,10 @@ class Store extends OnlineApp {
             if (entry) {
                 this._press(entry.name, entry.handler, Number((ev.parameterMap || {})[ROW_KEY]) || 0);
             }
+            const focus = ev && ev.eventType === 'FOCUS' && this._focusById[Number(ev.sourceId)];
+            if (focus) {
+                focus(isTrue((ev.parameterMap || {})[VALUE_KEY]));
+            }
         });
         rhmi.on('applicationStackChanged', (stack) => {
             const keys = stack && typeof stack === 'object' ? Object.keys(stack) : [];
@@ -330,6 +443,13 @@ class Store extends OnlineApp {
         // them hides one before showing the next, so a hide only takes effect
         // if nothing became visible meanwhile.
         stateNames.forEach((name) => this._states[name].on('visible', (event) => {
+            const host = hosts.find((h) => h.name === name);
+            if (host) {
+                logger.info(`${name} visible ${isTrue(event && event.visible)}`);
+            }
+            if (host && host.mode === this._ui) {
+                this._drawn.hostVisible(host.depth, isTrue(event && event.visible));
+            }
             if (isTrue(event && event.visible)) {
                 this._visibleStates.add(name);
                 this._sawForeground = true;
@@ -348,6 +468,111 @@ class Store extends OnlineApp {
         return Promise.all(stateNames.map((name) => this._states[name].updateResources()));
     }
 
+    /* ---- the screens in use ---- */
+
+    /* The tile opens ui's entry state from now on; a Store on screen moves
+     * to it now. */
+    _useUi(ui) {
+        if (ui === this._ui) {
+            return;
+        }
+        logger.info(`screens: ${ui}`);
+        this._ui = ui;
+        this._forgetWritten();
+        this._render();
+        if (!this._entryUuid) {
+            return;
+        }
+        const root = this._states[ROOTS[ui]];
+        // the pages of the screens left, top first; the HMI keeps an entry state
+        // (INVALID_COMPONENTID), so BACK passes through the one left once
+        const roots = Object.keys(ROOTS).map((k) => ROOTS[k]);
+        const left = Array.from(this._visibleStates).filter((n) => roots.indexOf(n) < 0).reverse();
+        Promise.resolve(this.rhmiApplication.mapEntryState(this._entryUuid, root))
+            .catch((err) => logger.warn(`entry state ${ui}: ${err && err.message}`));
+        if (this._visible) {
+            this._openState(ROOTS[ui]);
+            left.forEach((n) => this._closeState(n));
+        }
+    }
+
+    _drawnUi() {
+        return this._ui !== 'widgets';
+    }
+
+    /* Opens a page of either set of screens: the widget state named in S,
+     * or the drawn page. */
+    _openPage(kind, page) {
+        if (this._drawnUi()) {
+            this._drawn.push(page);
+        } else {
+            this._openState(S[kind]);
+        }
+    }
+
+    _closePage(kind, pred) {
+        if (this._drawnUi()) {
+            this._drawn.close(pred);
+            return Promise.resolve();
+        }
+        return this._closeState(S[kind]);
+    }
+
+    _pageShown(kind, pred) {
+        return this._drawnUi() ? this._drawn.mode !== null && pred(this._drawn.top()) : this._visibleStates.has(S[kind]);
+    }
+
+    /* What the drawn screens show besides their own navigation. */
+    _drawnModel() {
+        const web = this._connected && this._st && this._st.web;
+        return { st: this._connected ? this._st : null, connected: this._connected && !!this._st, secret: !!readSecret(),
+            version: this._packageJson && this._packageJson.version, note: this._sourcesNote, login: this._login,
+            webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', adding: this._adding };
+    }
+
+    /* A press on the drawn screens (src/store_screens.js acts). */
+    _act(act) {
+        logger.info(`press ${act.do}${act.id ? ` ${act.id}` : ''}`);
+        switch (act.do) {
+        case 'tab': this._drawn.setTab(act.tab); break;
+        case 'filter': this._drawn.setFilter(act.filter); break;
+        case 'back': this._drawn.pop(); break;
+        case 'check': this._send({ op: 'check' }); break;
+        case 'open':
+            if (act.page.name === 'source') {
+                this._sourceId = act.page.id;
+                this._removingSource = null;
+                this._removalRefused = false;
+            } else if (act.page.name === 'confirm' && act.page.kind === 'account-remove') {
+                this._tokenId = act.page.id;
+            } else if (act.page.name === 'confirm' && act.page.kind === 'remove') {
+                this._removeId = act.page.id;
+            } else if (act.page.name === 'confirm' && act.page.kind === 'replace') {
+                this._replaceId = act.page.id;
+            }
+            this._drawn.push(act.page);
+            break;
+        case 'install': this._install(act.id); break;
+        case 'update-all':
+            (this._connected && this._st ? this._st.components : [])
+                .filter((c) => c.status === 'update' && rowAction(c, this._st.busy) === 'install')
+                .forEach((c) => this._install(c.id));
+            break;
+        case 'remove': this._removeId = act.id; this._remove(); break;
+        case 'replace': this._replaceId = act.id; this._replace(); break;
+        case 'restart': this._restart(); break;
+        case 'source-remove': this._sourceId = act.id; this._removeSource(); break;
+        case 'account-remove': this._tokenId = act.id; this._removeAccount(); break;
+        case 'add-source': this._addSource(); break;
+        case 'channel': this._chooseChannel(act.channel); break;
+        case 'sign-in': this._signIn(); break;
+        case 'sign-in-cancel': this._cancelSignIn(); break;
+        case 'phone': this._togglePhone(); break;
+        default: break;
+        }
+        this._render();
+    }
+
     _openState(name) {
         if (this._shutdownPromise) {
             return;
@@ -364,7 +589,7 @@ class Store extends OnlineApp {
 
     /* The confirm step's Restart; the updater refuses it while an install runs. */
     _restart() {
-        this._closeState(S.restart);
+        this._closePage('restart', isConfirm('restart'));
         logger.info('restart head unit');
         this._send({ op: 'reboot' });
     }
@@ -400,6 +625,20 @@ class Store extends OnlineApp {
             this._actionById[Number(id)] = { name, handler };
         }
         comp.on('action', (ev) => this._press(name, handler, Number(ev && ev.row) || 0));
+    }
+
+    /* Focus events of a proxy, from the component or the raw userEvent. */
+    _bindFocus(name, handler) {
+        const comp = this._components[name];
+        if (!comp) {
+            return;
+        }
+        try {
+            this._focusById[Number(comp.getId())] = handler;
+        } catch (e) {
+            /* no id: the component's own events only */
+        }
+        comp.on('focus', (ev) => handler(isTrue(ev && ev.value)));
     }
 
     _press(name, handler, row) {
@@ -438,20 +677,41 @@ class Store extends OnlineApp {
         }
         const action = rowAction(row, this._st.busy);
         if (action === 'install') {
-            logger.info(`install ${row.id} ${row.version}`);
-            this._send({ op: 'install', id: row.id });
+            this._install(row.id);
         } else if (action === 'remove') {
             this._removeId = row.id;
-            this._openState(S.remove);
+            this._openPage('remove', { name: 'confirm', kind: 'remove', id: row.id });
+        } else if (action === 'replace') {
+            this._replaceId = row.id;
+            this._openPage('replace', { name: 'confirm', kind: 'replace', id: row.id });
+        }
+    }
+
+    _install(id) {
+        const row = this._component(id);
+        if (row && rowAction(row, this._st.busy) === 'install') {
+            logger.info(`install ${row.id} ${row.version}`);
+            this._send({ op: 'install', id: row.id });
         }
     }
 
     _remove() {
-        this._closeState(S.remove);
+        this._closePage('remove', isConfirm('remove'));
         const row = this._component(this._removeId);
-        if (row && rowAction(row, this._st.busy) === 'remove') {
+        if (row && removable(row, this._st.busy)) {
             logger.info(`uninstall ${row.id}`);
             this._privileged({ op: 'uninstall', id: row.id });
+        }
+    }
+
+    /* The Replace confirm step's Replace: installs the component in place
+     * of the installed tool providing the same capability (privileged). */
+    _replace() {
+        this._closePage('replace', isConfirm('replace'));
+        const row = this._component(this._replaceId);
+        if (row && rowAction(row, this._st.busy) === 'replace') {
+            logger.info(`install ${row.id} ${row.version} replacing ${row.replaces}`);
+            this._privileged({ op: 'install', id: row.id, replace: true });
         }
     }
 
@@ -461,7 +721,7 @@ class Store extends OnlineApp {
             this._sourceId = src.id;
             this._removingSource = null;
             this._removalRefused = false;
-            this._openState(S.source);
+            this._openPage('source', { name: 'source', id: src.id });
         }
     }
 
@@ -469,7 +729,7 @@ class Store extends OnlineApp {
         this._login = { waiting: true, refusal: null };
         if (this._privileged({ op: 'login-start' })) {
             logger.info('GitHub sign-in');
-            this._openState(S.login);
+            this._openPage('login', { name: 'login' });
         } else {
             this._login.waiting = false;
         }
@@ -479,14 +739,14 @@ class Store extends OnlineApp {
         const token = this._token(this._rows.token[i]);
         if (token) {
             this._tokenId = token.id;
-            this._openState(S.accountRemove);
+            this._openPage('accountRemove', { name: 'confirm', kind: 'account-remove', id: token.id });
         }
     }
 
     /* The Remove account confirm step's Remove; the updater reads the
      * account's sources again with the accounts left. */
     _removeAccount() {
-        this._closeState(S.accountRemove);
+        this._closePage('accountRemove', isConfirm('account-remove'));
         const token = this._token(this._tokenId);
         if (token) {
             logger.info(`remove account ${token.id}`);
@@ -496,7 +756,7 @@ class Store extends OnlineApp {
 
     _cancelSignIn() {
         this._privileged({ op: 'login-cancel' });
-        this._closeState(S.login);
+        this._closePage('login', isPage('login'));
     }
 
     /* The source Remove confirm step's Remove: back to the source's page,
@@ -506,7 +766,7 @@ class Store extends OnlineApp {
     _removeSource() {
         const src = this._source(this._sourceId);
         this._note(null);
-        this._closeState(S.sourceRemove);
+        this._closePage('sourceRemove', isConfirm('source-remove'));
         if (src && sourceActions(src).remove) {
             logger.info(`remove source ${src.id}`);
             this._removingSource = src.id;
@@ -522,11 +782,11 @@ class Store extends OnlineApp {
     /* Closes the page of the source being removed, as the top state, once it
      * shows; _render calls it again when the page becomes visible. */
     _leaveRemovedSource() {
-        if (this._removingSource && this._removingSource === this._sourceId && this._visibleStates.has(S.source)) {
+        if (this._removingSource && this._removingSource === this._sourceId && this._pageShown('source', isPage('source'))) {
             this._removingSource = null;
             this._removalRefused = false;
             this._visibleStates.delete(S.source);
-            this._closeState(S.source);
+            this._closePage('source', isPage('source'));
         }
     }
 
@@ -540,7 +800,15 @@ class Store extends OnlineApp {
      * speller replaced it. */
     _spell(title) {
         const seq = ++this._spellSeq;
-        return spell(this, title).catch((err) => {
+        // the speller is the HMI's: the renderer's layer is not drawn over it
+        this._drawn.suspend(true);
+        return spell(this, title).then((text) => {
+            this._drawn.suspend(false);
+            return text;
+        }, (err) => {
+            this._drawn.suspend(false);
+            throw err;
+        }).catch((err) => {
             logger.warn(`speller: ${err && err.message}`);
             if (seq === this._spellSeq) {
                 this._note({ kind: 'speller', error: err && err.message });
@@ -564,7 +832,7 @@ class Store extends OnlineApp {
                 this._sendSource(source);
             } else {
                 this._adding = source;
-                this._openState(S.channel);
+                this._openPage('channel', { name: 'channel' });
             }
         });
     }
@@ -576,7 +844,7 @@ class Store extends OnlineApp {
         }
         const done = (channel) => {
             this._adding = null;
-            this._closeState(S.channel);
+            this._closePage('channel', isPage('channel'));
             if (channel) {
                 this._sendSource(Object.assign({ channel }, source));
             }
@@ -626,7 +894,8 @@ class Store extends OnlineApp {
         }
         const description = ours.getDescription();
         return ours.init()
-            .then(() => this.rhmiApplication.mapEntryState(description.uuid, this._state))
+            .then(() => this.rhmiApplication.mapEntryState(description.uuid, this._states[ROOTS[this._ui]]))
+            .then(() => { this._entryUuid = description.uuid; })
             .then(() => Promise.resolve()
                 .then(() => ours.entryPoint.setText(description.textId))
                 .then(() => (description.icon ? ours.entryPoint.setIcon(description.icon) : undefined))
@@ -657,6 +926,12 @@ class Store extends OnlineApp {
      * 250 ms while downloading) costs the HMI one write per changed cell. */
     _set(name, cell, value, type, row = 0) {
         const comp = this._components[name];
+        if (this._hmi === 'ID8' && !ID8_LABELS.has(name)) {
+            if (cell === 'Progress') {
+                return;
+            }
+            cell = ID8_CELLS[cell] || cell;
+        }
         const key = `${name}.${row}.${cell}`;
         if (!comp || this._written[key] === value) {
             return;
@@ -715,6 +990,8 @@ class Store extends OnlineApp {
         });
         const removingComponent = this._component(this._removeId);
         this._text(C.removeName, removingComponent ? `${removingComponent.title} ${removingComponent.installed}` : '');
+        const replacing = this._component(this._replaceId);
+        this._text(C.replaceName, replacing ? `${replacedTitle(replacing, st.components)} with ${replacing.title} ${replacing.version}` : '');
 
         // an updater that reports no sources or web hides Sources and Phone access
         const sources = connected && Array.isArray(st.sources) ? st.sources : null;
@@ -739,6 +1016,8 @@ class Store extends OnlineApp {
         }
         this._show(C.sourceAccounts, !!tokens);
         this._renderList(C.accountList, (tokens || []).map((t) => [tokenLabel(t), tokenState(t)]));
+        // Sign in with GitHub only with the updater's GitHub App (state.signin)
+        this._show(C.accountSignIn, connected && st.signin === true);
         this._rows.token = (tokens || []).map((t) => t.id);
         const removing = this._token(this._tokenId);
         this._text(C.accountName, removing ? tokenLabel(removing) : '');
@@ -747,6 +1026,9 @@ class Store extends OnlineApp {
         this._renderSource(this._source(this._sourceId));
         this._renderLogin(connected ? st.login : null);
         this._renderPhone(web);
+        if (this._drawnUi()) {
+            this._drawn.render();
+        }
     }
 
     _renderSource(src) {
@@ -768,6 +1050,13 @@ class Store extends OnlineApp {
         this._show(C.srcComponents, !!src);
         this._text(C.srcError, src && src.error ? String(src.error) : '');
         this._show(C.srcRemove, !!actions.remove);
+        // a private repo no account reaches after a sign-in: the GitHub App's install page
+        const app = src && src.status === 'auth-needed' && this._st && this._st.signinApp;
+        const signedIn = Array.isArray(this._st && this._st.tokens) && this._st.tokens.some((t) => !t.rejected);
+        const installUrl = app && signedIn && app.installUrl ? String(app.installUrl) : '';
+        this._show(C.srcAppLabel, !!installUrl);
+        this._text(C.srcAppUrl, installUrl);
+        this._showQr('app', C.srcAppQr, installUrl, '');
     }
 
     /* The sign-in page; it closes itself once the sign-in it started is
@@ -783,9 +1072,9 @@ class Store extends OnlineApp {
         this._text(C.loginCode, code);
         this._text(C.loginUrl, code ? login.url : '');
         this._showQr('login', C.loginQr, code ? login.url : '', code);
-        if (login && login.status === 'done' && this._visibleStates.has(S.login)) {
+        if (login && login.status === 'done' && this._pageShown('login', isPage('login'))) {
             this._visibleStates.delete(S.login);
-            this._closeState(S.login);
+            this._closePage('login', isPage('login'));
         }
     }
 
@@ -797,7 +1086,7 @@ class Store extends OnlineApp {
         this._text(C.phoneUrl, address.text);
         this._text(C.phoneError, web && web.error ? String(web.error) : '');
         this._showQr('phone', C.phoneQr, address.qr, '');
-        this._pollWebUrl(!!(web && web.enabled && this._visibleStates.has(S.phone)));
+        this._pollWebUrl(!!(web && web.enabled && this._pageShown('phone', isPage('phone'))));
     }
 
     /* The updater writes web-url after it reports the page on, and again
@@ -929,6 +1218,7 @@ class Store extends OnlineApp {
         clearTimeout(this._hideTimer);
         this._pollWebUrl(false);
         this._client.close();
+        this._drawn.close();
         this._shutdownPromise = Promise.resolve()
             .then(() => this.destroyBundles().catch((err) =>
                 logger.info(`destroyBundles: ${err && err.message}`)))

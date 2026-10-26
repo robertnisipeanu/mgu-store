@@ -224,7 +224,7 @@ relay and `--arm-debug` stay with `deploy/hu`: `deploy/hu connect --hold
 <s>` holds the relay, and `--host 127.0.0.1 --port 2222` reaches it.
 
 ```sh
-node mgu-install.js first-install [--with-uplink] [--token] [ssh options]
+node mgu-install.js first-install [--no-renderer] [--no-uplink] [--token] [ssh options]
 node mgu-install.js token [--list [--json] | --remove <id>] [ssh options]
 node mgu-install.js usb-repo <stick folder> [<input>...]
 ```
@@ -237,7 +237,10 @@ node .\mgu-install.js usb-repo E:\ github:robertnisipeanu/mgu-store
 
 **first-install** reads the `catalog` release of
 `robertnisipeanu/mgu-store` (release/README.md), takes every entry but the
-optional ones (with `--with-uplink` also `mgu-uplink`), downloads each
+optional ones, and of those the renderer `mgu-render` (the Store draws its
+screens with it) and the internet uplink `mgu-uplink` (`--no-renderer`,
+`--no-uplink` leave them out; one the catalog does not list is skipped,
+saying so), downloads each
 artifact and checks its size and sha256 against the catalog; a mismatch
 stops it before it connects. The deploy tool's own files come from the
 published `mgu-deploy` artifact, each checked against its manifest; nothing
@@ -251,9 +254,9 @@ with the mgu-store source (kept when the unit has its own); then removes
 the folder. With `--token` a token is added (below), then `status` is
 printed. Its last line
 is `Restart the head unit to finish setup (a normal ignition cycle does
-it): the updater starts then.` while `mgu-updater.service` (or, with
-`--with-uplink`, `mgu-uplink.service`) is not active, else `Setup is
-done`. Exit status: 0 done, 1 failed, 2 refused (the deploy tool's own).
+it): the updater starts then.` (naming each of `mgu-updater.service`,
+`mgu-render.socket` and `mgu-uplink.service` installed but not active),
+else `Setup is done`. Exit status: 0 done, 1 failed, 2 refused (the deploy tool's own).
 
 Before installing, the car is parked, on stable power (engine running or a
 charger connected), and stays awake until the command finishes.

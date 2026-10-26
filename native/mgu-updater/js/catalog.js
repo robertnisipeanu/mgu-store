@@ -133,6 +133,7 @@ function plan(entries, installed) {
             id: c.id,
             kind: c.kind,
             title: (i && i.title) && c.title === c.id ? i.title : c.title,
+            description: c.description || '',
             version: c.version,
             installed: i ? i.version : null,
             size: c.artifact.size || null,

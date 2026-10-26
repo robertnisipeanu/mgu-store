@@ -3,8 +3,9 @@
  * mgu_render_client.js - an app's connection to mgu-render (PROTOCOL.md), the native dialect
  * (mgu-render/1). Node 8; needs only net, fs and events.
  *
- *   const { RenderClient } = require('./mgu_render_client');
- *   const gpu = new RenderClient('my_app', log, { kit: require('./record') });   // kit: optional
+ *   // RenderClient: this module's; kit (optional): a kit's record.js. No literal require
+ *   // names here: the OAP linker (tools/oap_link.js) reads them as the module's own.
+ *   const gpu = new RenderClient('my_app', log, { kit });
  *   gpu.on('ready', (screen, info) => {
  *       gpu.mode(info.modes.indexOf('embed') >= 0 ? 'embed' : 'layer');
  *       const box = gpu.mode() === 'embed' ? info.embedBox : info.appArea;

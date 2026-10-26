@@ -5,6 +5,9 @@
 - The state names the head unit the deploy tool reports, `unit` (`hmi` `ID7`/`ID8`, `firmware`). Components carry `mguHmi` (catalog schema 2, `mgu-repo.json`, a component's manifest; an app package without it, from a stick or an index: the HMIs its rhmiData has a UI for) and `compat` (`yes`, `no`, `unknown`); installing one that is not for this unit, or needs one, is refused with the reason.
 - A stick's `oap/` lists IterioDev's root-service packages (`mguService` `renderer`, `tether`) as tools, which the deploy tool installs as such (they need `mgu-deploy` 0.3.0 or newer); another `mguService` is left out.
 - An https source answering an App Manager index (`{"packages": [{url, sha256}]}`) is read in index mode: each package downloaded once, checked against its sha256, kept by it while listed, and read for what it is.
+- `github_app_url` (the GitHub App's page): the state's `signinApp.installUrl` is the App's install page, null without it.
+- A component's state carries the source's `description`.
+- Shipped with the mgu-store GitHub App's client id and page, so Sign in with GitHub is offered (`signin` true).
 - Capabilities: a tool's `mguProvides` (a service package: its kind). The state's `providers` names the installed provider of each, and a component providing the same one names it in `replaces`. Its install is refused unless the privileged `{"op":"install","id","replace":true}` asks for it, which installs it with the deploy tool's `--replace`. The phone page shows a component's capability and that it is not for this unit, and offers Replace.
 
 ## 0.3.0
