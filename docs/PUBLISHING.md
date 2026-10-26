@@ -73,7 +73,10 @@ A `catalog.json` lists every component with its newest version and
 artifact; this repository publishes one (release/README.md). It is read
 from a GitHub release named `catalog`, an HTTPS URL, or a folder (a USB
 stick holding `catalog.json` at its root, in `mgu-repo/` or
-`mgu-repo/<name>/`).
+`mgu-repo/<name>/`). `node deploy/mgu-install.js usb-repo <stick>
+github:<owner>/<repo>` copies a published repository onto a stick, for a
+car without internet (deploy/README.md, "mgu-install"); a repository in
+the releases layout gets a catalog there.
 
 ```json
 { "schema": 2, "components": [

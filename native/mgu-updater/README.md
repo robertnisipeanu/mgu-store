@@ -29,9 +29,9 @@ second one. On the Store's request it also restarts the head unit.
 Two installers put our tools and apps on the car, and both run one install
 core, the deploy tool's on-unit `mgu-deploy.js` (`deploy/README.md`):
 
-- **Local**: `deploy/hu` on the Mac, over SSH or from the USB kit. It
-  bootstraps the car and installs the deploy tool, the uplink and this
-  updater.
+- **Local**: over SSH, `deploy/mgu-install.js` from the published release
+  (`deploy/hu` from a checkout, for development). It bootstraps the car
+  and installs the deploy tool, the uplink and this updater.
 - **Sources**: this updater and the Store. It hands each verified
   artifact to `/var/opt/mgu-deploy/mgu-deploy.sh install --artifact`.
 
@@ -129,9 +129,14 @@ before a build and after it, so nothing a script leaves running reaches
 the next one; its output goes to the log as `build <id>:` lines; the
 folder is emptied as the build uid afterwards.
 
-**Ids.** Component ids are global on the unit. An id two sources list is
-shown once, from the source that installed it (`state/origins.json`), else
-from the first source in order (USB media last). `requires` (`{"<id>":
+**Ids.** Component ids are global on the unit. An id several sources list
+is shown once, at the highest version any of them lists, so a newer
+version on a USB stick is an update of a component installed from GitHub.
+Of equal versions it comes from the source that installed it
+(`state/origins.json`), else a USB stick, else the first source in
+`sources.json` order; the source an install comes from becomes the
+component's origin. Without internet, a network source's last listing
+counts only for ids no other source lists. `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
 same source if it has one at least that version, else from any (a
 newer updater installs alone: it restarts into its new version, which ends
@@ -180,7 +185,11 @@ version of its own `package.json` and the title of its en_GB entry-point
 text, else its `productName`, else its name; the newest of an id wins, a
 package whose `package.json` has `mguService` (a root service, not an app)
 is left out, and its sha256 is taken as it is listed. Each can be removed
-(`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`). Sticks
+(`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`).
+`mgu-install.js usb-repo` writes a stick from published repositories,
+catalog URLs, checkouts and package files, one `mgu-repo/<name>/` folder
+each (deploy/README.md, "mgu-install"), so a car without internet installs
+and updates from it alone. Sticks
 are only read: no link is followed (a folder or file reached through one is
 not there), only regular files, every size bounded.
 
@@ -268,7 +277,8 @@ A version installed from outside (the deploy tool run from the Mac) is
 taken up the same way: the running daemon sees `current` move, writes
 `trial` with its own version, and hands over. That version commits once
 the deploy tool answers, without the sources: the car may have no internet
-while it is set up.
+while it is set up. So does a version installed from a USB stick or a
+folder.
 
 ## Tools the updater runs on
 
@@ -283,7 +293,7 @@ Checking.
 | Tool (`updater.conf`) | Check | On failure |
 |---|---|---|
 | `deploy_tool` (`mgu-deploy`) | the new version (`mgu-deploy.sh`, which runs `current/`) answers `status --json` with JSON within 60 s | the updater switches `/var/opt/mgu-deploy/current` back by rename: a deploy tool that does not run cannot undo itself |
-| `uplink_tool` (`mgu-uplink`) | within `bootstrap_check_s` (90 s) the uplink's lease is back and the first network source answers through it | `mgu-deploy.sh rollback mgu-uplink`, then the internet is waited for again; the previous version cannot be downloaded without it. A rollback the deploy tool reports as failed shows as such |
+| `uplink_tool` (`mgu-uplink`) | within `bootstrap_check_s` (90 s) the uplink's lease is back and the first network source answers through it; not checked when there was no internet before the install | `mgu-deploy.sh rollback mgu-uplink`, then the internet is waited for again; the previous version cannot be downloaded without it. A rollback the deploy tool reports as failed shows as such |
 
 An uplink update the deploy tool leaves for the next boot (`pending_reboot`)
 is not checked: the running version was not restarted. Both tools keep
