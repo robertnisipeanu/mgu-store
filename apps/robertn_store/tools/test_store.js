@@ -151,6 +151,7 @@ class RenderClient extends EventEmitter {
     place(p) { gpuLog.push(`place ${p.x},${p.y} ${p.w}x${p.h} ${p.scale.toFixed(3)}`); this.placement = p; }
     show(on) { this.visible = on; gpuLog.push(`show ${on}`); }
     claim(r) { this.claims = r; }
+    fps(n) { gpuLog.push(`fps ${n}`); }
     grab(on) { this.grabbing = on; }
     frame(rec) { frames.push(rec); return true; }
 }
@@ -373,8 +374,9 @@ function run() {
         eq(sent.map(secretless), [{ op: 'source-remove', id: 'idrive7-apps' }]);
         eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Remove failed: forbidden');
         eq(states, ['close ST_OnlineApps_StoreSourceRemove'], 'only the confirm closes');
-        // the refused source's page closes once it shows again: Sources has the message
+        // the refused source's page closes once the confirm step gives it the focus back: Sources has the message
         app._states.ST_OnlineApps_StoreSource.emit('visible', { visible: true });
+        app._states.ST_OnlineApps_StoreSource.emit('focus', { focus: true });
         return tick();
     }).then(() => {
         eq(states, ['close ST_OnlineApps_StoreSourceRemove', 'close ST_OnlineApps_StoreSource'], 'refused: back to Sources');
@@ -383,7 +385,22 @@ function run() {
         app._sourceId = 'idrive7-apps';
         app._client.emit('state', ST);
         app._states.ST_OnlineApps_StoreSource.emit('visible', { visible: true });
+        app._states.ST_OnlineApps_StoreSourceRemove.emit('focus', { focus: true });
         app._removeSource();
+        app._client.emit('state', Object.assign({}, ST, { sources: ST.sources.slice(0, 1) }));
+        return tick();
+    }).then(() => {
+        eq(states, ['close ST_OnlineApps_StoreSourceRemove'], 'removed while the confirm step still closes: the page waits');
+        app._states.ST_OnlineApps_StoreSource.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(states, ['close ST_OnlineApps_StoreSourceRemove', 'close ST_OnlineApps_StoreSource'], 'removed: back to Sources once the page has the focus');
+        // removed after the page has the focus back
+        reset();
+        app._client.emit('state', ST);
+        app._states.ST_OnlineApps_StoreSource.emit('visible', { visible: true });
+        app._removeSource();
+        app._states.ST_OnlineApps_StoreSource.emit('focus', { focus: true });
         return tick();
     }).then(() => {
         eq(states, ['close ST_OnlineApps_StoreSourceRemove'], 'open while the source is listed');
@@ -395,6 +412,7 @@ function run() {
         reset();
         app._sourceId = 'usb:STICK';
         app._states.ST_OnlineApps_StoreSource.emit('visible', { visible: true });
+        app._states.ST_OnlineApps_StoreSource.emit('focus', { focus: true });
         app._client.emit('state', ST);
         return tick(300);
     }).then(() => {
@@ -407,6 +425,7 @@ function run() {
         fs.unlinkSync(secretFile);
         app._removeSource();
         fs.writeFileSync(secretFile, secretText);
+        app._states.ST_OnlineApps_StoreSource.emit('focus', { focus: true });
         return tick();
     }).then(() => {
         eq(sent, [], 'nothing sent');
@@ -512,7 +531,7 @@ function runWidgetsExtra() {
     app._forgetWritten();
     app._client.emit('state', st);
     return tick().then(() => {
-        eq(last(/storeAppList\.1\.Text2ndCol/), 'storeAppList.1.Text2ndCol=For iDrive 8', 'not for this unit: says for which');
+        eq(last(/storeAppList\.1\.Text2ndCol/), 'storeAppList.1.Text2ndCol=Not for this head unit', 'not for this unit: says so');
         app._onRow('app', 1);
         eq(sent, [], 'and is not installed');
         eq(last(/storeAccountSignIn\.Visible/), 'storeAccountSignIn.Visible=0', 'no Sign in with GitHub without state.signin');

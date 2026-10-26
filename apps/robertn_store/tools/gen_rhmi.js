@@ -33,10 +33,11 @@
  *  33  ST_OnlineApps_StoreAccountRemove the confirm step of an account's
  *                                      Remove: its name, its sources, Cancel,
  *                                      Remove
- *   7  ST_OnlineApps_StoreLogin        GitHub sign-in: the QR code of the
- *                                      sign-in page with the code beside it,
- *                                      the code and page as text, the status,
- *                                      Cancel
+ *   7  ST_OnlineApps_StoreLogin        GitHub sign-in: Cancel (first, so the
+ *                                      focus on it scrolls nothing away), the
+ *                                      QR code of the sign-in page with the
+ *                                      code beside it, the code and page as
+ *                                      text, the status
  *   8  ST_OnlineApps_StoreSourceRemove the confirm step of a source's Remove
  *   9  ST_OnlineApps_StoreRemove       the confirm step of a component's Remove:
  *                                      its name, Cancel, Remove
@@ -166,11 +167,11 @@ const WIDGET_STATES = [
         button(139, 'storeAccountRemoveConfirm', 'Remove')
     ]),
     state(7, 'ST_OnlineApps_StoreLogin', 16, 'Sign in with GitHub', ACCOUNTS.id, [
+        button(93, 'storeLoginCancel', 'Cancel'),
         picture(90, 'storeLoginQr'),
         label(94, 'storeLoginCode'),
         label(91, 'storeLoginUrl'),
-        label(92, 'storeLoginStatus'),
-        button(93, 'storeLoginCancel', 'Cancel')
+        label(92, 'storeLoginStatus')
     ]),
     state(8, 'ST_OnlineApps_StoreSourceRemove', 17, 'Remove source?', SOURCE.id, [
         button(95, 'storeSrcRemoveCancel', 'Cancel'),

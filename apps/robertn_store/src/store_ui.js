@@ -25,7 +25,7 @@
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    incompatible, replacedTitle, removable } = require('./store_view.js');
+    notForUnit, replacedTitle, removable } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -90,13 +90,13 @@ function tileState(c, busy) {
     if (c.queued) {
         return { sub: 'Waiting', subColor: AMBER, badge: 'queued', progress: -1 };
     }
-    if (incompatible(c)) {
-        return { sub: `For ${hmiNames(c.mguHmi)}`, subColor: AMBER, badge: '', progress: -1 };
+    if (notForUnit(c) && !c.installed) {
+        return { sub: 'Not for this head unit', subColor: AMBER, badge: '', progress: -1 };
     }
-    if (c.error) {
+    if (c.error && !notForUnit(c)) {
         return { sub: 'Failed', subColor: RED, badge: '', progress: -1 };
     }
-    if (c.status === 'update') {
+    if (c.status === 'update' && !notForUnit(c)) {
         return { sub: `Update ${target(c)}`, subColor: BLUE, badge: 'update', progress: -1 };
     }
     if (c.status === 'available') {
@@ -113,9 +113,10 @@ function tile(c, busy) {
 }
 
 function nav(m, sel) {
-    const updates = comps(m).filter((c) => c.status === 'update').length;
+    const updates = comps(m).filter((c) => c.status === 'update' && !notForUnit(c)).length;
     const usbIds = (sources(m) || []).filter((s) => s.usb).map((s) => s.id);
-    const usbNew = comps(m).filter((c) => usbIds.indexOf(c.source) >= 0 && (c.status === 'available' || c.status === 'update')).length;
+    const usbNew = comps(m).filter((c) => usbIds.indexOf(c.source) >= 0 && (c.status === 'available' || c.status === 'update') &&
+        !notForUnit(c)).length;
     return { sel, items: [['Store', 'grid', ''], ['Installed', 'check', updates || ''], ['USB', 'usb', usbNew || ''], ['Settings', 'gear', '']]
         .map(([label, vicon, badge], i) => ({ id: TABS[i], label, vicon, badge: String(badge), act: { do: 'tab', tab: TABS[i] } })) };
 }
@@ -238,7 +239,7 @@ function appView(m, id) {
     const v = {
         icon: Object.assign(iconOf(c), { badge: mine ? '' : s.badge, progress: s.progress }),
         name: { text: c.title },
-        author: { text: `from ${src ? sourceLabel(src) : c.source}` },
+        author: { text: [c.author && `by ${c.author}`, `from ${src ? sourceLabel(src) : c.source}`].filter(Boolean).join(' · ') },
         facts: { items: [{ text: `Version ${c.version}` }, c.revision && { text: `Commit ${c.revision}` }, c.size && { text: size(c.size) },
             { text: isTool(c) ? 'Tool' : 'App', color: isTool(c) ? TEAL : BLUE }, c.mguHmi && c.mguHmi.length && { text: hmiNames(c.mguHmi) },
             c.provides && { text: c.provides }].filter(Boolean) },
@@ -246,14 +247,13 @@ function appView(m, id) {
         instLabel: { text: 'Installed' },
         instValue: { text: c.installed || '–' },
         availLabel: { text: avail ? 'Available' : '' },
-        availValue: { text: avail ? target(c) : '', color: c.status === 'update' ? BLUE : 'text' }
+        availValue: { text: avail ? target(c) : '', color: notForUnit(c) ? AMBER : c.status === 'update' ? BLUE : 'text' }
     };
     const notes = [];
-    if (incompatible(c)) {
-        const unit = m.st.unit && m.st.unit.hmi;
-        notes.push([`For ${hmiNames(c.mguHmi)}`, AMBER]);
-        if (unit) {
-            notes.push([`This head unit: ${hmiNames([unit])}`, AMBER]);
+    if (notForUnit(c)) {
+        notes.push(['Not for this head unit', AMBER]);
+        if (c.mguHmi && c.mguHmi.length) {
+            notes.push([`For ${hmiNames(c.mguHmi)}`, AMBER]);
         }
     }
     if (c.error && !mine) {

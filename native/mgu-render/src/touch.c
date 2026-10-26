@@ -15,9 +15,10 @@
  * Fail open: no claim -> no rule. A guard process (forked at start) gets a heartbeat; when the renderer dies it
  * removes the rule, when it hangs with the rule in place (no beat for GUARD_MS) it removes the rule and kills it.
  *
- * PDU (scripts/qemu/guest-src/vminput.c, checked against Hmi8 decodeTouchScreenPduData): 16-byte header,
- * big-endian id + length + 8-byte timestamp; finger data = id 0xB0048002, payload[12] >> 4 == 8, [38] X u16,
- * [44] Y u16, [47] >> 4 = event (1 down, 2 move, 3 up).
+ * PDU (Hmi8 CHmiTouchScreenDevice::decodeTouchScreenPduData): 16-byte header, big-endian id + length + 8-byte
+ * timestamp; touchscreen data = id 0xB0048002, payload [12] >> 4 word type (0/1/2/4/8: the car's display sends
+ * other types than the 8 vminput sends, so it is not checked), [37] & 0x1f finger count (0: no finger, the HMI's),
+ * first finger [38] X u16, [44] Y u16, [47] bits 4-5 event (1 down, 2 move, 3 up; bits 6-7 its touch type).
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -43,7 +44,6 @@ enum { NONE = -1, HMI = -2, GONE = -3 };       /* gesture owner, else a client s
 static char rule[256], open_fw[512];
 static int in = -1, out = -1, beat = -1, loaded, owner = NONE;
 static int ax, ay, aw, ah;                     /* area apps may claim; aw 0 = whole screen */
-static int finger_tag = 8;                     /* payload[12] >> 4 of finger data; -1: any */
 
 static unsigned be16(const unsigned char *p) { return p[0] << 8 | p[1]; }
 static unsigned be32(const unsigned char *p) { return (unsigned)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
@@ -90,9 +90,8 @@ static void guard(int fd, pid_t renderer)
     }
 }
 
-int touch_init(const char *iface, const char *saddr, const int area[4], int tag)
+int touch_init(const char *iface, const char *saddr, const int area[4])
 {
-    finger_tag = tag;
     if (!iface || !*iface) { fprintf(stderr, "touch: no interface\n"); return -1; }
     for (const char *q = iface; *q; q++) if (!((*q >= 'a' && *q <= 'z') || (*q >= '0' && *q <= '9') || *q == '.' || *q == '_' || *q == '-')) return -1;
     for (const char *q = saddr; q && *q; q++) if (!((*q >= '0' && *q <= '9') || *q == '.')) return -1;
@@ -160,7 +159,7 @@ void touch_stop(void) { if (loaded) rule_out(); loaded = 0; }
 /* one finger PDU: 1 = it is an app's (sent to it, or dropped), 0 = forward to the HMI */
 static int route_finger(const unsigned char *p)
 {
-    int x = be16(p + 38), y = be16(p + 44), ev = p[47] >> 4;
+    int x = be16(p + 38), y = be16(p + 44), ev = (p[47] >> 4) & 3;
     /* every DOWN starts a gesture (one finger): an UP we never saw - the rule went (HMI touched, app gone) or a
      * lost datagram - must not hand the next gesture to the last owner */
     if (ev == DOWN) {
@@ -185,7 +184,7 @@ void touch_read(void)
             size_t plen = be32(b + at + 4), end = at + 16 + plen;
             if (end > (size_t)len) { end = len; plen = len - at - 16; }
             const unsigned char *p = b + at + 16;
-            if (!(be32(b + at) == 0xB0048002 && plen >= 48 && (finger_tag < 0 || (p[12] >> 4) == finger_tag) && route_finger(p))) {
+            if (!(be32(b + at) == 0xB0048002 && plen >= 48 && (p[37] & 0x1f) && route_finger(p))) {
                 memcpy(f + fn, b + at, end - at); fn += end - at;
             }
             at = end;

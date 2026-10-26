@@ -9,11 +9,13 @@ Installed and Available; confirm sheets), on iDrive 7 and iDrive 8, with
 the controller (the HMI's focus over hidden buttons, a ring on the drawn
 page) and touch. The widget screens show whenever the renderer is not
 there, and the Store moves between the two as it comes and goes. A
-component not for this head unit says for which it is and does not
-install; one providing what another installed tool provides asks Replace?
-and installs with replace. Sign in with GitHub shows while the updater
+component providing what another installed tool provides asks Replace?
+and installs with replace. Package pictures and authors show where the
+updater gives them. Sign in with GitHub shows while the updater
 offers it, and a private source a sign-in does not reach shows the GitHub
-App's install page as a QR code. An iDrive 8 widget layout. Needs
+App's install page as a QR code. The sign-in page has Cancel first, so the
+QR code stays in view; a removed source's page closes once the confirm
+step has given it back the focus. An iDrive 8 widget layout. Needs
 mgu-updater 0.4.0, mgu-deploy 0.3.0 and mgu-render.
 
 ## 0.6.0
@@ -21,6 +23,9 @@ mgu-updater 0.4.0, mgu-deploy 0.3.0 and mgu-render.
 The package ships no entry point of its own: the build supplies
 `javascript/runner.js` from the SDK donor's package, so the Store needs
 mgu-deploy 0.2.4 or later to build on the head unit.
+
+A version the updater marks as not for this head unit shows `Not for this
+head unit`, is not counted as an update, and a press does not install it.
 
 ## 0.5.0
 

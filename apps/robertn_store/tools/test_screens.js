@@ -47,9 +47,9 @@ eq(f.labels.slice(0, 7), ['Store', 'Installed', 'USB', 'Settings', 'All', 'Apps'
 eq(f.labels.length, 7 + fixture.state().components.length, 'a tile per component');
 eq(f.items[7].act, { do: 'open', page: { name: 'app', id: 'robertn_store' } });
 const subs = f.values.grid.items.map((t) => t.sub);
-['Downloading 42 %', 'For iDrive 8', 'Update a1b2c3d', 'Waiting', 'Restart pending', 'Failed', 'Installed', '2.1.0 · 402 KB']
+['Downloading 42 %', 'Not for this head unit', 'Update a1b2c3d', 'Waiting', 'Restart pending', 'Failed', 'Installed', '2.1.0 · 402 KB']
     .forEach((s) => ok(subs.indexOf(s) >= 0, `a tile says ${s}`));
-eq(f.values.nav.items.map((i) => i.badge), ['', '3', '2', ''], 'badges: updates, new on the stick');
+eq(f.values.nav.items.map((i) => i.badge), ['', '3', '1', ''], 'badges: updates, new on the stick (not one for another head unit)');
 eq(f.values.online.items[0].text, 'Online');
 eq(text(f, 'subtitle'), 'Downloading 42 % · DOOM');
 ok(screen('store-apps').values.grid.items.every((t) => t.kind === 'app'), 'Apps leaves the tools out');
@@ -69,12 +69,20 @@ eq(hit(f.items, f.items[7].x + 5, f.items[7].y + 5), -1, 'and not hit');
 // a component's page: its install, update, replace, or nothing; Remove
 f = screen('app-update');
 eq(own(f), ['Update to a1b2c3d', 'Remove', 'Back'], 'a page: its buttons, Back, the side menu');
+eq(text(f, 'author'), 'by robertn · from cauliflower/idrive7-apps');
 eq(f.items[1].act, { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'raluca' } });
 ok(/^Voice assistant/.test(text(f, 'desc')), 'the description');
 eq(f.values.facts.items.map((c) => c.text), ['Version 1.2.0', 'Commit a1b2c3d', 'App', 'iDrive 7 and iDrive 8']);
 f = screen('app-incompatible');
 eq(own(f), ['Back'], 'not for this unit: nothing to press');
-eq([text(f, 'note1'), text(f, 'note2')], ['For iDrive 8', 'This head unit: iDrive 7']);
+eq([text(f, 'note1'), text(f, 'note2')], ['Not for this head unit', 'For iDrive 8']);
+// an installed component whose new version is not for this unit: installed, no update offered, Remove stays
+const st = Object.assign(fixture.state(), { busy: null });
+st.components = [Object.assign({}, st.components[1], { compat: 'no', mguHmi: ['ID8'] })];
+f = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }, st), { textScale: 1, focus: 0, scroll: {} });
+eq([f.items.map((i) => i.label).slice(0, -4), text(f, 'note1')], [['Remove', 'Back'], 'Not for this head unit']);
+f = frame(fixture.model({}, st), { textScale: 1, focus: 0, scroll: {} });
+eq([f.values.grid.items[0].sub, f.values.nav.items[1].badge], ['Installed', ''], 'not counted as an update');
 f = screen('app-replace');
 eq(own(f), ['Replace GPU renderer', 'Back']);
 eq(f.items[0].act, { do: 'open', page: { name: 'confirm', kind: 'replace', id: 'mgu-render' } });

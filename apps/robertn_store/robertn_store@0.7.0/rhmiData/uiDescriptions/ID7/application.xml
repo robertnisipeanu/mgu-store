@@ -224,6 +224,10 @@
         </layoutGroup>
         <layoutGroup id="115" name="List">
             <property id="3" value="1"/>
+            <component id="93" type="button" widget="LT_Button_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
             <component id="90" type="label" widget="LT_Label_1Graphic_Scalable">
                 <property id="2" value="1"/>
                 <property id="3" value="0"/>
@@ -239,10 +243,6 @@
             <component id="92" type="label" widget="LT_Label_1Row">
                 <property id="2" value="1"/>
                 <property id="3" value="0"/>
-            </component>
-            <component id="93" type="button" widget="LT_Button_1Row">
-                <property id="2" value="1"/>
-                <property id="3" value="3"/>
             </component>
         </layoutGroup>
     </container>

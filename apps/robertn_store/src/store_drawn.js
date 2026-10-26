@@ -22,7 +22,8 @@
  * the focus and a push presses.
  *
  * Emits 'mode' (null, 'layer' or 'embed') when what the renderer offers
- * changes; null: the widget screens show.
+ * changes (null: the widget screens show), and 'page-focus' (the page) when
+ * the HMI gives the top page's host state its focus.
  */
 const EventEmitter = require('events');
 const { RenderClient } = require('./mgu_render_client.js');
@@ -35,6 +36,7 @@ const { frame, hit, placement, VIEWPORT } = require('./store_frame.js');
 const DEPTHS = 3;
 const ICON_BYTES = 128 * 1024;          // a package picture: at most this big
 const ICONS_KEPT = 48;                  // decoded pictures kept, the most recently shown
+const FPS = 30;                         // frames a second at most: the screens move little
 const KEEPALIVE_MS = 1000;              // the renderer hides an app silent for 3 s
 const CLOSED_RESHOW_MS = 700;           // a touch outside that left the page where it was
 const DRAG_PX = 14;
@@ -51,6 +53,7 @@ class Drawn extends EventEmitter {
         this.host = host;
         this.log = host.log;
         this.gpu = (opts && opts.client) || new RenderClient('robertn_store', this.log, { kit, mode: 'layer' });
+        this.gpu.fps(FPS);
         this.mode = null;
         this.w = 0;
         this.scale = 1;
@@ -235,6 +238,9 @@ class Drawn extends EventEmitter {
         }
         if (depth === this.stack.length) {
             this.focusLost = !focus;
+            if (focus) {
+                this.emit('page-focus', this.top());
+            }
         }
         this._updateShow();
     }
@@ -353,7 +359,14 @@ class Drawn extends EventEmitter {
         });
         files.filter((f) => !this.pics.has(f) && !this.decoding.has(f)).forEach((f) => {
             this.decoding.add(f);
-            fs.readFile(f, (err, buf) => {
+            let ok = false;
+            try {
+                const s = fs.statSync(f);
+                ok = s.isFile() && s.size <= ICON_BYTES;
+            } catch (e) {
+                ok = false;
+            }
+            (ok ? fs.readFile.bind(fs, f) : (cb) => setImmediate(cb, new Error('not a picture file')))((err, buf) => {
                 if (err || buf.length > ICON_BYTES) {
                     this.decoding.delete(f);
                     this.pics.set(f, { img: null, used: Date.now() });

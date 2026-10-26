@@ -1,10 +1,15 @@
 # Updater changelog
 
-## 0.4.1
+## 0.5.1
 
 - `github_app_url`, shipped as the mgu-store GitHub App's page: the state's `signinApp.installUrl` is the App's install page (null without it), which the Store shows for a private source a sign-in does not reach.
-- A component's state carries the source's `description`.
 - A requirement that provides a capability another installed tool provides counts as met: a component requiring the renderer installs beside another renderer.
+
+## 0.5.0
+
+- An https source answering IterioDev's App Manager index version 2 (`{"version": 2, "packages": [{url, sha256, size, id, kind, version, title, author, description, icon, iconSha256, …}]}`) is listed from the index alone, without downloading a package. `kind` `app` is an app (for iDrive 8 unless the entry names `mguHmi`); `renderer` and `tether` are tools providing that kind, installed by `mgu-deploy` 0.3.0 or newer; another kind is left out. An install downloads the package and refuses one whose `package.json` is not the id, version and service the index names. Version 1 indexes are read as before.
+- Icons: an index version 2 entry's `icon`, a catalog entry's `icon` and an `mgu-store.json` entry's `icon` (a release asset), each with an optional `iconSha256`, are fetched after a check (PNG, at most 128 KiB) and kept in `state/icons/` for the Store to read. Components in the state carry `icon` (that file, or null), `author` and `description`.
+- A package read for what it is (a stick's `oap/`, a version 1 index) gives its `icon.png`, `author` (or `author.name`) and `store.description` (over `description`), as App Manager 2 packages carry them.
 
 ## 0.4.0
 

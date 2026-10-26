@@ -4,7 +4,7 @@
 #                       Ubuntu 18.04 (Docker)
 #   make check-target   its loader, libraries and glibc versions
 #   make check-protocol IVI_LIB_DIR=<dir>   protocol/*.xml against the unit's libivi-*.so
-#   make test           protocol unit tests, and recorded sessions of both legacy kits replayed
+#   make test           protocol and touch-routing unit tests, and recorded sessions of both legacy kits replayed
 #                       through the original daemons and this one, frames compared (Docker, Mesa)
 #
 # The in-* targets run inside those containers.
@@ -57,6 +57,8 @@ in-build: build/$(OUT)/mgu-render
 in-test: build/$(OUT)/mgu-render
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_dialect test/test_dialect.c src/dialect.c
 	build/$(OUT)/test_dialect
+	$(CC) $(CFLAGS) -o build/$(OUT)/test_touch test/test_touch.c
+	build/$(OUT)/test_touch
 	sh test/replay.sh build/$(OUT)
 
 clean:

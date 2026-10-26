@@ -190,6 +190,7 @@ class Store extends OnlineApp {
         this._sourceId = null;          // the source whose page is open
         this._removingSource = null;    // the source this Store asked the updater to remove
         this._removalRefused = false;
+        this._focusedPage = null;       // the page the HMI last gave its focus: a widget state, or 'drawn:<page>'
         this._removeId = null;          // the component the Remove confirm step names
         this._replaceId = null;         // the component the Replace confirm step names
         this._tokenId = null;           // the account the Remove account confirm step names
@@ -220,6 +221,10 @@ class Store extends OnlineApp {
             modes: this._hostModes
         });
         this._drawn.on('mode', (mode) => this._useUi(mode || 'widgets'));
+        this._drawn.on('page-focus', (page) => {
+            this._focusedPage = `drawn:${page.name}`;
+            this._render();
+        });
         this._st = null;
         this._connected = false;
         this._client = new UpdaterClient(SOCKET, { reconnectMs: RECONNECT_MS });
@@ -442,6 +447,13 @@ class Store extends OnlineApp {
         // The app counts as visible while any of its states is: moving between
         // them hides one before showing the next, so a hide only takes effect
         // if nothing became visible meanwhile.
+        // the page in focus: a confirm step closing gives it back to the page below
+        stateNames.filter((name) => !hosts.some((h) => h.name === name)).forEach((name) => this._states[name].on('focus', (ev) => {
+            if (isTrue(ev && ev.focus)) {
+                this._focusedPage = name;
+                this._render();
+            }
+        }));
         stateNames.forEach((name) => this._states[name].on('visible', (event) => {
             const host = hosts.find((h) => h.name === name);
             if (host) {
@@ -779,10 +791,12 @@ class Store extends OnlineApp {
         }
     }
 
-    /* Closes the page of the source being removed, as the top state, once it
-     * shows; _render calls it again when the page becomes visible. */
+    /* Closes the page of the source being removed once the HMI has given it
+     * the focus back (the confirm step closed): a close sent while the confirm
+     * step is still closing is lost. _render calls it again on every focus. */
     _leaveRemovedSource() {
-        if (this._removingSource && this._removingSource === this._sourceId && this._pageShown('source', isPage('source'))) {
+        const focused = this._drawnUi() ? this._focusedPage === 'drawn:source' : this._focusedPage === S.source;
+        if (this._removingSource && this._removingSource === this._sourceId && focused && this._pageShown('source', isPage('source'))) {
             this._removingSource = null;
             this._removalRefused = false;
             this._visibleStates.delete(S.source);

@@ -25,13 +25,14 @@ USB, Settings) beside:
   (or the running install), a grid of tiles: the package's picture when the
   updater names one (`components[].icon`, a PNG file), else a letter tile
   (round for a tool), its state (`Installed`, `Update 1.0.1`, `Downloading
-  42 %`, `Waiting`, `For iDrive 8`, `Failed`, `Restart pending`, version and
-  size) and a badge or progress ring.
-- **A component's page**: picture, name, source, Version, Commit, size, App
+  42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`,
+  version and size) and a badge or progress ring. A version not for this
+  head unit is not counted as an update.
+- **A component's page**: picture, name, author and source, Version, Commit, size, App
   or Tool, its head units and capability, the description; Installed and
   Available; the running phase (Downloading, Verifying, Building,
-  Installing, Removing) with its progress; `For iDrive 8` / `This head
-  unit: iDrive 7`, the failure, `Replaces <tool>`, `Restart pending`; and
+  Installing, Removing) with its progress; `Not for this head unit` / `For
+  iDrive 8` (that version is not offered), the failure, `Replaces <tool>`, `Restart pending`; and
   what can be done: Install, Update to, Try again, Replace <tool> (a
   confirm step, then the privileged install with `replace`), Restart head
   unit, Remove (a confirm step).
@@ -56,7 +57,8 @@ to the drawn items; a drag scrolls a grid or list. With the HMI's
 controller gate loaded (the renderer's `controller`), the dial and push
 come straight from the renderer instead.
 
-The screens are laid out in iDrive 8 design pixels (2880 x 960) and scaled
+The screens are drawn at most 30 times a second (the renderer's frame
+cap). They are laid out in iDrive 8 design pixels (2880 x 960) and scaled
 into the renderer's box: embed (inside the page, iDrive 7 once the
 template is loaded) or layer (over the page, on the app area). Text is
 Inter (SIL OFL, `src/LICENSE-Inter.txt`), baked by `tools/bake_fonts.py`;
@@ -85,8 +87,8 @@ through it once. iDrive 8 has its own widget layout
 | `DOOM` · `42%` / `Verifying` / `Building` / `Installing` / `Removing` | nothing (in progress) |
 | `Extended dashboard` · `Waiting` | nothing (queued) |
 | `Display bridge` · `Restart pending` | nothing (installed; active after the next reboot) |
+| `Car Data` · `Not for this head unit` | nothing (the updater marks that version `compat: "no"`); *Remove?* for an installed, `uninstallable` one |
 | `DOOM` · `Failed, retry` | try again (the status line names the error) |
-| `Car Data` · `For iDrive 8` | nothing (not for this head unit) |
 | `Renderer` · `Install 0.1.1` | *Replace?* when another installed tool provides the same capability |
 
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,

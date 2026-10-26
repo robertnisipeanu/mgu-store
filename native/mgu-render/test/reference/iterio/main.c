@@ -99,6 +99,8 @@ typedef struct client {
     uint64_t last_msg; int stale;
     /* touch claims, logical px (M_CLAIM) */
     int nclaim; float claim[16][4];
+    /* frame cap (M_FPS): at least min_us between two frames on screen; 0 = none */
+    uint64_t min_us, last_swap;
     /* stats */
     uint64_t stat_t0; uint32_t stat_frames; uint64_t stat_sum, stat_max;
 } client;
@@ -249,9 +251,16 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t t) {
 }
 static const struct wl_callback_listener frame_listener = { frame_done };
 
+/* a capped app's frame that came too early: how long until it may be drawn (us), else 0 */
+static uint64_t cap_wait(const client *c, uint64_t now) {
+    return c->min_us && c->dirty && !c->frame_cb && now - c->last_swap < c->min_us ? c->min_us - (now - c->last_swap) : 0;
+}
+
 static void render_client(client *c) {
     if (!c->es || !c->dirty || c->frame_cb) return;
     uint64_t t0 = now_us();
+    if (cap_wait(c, t0)) return;                         /* too early for its cap: stays dirty, drawn later */
+    c->last_swap = t0;
     eglMakeCurrent(edpy, c->es, c->es, ectx);
     gfx_draw(&c->g, &c->xf, c->w, c->h, c->frame, c->frame_words, 1);
     c->frame_cb = wl_surface_frame(c->ws);
@@ -347,6 +356,11 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
         send_msg(c, E_READY, r, sizeof r);
         return 0;
     }
+    case M_FPS:
+        if (nw < 1) return -1;
+        c->min_us = w[0] ? 1000000ull / (w[0] > 1000 ? 1000 : w[0]) : 0;
+        DBG("%s: at most %u frames a second", c->app, w[0]);
+        return 0;
     case M_CLAIM: {
         if (nw < 1 || w[0] > 16 || nw < 1 + 4 * (size_t)w[0]) return -1;
         c->nclaim = (int)w[0];
@@ -619,7 +633,12 @@ int main(int argc, char **argv) {
             pf[np].events = POLLIN | (clients[i]->outlen ? POLLOUT : 0);
             map[np++] = i;
         }
-        int r = poll(pf, np, 250);
+        int wait_ms = 250;                               /* wake up in time for a capped app's waiting frame */
+        for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) {
+            uint64_t us = cap_wait(clients[i], tnow);
+            if (us && (int)(us / 1000) + 1 < wait_ms) wait_ms = (int)(us / 1000) + 1;
+        }
+        int r = poll(pf, np, wait_ms);
         if (r < 0 && errno != EINTR) { wl_display_cancel_read(dpy); break; }
         if (pf[0].revents & POLLIN) wl_display_read_events(dpy); else wl_display_cancel_read(dpy);
         if (pf[0].revents & (POLLERR | POLLHUP)) { LOG("compositor connection lost"); break; }

@@ -8,9 +8,8 @@
 
 /* iface: where the display's PDUs arrive (the car: "vlan73", from saddr 160.48.199.115; "lo": a local sender, as in
  * the emulator); saddr may be empty. area x,y,w,h (screen px) apps may claim, w 0 = all. Forks the guard: call
- * before the compositor connection. tag: the high nibble of finger data's payload byte 12 (8 on the iDrive 8 car;
- * -1 takes any PDU of the touchscreen's id as finger data). -1 = off. */
-int touch_init(const char *iface, const char *saddr, const int area[4], int tag);
+ * before the compositor connection. -1 = off. */
+int touch_init(const char *iface, const char *saddr, const int area[4]);
 int touch_fd(void);                  /* the diverted PDUs (poll it), -1 when off */
 void touch_read(void);               /* route what came in */
 void touch_tick(int claimed);        /* every loop turn: claimed = a visible app has claims -> rule in or out */

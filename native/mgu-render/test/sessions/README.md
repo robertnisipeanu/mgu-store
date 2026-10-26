@@ -12,6 +12,8 @@ of their dialect and through mgu-render.
 | `iterio/scene.bin.gz`, `bad-*.bin.gz`, `over-count.bin.gz` | IterioDev hmi-ui-builder | `node test_images.js --streams DIR`: pictures, malformed IMAGE messages, 65 pictures |
 | `iterio/screen-car-data-sketches-A_dash.bin.gz` | IterioDev hmi-ui-builder `screenapp.js` + kit `renderd.js` | the builder's car-data-sketches project, screen A_dash, view id7, 60 frames, with one generated picture: CLAIM (9), IMAGE (10) |
 | `iterio/screen-drag-timer-home.bin.gz` | same | drag-timer project, screen home, 30 frames: CLAIM |
+| `iterio/screen-appmanager2-{store,app,settings}.bin.gz` | IterioDev App Manager 2.0.2 `renderer/` (`screenapp.js`, `store-widgets.js`, kit `renderd.js`) | its `screens.json` screens store (grid with two generated icons via `setImage`: IMAGE ×2), app, settings, view id7: CLAIM, ATLAS, FRAME |
+| `iterio/screen-appmanager203-store-fps30.bin.gz` | IterioDev App Manager 2.0.3 `renderer/` | the store screen as above with `maxFps: 30`: FPS (12) |
 
-The builder's streams use the upstream kit's Ubuntu font atlases; none carries data baked from the
-HMI's fonts or icons.
+The builder's and the App Manager's streams use the upstream kit's Ubuntu font atlases (in place of their
+`kit/fonts/*.json`, with no `icon.json`); none carries data baked from the HMI's fonts or icons.
