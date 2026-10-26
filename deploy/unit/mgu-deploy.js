@@ -6,7 +6,7 @@
  * Runs as root under the unit's Node 8, invoked through mgu-deploy.sh.
  *
  *   mgu-deploy.sh check [--artifact <file>...]
- *   mgu-deploy.sh install [--artifact <file>...] [--yes]
+ *   mgu-deploy.sh install [--artifact <file>...] [--replace] [--yes]
  *   mgu-deploy.sh status [--json]
  *   mgu-deploy.sh uninstall <id> [--yes]
  *   mgu-deploy.sh rollback <id> [--yes]
@@ -16,6 +16,7 @@
  *   mgu-deploy.sh updater-token | updater-token --list [--json] | updater-token --remove <id>   (a token on stdin)
  *   mgu-deploy.sh updater-sources            (sources.json on stdin)
  *   mgu-deploy.sh sdk-donor [--json]
+ *   mgu-deploy.sh apply-pending              (iDrive 8, at boot: queued app changes)
  *   mgu-deploy.sh help
  *
  * Exit codes: 0 done, 1 failed (rolled back where applicable),
@@ -42,7 +43,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.2.4';
+var VERSION = '0.3.0';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -53,6 +54,9 @@ var CFG = {
     systemd: env('MGU_DEPLOY_SYSTEMD', '/etc/systemd/system'),
     recmgr: env('MGU_DEPLOY_RECMGR', '/etc/recmgr-restartlist.conf'),
     mainapp: env('MGU_DEPLOY_MAINAPP', '/usr/lib/oap-mainapp'),
+    mainapp21: env('MGU_DEPLOY_MAINAPP21', '/usr/lib/oap-mainapp21'),
+    prov: env('MGU_DEPLOY_PROV', '/usr/share/tm/prov'),
+    vminput: env('MGU_DEPLOY_VMINPUT', '/usr/bin/vminput'),
     oap: env('MGU_DEPLOY_OAP', '/var/opt/public/oap'),
     etc: env('MGU_DEPLOY_ETC', '/etc'),
     proc: env('MGU_DEPLOY_PROC', '/proc'),
@@ -102,6 +106,7 @@ var SELF_DESCRIPTION = 'Installs, updates, rolls back and removes our tools and 
     'with a snapshot before every change';
 var SELF_FILES = [{ path: 'mgu-deploy.js', mode: '0644' }, { path: 'mgu-deploy.sh', mode: '0755' },
     { path: 'fallback_build.js', mode: '0644' }, { path: 'mgu-app-fallback.service', mode: '0644' },
+    { path: 'mgu-deploy-apply.service', mode: '0644' },
     { path: 'oap_link.js', mode: '0644' }, { path: 'oap_pack.js', mode: '0644' }];
 /* A file of this tool: beside the script, or in the repository's tools/
  * (the linker and packer, when it runs from deploy/unit/). */
@@ -118,7 +123,9 @@ function privacyTool() {
 function mainJs() { return path.join(CFG.mainapp, 'src', 'main.js'); }
 function appManagementJs() { return path.join(CFG.mainapp, 'src', 'AppManagement', 'AppManagement.js'); }
 function baseJson() { return path.join(CFG.mainapp, 'config', 'base.json'); }
-function preinstalledDir() { return path.join(CFG.mainapp, 'preinstalled_apps'); }
+/* MainApp's own folder: oap-mainapp on iDrive 7, oap-mainapp21 on iDrive 8. */
+function mainappRoot() { return unitInfo().hmi === 'ID8' ? CFG.mainapp21 : CFG.mainapp; }
+function preinstalledDir() { return path.join(mainappRoot(), 'preinstalled_apps'); }
 function mgrHome() { return path.join(CFG.oap, 'oap_' + MGR_UID); }
 function appsDir() { return path.join(mgrHome(), 'data', 'apps'); }
 function customAppsFile() { return path.join(mgrHome(), 'data', 'custom_apps.json'); }
@@ -314,6 +321,52 @@ function bootTime() {
 function bootId() {
     try { return fs.readFileSync(CFG.bootId, 'utf8').trim(); } catch (e) { return null; }
 }
+/* Which head unit this is: hmi "ID7" (iDrive 7) or "ID8" (iDrive 8), null
+ * when nothing tells, and the firmware's build string. MainApp's folder
+ * decides: /usr/lib/oap-mainapp on iDrive 7, /usr/lib/oap-mainapp21 on
+ * iDrive 8. With both or neither, the running HMI decides: HmiMain3D on
+ * iDrive 7, Hmi8 on iDrive 8. The firmware: the first line of
+ * /etc/os-release-id-dlt ("BMW MGU P18_23w44.2-1-3 mgu-high"), else
+ * os-release's PRETTY_NAME. `basis` says what decided, for status. */
+var UNIT_INFO = null;
+function hmiProcess() {
+    var found = null;
+    try {
+        fs.readdirSync(CFG.proc).some(function (n) {
+            if (!/^\d+$/.test(n)) return false;
+            var comm = '';
+            try { comm = fs.readFileSync(path.join(CFG.proc, n, 'comm'), 'utf8').trim(); } catch (e) { return false; }
+            if (comm === 'HmiMain3D') found = 'ID7';
+            else if (comm === 'Hmi8') found = 'ID8';
+            return !!found;
+        });
+    } catch (e) { /* no process list */ }
+    return found;
+}
+function firmwareString() {
+    var t = '', m;
+    try { t = fs.readFileSync(path.join(CFG.etc, 'os-release-id-dlt'), 'utf8').split('\n')[0].trim(); } catch (e) { /* none */ }
+    if (!t) {
+        try {
+            m = /^PRETTY_NAME=["']?([^"'\n]*)/m.exec(fs.readFileSync(path.join(CFG.etc, 'os-release'), 'utf8'));
+            t = m ? m[1].trim() : '';
+        } catch (e) { /* none */ }
+    }
+    return t ? t.slice(0, 120) : null;
+}
+function unitInfo() {
+    if (UNIT_INFO) return UNIT_INFO;
+    var id7 = fs.existsSync(CFG.mainapp), id8 = fs.existsSync(CFG.mainapp21), hmi = null, basis;
+    if (id7 !== id8) { hmi = id8 ? 'ID8' : 'ID7'; basis = id8 ? CFG.mainapp21 : CFG.mainapp; }
+    else {
+        hmi = hmiProcess();
+        basis = hmi ? (hmi === 'ID8' ? 'Hmi8' : 'HmiMain3D') + ' running' : (id7 ? 'both MainApp folders' : 'no MainApp folder') + ', no HMI running';
+    }
+    UNIT_INFO = { hmi: hmi, firmware: firmwareString(), basis: basis };
+    return UNIT_INFO;
+}
+var HMI_NAMES = { ID7: 'iDrive 7', ID8: 'iDrive 8' };
+function hmiName(h) { return HMI_NAMES[h] || h; }
 function parseColonFile(file) {
     try { return fs.readFileSync(file, 'utf8').split('\n').filter(function (l) { return l; }); }
     catch (e) { return []; }
@@ -339,7 +392,7 @@ function managerPid() {
     var lines = psLines(), col = (lines[0] || '').trim().split(/\s+/).indexOf('PID'), i, pid;
     if (col < 0) return null;
     for (i = 1; i < lines.length; i++) {
-        if (lines[i].indexOf('oap-mainapp/src/main.js') < 0) continue;
+        if (lines[i].indexOf(path.basename(mainappRoot()) + '/src/main.js') < 0) continue;
         pid = Number(lines[i].trim().split(/\s+/)[col]);
         if (pid > 0 && pid !== process.pid) return pid;
     }
@@ -444,9 +497,12 @@ function recmgrHas(name, text) {
     return (s.Whitelist || []).indexOf(name) >= 0 &&
         (s.WhitelistExitSuccess || []).indexOf(name) >= 0;
 }
+/* A unit without the list (none is known on iDrive 8) has no recmgr to
+ * restart it: nothing is written there, and every unit counts as loaded. */
+function recmgrPresent() { return !!lstatOrNull(CFG.recmgr); }
 /* The rootfs op that writes the list, or null when it is unchanged. */
 function recmgrOp(text) {
-    return text === recmgrText() ? null : { type: 'copy', data: text, path: CFG.recmgr, mode: 0o644 };
+    return !recmgrPresent() || text === recmgrText() ? null : { type: 'copy', data: text, path: CFG.recmgr, mode: 0o644 };
 }
 function recmgrPredatesBoot() {
     var bt = bootTime(), st;
@@ -458,6 +514,7 @@ function recmgrPredatesBoot() {
  * predates the boot, else the copy taken before this boot's first write
  * (rootfsWindow). With neither, nothing counts as loaded. */
 function recmgrLoaded(name) {
+    if (!recmgrPresent()) return true;
     if (!recmgrHas(name)) return false;
     // The at-boot copy is authoritative whenever it names this boot: the list was
     // changed after recmgr loaded it, so decide from the copy alone. The mtime
@@ -847,7 +904,7 @@ function validateArtifact(file, stage) {
         if (!e.stat.isFile() && !e.stat.isDirectory()) throw refuse('special file in artifact: ' + e.rel);
         if (e.stat.isFile() && e.stat.nlink > 1) throw refuse('hardlink in artifact: ' + e.rel);
     });
-    if (fs.existsSync(path.join(dir, 'component.json'))) return validateTool(file, dir);
+    if (fs.existsSync(path.join(dir, 'component.json'))) return validateTool(file, dir, readJsonOrNull(path.join(dir, 'component.json')));
     if (fs.existsSync(path.join(dir, 'mgu-app.json'))) return validateSource(file, dir);
     if (fs.existsSync(path.join(dir, 'package.json'))) return validateApp(file, dir, dir);
     /* an npm-format package, its files under package/ */
@@ -864,10 +921,8 @@ function validateArtifact(file, stage) {
     }
     throw refuse(file + ': no component.json, mgu-app.json, package.json, package/package.json or .mgu layout at its root');
 }
-function validateTool(file, dir) {
-    var c;
-    try { c = readJson(path.join(dir, 'component.json')); }
-    catch (e) { throw refuse(file + ': component.json does not parse'); }
+function validateTool(file, dir, c) {
+    if (!c || typeof c !== 'object') throw refuse(file + ': component.json does not parse');
     if (!/^[a-z0-9][a-z0-9-]*$/.test(c.id || '')) throw refuse(file + ': bad id ' + c.id);
     if (!semverParts(c.version)) throw refuse(file + ': version is not x.y.z: ' + c.version);
     if (c.kind !== 'tool') throw refuse(file + ': kind is not "tool"');
@@ -895,18 +950,170 @@ function validateTool(file, dir) {
         if (typeof n !== 'string' || !n) throw refuse(file + ': bad recmgr/restart entry');
         if (n === 'oapcontroller' || n === 'oapcontroller.service') throw refuse(file + ': oapcontroller is never restarted');
     });
-    return { kind: 'tool', file: file, dir: dir, component: c, id: c.id, version: c.version };
+    if (c.mguProvides !== undefined && !PROVIDES.test(c.mguProvides)) {
+        throw refuse(file + ': mguProvides is one lower-case name, e.g. "renderer"');
+    }
+    return { kind: 'tool', file: file, dir: dir, component: c, id: c.id, version: c.version,
+        hmi: hmiList(c.mguHmi, file + ' component.json'), hmiFrom: c.mguHmi ? 'declared' : null,
+        provides: c.mguProvides || null };
 }
-/* An OAP package in pkgDir. One that is not the flat tgz the manager
- * installs as it is (files at the root, "mguLocalOnly": true, no
- * require('oap-sdk') left unanswered) is prepared first (prepareApp). */
+/* An OAP package in pkgDir, or a root-service package (mguService). An app
+ * that is not the flat tgz the manager installs as it is (files at the
+ * root, "mguLocalOnly": true, no require('oap-sdk') left unanswered) is
+ * prepared first (prepareApp). */
 function validateApp(file, dir, pkgDir) {
     var pkg;
     try { pkg = readJson(path.join(pkgDir, 'package.json')); }
     catch (e) { throw refuse(file + ': package.json does not parse'); }
+    if (pkg && pkg.mguService !== undefined) return validateService(file, dir, pkgDir, pkg);
     checkPkg(file, pkg);
     var a = { kind: 'app', file: file, dir: dir, pkgDir: pkgDir, pkg: pkg, id: pkg.name, version: pkg.version };
     a.prepare = pkgDir !== dir || pkg.mguLocalOnly !== true || linker().needsSdk(pkgDir) ? 'package' : null;
+    appHmi(a, file, pkg.mguHmi, [path.join(pkgDir, 'rhmiData'), path.join(dir, 'rhmiData')]);
+    return a;
+}
+
+/* ---- compatibility (mguHmi) ----------------------------------------------------- */
+/* A component may say which head units it is for: "mguHmi": ["ID7"],
+ * ["ID8"] or both, in an app's package.json or mgu-app.json, or a tool's
+ * component.json. An app that does not say is taken to be for the HMIs its
+ * rhmiData has a UI for. Installing one that is not for this unit is
+ * refused; one that says nothing either way installs. */
+var HMIS = ['ID7', 'ID8'];
+function hmiList(v, where) {
+    if (v === undefined) return null;
+    if (!Array.isArray(v) || !v.length || v.some(function (h, i) { return HMIS.indexOf(h) < 0 || v.indexOf(h) !== i; })) {
+        throw refuse(where + ': mguHmi must list "ID7" and/or "ID8"');
+    }
+    return v.slice().sort();
+}
+/* The HMIs an rhmiData folder has a UI for: application.json's
+ * uiDescriptions[].hmi, else the folders under uiDescriptions/; null when
+ * it names none. */
+function rhmiHmis(rhmiDir) {
+    var out = [], app = readJsonOrNull(path.join(rhmiDir, 'application.json'));
+    var uis = app && app.application && Array.isArray(app.application.uiDescriptions) ? app.application.uiDescriptions : [];
+    uis.forEach(function (u) {
+        (u && Array.isArray(u.hmi) ? u.hmi : []).forEach(function (h) { if (HMIS.indexOf(h) >= 0 && out.indexOf(h) < 0) out.push(h); });
+    });
+    if (!out.length) {
+        try {
+            fs.readdirSync(path.join(rhmiDir, 'uiDescriptions')).forEach(function (n) {
+                var st = lstatOrNull(path.join(rhmiDir, 'uiDescriptions', n));
+                if (HMIS.indexOf(n) >= 0 && st && st.isDirectory()) out.push(n);
+            });
+        } catch (e) { /* no uiDescriptions */ }
+    }
+    return out.length ? out.sort() : null;
+}
+function appHmi(a, file, declared, rhmiDirs) {
+    a.hmi = hmiList(declared, file);
+    a.hmiFrom = a.hmi ? 'declared' : null;
+    for (var i = 0; !a.hmi && i < rhmiDirs.length; i++) {
+        a.hmi = rhmiHmis(rhmiDirs[i]);
+        if (a.hmi) a.hmiFrom = 'rhmiData';
+    }
+}
+/* Why a is not for this unit, or null. */
+function incompatible(a) {
+    var unit = unitInfo().hmi;
+    if (!a.hmi || !unit || a.hmi.indexOf(unit) >= 0) return null;
+    return a.id + ' ' + a.version + ' is for ' + a.hmi.map(hmiName).join(' and ') +
+        (a.hmiFrom === 'rhmiData' ? ' (its rhmiData)' : '') + '; this head unit is ' + hmiName(unit);
+}
+
+/* ---- capabilities (mguProvides) --------------------------------------------------- */
+/* A tool may provide a capability only one installed tool can hold, such
+ * as "renderer": every renderer binds /run/mgu-renderd/renderd.sock and the
+ * same ivi layer and surface ids. A service package provides its kind. A
+ * second provider is refused unless the install is asked to replace the
+ * one installed (--replace): it then goes first, in the same transaction. */
+var PROVIDES = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/* A unit of c that is on the unit but that no installed tool of ours
+ * lists, such as IterioDev's App Manager's mgu-renderd.service: a tool
+ * that writes it would fight that manager over it. */
+function foreignUnit(c) {
+    var tools = installedTools();
+    return (c.units || []).map(function (u) { return u.name; }).filter(function (name) {
+        return lstatOrNull(path.join(CFG.systemd, name)) && !tools.some(function (t) {
+            return (t.component.units || []).some(function (u) { return u.name === name; });
+        });
+    })[0] || null;
+}
+function providerOf(cap, exceptId) {
+    return installedTools().filter(function (t) { return t.id !== exceptId && t.component.mguProvides === cap; })[0] || null;
+}
+
+/* ---- root-service packages (mguService) ------------------------------------------ */
+/* IterioDev's App Manager installs two root services as packages
+ * (github.com/IterioDev/mgu-app-store, appmanager-service/services.js and
+ * pkg.js): an npm-format tgz holding package.json { name, version,
+ * mguService } and the program under its name, an x86-64 program.
+ *   renderer  mgu-renderd: draws renderer apps' screens over the HMI;
+ *             enabled, runs from boot
+ *   tether    ipheth-tether: iPhone USB tether, SOCKS5 on 127.0.0.1:1080;
+ *             on demand: installed, not enabled, not started
+ * Such a package becomes a tool here: the program and package.json in
+ * /var/opt/<name>/versions/<version>/, the unit his App Manager writes
+ * (root, as there) running current/<name>, its recmgr entry, and the
+ * tool rules for starting, updating and removing it. */
+var SERVICES = {
+    renderer: { name: 'mgu-renderd', title: 'GPU renderer' },
+    tether: { name: 'ipheth-tether', title: 'iPhone tether' }
+};
+var SERVICE_MAX = 16 << 20;
+/* The renderer's touch routing takes the HMI's touch PDUs on iDrive 8
+ * (UDP 30567 into Hmi8), the app area there being 0,76,2880,764; on any
+ * other unit it runs without touch routing. */
+function serviceUnit(kind, bin) {
+    var touch = kind === 'renderer' && unitInfo().hmi === 'ID8' ?
+        ' --touch ' + (fs.existsSync(CFG.vminput) ? 'vm' : 'car') + ' --touch-area 0,76,2880,764' : '';
+    if (kind === 'tether') {
+        return ['# iPhone USB tether (ipheth-tether), installed by mgu-deploy; started on demand, not at boot.',
+            '# Opens a SOCKS5 proxy on 127.0.0.1:1080 once the phone\'s uplink is up.',
+            '[Unit]', 'Description=iPhone USB tether: SOCKS5 uplink on 127.0.0.1:1080', 'RequiresMountsFor=/var/opt',
+            'StartLimitIntervalSec=0', '', '[Service]', 'ExecStart=' + bin + ' socks 127.0.0.1:1080', 'Restart=always',
+            'RestartSec=3', '', '[Install]', 'WantedBy=late.target', ''].join('\n');
+    }
+    return ['# GPU renderer for custom apps (mgu-renderd), installed by mgu-deploy: draws renderer apps\' screens over the HMI.',
+        '[Unit]', 'Description=GPU renderer for custom apps (mgu-renderd)', 'RequiresMountsFor=/var/opt', 'After=winston.service', '',
+        '[Service]', 'Environment=XDG_RUNTIME_DIR=/run/wayland WAYLAND_DISPLAY=wayland-0',
+        'ExecStartPre=/bin/sh -c \'i=0; while [ ! -S /run/wayland/wayland-0 ]; do i=$$((i+1)); [ $$i -gt 120 ] && exit 1; sleep 1; done\'',
+        'ExecStart=' + bin + ' --socket /run/mgu-renderd/renderd.sock' + touch]
+        .concat(touch ? ['ExecStopPost=-/bin/sh -c \'nft delete table ip touchroute 2>/dev/null; true\''] : [])
+        .concat(['RuntimeDirectory=mgu-renderd', 'RuntimeDirectoryMode=0755', 'Restart=always', 'RestartSec=3',
+            'TimeoutStartSec=150', 'TimeoutStopSec=5', '', '[Install]', 'WantedBy=late.target', '']).join('\n');
+}
+function validateService(file, dir, pkgDir, pkg) {
+    var s = SERVICES[pkg.mguService], kind = pkg.mguService;
+    if (!s) throw refuse(file + ': unknown mguService ' + String(kind).slice(0, 40) + ' (renderer or tether)');
+    if (pkg.name !== s.name) throw refuse(file + ': a ' + kind + ' package is named ' + s.name + ', not ' + pkg.name);
+    if (!semverParts(pkg.version)) throw refuse(file + ': version is not x.y.z: ' + pkg.version);
+    var bin = path.join(pkgDir, s.name), st = lstatOrNull(bin), head = Buffer.alloc(64), fd;
+    if (!st || !st.isFile()) throw refuse(file + ': no ' + s.name + ' program beside its package.json');
+    if (st.size > SERVICE_MAX) throw refuse(file + ': ' + s.name + ' is over ' + (SERVICE_MAX >> 20) + ' MiB');
+    fd = fs.openSync(bin, 'r');
+    try { fs.readSync(fd, head, 0, 64, 0); } finally { fs.closeSync(fd); }
+    if (st.size < 64 || head.readUInt32BE(0) !== 0x7f454c46 || head[4] !== 2 || head.readUInt16LE(18) !== 0x3e) {
+        throw refuse(file + ': ' + s.name + ' is not an x86-64 program');
+    }
+    var hmi = hmiList(pkg.mguHmi, file + ' package.json'), unit = s.name + '.service';
+    var kit = path.join(path.dirname(dir), 'svc' + Math.floor(Math.random() * 1e9));
+    mkdirp(path.join(kit, 'files')); mkdirp(path.join(kit, 'units'));
+    fs.writeFileSync(path.join(kit, 'files', s.name), fs.readFileSync(bin));
+    fs.writeFileSync(path.join(kit, 'files', 'package.json'), fs.readFileSync(path.join(pkgDir, 'package.json')));
+    fs.writeFileSync(path.join(kit, 'units', unit), serviceUnit(kind, path.join(CFG.varOpt, s.name, 'current', s.name)));
+    var c = { id: s.name, kind: 'tool', version: pkg.version,
+        title: typeof pkg.productName === 'string' && pkg.productName ? pkg.productName : s.title,
+        description: typeof pkg.description === 'string' ? pkg.description : '', mguService: kind,
+        files: [{ path: s.name, mode: '0755', sha256: sha256File(path.join(kit, 'files', s.name)) },
+            { path: 'package.json', mode: '0644', sha256: sha256File(path.join(kit, 'files', 'package.json')) }],
+        units: [{ name: unit }], enable: kind === 'tether' ? [] : [{ unit: unit, target: 'late.target' }],
+        recmgr: [s.name], restart: kind === 'tether' ? [] : [unit], mguProvides: kind };
+    if (hmi) c.mguHmi = hmi;
+    fs.writeFileSync(path.join(kit, 'component.json'), JSON.stringify(c, null, 2) + '\n');
+    var a = validateTool(file, kit, c);
+    a.service = kind;
     return a;
 }
 function checkPkg(file, pkg) {
@@ -922,12 +1129,15 @@ function validateSource(file, dir) {
     try { m = linker().readManifest(dir); } catch (e) { throw refuse(file + ': ' + e.message); }
     var pkg = readJson(path.join(dir, m.tree, 'package.json'));
     checkPkg(file, pkg);
-    return { kind: 'app', file: file, dir: dir, pkgDir: null, pkg: pkg, id: m.id, version: m.version, prepare: 'build' };
+    var a = { kind: 'app', file: file, dir: dir, pkgDir: null, pkg: pkg, id: m.id, version: m.version, prepare: 'build' };
+    var raw = readJsonOrNull(path.join(dir, 'mgu-app.json')) || {};
+    appHmi(a, file, raw.mguHmi !== undefined ? raw.mguHmi : pkg.mguHmi, [path.join(dir, m.tree, 'rhmiData')]);
+    return a;
 }
 /* The donor bundles on this unit, in search order (oap_link.js). */
 function unitDonors() {
-    return linker().unitDonors(CFG.mainapp, CFG.oap,
-        { localOnlyFile: localOnlyFile(), customAppsFile: customAppsFile() });
+    return linker().unitDonors(mainappRoot(), CFG.oap,
+        { localOnlyFile: localOnlyFile(), customAppsFile: customAppsFile(), exclude: isId8() ? dasApps() : [] });
 }
 /* Turns a source package or a package that is not ready into the flat,
  * marked OAP tgz in the staging folder, and validates that as the app.
@@ -1435,7 +1645,7 @@ function appDecision(a, skipOlder) {
     if (cmp < 0) throw refuse(a.id + ' ' + existing.version + ' is installed; ' + a.version + ' is a downgrade, uninstall first');
     /* the manager fails to start an app without its ACL file and then
      * forgets it, so an update would never run */
-    if (!fs.existsSync(aclFile(existing.uid))) {
+    if (!isId8() && !fs.existsSync(aclFile(existing.uid))) {
         throw refuse(a.id + ': broken install (no ' + aclFile(existing.uid) + '); uninstall then install');
     }
     return { action: 'update', existing: existing };
@@ -1871,8 +2081,12 @@ function ampelUninstallCleanup() {
             'patch until its next restart (recmgr entry not loaded, not restarting it)');
     }
 }
-function uninstallTool(id, state) {
-    var tools = installedTools().filter(function (t) { return t.id === id; });
+/* opts.aside: the tool's folder is moved to <root>.replaced-<pid> instead
+ * of removed, for a replace to put back. Returns { stopped: units it
+ * stopped, aside }. */
+function uninstallTool(id, state, opts) {
+    opts = opts || {};
+    var tools = installedTools().filter(function (t) { return t.id === id; }), stopped = [];
     if (!tools.length) throw refuse(id + ': no installed tool with that id');
     var c = tools[0].component, root = tools[0].root;
     say('uninstalling tool ' + id + ' ' + c.version);
@@ -1880,7 +2094,7 @@ function uninstallTool(id, state) {
     if (id === 'app-privacy' && privacyRevert() && managerPid()) bounceManager();
     (c.units || []).forEach(function (u) {
         if (unitState(u.name, 'is-active') !== 'active') return;
-        if (recmgrLoaded(recmgrBase(u.name))) { runOk(CFG.systemctl, ['stop', u.name]); say('stopped ' + u.name); }
+        if (recmgrLoaded(recmgrBase(u.name))) { runOk(CFG.systemctl, ['stop', u.name]); say('stopped ' + u.name); stopped.push(u.name); }
         else { addPending(state, id, PENDING_RECMGR); warn(u.name + ' left running until a reboot'); }
     });
     var ops = [], removeRec = (c.recmgr || []).filter(function (n) {
@@ -1896,10 +2110,59 @@ function uninstallTool(id, state) {
     if (ops.length) rootfsWindow(ops);
     if (ops.length) runOk(CFG.systemctl, ['daemon-reload']);
     pruneCreatedDirs(state);
+    if (opts.aside) {
+        var aside = root + '.replaced-' + process.pid;
+        rmrf(aside);
+        fs.renameSync(root, aside);
+        say(id + ' uninstalled (kept aside until the replacement is up)');
+        return { stopped: stopped, aside: aside, root: root };
+    }
     var own = fs.readdirSync(root).filter(function (n) { return ['versions', 'current', 'current.new'].indexOf(n) < 0; });
     if (own.length) say('removing ' + id + "'s own files beside its versions: " + own.sort().join(', '));
     rmrf(root);
     say(id + ' uninstalled');
+    return { stopped: stopped, aside: null, root: root };
+}
+/* Undoes a replace that failed: the new tool's units stop (when recmgr
+ * has them), its files go, the replaced tool's folder comes back, the
+ * snapshot puts both tools' units, links and the recmgr list back, and the
+ * units the replace stopped start again. */
+function rollbackReplace(a, tx, backup, rep, state) {
+    say('rolling back the replace of ' + rep.id + ' by ' + a.id + ' ' + a.version + ' from ' + backup);
+    (a.component.units || []).forEach(function (u) {
+        if (unitState(u.name, 'is-active') === 'active' && recmgrLoaded(recmgrBase(u.name))) {
+            systemctl(['stop', u.name]); say('stopped ' + u.name);
+        }
+    });
+    if (tx.root) {
+        if (!tx.rootExisted) rmrf(tx.root);
+        else {
+            if (tx.before) switchCurrent(tx.root, tx.before); else rmrf(path.join(tx.root, 'current'));
+            if (!tx.versionExisted && tx.before !== a.version) rmrf(path.join(tx.root, 'versions', a.version));
+        }
+    }
+    if (rep.aside && lstatOrNull(rep.aside)) { rmrf(rep.root); fs.renameSync(rep.aside, rep.root); }
+    restoreSnapshot(backup);
+    runOk(CFG.systemctl, ['daemon-reload']);
+    pruneCreatedDirs(state);
+    rep.stopped.forEach(function (u) { runOk(CFG.systemctl, ['start', u]); say('started ' + u + ' again'); });
+    say(rep.id + ' is back');
+}
+/* An app on iDrive 8: its removal queued for the next start (or a queued
+ * install dropped), in a snapshot of the boot unit's files. */
+function uninstallQueuedId8(id, state) {
+    var backup = takeSnapshot('uninstall', applyTouched());
+    try {
+        uninstallAppId8(id, state);
+        saveState(state); selfInstall();
+    } catch (e) {
+        if (e.code !== 2) {
+            process.stderr.write('uninstall failed, rolling back from ' + backup + '\n');
+            try { restoreSnapshot(backup); pruneCreatedDirs(state); } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
+        }
+        throw e;
+    }
+    return 0;
 }
 function touchedForUninstall(id) {
     var tool = installedTools().filter(function (t) { return t.id === id; })[0];
@@ -1907,6 +2170,282 @@ function touchedForUninstall(id) {
     var paths = [appEntryFile(id), customAppsFile()].concat(uplinkDropIns(id));
     preinstalledFor(id).forEach(function (p) { paths.push(p); });
     return paths;
+}
+
+/* ---- iDrive 8: app changes at the next start ------------------------------------------ */
+/* MainApp-21 (iDrive 8) installs an app it finds in its preinstalled_apps
+ * when provisioning, the six das files under /usr/share/tm/prov, lists it,
+ * at its start. It does not update a preinstalled app in place, and nothing
+ * of an app is removed while it runs. So an app install or uninstall on
+ * iDrive 8 is queued (id8/pending.json, the package in id8/queue/) and
+ * applied at the next start by mgu-deploy-apply.service, before
+ * oapcontroller, the way IterioDev's App Manager does
+ * (github.com/IterioDev/mgu-app-store, appmanager-service/oap.js):
+ *   install    the installed version uninstalled first (its data goes),
+ *              the package as preinstalled_apps/<id>@<version>.tgz, the
+ *              app's two lines in every das file;
+ *   uninstall  its registry entry, home and personal copies, vsomeip
+ *              policy folder, uids.txt line and diag status entries; then
+ *              its packages and das lines.
+ * What goes is moved to id8/trash/<time>/ (the 3 newest kept). The
+ * package is installed in npm format (files under package/), as published
+ * when it is one. */
+var ID8_DIR = path.join(DEPLOY_DIR, 'id8');
+var ID8_PENDING = path.join(ID8_DIR, 'pending.json');
+var ID8_QUEUE = path.join(ID8_DIR, 'queue');
+var ID8_TRASH = path.join(ID8_DIR, 'trash');
+var ID8_LAST = path.join(ID8_DIR, 'last-apply.json');
+var APPLY_UNIT = 'mgu-deploy-apply.service';
+var APPLY_NAME = 'mgu-deploy-apply';
+var APPLY_WANTS = 'late.target.wants';
+var ID8_INSTALLS = 'installs at the next start';
+var ID8_REMOVES = 'removed at the next start';
+var DAS = ['das_000', 'das_001', 'das_002', 'das_003', 'das_004', 'das_005'];
+/* stock apps: their das lines look like ours; never changed */
+var ID8_PROTECTED = ['oap-mainapp21', 'main_app', 'oapcontroller', 'secure_time', 'cdc_jobmanager', 'x_call',
+    'ts_diagnostic_service', 'oap-cdc-2018', 'trigger_service'];
+function isId8() { return unitInfo().hmi === 'ID8'; }
+function dasAppLine(id) { return '<app supportedECUs="HU" initialPreferPreinstalled="true">' + id + '</app>'; }
+function dasEnableLine(id) {
+    return '<' + id + ' enabled="true" allowed="true" appStartType="autostart" userLoginRequired="false"/>';
+}
+function dasFile(d) { return path.join(CFG.prov, d + '.xml'); }
+function applyUnitSource() { return path.join(HERE, APPLY_UNIT); }
+function applyTouched() {
+    return [path.join(CFG.systemd, APPLY_UNIT), path.join(CFG.systemd, APPLY_WANTS, APPLY_UNIT), CFG.recmgr];
+}
+function readPending() {
+    var p = readJsonOrNull(ID8_PENDING);
+    return p && Array.isArray(p.changes) ? p.changes : [];
+}
+function writePending(changes) {
+    if (!changes.length) { rmrf(ID8_PENDING); return; }
+    mkdirp(ID8_DIR, 0o700);
+    writeAtomic(ID8_PENDING, JSON.stringify({ changes: changes }, null, 2) + '\n', 0o600);
+}
+/* The apps provisioning lists with the preinstalled marker line: ours and
+ * the App Manager's, waiting for MainApp or installed. */
+function dasApps() {
+    var ids = [];
+    DAS.forEach(function (d) {
+        var x = '', re = /<app supportedECUs="HU" initialPreferPreinstalled="true">([^<]+)<\/app>/g, m;
+        try { x = fs.readFileSync(dasFile(d), 'utf8'); } catch (e) { return; }
+        while ((m = re.exec(x))) if (ID8_PROTECTED.indexOf(m[1]) < 0 && ids.indexOf(m[1]) < 0) ids.push(m[1]);
+    });
+    return ids;
+}
+/* The boot unit that applies the queue: written, enabled and listed in
+ * recmgr (where the unit has the list) with the first change queued. */
+function ensureApplyUnit(state) {
+    if (!fs.existsSync(applyUnitSource())) throw refuse(APPLY_UNIT + ' missing beside mgu-deploy.js');
+    selfInstall(); // the unit runs the installed tool through its shim
+    var unitDest = path.join(CFG.systemd, APPLY_UNIT), link = path.join(CFG.systemd, APPLY_WANTS, APPLY_UNIT), cur = null, ops = [];
+    if (!bytesEqualFile(fs.readFileSync(applyUnitSource()), unitDest)) {
+        ops.push({ type: 'copy', src: applyUnitSource(), path: unitDest, mode: 0o644 });
+    }
+    try { cur = fs.readlinkSync(link); } catch (e) { /* not enabled */ }
+    if (cur !== '../' + APPLY_UNIT) {
+        if (!fs.existsSync(path.dirname(link))) noteCreatedDir(state, path.dirname(link));
+        ops.push({ type: 'mkdir', path: path.dirname(link) });
+        ops.push({ type: 'symlink', path: link, target: '../' + APPLY_UNIT });
+    }
+    var rec = recmgrOp(recmgrWith(recmgrText(), [APPLY_NAME], []));
+    if (rec) ops.push(rec);
+    if (ops.length) {
+        rootfsWindow(ops);
+        runOk(CFG.systemctl, ['daemon-reload']);
+        say(APPLY_UNIT + ' installed: queued app changes apply at the next start');
+    }
+}
+/* The package MainApp-21 installs: an npm-format package as published; a
+ * source package built here; any other one (flat, .mgu) repacked with its
+ * files under package/. */
+function id8Package(a, stage) {
+    if (a.prepare === 'build') a = prepareApp(a, stage);
+    else if (a.pkgDir === path.join(a.dir, 'package')) return a;
+    var out = path.join(stage, 'id8-' + a.id + '@' + a.version + '.tgz');
+    var entries = walk(a.pkgDir, '', []).filter(function (e) { return e.stat.isFile(); }).map(function (e) {
+        return { name: 'package/' + e.rel, data: fs.readFileSync(e.path), mode: e.stat.mode & 0o777 };
+    });
+    var pack = require(selfFile('oap_pack.js'));
+    fs.writeFileSync(out, pack.tgz(entries, pack.MTIME));
+    say('repacked ' + a.id + ' ' + a.version + ' in npm format (files under package/)');
+    return Object.assign({}, a, { file: out, from: a.from || a.file });
+}
+function queueId8(change) {
+    var keep = [];
+    readPending().forEach(function (c) {
+        if (c.id !== change.id) keep.push(c);
+        else if (c.file && c.file !== change.file) rmrf(c.file);
+    });
+    writePending(change.action ? keep.concat([change]) : keep);
+}
+function installAppId8(a, state, decision) {
+    var existing = decision.existing || null, file = path.join(ID8_QUEUE, a.id + '@' + a.version + '.tgz');
+    say('queueing app ' + a.id + ' ' + a.version + (existing ? ' (update of ' + existing.version + ')' : '') + ' for the next start');
+    ensureApplyUnit(state);
+    mkdirp(ID8_QUEUE, 0o700);
+    copyFileMode(a.file, file, 0o600);
+    queueId8({ action: 'install', id: a.id, version: a.version, file: file, sha256: sha256File(file) });
+    say(a.id + ' ' + a.version + ' ' + ID8_INSTALLS + ' of the head unit' +
+        (existing ? '; ' + existing.version + ' is uninstalled first, and its data with it' : ''));
+}
+function uninstallAppId8(id, state) {
+    if (ID8_PROTECTED.indexOf(id) >= 0) throw refuse(id + ' is a system app');
+    var queued = readPending().filter(function (c) { return c.id === id; })[0];
+    var present = !!readJsonOrNull(appEntryFile(id)) || dasApps().indexOf(id) >= 0 || preinstalledFor(id).length > 0;
+    if (!present && !queued) throw refuse(id + ': not installed');
+    if (!present) { queueId8({ id: id }); say('the queued install of ' + id + ' is dropped'); return; }
+    ensureApplyUnit(state);
+    queueId8({ action: 'remove', id: id });
+    say(id + ' is ' + ID8_REMOVES + ' of the head unit');
+}
+function copyTree(src, dst) {
+    var st = fs.lstatSync(src);
+    mkdirp(path.dirname(dst));
+    if (st.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(src), dst);
+    else if (st.isDirectory()) {
+        fs.mkdirSync(dst, st.mode & 0o7777);
+        fs.readdirSync(src).forEach(function (n) { copyTree(path.join(src, n), path.join(dst, n)); });
+    } else fs.writeFileSync(dst, fs.readFileSync(src), { mode: st.mode & 0o7777 });
+    if (!FAKE) { try { fs.lchownSync(dst, st.uid, st.gid); } catch (e) { /* kept as root's */ } }
+}
+/* Moves p into bin under its own path (/var/opt/x -> <bin>/var/opt/x). A
+ * path on the read-only root is copied here and deleted in the rootfs
+ * window (ops). */
+function trashPath(p, bin, ops, log) {
+    if (!lstatOrNull(p)) return false;
+    var dst = path.join(bin, p);
+    if (isRootfsPath(p)) { copyTree(p, dst); ops.push({ type: 'delete', path: p }); }
+    else {
+        mkdirp(path.dirname(dst));
+        try { fs.renameSync(p, dst); } catch (e) {
+            if (e.code !== 'EXDEV') throw e;
+            copyTree(p, dst); rmrf(p);
+        }
+    }
+    log(p);
+    return true;
+}
+/* Everything of an installed app but its package and das lines. */
+function uninstallId8(id, bin, ops, log) {
+    var entry = readJsonOrNull(appEntryFile(id)), uid = entry && Number(entry.userId) > 0 ? entry.userId : null;
+    trashPath(appEntryFile(id), bin, ops, log);
+    if (uid) {
+        trashPath(appHome(uid), bin, ops, log);
+        var personal = path.join(CFG.varOpt, 'personal');
+        (fs.existsSync(personal) ? fs.readdirSync(personal) : []).forEach(function (pr) {
+            trashPath(path.join(personal, pr, 'oap', 'oap_' + uid), bin, ops, log);
+        });
+        trashPath(path.join(CFG.etc, 'vsomeip', uid + '_' + uid), bin, ops, log);
+    }
+    var uids = path.join(mgrHome(), 'security', 'uids.txt');
+    if (fs.existsSync(uids)) {
+        var lines = fs.readFileSync(uids, 'utf8').split('\n');
+        var keep = lines.filter(function (l) { return l.split('=')[1] !== id; });
+        if (keep.length !== lines.length) { fs.writeFileSync(uids, keep.join('\n')); log(uids + ' -' + id); }
+    }
+    ['diagOapInstallationStatus.json', 'diagOapDownloadStatus.json'].forEach(function (n) {
+        var f = path.join(mgrHome(), 'data', n), j = readJsonOrNull(f), changed = 0;
+        if (!j || typeof j !== 'object') return;
+        Object.keys(j).forEach(function (k) {
+            if (k === id) { delete j[k]; changed++; }
+            else if (Array.isArray(j[k])) {
+                var b = j[k].length;
+                j[k] = j[k].filter(function (e) { return !(e && (e.appId === id || e.name === id)); });
+                changed += b - j[k].length;
+            }
+        });
+        if (changed) { fs.writeFileSync(f, JSON.stringify(j)); log(f + ' -' + id); }
+    });
+}
+/* Each das file with the app's two lines added (add) or taken out:
+ * [{ path, text, st }] of the files that change. */
+function dasEdits(id, add) {
+    var out = [];
+    DAS.forEach(function (d) {
+        var f = dasFile(d), st = lstatOrNull(f), lines, keep, i, indent;
+        if (!st) return;
+        lines = fs.readFileSync(f, 'utf8').split('\n');
+        var has = function (s) { return lines.some(function (l) { return l.trim() === s; }); };
+        if (add) {
+            keep = lines.slice();
+            if (!has(dasAppLine(id))) {
+                i = keep.map(function (l) { return l.trim(); }).indexOf('</installable_apps>');
+                if (i < 0) throw fail(d + ': no </installable_apps>');
+                indent = /^\s*/.exec(keep[i - 1] || '')[0];
+                keep.splice(i, 0, indent + dasAppLine(id));
+            }
+            if (!has(dasEnableLine(id))) {
+                i = -1;
+                keep.some(function (l, j) { if (/^\s*<x_call enabled=/.test(l)) { i = j; return true; } return false; });
+                if (i < 0) throw fail(d + ': no <x_call enabled=...> line');
+                keep.splice(i + 1, 0, /^\s*/.exec(keep[i])[0] + dasEnableLine(id));
+            }
+        } else {
+            keep = lines.filter(function (l) { return l.trim() !== dasAppLine(id) && l.trim() !== dasEnableLine(id); });
+        }
+        if (keep.join('\n') !== lines.join('\n')) out.push({ path: f, text: keep.join('\n'), st: st });
+    });
+    return out;
+}
+function dasOps(edits) {
+    return edits.map(function (e) {
+        return { type: 'copy', data: e.text, path: e.path, mode: e.st.mode & 0o7777, uid: e.st.uid, gid: e.st.gid };
+    });
+}
+function rootFreeKB() {
+    if (FAKE) return Infinity;
+    var r = run(CFG.df, ['-k', '/'], { allowFail: true });
+    var f = (r.stdout || '').trim().split('\n').pop().split(/\s+/);
+    return r.status === 0 && Number(f[3]) >= 0 ? Number(f[3]) : Infinity;
+}
+/* One queued change, at boot with MainApp not running. The das edits are
+ * worked out before anything moves, so a das file without its anchors
+ * fails the change with nothing changed. */
+function applyId8(c, bin, log) {
+    var ops = [], install = c.action === 'install', dest = null, edits;
+    if (ID8_PROTECTED.indexOf(c.id) >= 0) throw fail('a system app');
+    if (!install && c.action !== 'remove') throw fail('unknown action ' + c.action);
+    if (install) {
+        if (!fs.existsSync(c.file) || sha256File(c.file) !== c.sha256) throw fail('the queued package is missing or changed');
+        if (rootFreeKB() < fs.statSync(c.file).size / 1024 + 5120) throw fail('not enough space on the system partition');
+        dest = path.join(preinstalledDir(), c.id + '@' + c.version + '.tgz');
+    }
+    edits = dasEdits(c.id, install);
+    uninstallId8(c.id, bin, ops, log);
+    preinstalledFor(c.id).forEach(function (p) { trashPath(p, bin, ops, log); });
+    if (install) { ops.push({ type: 'copy', src: c.file, path: dest, mode: 0o644, uid: 0, gid: 0 }); log(dest); }
+    rootfsWindow(ops.concat(dasOps(edits)));
+    edits.forEach(function (e) { log(e.path + (install ? ' +' : ' -') + c.id); });
+    if (install && sha256File(dest) !== c.sha256) throw fail('package checksum mismatch at ' + dest);
+}
+function cmdApplyPending() {
+    if (!isId8()) throw refuse('apply-pending applies queued iDrive 8 app changes; this head unit is ' + hmiName(unitInfo().hmi || 'unknown'));
+    var changes = readPending(), results = [];
+    if (!changes.length) { say('nothing queued'); return 0; }
+    if (managerPid()) throw refuse('the app manager is running; queued changes apply before it starts (' + APPLY_UNIT + ')');
+    var bin = path.join(ID8_TRASH, timestamp());
+    changes.forEach(function (c) {
+        var res = { id: c.id, action: c.action, version: c.version || null, ok: false, log: [] };
+        try {
+            applyId8(c, bin, function (l) { res.log.push(l); });
+            res.ok = true;
+            say(c.id + (c.version ? ' ' + c.version : '') + ': ' + (c.action === 'install' ? 'installed for MainApp' : 'removed'));
+        } catch (e) {
+            res.error = e.message;
+            process.stderr.write(c.id + ': ' + c.action + ' failed: ' + e.message + '\n');
+        }
+        results.push(res);
+    });
+    writeAtomic(ID8_LAST, JSON.stringify({ at: new Date().toISOString(), results: results }, null, 2) + '\n', 0o644);
+    changes.forEach(function (c) { if (c.file) rmrf(c.file); });
+    writePending([]);
+    if (fs.existsSync(ID8_TRASH)) {
+        var old = fs.readdirSync(ID8_TRASH).sort();
+        old.slice(0, Math.max(0, old.length - 3)).forEach(function (n) { rmrf(path.join(ID8_TRASH, n)); });
+    }
+    return results.every(function (r) { return r.ok; }) ? 0 : 1;
 }
 
 /* ---- provisioning fallback ---------------------------------------------------- */
@@ -2065,7 +2604,7 @@ function fallbackOff(state, opts) {
 }
 
 /* ---- the retired installer's leftovers ------------------------------------------ */
-/* claude-bmw-ecu's retired installer listed its apps through an edit of
+/* The retired installer listed its apps through an edit of
  * main.js and kept the files it replaced beside the bundles as
  * <bundle>.<letters>bak (deploy/README.md). A backup app-privacy reports as
  * the stock reference is that bundle's verified stock copy. */
@@ -2344,16 +2883,17 @@ function collectStatus(state) {
         if (!seen[k]) { seen[k] = true; pending.push({ id: id, reason: reason }); }
     }
     state.pending_reboot.forEach(function (p) { pend(p.id, p.reason); });
+    readPending().forEach(function (c) { pend(c.id, c.action === 'install' ? ID8_INSTALLS : ID8_REMOVES); });
     installedTools().forEach(function (t) {
         var units = (t.component.units || []).map(function (u) {
             return { name: u.name, enabled: unitState(u.name, 'is-enabled'),
                 active: unitState(u.name, 'is-active'), journal: journalTail(u.name) };
         });
-        (t.component.recmgr || []).forEach(function (n) {
+        if (recmgrPresent()) (t.component.recmgr || []).forEach(function (n) {
             if (recmgrHas(n) && !recmgrLoaded(n)) pend(t.id, PENDING_RECMGR);
             else if (!recmgrHas(n) && (t.component.restart || []).length) pend(t.id, 'recmgr entry missing');
         });
-        components.push({ id: t.id, kind: 'tool', version: t.version, units: units });
+        components.push({ id: t.id, kind: 'tool', version: t.version, units: units, provides: t.component.mguProvides || null });
     });
     installedApps().forEach(function (app) {
         var tile = tileState(app, fb);
@@ -2363,7 +2903,9 @@ function collectStatus(state) {
     });
     var backupCount = 0;
     if (fs.existsSync(BACKUPS_DIR)) backupCount = fs.readdirSync(BACKUPS_DIR).length;
-    return { version: VERSION, components: components, pending_reboot: pending,
+    var unit = unitInfo();
+    return { version: VERSION, unit: { hmi: unit.hmi, firmware: unit.firmware }, components: components, pending_reboot: pending,
+        last_apply: readJsonOrNull(ID8_LAST),
         display_bridge_socket: fs.existsSync(CFG.socketPath),
         display_bridge_todo_on_car: bridgeTodoLines(),
         fallback: fb, backups: backupCount,
@@ -2375,6 +2917,8 @@ function cmdStatus(args) {
     var s = collectStatus(loadState());
     if (args.json) { say(JSON.stringify(s)); return 0; }
     say('mgu-deploy ' + VERSION);
+    say('head unit: ' + (s.unit.hmi ? hmiName(s.unit.hmi) : 'unknown') + ' (' + unitInfo().basis + '), firmware ' +
+        (s.unit.firmware || 'unknown'));
     say('components:');
     s.components.forEach(function (c) {
         if (c.kind === 'tool') {
@@ -2400,11 +2944,18 @@ function cmdStatus(args) {
     if (s.retired_leftovers.length) say("retired installer's leftovers: " + s.retired_leftovers.join(', '));
     say('updater tokens: ' + s.updater_tokens);
     s.pending_reboot.forEach(function (p) { say('pending reboot: ' + p.id + ' - ' + p.reason); });
+    if (s.last_apply) {
+        say('last apply at the start (' + s.last_apply.at + '):');
+        s.last_apply.results.forEach(function (r) {
+            say('  ' + r.id + ' ' + r.action + ': ' + (r.ok ? 'ok' : 'failed: ' + r.error));
+        });
+    }
     return 0;
 }
 function artifactTouched(a) {
     if (a.kind === 'tool') return toolTouched(a.component)
         .concat([path.join(CFG.varOpt, a.id, 'versions', a.version)]).concat(uplinkDropIns(a.id));
+    if (isId8()) return applyTouched();
     var existing = null;
     try { existing = installedApp(a.id); } catch (e) { /* listed without it */ }
     return appTouched(a, existing).concat(uplinkDropIns(a.id));
@@ -2418,6 +2969,8 @@ function cmdCheck(args) {
     var isRoot = typeof process.getuid === 'function' ? process.getuid() === 0 : false;
     line(FAKE || isRoot, 'running as root' + (FAKE ? ' (fake root)' : ''), !FAKE);
     say('node: ' + process.version);
+    say('head unit: ' + (unitInfo().hmi ? hmiName(unitInfo().hmi) : 'unknown') + ' (' + unitInfo().basis + '), firmware ' +
+        (unitInfo().firmware || 'unknown'));
     var sv = systemctl(['--version']);
     var svLine = ((sv.stdout || '').split('\n')[0] || 'unknown').trim();
     say('systemd: ' + svLine);
@@ -2484,8 +3037,11 @@ function cmdCheck(args) {
         try {
             files.forEach(function (f) {
                 try {
-                    var a = prepareApp(validateArtifact(path.resolve(f), stage), stage);
-                    say('artifact ' + f + ': ' + a.kind + ' ' + a.id + ' ' + a.version + ' ok');
+                    var v = validateArtifact(path.resolve(f), stage), why = incompatible(v);
+                    if (why) throw refuse(why);
+                    var a = v.kind !== 'app' ? v : isId8() ? id8Package(v, stage) : prepareApp(v, stage);
+                    say('artifact ' + f + ': ' + (a.service ? 'service ' : '') + a.kind + ' ' + a.id + ' ' + a.version + ' ok' +
+                        (a.hmi ? ' (for ' + a.hmi.map(hmiName).join(' and ') + ')' : ''));
                     artifactTouched(a).forEach(function (p) { say('  would touch ' + p); });
                 } catch (e) { line(false, 'artifact ' + f + ' valid: ' + e.message, true); }
             });
@@ -2677,13 +3233,46 @@ function confirmYes(args, what) {
 function cmdInstall(args) {
     var files = args.artifacts.length ? args.artifacts.map(function (f) { return path.resolve(f); })
         : kitArtifacts();
-    var stage = stageDir(), state = loadState(), done = [], attempted = false;
+    var stage = stageDir(), state = loadState(), done = [], attempted = false, id8 = isId8();
     try {
         var validated = files.map(function (f) { return validateArtifact(f, stage); });
         validated = orderArtifacts(validated);
+        /* a kit (--skip-older) installs what is for this unit and leaves the rest */
+        validated = validated.filter(function (a) {
+            var why = incompatible(a);
+            if (why && !args.skipOlder) throw refuse(why);
+            if (why) say(a.id + ' ' + a.version + ' skipped: ' + why);
+            return !why;
+        });
+        validated.forEach(function (a) {
+            var foreign = a.kind === 'tool' && (a.service || a.provides) ? foreignUnit(a.component) : null;
+            if (foreign) {
+                throw refuse(a.id + ' ' + a.version + ': ' + foreign + ' is installed, but by no tool of ours (another manager runs it); remove it there first');
+            }
+        });
+        if (!unitInfo().hmi) warn('which head unit this is is unknown (' + unitInfo().basis + '): mguHmi is not checked');
+        var replaces = {};
+        validated.forEach(function (a) {
+            if (!a.provides) return;
+            var other = validated.filter(function (b) { return b !== a && b.provides === a.provides; })[0];
+            if (other) throw refuse(a.id + ' and ' + other.id + ' both provide ' + a.provides + '; install one');
+            var cur = providerOf(a.provides, a.id);
+            if (!cur) return;
+            if (!args.replace) {
+                throw refuse(a.id + ' ' + a.version + ' provides ' + a.provides + ', which ' + cur.id + ' ' + cur.version +
+                    ' provides; only one can be installed: install with --replace to replace ' + cur.id);
+            }
+            replaces[a.id] = cur;
+        });
         var decisions = {};
         validated.forEach(function (a) {
             if (a.kind === 'app') decisions[a.id] = appDecision(a, args.skipOlder);
+            /* the installed version again on iDrive 8: a queued removal of it is dropped */
+            if (id8 && a.kind === 'app' && decisions[a.id].action === 'current' &&
+                readPending().some(function (c) { return c.id === a.id && c.action === 'remove'; })) {
+                queueId8({ id: a.id });
+                say('the queued removal of ' + a.id + ' is dropped');
+            }
         });
         if (args.skipOlder) {
             var tools = installedTools();
@@ -2696,7 +3285,7 @@ function cmdInstall(args) {
         }
         var work = validated.filter(function (a) {
             return a.kind !== 'app' || ['current', 'older'].indexOf(decisions[a.id].action) < 0;
-        }).map(function (a) { return a.kind === 'app' ? prepareApp(a, stage) : a; });
+        }).map(function (a) { return a.kind !== 'app' ? a : id8 ? id8Package(a, stage) : prepareApp(a, stage); });
         validated.forEach(function (a) {
             if (a.kind === 'app' && decisions[a.id].action === 'older') {
                 say(a.id + ' ' + a.version + ' skipped; ' + decisions[a.id].existing.version + ' is installed');
@@ -2705,11 +3294,11 @@ function cmdInstall(args) {
                 say(a.id + ' ' + a.version + ' already installed; nothing to change');
             }
         });
-        var apps = work.some(function (a) { return a.kind === 'app'; }), migrated = false;
-        if (apps) preflightFallback();
+        var apps = work.some(function (a) { return a.kind === 'app'; }), migrated = id8;
+        if (apps && !id8) preflightFallback();
         if (work.length) {
             ensureStock('install', work.reduce(function (all, a) { return all.concat(artifactTouched(a)); },
-                apps && retiredBackups().length ? retiredTouched(null) : []));
+                apps && !id8 && retiredBackups().length ? retiredTouched(null) : []));
         }
         work.forEach(function (a) {
             /* after the tools, app-privacy among them, before the first app */
@@ -2720,18 +3309,32 @@ function cmdInstall(args) {
                     throw e;
                 }
             }
-            var tx = {}, backup = takeSnapshot('install', artifactTouched(a));
+            var cur = replaces[a.id], rep = null;
+            var tx = {}, backup = takeSnapshot('install', artifactTouched(a).concat(cur ? toolTouched(cur.component) : []));
             attempted = true;
-            if (a.kind === 'app') beginAppTx(tx);
+            if (a.kind === 'app' && !id8) beginAppTx(tx);
             try {
+                if (cur) {
+                    say('replacing ' + cur.id + ' ' + cur.version + ' (' + a.provides + ') with ' + a.id + ' ' + a.version);
+                    rep = uninstallTool(cur.id, state, { aside: true });
+                    rep.id = cur.id;
+                }
                 if (a.kind === 'tool') installTool(a, state, tx);
+                else if (id8) installAppId8(a, state, decisions[a.id]);
                 else installApp(a, state, decisions[a.id]);
                 syncDropIns();
+                if (rep) {
+                    rmrf(rep.aside);
+                    state.pending_reboot = state.pending_reboot.filter(function (p) { return p.id !== rep.id; });
+                    say(cur.id + ' replaced by ' + a.id);
+                }
                 done.push(a.id + ' ' + a.version);
             } catch (e) {
                 process.stderr.write(a.id + ' ' + a.version + ' failed: ' + e.message + '\n');
                 try {
-                    if (a.kind === 'tool') rollbackTool(a, tx, backup, e, state);
+                    if (cur) { if (rep) rollbackReplace(a, tx, backup, rep, state); else restoreSnapshot(backup); }
+                    else if (a.kind === 'tool') rollbackTool(a, tx, backup, e, state);
+                    else if (id8) { restoreSnapshot(backup); pruneCreatedDirs(state); }
                     else rollbackApp(a, tx, backup, state);
                 } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
                 if (done.length) {
@@ -2794,6 +3397,7 @@ function cmdUninstall(args) {
     }
     var state = loadState();
     var isTool = installedTools().some(function (t) { return t.id === id; });
+    if (!isTool && isId8()) return uninstallQueuedId8(id, state);
     if (!isTool && !readJsonOrNull(appEntryFile(id))) throw refuse(id + ': not installed');
     if (id === 'app-privacy' && ourApps().length) {
         throw refuse('app-privacy stays while our apps are installed (' + ourApps().join(', ') + '); uninstall them first');
@@ -3022,6 +3626,9 @@ function cmdFallback(args) {
         say('fallback: ' + (s.active ? 'active' : 'inactive'));
         return 0;
     }
+    if (['on', 'off', 'migrate'].indexOf(sub) >= 0 && isId8()) {
+        throw refuse('the provisioning fallback is for iDrive 7; on iDrive 8 apps are listed in provisioning (' + CFG.prov + ')');
+    }
     if (sub === 'on') { fallbackOn(state); saveState(state); return 0; }
     if (sub === 'off') { fallbackOff(state, {}); saveState(state); return 0; }
     if (sub === 'migrate') { if (fallbackMigrate(state)) saveState(state); return 0; }
@@ -3031,7 +3638,7 @@ var HELP = [
     'mgu-deploy ' + VERSION,
     'usage: mgu-deploy.sh <command> ...',
     '  check [--artifact <file>...]     read-only checks; exits 2 on a hard problem',
-    '  install [--artifact <file>...] [--skip-older] [--yes]',
+    '  install [--artifact <file>...] [--skip-older] [--replace] [--yes]',
     '                                    install tools/apps (default: ./artifacts/*.tgz)',
     '  status [--json]                  installed components and pending reboots',
     '  uninstall <id> [--yes]           remove one tool or app',
@@ -3045,6 +3652,7 @@ var HELP = [
     '  updater-token --remove <id>      remove one',
     '  updater-sources                  seed the updater\'s sources.json from stdin (kept when present)',
     '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle',
+    '  apply-pending                    iDrive 8: apply the queued app changes (at boot, before MainApp)',
     '  help                             this text',
     'exit codes: 0 done, 1 failed (rolled back), 2 preflight refused'
 ].join('\n');
@@ -3055,6 +3663,7 @@ function parseArgs(argv) {
         if (argv[i] === '--artifact') { out.artifacts.push(argv[++i]); }
         else if (argv[i] === '--json') out.json = true;
         else if (argv[i] === '--skip-older') out.skipOlder = true;
+        else if (argv[i] === '--replace') out.replace = true;
         else if (argv[i] === '--yes') out.yes = true;
         else if (argv[i] === '--remove') out.remove = argv[++i] || '';
         else if (argv[i] === '--list') out.list = true;
@@ -3073,7 +3682,7 @@ function main() {
 }
 function runCommand() {
     var args = parseArgs(process.argv.slice(2)), locked = false;
-    var rootOnly = ['install', 'uninstall', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources']
+    var rootOnly = ['install', 'uninstall', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending']
         .indexOf(args.command) >= 0;
     try {
         if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0 && rootOnly) {
@@ -3095,6 +3704,7 @@ function runCommand() {
         if (args.command === 'updater-token') return cmdUpdaterToken(args);
         if (args.command === 'updater-sources') return cmdUpdaterSources();
         if (args.command === 'sdk-donor') return cmdSdkDonor(args);
+        if (args.command === 'apply-pending') return cmdApplyPending();
         throw refuse('unknown command ' + args.command + '\n' + HELP);
     } catch (e) {
         process.stderr.write('mgu-deploy: ' + e.message + '\n');

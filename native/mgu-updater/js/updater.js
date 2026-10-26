@@ -304,7 +304,30 @@ function deployStatus(conf) {
 
 /* The deploy tool's list of components waiting for a reboot. */
 function pendingReboot(conf) {
-    return deployStatus(conf).then((st) => ((st && st.pending_reboot) || []).map((p) => (p && p.id) || p));
+    return deployStatus(conf).then((st) => pendingOf(st));
+}
+
+function pendingOf(st) {
+    return ((st && st.pending_reboot) || []).map((p) => (p && p.id) || p);
+}
+
+/* The head unit (deploy tool's status: { hmi: "ID7"|"ID8"|null, firmware }),
+ * null when the deploy tool does not say. */
+function unitOf(st) {
+    const u = st && st.unit;
+    return u && typeof u === 'object' ? { hmi: catalogLib.HMIS.indexOf(u.hmi) >= 0 ? u.hmi : null,
+        firmware: typeof u.firmware === 'string' ? u.firmware : null } : null;
+}
+
+/* The installed tool providing each capability: { <capability>: { id, version } }. */
+function providersOf(st) {
+    const out = {};
+    ((st && st.components) || []).forEach((c) => {
+        if (c && c.kind === 'tool' && typeof c.provides === 'string' && c.provides) {
+            out[c.provides] = { id: c.id, version: c.version };
+        }
+    });
+    return out;
 }
 
 /* The app-privacy patch's state (native/app-privacy/INTEGRATION.md §5):
@@ -532,7 +555,9 @@ class Updater {
             version: this.version,
             githubApi: conf.github_api || 'https://api.github.com',
             maxRepoBytes: Number(conf.repo_max_bytes) || 64 << 20,
-            maxBuildBytes: Number(conf.build_max_bytes) || 200 << 20
+            maxBuildBytes: Number(conf.build_max_bytes) || 200 << 20,
+            // an index source's packages, kept by their sha256
+            cacheDir: path.join(conf.state_dir, 'index')
         };
         this.stored = [];
         this.usb = [];
@@ -542,6 +567,8 @@ class Updater {
         this.queue = [];
         this.errors = {};
         this.pending = [];
+        this.unit = null;
+        this.providers = {};
         this.privacy = null;
         this.clients = new Set();
         this.checking = null;
@@ -698,7 +725,12 @@ class Updater {
             if (row.status === 'installed' && entry.revision && o && o.source === row.source && o.commit && o.commit !== entry.commit) {
                 row.status = 'update';
             }
+            const cap = row.provides;
+            const holder = cap && this.providers[cap];
             return Object.assign(row, {
+                compat: catalogLib.compat(row.mguHmi, this.unit && this.unit.hmi),
+                // the installed tool this one would replace (they provide the same capability)
+                replaces: holder && holder.id !== row.id ? holder.id : null,
                 revision: entry.revision || null,
                 pendingReboot: this.pending.indexOf(row.id) >= 0,
                 queued: this.queue.some((q) => q.id === row.id),
@@ -712,6 +744,9 @@ class Updater {
         const st = {
             type: 'state',
             updater: { version: this.version },
+            unit: this.unit,
+            // the installed tool providing each capability
+            providers: this.providers,
             online: readLease(this.conf).online,
             privacy: this.privacy,
             // one line for clients that know a single catalog (the Store 0.3)
@@ -936,6 +971,10 @@ class Updater {
             if (!found) {
                 throw new Error(`needs ${dep} ${min} or newer, which no source has`);
             }
+            const bad = this.incompatible(found.entry);
+            if (bad) {
+                throw new Error(`needs ${dep}, but ${bad}`);
+            }
             this.installPlan(found, chain.concat([r.entry.id])).forEach((s) => {
                 if (!steps.some((x) => x.id === s.id)) {
                     steps.push(s);
@@ -965,14 +1004,37 @@ class Updater {
         return null;
     }
 
-    /* Queues an install of id, after the requirements it lacks. */
-    request(id) {
+    /* Why entry is not for this head unit (its mguHmi), or null. */
+    incompatible(entry) {
+        const hmi = this.unit && this.unit.hmi;
+        if (catalogLib.compat(entry.mguHmi, hmi) !== 'no') {
+            return null;
+        }
+        const name = (h) => (h === 'ID7' ? 'iDrive 7' : h === 'ID8' ? 'iDrive 8' : h);
+        return `${entry.title} is for ${entry.mguHmi.map(name).join(' and ')}; this head unit is ${name(hmi)}`;
+    }
+
+    /* Queues an install of id, after the requirements it lacks. One that
+     * is not for this head unit is refused; one providing a capability
+     * another installed tool provides only with replace (privileged), and
+     * the deploy tool then replaces that tool. */
+    request(id, replace) {
         if (this.rebooting) {
             return 'the head unit is restarting';
         }
         const r = this.resolved().get(id);
         if (!r) {
             return `${id} is not in any source`;
+        }
+        const bad = this.incompatible(r.entry);
+        if (bad) {
+            this.errors[id] = bad;
+            this.changed();
+            return bad;
+        }
+        const holder = r.entry.mguProvides && this.providers[r.entry.mguProvides];
+        if (holder && holder.id !== id && !replace) {
+            return `${r.entry.title} provides ${r.entry.mguProvides}, which ${holder.id} provides: replace ${holder.id} to install it`;
         }
         let steps;
         try {
@@ -989,7 +1051,7 @@ class Updater {
             steps = [self];
             this.errors[id] = `needs a newer ${SELF}: it installs first, then ${id} can be installed`;
         }
-        const items = steps.map((s) => ({ op: 'install', id: s.id, source: s.source }));
+        const items = steps.map((s) => Object.assign({ op: 'install', id: s.id, source: s.source }, s.id === id && replace ? { replace: true } : {}));
         const refused = items.map((i) => this.conflict(i)).filter(Boolean)[0];
         if (refused) {
             return refused;
@@ -1207,7 +1269,7 @@ class Updater {
                     }
                     writeAtomic(trial, fs.readlinkSync(path.join(this.conf.tool_root, SELF, 'current')) + '\n');
                 }
-                return this.deploy(verified);
+                return this.deploy(verified, item.replace === true);
             })
             .then((code) => {
                 if (code !== 0) {
@@ -1216,6 +1278,10 @@ class Updater {
                         `install failed${why ? ': ' + why : ''}; the previous version was kept`);
                 }
                 console.log(`installed ${id}@${entry.version}`);
+                const replaced = item.replace && entry.mguProvides && this.providers[entry.mguProvides];
+                if (replaced && replaced.id !== id) {
+                    delete this.origins[replaced.id];
+                }
                 this.origins[id] = { source: item.source, commit: entry.commit || null };
                 this.saveOrigins();
                 return this.bootstrapCheck(entry, toolDir, before, wasOnline);
@@ -1354,16 +1420,21 @@ class Updater {
         return attempt();
     }
 
-    /* What only the unit's tools can tell: pending reboots, the privacy patch. */
+    /* What only the unit's tools can tell: pending reboots, the head unit,
+     * the installed providers, the privacy patch. */
     refresh() {
-        return Promise.all([pendingReboot(this.conf), privacyState(this.conf)]).then(([pending, privacy]) => {
-            this.pending = pending;
+        return Promise.all([deployStatus(this.conf), privacyState(this.conf)]).then(([st, privacy]) => {
+            this.pending = pendingOf(st);
+            if (st) {
+                this.unit = unitOf(st);
+                this.providers = providersOf(st);
+            }
             this.privacy = privacy;
         });
     }
 
-    deploy(file) {
-        return this.deployTool(['install', '--artifact', file, '--yes']);
+    deploy(file, replace) {
+        return this.deployTool(['install', '--artifact', file].concat(replace ? ['--replace'] : []).concat(['--yes']));
     }
 
     /* Runs the deploy tool; resolves with its exit status. deployError keeps
@@ -1558,6 +1629,7 @@ class Updater {
         this.saveSources(this.stored.filter((s) => s.id !== id));
         this.src.delete(id);
         rmIfThere(this.cacheFile(id));
+        cp.execFileSync('rm', ['-rf', path.join(this.ctx.cacheDir, id)]);
         Object.keys(this.origins).forEach((c) => {
             if (this.origins[c].source === id) {
                 delete this.origins[c];
@@ -1712,13 +1784,14 @@ class Updater {
     /* One request; returns the reason it is refused, null when the state
      * answers it, or undefined when it answers later through reply(msg). */
     handle(req, reply) {
-        if (PRIVILEGED.indexOf(req.op) >= 0 && !this.authorized(req.secret)) {
+        // an install that replaces an installed tool is the Store's or the phone page's to ask for
+        if ((PRIVILEGED.indexOf(req.op) >= 0 || (req.op === 'install' && req.replace === true)) && !this.authorized(req.secret)) {
             return 'forbidden';
         }
         switch (req.op) {
         case 'status': return null;
         case 'check': this.check(); return null;
-        case 'install': return typeof req.id === 'string' ? this.request(req.id) : 'install needs an id';
+        case 'install': return typeof req.id === 'string' ? this.request(req.id, req.replace === true) : 'install needs an id';
         case 'reboot': return this.reboot();
         case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id) : 'uninstall needs an id';
         case 'source-add': return this.sourceAdd(req);

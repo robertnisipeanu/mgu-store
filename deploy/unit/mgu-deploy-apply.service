@@ -1,0 +1,13 @@
+[Unit]
+Description=mgu-deploy: apply queued iDrive 8 app changes before the app platform starts
+RequiresMountsFor=/var/opt
+Before=telematics-platform.service oapcontroller.service
+ConditionPathExists=/var/opt/mgu-deploy/id8/pending.json
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /var/opt/mgu-deploy/mgu-deploy.sh apply-pending
+TimeoutStartSec=120
+
+[Install]
+WantedBy=late.target

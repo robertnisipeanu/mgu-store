@@ -56,7 +56,8 @@ them:
 ```
 
 - `github`: a repo, read through the REST API (`github_api`). `https`: a
-  `catalog.json` URL. `file`: a local folder (tests, the emulator).
+  `catalog.json` URL, or an App Manager index (below). `file`: a local
+  folder (tests, the emulator).
 - `builtin`: the Store's own source (`builtin_repo`, id `mgu-store`),
   always there and not removable.
 - Nothing is signed: trust is HTTPS (and a token, "Tokens") to a source
@@ -74,6 +75,7 @@ them:
 | catalog | a `catalog` release's `catalog.json` asset (`release/README.md`), the https URL, `catalog.json` in a folder | schema 1 or 2 entries; artifact URLs absolute or relative to the catalog |
 | releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description"}}}`), else the installed app's en_GB entry-point text, else the id; always apps, each `uninstallable` |
 | repo tree | `mgu-repo.json` at a repo's or folder's root, at one commit | see below |
+| index | an https URL answering IterioDev's App Manager index, `{"packages": [{"url", "sha256"}]}` | each package (https, absolute or relative to the index; 50 at most, 32 MiB each) downloaded once, checked against its sha256 and kept in `state/index/<source id>/<sha256>.tgz` (root, 0600) while the index lists it, then read like a stick's `oap/` package (below); a package that is missing or does not match is left out, named in the source's `error` |
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog
 release, else the releases layout), `branch:<name>` (`mgu-repo.json` at
@@ -209,11 +211,15 @@ hold `catalog.json` or `mgu-repo.json` are sources `usb:<label>[/<path>]`,
 until the stick goes. A checkout copied to a stick reads as its repo tree
 (no revision). A stick's `oap/` folder (the community App Manager's) is
 source `usb:<label>/oap`: each `*.tgz`, `*.tar.gz` or `*.mgu` in it, under
-any name, flat or with npm's `package/` prefix, is an app with the id and
-version of its own `package.json` and the title of its en_GB entry-point
-text, else its `productName`, else its name; the newest of an id wins, a
-package whose `package.json` has `mguService` (a root service, not an app)
-is left out, and its sha256 is taken as it is listed. Each can be removed
+any name, flat or with npm's `package/` prefix, is a component with the id
+and version of its own `package.json` and the title of its en_GB
+entry-point text, else its `productName`, else its name; the newest of an
+id wins, and its sha256 is taken as it is listed. A package whose
+`package.json` has `mguService` `renderer` or `tether` (IterioDev's root
+services) is a tool: the deploy tool installs it as one (deploy/README.md,
+"Service packages"), so it provides its kind and needs `mgu-deploy` 0.3.0
+or newer; another `mguService` is left out. An app without `mguHmi` is
+for the HMIs its rhmiData has a UI for. Each can be removed
 (`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`).
 `mgu-install.js usb-repo` writes a stick from published repositories,
 catalog URLs, checkouts and package files, one `mgu-repo/<name>/` folder
@@ -221,6 +227,22 @@ each (deploy/README.md, "mgu-install"), so a car without internet installs
 and updates from it alone. Sticks
 are only read: no link is followed (a folder or file reached through one is
 not there), only regular files, every size bounded.
+
+**Head units.** Each entry may say which head units it is for, `mguHmi`
+(`["ID7"]`, `["ID8"]` or both; catalog, `mgu-repo.json` or the component's
+own manifest, docs/PUBLISHING.md). The unit is the one the deploy tool's
+`status --json` names (`unit`). A component's `compat` is `yes`, `no` or
+`unknown` (it says nothing, or the unit is not known); one that is `no` is
+listed, and its install is refused with the reason (`<title> is for
+iDrive 8; this head unit is iDrive 7`), as a requirement too.
+
+**Capabilities.** A tool may provide a capability only one installed tool
+holds (`mguProvides`; a renderer package provides `renderer`, a tether
+package `tether`). The installed provider of each is in `providers`, from
+the deploy tool's `status --json`; a component providing what another
+installed tool provides names it in `replaces`, and its install is refused
+unless it carries `"replace": true`, which is privileged: the deploy tool
+then installs it with `--replace`, which removes the other one first.
 
 **First start.** The installers seed `sources.json` (the deploy tool's
 `updater-sources`, from `deploy/sources.json`) and never replace
@@ -365,7 +387,10 @@ installed, errors, and the logs. On it the owner adds a GitHub source
 removes one; each source shows the account that reads it, or *Sign-in
 needed*. Its Tokens list each token (label, account, the sources it reads)
 with Remove; a token is added by pasting it, or by Sign in with GitHub (the
-code and the link show on the page). Off by default; the Store turns it
+code and the link show on the page). A component not for this head unit
+says so; one providing what another installed tool provides (a second
+renderer) has Replace, which asks *Replace <installed> with <it>?* and
+installs it with `replace`. Off by default; the Store turns it
 on and off (privileged `web` op) and shows its QR code.
 
 - **Server.** A child of the daemon, `node web.js serve`, as `web_uid`
@@ -396,8 +421,8 @@ on and off (privileged `web` op) and shows its QR code.
 - **Requests.** The server talks to the socket with the web secret
   (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
   `source-add` (`github` or `https` only), `source-remove`, `token-add`,
-  `token-remove`, `login-start` and `login-cancel`, each with only its own
-  string fields; the daemon checks their values.
+  `token-remove`, `login-start`, `login-cancel` and `install` with
+  `"replace": true` (no other install), each with only its own fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
   is the daemon's own regular file; the journals of `mgu-updater`,
   `mgu-uplink` and `mgu-app-fallback` (the deploy tool's unit; its own
@@ -455,7 +480,9 @@ JSON object per line. The daemon sends the full state on connect, after
 each request, and whenever it changes (at most every 250 ms):
 
 ```json
-{ "type": "state", "updater": { "version": "0.3.0" }, "online": true, "privacy": "patched",
+{ "type": "state", "updater": { "version": "0.4.0" }, "online": true, "privacy": "patched",
+  "unit": { "hmi": "ID7", "firmware": "BMW MGU P18_23w44.2-1-3 mgu-high" },
+  "providers": { "renderer": { "id": "mgu-renderd", "version": "1.1.0" } },
   "catalog": { "commit": "…", "checkedAt": 1792620000000, "checking": false, "error": null },
   "sources": [ { "id": "idrive7-apps", "type": "github", "label": "someone/idrive7-apps",
     "builtin": false, "usb": false, "channel": "releases", "status": "ok", "error": null,
@@ -470,6 +497,7 @@ each request, and whenever it changes (at most every 250 ms):
   "components": [ { "id": "doom", "kind": "app", "title": "DOOM", "version": "1.0.1",
     "installed": "1.0.0", "size": 2080457, "status": "update", "source": "idrive7-apps",
     "build": null, "optional": false, "uninstallable": true, "revision": null,
+    "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null, "replaces": null,
     "pendingReboot": false, "queued": false, "error": null } ] }
 ```
 
@@ -477,6 +505,11 @@ each request, and whenever it changes (at most every 250 ms):
   `update`, `available` or `newer` (a local build ahead of its source);
   `build` is `"unit"` for what is built on the unit; `revision` the short
   commit a branch would install; `size` null where the source states none.
+- `unit`: the head unit (`hmi` `ID7`, `ID8` or null, `firmware` its build
+  string), null until the deploy tool says. `providers`: the installed tool
+  providing each capability. A component's `mguHmi`, `compat`, `provides`
+  (its capability), `service` (`renderer` or `tether` for a service
+  package) and `replaces` ("Head units", "Capabilities").
 - `busy.phase`: `download`, `build` (a source package or a repo's build
   script), `verify`, `install`, `uninstall`, or `check` (a tool the
   updater runs on, "Tools the updater runs on"); `busy.op`: `install` or
@@ -505,6 +538,7 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 
 | Request | Does |
 |---|---|
+| `{"op":"install","id","replace":true}` | installs a tool that replaces the installed one providing the same capability |
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one) and its record in `origins.json` |
@@ -527,7 +561,7 @@ and the apps' group of `oap_root`; written again within 15 s when the Store's
 uid changes or the file is gone, as after MainApp's crash recovery reinstalls
 the Store) and to `web_secret` for the phone page (`web_uid`).
 Every OAP app can reach the socket; only these two can change sources or
-tokens, sign in, remove components or read journals. While the
+tokens, sign in, remove or replace components or read journals. While the
 phone page is on, `web-url` beside `updater-secret` holds its hotspot
 address with the access token (one line, the Store's own 0400 file) for the
 Store's QR code; it is removed when the page goes off, rewritten when the
@@ -589,10 +623,17 @@ releases, branches, tags, contents, tarballs, the device flow), with
   version is an update) and tags, repo-tree apps and tools, build scripts
   that succeed, fail, run too long or write outside their folder,
   requirements installed first, uninstall and its refusals, USB media
-  (a stick's root and `mgu-repo/<name>`, links not followed, nothing
-  written), the privileged requests and their secret files, `web-url`
+  (a stick's root and `mgu-repo/<name>`, a stick's `oap/` with a renderer
+  package, links not followed, nothing written), the privileged requests and their secret files, `web-url`
   (with a stand-in page), `rid`, a first start without `sources.json`, and
   the Store 0.3's texts from the state;
+- the head unit and compatibility: the unit from the deploy tool, an
+  iDrive 8 app refused on iDrive 7 (and not on iDrive 8); an App Manager
+  index (packages kept by sha256, one that does not match left out, a kept
+  one installed after the server dropped it, one no longer listed
+  removed); a renderer package listed and installed as a tool providing
+  `renderer`, a second renderer refused, refused to replace without the
+  secret, replacing with it, and none left after its uninstall;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a

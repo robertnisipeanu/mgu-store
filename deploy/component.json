@@ -1,7 +1,7 @@
 {
   "id": "mgu-deploy",
   "kind": "tool",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "title": "Deploy tool",
   "description": "Installs, updates, rolls back and removes our tools and apps on the head unit, with a snapshot before every change",
   "versionFiles": ["unit/mgu-deploy.js"],
@@ -10,6 +10,7 @@
     { "path": "mgu-deploy.sh", "from": "unit/mgu-deploy.sh", "mode": "0755" },
     { "path": "fallback_build.js", "from": "unit/fallback_build.js", "mode": "0644" },
     { "path": "mgu-app-fallback.service", "from": "unit/mgu-app-fallback.service", "mode": "0644" },
+    { "path": "mgu-deploy-apply.service", "from": "unit/mgu-deploy-apply.service", "mode": "0644" },
     { "path": "oap_link.js", "from": "../tools/oap_link.js", "mode": "0644" },
     { "path": "oap_pack.js", "from": "../tools/oap_pack.js", "mode": "0644" }
   ],

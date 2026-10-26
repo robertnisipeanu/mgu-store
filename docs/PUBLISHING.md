@@ -26,11 +26,28 @@ What every layout shares:
   download against its size and sha256.
 - The deploy tool marks every app it installs as local
   (`"mguLocalOnly": true` in its `package.json`); you need not.
-- **Apps only, unless you ship a tool kit.** Native companions (a
-  renderer, a daemon) are root tools: they install only as a tool
-  artifact with `component.json` (deploy/README.md, "Artifacts"), listed in
-  a catalog or committed prebuilt in a repo tree. An app's own javascript
-  cannot install one.
+- **Say which head units it is for.** `"mguHmi": ["ID7"]` (iDrive 7),
+  `["ID8"]` (iDrive 8) or both, in the app's `package.json` (or
+  `mgu-app.json`), a tool's `component.json`, and a catalog entry. The
+  Store lists a component that is not for the car but does not install it,
+  saying why. An app without it is taken to be for the HMIs its rhmiData
+  has a UI for (`rhmiData/application.json` `uiDescriptions[].hmi`, or its
+  `uiDescriptions/ID7|ID8/` folders) wherever the package itself is read
+  (a stick, an index, the install); a catalog entry or a release asset
+  without it shows as unknown, and the install still refuses it when its
+  rhmiData has a UI for the other unit only.
+- **Apps only, unless you ship a tool kit or a service package.** Native
+  companions (a renderer, a daemon) are root tools: they install only as a
+  tool artifact with `component.json` (deploy/README.md, "Artifacts"),
+  listed in a catalog or committed prebuilt in a repo tree, or as one of
+  IterioDev's App Manager service packages (below). An app's own
+  javascript cannot install one.
+- **One renderer.** A tool that only one installed tool may provide a
+  capability for says so: `"mguProvides": "renderer"` in its
+  `component.json` and catalog entry (every renderer binds
+  `/run/mgu-renderd/renderd.sock` and the same ivi layer and surface ids).
+  The Store then offers to replace the installed renderer rather than
+  install a second one.
 
 ## 1. Releases
 
@@ -68,6 +85,20 @@ idrive7-apps works as published: its `kit/tools/build.py` writes both
 A repository is read in releases mode when it has neither a release named
 `catalog` nor `mgu-repo.json`.
 
+### App Manager packages and index
+
+Packages made for IterioDev's App Manager install as they are:
+
+- on a USB stick in a folder `oap/` (any file name, `.tgz`, `.tar.gz` or
+  `.mgu`), or listed by an **index** at an https URL the owner adds as a
+  source, `{"packages": [{"url": "<file, absolute or relative to the
+  index>", "sha256": "<hex>"}]}` (his `make_index.py` writes one);
+- a **service package** (`package.json` `{name, version, mguService}` and
+  the x86-64 program under its name): `renderer` (`mgu-renderd`) or
+  `tether` (`ipheth-tether`). It installs as a root tool of that name, with
+  the unit his App Manager writes (deploy/README.md, "Service packages"),
+  and provides its kind.
+
 ## 2. Catalog
 
 A `catalog.json` lists every component with its newest version and
@@ -86,7 +117,7 @@ the releases layout gets a catalog there.
     "build": "unit", "requires": { "mgu-deploy": "0.2.0" } },
   { "id": "acme-renderd", "kind": "tool", "title": "Renderer", "version": "0.3.0",
     "artifact": { "name": "acme-renderd@0.3.0.tgz", "size": 912340, "sha256": "…", "url": "…" },
-    "optional": true, "uninstallable": true } ] }
+    "optional": true, "uninstallable": true, "mguHmi": ["ID7", "ID8"], "mguProvides": "renderer" } ] }
 ```
 
 - `artifact.name` is `<id>@<version>.tgz`; `url` is absolute (a GitHub
@@ -100,8 +131,10 @@ the releases layout gets a catalog there.
   `component.json`).
 - `requires` installs those components (at least that version) first.
   `optional`: listed, never offered as an update until installed.
-  `uninstallable`: the Store offers Remove.
-- Schema 1 (without those four fields) is read too.
+  `uninstallable`: the Store offers Remove. `mguHmi`: the head units it is
+  for. `mguProvides`: a tool's capability (above); the tool kit's
+  `component.json` names it too.
+- Schema 1 (without those fields) is read too.
 
 `node release/release.js` builds and publishes this layout for this
 repository; `MGU_PUBLISH=dir:<folder>` writes it to a folder.
