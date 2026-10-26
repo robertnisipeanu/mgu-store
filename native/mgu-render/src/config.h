@@ -18,7 +18,7 @@ struct cfg {
     char embed_marker[128];     /* written by mgu-render-hmi.sh once the template is mounted */
     char hmi_process[32];       /* the HMI's process name: the template is loaded if it started after the marker */
     char foreground_gate[256];  /* command reporting "foreground [uid ...]" on fd 3; empty: none */
-    int gate_legacy;            /* upstream / iterio apps (layer mode) shown only while in front too */
+    int gate_legacy;            /* upstream / iterio apps (layer) hidden while another app is in front */
     uint32_t yield_surfaces[CFG_MAX_YIELD]; /* layer mode hides while one of these is visible */
     int n_yield;
     int touch;                  /* touch routing */

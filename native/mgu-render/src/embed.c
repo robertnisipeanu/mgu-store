@@ -2,7 +2,8 @@
  * Embed mode's display (embed.h), from display-bridge's target hmi (backend_wayland.c).
  *
  * Nothing here waits for the HMI's compositor: it serves its clients from the HMI's own loop, which
- * may be busy or idle for a while, and the layer apps must not wait with it. Setup, surface changes
+ * may be busy or idle for a while, and the layer apps must not wait with it (only the first apps after
+ * the renderer starts wait, up to 3 s, for its first answer: main.c). Setup, surface changes
  * and buffer reuse after a surface is gone all complete on wl_callback.done in the event loop.
  */
 #define _GNU_SOURCE
@@ -143,8 +144,6 @@ int embed_connect(const char *display, uint32_t id, int w, int h)
 {
     if (E.dpy)
         return 0;
-    if (w < 1 || h < 1)
-        return -1;
     E.dpy = wl_display_connect(display);
     if (!E.dpy) {
         log_debug("embed: cannot connect to %s: %s", display, strerror(errno));

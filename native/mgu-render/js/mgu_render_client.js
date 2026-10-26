@@ -224,7 +224,7 @@ class RenderClient extends EventEmitter {
         if (resize || scaleChanged) this._reset();
         if (!this.ready || !this.native) return;
         this._sendPlace();
-        if (resize || scaleChanged) this._sendPixmaps();       // the renderer dropped them with the old size
+        if (resize) this._sendPixmaps();       // the renderer dropped them with the old size
     }
     _sendPlace() {
         const p = this.placement, b = Buffer.alloc(28);

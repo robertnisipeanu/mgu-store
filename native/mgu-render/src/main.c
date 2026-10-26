@@ -861,10 +861,11 @@ static void record(client *c, uint32_t type, const uint8_t *msg, uint32_t len) {
         char path[256], app[64];
         hello_parse(msg + 8, len, app, sizeof app);
         for (char *s = app; *s; s++) if (*s == '/' || *s == '?' || *s == ' ') *s = '_';
-        snprintf(path, sizeof path, "%s/%s-%d.bin", cfg.record_dir, app, ++n);
+        snprintf(path, sizeof path, "%s/%s-%d-%d.bin", cfg.record_dir, app, (int)getpid(), ++n);
         int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
         c->rec = fd >= 0 ? fdopen(fd, "wb") : NULL;
         if (c->rec) log_info("recording to %s", path);
+        else log_warn("recording to %s: %s", path, strerror(errno));
     }
     if (c->rec) fwrite(msg, 1, 8 + (size_t)len, c->rec);
 }

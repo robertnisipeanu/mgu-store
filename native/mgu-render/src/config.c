@@ -76,15 +76,21 @@ int cfg_set(struct cfg *c, const char *key, const char *value)
     STR("controller_gate", controller_gate);
     STR("controller_lib", controller_lib);
     STR("record_dir", record_dir);
-    if (!strcmp(key, "app_area") || !strcmp(key, "embed_area") || !strcmp(key, "touch_area")) {
-        int *r = key[0] == 'a' ? c->app_area : key[0] == 'e' ? c->embed_area : c->touch_area;
-        if (!strcmp(value, "auto") && r != c->embed_area) {
+    if (!strcmp(key, "embed_area")) {
+        if (rect(c->embed_area, value) == 0 && c->embed_area[2] > 0 && c->embed_area[3] > 0)
+            return 0;
+        log_error("%s: x,y,w,h with a size expected", key);
+        return -1;
+    }
+    if (!strcmp(key, "app_area") || !strcmp(key, "touch_area")) {
+        int *r = key[0] == 'a' ? c->app_area : c->touch_area;
+        if (!strcmp(value, "auto")) {
             memset(r, 0, 4 * sizeof *r);
             return 0;
         }
-        if (rect(r, value) == 0 && (r != c->embed_area || (r[2] > 0 && r[3] > 0)))
+        if (rect(r, value) == 0)
             return 0;
-        log_error("%s: x,y,w,h expected", key);
+        log_error("%s: x,y,w,h or auto expected", key);
         return -1;
     }
     if (!strcmp(key, "yield_surfaces")) {
