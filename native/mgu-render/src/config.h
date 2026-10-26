@@ -12,6 +12,7 @@ struct cfg {
     char shared_path[108];      /* the community renderers' socket, a link to ours while ours to serve; empty: none */
     char shared_yield[CFG_MAX_SHARED_YIELD][128]; /* other renderers' unit files: one present = the path is its */
     int n_shared_yield;
+    char bridge_path[108];      /* display-bridge's socket, a link to ours (its apps speak dbr.h); empty: not served */
     char wayland_display[64];   /* the system compositor (Winston), in XDG_RUNTIME_DIR */
     uint32_t screen_id;         /* layer mode's screen; 0: the lowest id (the centre display) */
     int app_area[4];            /* layer mode: the app content area apps are told (X_READY); w 0: by screen size */

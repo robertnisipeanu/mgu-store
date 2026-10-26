@@ -14,14 +14,15 @@
  * HMI's controller gate is loaded).
  *
  * Apps connect to its own socket (socket_path). The community renderers' socket (shared_path) is a link to it
- * while no other renderer is installed (share.c): their apps then draw here, unchanged.
+ * while no other renderer is installed (share.c): their apps then draw here, unchanged. display-bridge's socket
+ * (bridge_path) links to it too: display-bridge's apps speak its protocol (dbr.h) and draw in their pages.
  *
  *   mgu-render [-c FILE] [-s key=value]... [-v]
- *   mgu-render [-c FILE] --share | --unshare   serve the community socket now, or stop serving it (the socket unit)
+ *   mgu-render [-c FILE] --share | --unshare   link the community and display-bridge sockets now, or remove the links (the socket unit)
  *   mgu-render --replay FILE --out FILE.pam [--raw FILE.rgba]   render a recorded client stream offscreen
  *
  * From mgu-renderd src/main.c (idrive7-apps kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape;
- * touch routing and pictures by IterioDev, ported with permission) and display-bridge (embed placement,
+ * touch routing and pictures by IterioDev) and display-bridge (embed placement,
  * foreground gate).
  */
 #define _GNU_SOURCE
@@ -32,6 +33,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <math.h>
 #include <poll.h>
 #include <signal.h>
 #include <stddef.h>
@@ -47,6 +49,7 @@
 #include <wayland-client.h>
 #include <wayland-egl.h>
 #include "config.h"
+#include "dbr.h"
 #include "dialect.h"
 #include "embed.h"
 #include "gate.h"
@@ -131,6 +134,15 @@ typedef struct client {
     int st_mode, st_on, st_front, st_sent;
     int on_screen;          /* shown at the last update: the watchdog counts silence from the moment it shows */
     FILE *rec;
+    int started;            /* a message has come: a DBR1 session is told by its first four bytes */
+    /* a display-bridge app (DIALECT_DBR): shown in img (logical px); in the HMI's box its picture px (and lut for
+       INDEX8) is written straight into the compositor's buffer, on a layer it is pixmap 1. Of its frames one waits to
+       be drawn (pending), one drawn waits to be committed (embed: prepared), one committed waits for the
+       compositor (committed); each is answered PRESENTED or DROPPED */
+    struct {
+        unsigned format, w, h; size_t bpp; float img[4]; uint8_t *px; uint32_t lut[256];
+        int pending, prepared, committed; uint32_t pending_seq, prepared_seq, committed_seq;
+    } dbr;
     /* stats */
     uint64_t stat_t0; uint32_t stat_frames; uint64_t stat_sum, stat_max;
 } client;
@@ -245,18 +257,35 @@ static int egl_setup(EGLNativeDisplayType nd, int pbuffer) {
 }
 
 /* ---------------- client output ---------------- */
-static void send_msg(client *c, uint32_t type, const void *p, uint32_t len) {
+static void send_bytes(client *c, const void *h, size_t hl, const void *p, uint32_t len) {
     if (c->fd < 0) return;                                /* replay: replies go nowhere */
-    size_t need = c->outlen + 8 + len;
+    size_t need = c->outlen + hl + len;
     if (need > (4u << 20)) return;                       /* app not reading: drop */
     if (need > c->outcap) { c->outcap = need * 2; c->out = realloc(c->out, c->outcap); }
-    memcpy(c->out + c->outlen, &type, 4); memcpy(c->out + c->outlen + 4, &len, 4);
-    if (len) memcpy(c->out + c->outlen + 8, p, len);
-    c->outlen += 8 + len;
+    memcpy(c->out + c->outlen, h, hl);
+    if (len) memcpy(c->out + c->outlen + hl, p, len);
+    c->outlen += hl + len;
     ssize_t w = send(c->fd, c->out, c->outlen, MSG_DONTWAIT | MSG_NOSIGNAL);
     if (w > 0) { memmove(c->out, c->out + w, c->outlen - w); c->outlen -= w; }
 }
-static void send_error(client *c, const char *e) { send_msg(c, E_ERROR, e, (uint32_t)strlen(e)); }
+static void send_msg(client *c, uint32_t type, const void *p, uint32_t len) {
+    if (c->dialect == DIALECT_DBR) return;                /* a display-bridge app gets only DBR1 messages */
+    uint32_t h[2] = { type, len };
+    send_bytes(c, h, sizeof h, p, len);
+}
+static void dbr_send(client *c, unsigned type, uint32_t seq, const void *p, uint32_t len) {
+    uint8_t h[DBR_HEADER];
+    dbr_put_header(h, type, len, seq);
+    send_bytes(c, h, sizeof h, p, len);
+}
+static void dbr_error(client *c, unsigned code, const char *e) {
+    uint8_t p[256];
+    dbr_send(c, DBR_ERROR, 0, p, dbr_error_encode(code, e, p, sizeof p));
+}
+static void send_error(client *c, const char *e) {
+    if (c->dialect == DIALECT_DBR) dbr_error(c, DBR_ERR_DISPLAY, e);
+    else send_msg(c, E_ERROR, e, (uint32_t)strlen(e));
+}
 static void send_tick(client *c) {
     uint32_t p[2] = { ++c->ticks, (uint32_t)((now_us() - t_start) / 1000) };
     c->want_tick = 0;
@@ -264,16 +293,17 @@ static void send_tick(client *c) {
 }
 
 /* ---------------- who shows ---------------- */
+static int legacy(const client *c) { return c->dialect != DIALECT_NATIVE && c->dialect != DIALECT_DBR; }
 static int gate_applies(const client *c) {
     if (!cfg.foreground_gate[0] || c->uid == 0) return 0;     /* root: bring-up tools */
-    return c->dialect == DIALECT_NATIVE || c->mode == MODE_EMBED || cfg.gate_legacy;
+    return !legacy(c) || c->mode == MODE_EMBED || cfg.gate_legacy;
 }
-/* Native and embed apps show only while the gate reports them in front. Legacy apps hide themselves when their
- * screen goes; for them the gate only hides while it names another app in front, so a gate that reads nothing
- * (on a unit it cannot read) leaves them as they were without it. */
+/* Native, display-bridge and embed apps show only while the gate reports them in front. Legacy apps hide themselves
+ * when their screen goes; for them the gate only hides while it names another app in front, so a gate that reads
+ * nothing (on a unit it cannot read) leaves them as they were without it. */
 static int in_front(const client *c) {
     if (!gate_applies(c)) return 1;
-    if (c->dialect != DIALECT_NATIVE && c->mode == MODE_LAYER) return !gate_any_front() || gate_front(c->uid);
+    if (legacy(c) && c->mode == MODE_LAYER) return !gate_any_front() || gate_front(c->uid);
     return gate_reported() && gate_front(c->uid);
 }
 
@@ -315,6 +345,7 @@ static void embed_update(void) {
     }
     if (!embed_connected()) best = NULL;
     if (best != embed_owner) {
+        embed_discard();                                    /* what was drawn for the app before */
         if (embed_owner) log_info("%s: leaves the HMI's box", embed_owner->app);
         embed_owner = best;
         if (best) {
@@ -326,12 +357,43 @@ static void embed_update(void) {
     embed_show(best != NULL);
 }
 
+/* a display-bridge app's frames: drawn (the one waiting becomes the prepared one; drawn over, the one prepared
+   before is dropped), committed, on the screen, or gone */
+static void dbr_answer(client *c, int *has, uint32_t seq) {
+    if (*has) dbr_send(c, DBR_DROPPED, seq, NULL, 0);
+    *has = 0;
+}
+static void dbr_drawn(client *c) {
+    if (c->dialect != DIALECT_DBR || !c->dbr.pending) return;
+    dbr_answer(c, &c->dbr.prepared, c->dbr.prepared_seq);
+    c->dbr.prepared = 1; c->dbr.prepared_seq = c->dbr.pending_seq;
+    c->dbr.pending = 0;
+}
+static void dbr_committed(client *c) {
+    if (c->dialect != DIALECT_DBR || !c->dbr.prepared) return;
+    dbr_answer(c, &c->dbr.committed, c->dbr.committed_seq);
+    c->dbr.committed = 1; c->dbr.committed_seq = c->dbr.prepared_seq;
+    c->dbr.prepared = 0;
+}
+static void dbr_presented(client *c) {
+    if (c->dialect != DIALECT_DBR || !c->dbr.committed) return;
+    uint8_t ms[4];
+    uint32_t t = (uint32_t)((now_us() - t_start) / 1000);
+    memcpy(ms, &t, 4);
+    c->dbr.committed = 0;
+    dbr_send(c, DBR_PRESENTED, c->dbr.committed_seq, ms, sizeof ms);
+}
+
 static void update_all(void) {
     embed_update();
     for (int i = 0; i < MAX_CLIENTS; i++) {
         client *c = clients[i];
         if (!c) continue;
         int on = shown(c);
+        if (c->dialect == DIALECT_DBR) {                  /* its picture went before the frame showed */
+            if (c != embed_owner) dbr_answer(c, &c->dbr.prepared, c->dbr.prepared_seq);
+            if (!on) dbr_answer(c, &c->dbr.committed, c->dbr.committed_seq);
+        }
         if (on && !c->on_screen) c->last_msg = now_us();
         c->on_screen = on;
         apply_visibility(c);
@@ -402,6 +464,7 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t t) {
     client *c = data;
     wl_callback_destroy(cb);
     c->frame_cb = NULL;
+    dbr_presented(c);
     if (c->want_tick) send_tick(c);
 }
 static const struct wl_callback_listener frame_listener = { frame_done };
@@ -434,6 +497,8 @@ static void render_layer(client *c) {
     wl_callback_add_listener(c->frame_cb, &frame_listener, c);
     eglSwapBuffers(edpy, c->es);
     c->dirty = 0;
+    dbr_drawn(c);
+    dbr_committed(c);
     if (c->frames_shown++ == 0) { apply_visibility(c); send_state(c); }
     stats(c, now_us() - t0);
 }
@@ -467,28 +532,43 @@ static void readback(uint8_t *dst, int w, int h) {
     }
 }
 
+/* a display-bridge app's frame is drawn as soon as it comes (over the one drawn but not committed yet, if there is
+   one) and committed at the compositor's next frame callback, so it is ready the moment the compositor is; other
+   apps' frames, a GL draw and a readback each, are drawn once that callback has come (they send a frame per TICK) */
 static void render_embed(void) {
     client *c = embed_owner;
-    if (!c || !c->dirty) return;
-    uint8_t *buf = embed_buffer();
-    if (!buf) return;
+    if (!c) return;
     uint64_t t0 = now_us();
-    if (cap_wait(c, t0)) return;
-    c->last_draw = t0;
-    eglMakeCurrent(edpy, init_es, init_es, ectx);
-    if (embed_target() < 0) return;
-    int w = cfg.embed_area[2], h = cfg.embed_area[3];
-    gfx_draw(&c->g, &c->xf, w, h, c->frame, c->frame_words, 1);
-    readback(buf, w, h);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    embed_commit();
-    c->dirty = 0;
-    if (c->frames_shown++ == 0) send_state(c);
-    stats(c, now_us() - t0);
+    int draw = c->dirty && !cap_wait(c, t0) && (c->dialect == DIALECT_DBR || !embed_waiting());
+    uint8_t *buf = draw ? embed_buffer() : NULL;
+    if (buf) {
+        c->last_draw = t0;
+        int w = cfg.embed_area[2], h = cfg.embed_area[3];
+        if (c->dialect == DIALECT_DBR) {                   /* pixels only: no GPU work beside the HMI's */
+            int img[4] = { (int)c->dbr.img[0], (int)c->dbr.img[1], (int)c->dbr.img[2], (int)c->dbr.img[3] };
+            dbr_blit(buf, w, h, img, c->dbr.px, (int)c->dbr.w, (int)c->dbr.h, c->dbr.format, c->dbr.lut);
+        } else {
+            eglMakeCurrent(edpy, init_es, init_es, ectx);
+            if (embed_target() < 0) return;
+            gfx_draw(&c->g, &c->xf, w, h, c->frame, c->frame_words, 1);
+            readback(buf, w, h);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+        embed_filled();
+        c->dirty = 0;
+        dbr_drawn(c);
+        stats(c, now_us() - t0);
+    }
+    if (embed_can_commit()) {
+        embed_commit();
+        dbr_committed(c);
+        if (c->frames_shown++ == 0) send_state(c);
+    }
 }
 
 void embed_frame_done(void) {
     client *c = embed_owner;
+    if (c) dbr_presented(c);
     if (c && c->want_tick) send_tick(c);
 }
 
@@ -568,6 +648,14 @@ void touch_send(int slot, int phase, int x, int y) {
     float bx, by; origin(c, &bx, &by);
     uint32_t p[3] = { (uint32_t)phase };
     float lx = (x - bx - c->xf.ox) / c->xf.s, ly = (y - by - c->xf.oy) / c->xf.s;
+    if (c->dialect == DIALECT_DBR) {                     /* in frame pixels; the phases are DBR1's kinds */
+        const float *r = c->dbr.img;
+        uint8_t t[8];
+        dbr_touch_encode((unsigned)phase, (int)floorf((lx - r[0]) * (float)c->dbr.w / r[2]),
+                         (int)floorf((ly - r[1]) * (float)c->dbr.h / r[3]), t);
+        dbr_send(c, DBR_TOUCH, 0, t, sizeof t);
+        return;
+    }
     memcpy(&p[1], &lx, 4); memcpy(&p[2], &ly, 4);
     send_msg(c, EI_TOUCH, p, sizeof p);
 }
@@ -576,7 +664,7 @@ void touch_send(int slot, int phase, int x, int y) {
 void touch_outside(void) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         client *c = clients[i];
-        if (!c || !c->nclaim || c->mode != MODE_LAYER || !shown(c)) continue;
+        if (!c || !c->nclaim || c->mode != MODE_LAYER || c->dialect == DIALECT_DBR || !shown(c)) continue;
         c->visible = 0;
         apply_visibility(c);
         send_msg(c, EI_CLOSED, NULL, 0);
@@ -665,7 +753,7 @@ static void client_free(client *c) {
     }
     if (c->rec) fclose(c->rec);
     close(c->fd);
-    free(c->in); free(c->out); free(c->frame);
+    free(c->in); free(c->out); free(c->frame); free(c->dbr.px);
     clients[c->slot] = NULL;
     free(c);
     update_all();
@@ -888,6 +976,153 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
     }
 }
 
+/* ---------------- display-bridge's apps (DBR1, dbr.h) ---------------- */
+#define DBR_PIXMAP 1
+#define DBR_MAX_IN_FLIGHT 3      /* display-bridge's: its queue of 2, and the frame being shown */
+
+/* ERROR, then the connection ends (-1) */
+static int dbr_fail(client *c, unsigned code, const char *why) {
+    log_warn("%s: %s", c->app, why);
+    dbr_error(c, code, why);
+    return -1;
+}
+
+/* HELLO: the frame becomes pixmap DBR_PIXMAP, shown fitted into the HMI page's box (embed), or into the app area
+ * on the app's own layer when the page template is not loaded */
+static int dbr_hello(client *c, const uint8_t *p) {
+    struct dbr_hello h;
+    dbr_hello_decode(p, &h);
+    size_t bpp = dbr_bpp(h.format);
+    if (h.version > DBR_VERSION || !bpp || h.width < 1 || h.height < 1 || h.width > DBR_MAX_WIDTH || h.height > DBR_MAX_HEIGHT)
+        return dbr_fail(c, DBR_ERR_UNSUPPORTED, "unsupported version, format or size");
+    int emb = embed_available(), area[4], r[4];
+    if (emb && !(c->dbr.px = calloc((size_t)h.width * h.height, bpp))) return dbr_fail(c, DBR_ERR_DISPLAY, "out of memory");
+    uint8_t gray[DBR_PALETTE_SIZE];                      /* until a PALETTE: index i is grey i, as display-bridge's */
+    for (int i = 0; i < 256; i++) gray[3 * i] = gray[3 * i + 1] = gray[3 * i + 2] = (uint8_t)i;
+    dbr_palette_lut(gray, c->dbr.lut);
+    int pix = h.format == DBR_FMT_INDEX8 ? PIX_INDEX8 : h.format == DBR_FMT_RGBA8888 ? PIX_RGBA_OPAQUE : PIX_RGBA_PREMUL;
+    make_current_any(c);
+    if (!emb && (gfx_pixmap_def(&c->g, DBR_PIXMAP, (int)h.width, (int)h.height, pix, 0) < 0 ||
+                 (pix == PIX_INDEX8 && gfx_pixmap_palette(&c->g, DBR_PIXMAP, gray) < 0)))
+        return dbr_fail(c, DBR_ERR_DISPLAY, gfx_error());
+    if (emb) memcpy(area, cfg.embed_area, sizeof area);
+    else app_area(area);
+    if (!emb && h.dst_w && h.dst_h && h.dst_x >= area[0] && h.dst_y >= area[1] &&
+        h.dst_x + h.dst_w <= area[0] + area[2] && h.dst_y + h.dst_h <= area[1] + area[3]) {
+        r[0] = h.dst_x; r[1] = h.dst_y; r[2] = h.dst_w; r[3] = h.dst_h;
+    } else {
+        dbr_fit(area, (int)h.width, (int)h.height, r);
+    }
+    c->dbr.format = h.format; c->dbr.w = h.width; c->dbr.h = h.height; c->dbr.bpp = bpp;
+    c->xf.s = 1; c->xf.ox = 0; c->xf.oy = 0;
+    c->placed = 1;
+    if (emb) {
+        c->mode = MODE_EMBED;
+        c->x = area[0]; c->y = area[1]; c->w = area[2]; c->h = area[3];
+    } else {
+        c->mode = MODE_LAYER;
+        c->x = r[0]; c->y = r[1]; c->w = r[2]; c->h = r[3];
+        if (dpy && surface_create(c) < 0) return dbr_fail(c, DBR_ERR_DISPLAY, "the compositor refused the surface");
+    }
+    float img[4] = { (float)(r[0] - c->x), (float)(r[1] - c->y), (float)r[2], (float)r[3] };
+    memcpy(c->dbr.img, img, sizeof img);
+    c->nclaim = 1;                                       /* touch on the picture is the app's */
+    memcpy(c->claim[0], img, sizeof img);
+    struct dbr_ready rd = { DBR_VERSION, DBR_MAX_IN_FLIGHT, (unsigned)screen_w, (unsigned)screen_h, (uint32_t)refresh_mhz,
+                            emb ? cfg.embed_surface_id : SURF_BASE + c->slot, emb ? 0 : LAYER_BASE + c->slot,
+                            (emb ? DBR_READY_HMI : DBR_READY_CONTROLLER) | (touch_on ? DBR_READY_TOUCH : 0),
+                            { r[0], r[1], r[2], r[3] } };
+    uint8_t out[DBR_READY_SIZE];
+    dbr_ready_encode(&rd, out);
+    dbr_send(c, DBR_READY, 0, out, sizeof out);
+    log_info("%s: connected (display-bridge's protocol): %ux%u format %u at %d,%d %dx%d, %s", c->app, h.width, h.height,
+             h.format, r[0], r[1], r[2], r[3], emb ? "in the HMI's page" : "on its own layer");
+    return 0;
+}
+
+/* FRAME (one region, the whole frame) or RECTS: written into the picture (and on a layer the pixmap); the frame
+   waiting before it is dropped */
+static int dbr_frame(client *c, uint32_t seq, int n, int rects[][4], const uint8_t *px) {
+    if (c->mode != MODE_EMBED) make_current_any(c);
+    for (int k = 0; k < n; k++) {
+        int x = rects[k][0], y = rects[k][1], w = rects[k][2], h = rects[k][3];
+        size_t row = (size_t)w * c->dbr.bpp, sz = row * h, pitch = (size_t)c->dbr.w * c->dbr.bpp;
+        if (c->mode == MODE_EMBED) {
+            for (int j = 0; j < h; j++) memcpy(c->dbr.px + (size_t)(y + j) * pitch + (size_t)x * c->dbr.bpp, px + j * row, row);
+            px += sz;
+            continue;
+        }
+        int r;
+        if (c->dbr.format == DBR_FMT_XRGB8888 || c->dbr.format == DBR_FMT_ARGB8888) {
+            uint8_t *rgba = malloc(sz);
+            if (!rgba) return dbr_fail(c, DBR_ERR_DISPLAY, "out of memory");
+            dbr_to_rgba(rgba, px, (size_t)w * h, c->dbr.format);
+            r = gfx_pixmap_write(&c->g, DBR_PIXMAP, x, y, w, h, rgba);
+            free(rgba);
+        } else {
+            r = gfx_pixmap_write(&c->g, DBR_PIXMAP, x, y, w, h, px);
+        }
+        if (r < 0) return dbr_fail(c, DBR_ERR_DISPLAY, gfx_error());
+        px += sz;
+    }
+    if (c->dbr.pending) dbr_send(c, DBR_DROPPED, c->dbr.pending_seq, NULL, 0);
+    c->dbr.pending = 1; c->dbr.pending_seq = seq;
+    c->dirty = 1;
+    if (!c->frame_words) {                               /* a layer's picture: black, the pixmap over img */
+        const float *g = c->dbr.img;
+        uint32_t w[9] = { OP_CLEAR, 0x000000ffu, OP_IMAGE };
+        float r0 = 0;
+        memcpy(&w[3], &g[0], 4); memcpy(&w[4], &g[1], 4); memcpy(&w[5], &g[2], 4); memcpy(&w[6], &g[3], 4);
+        memcpy(&w[7], &r0, 4); w[8] = DBR_PIXMAP;
+        c->frame = malloc(sizeof w);
+        if (!c->frame) return dbr_fail(c, DBR_ERR_DISPLAY, "out of memory");
+        memcpy(c->frame, w, sizeof w);
+        c->frame_cap = c->frame_words = 9;
+        update_all();
+    }
+    return 0;
+}
+
+static int dbr_handle(client *c, unsigned type, uint32_t seq, const uint8_t *p, uint32_t len) {
+    if (type == DBR_HELLO) {
+        if (c->placed || len != DBR_HELLO_SIZE) return dbr_fail(c, DBR_ERR_PROTOCOL, "HELLO must come once, with 16 bytes");
+        return dbr_hello(c, p);
+    }
+    if (type == DBR_PING) return 0;
+    if (!c->placed) return dbr_fail(c, DBR_ERR_PROTOCOL, "HELLO first");
+    switch (type) {
+    case DBR_PALETTE:
+        if (c->dbr.format != DBR_FMT_INDEX8 || len != DBR_PALETTE_SIZE)
+            return dbr_fail(c, DBR_ERR_PROTOCOL, "PALETTE needs an INDEX8 session and 768 bytes");
+        dbr_palette_lut(p, c->dbr.lut);
+        if (c->mode == MODE_EMBED) return 0;
+        make_current_any(c);
+        if (gfx_pixmap_palette(&c->g, DBR_PIXMAP, p) < 0) return dbr_fail(c, DBR_ERR_DISPLAY, gfx_error());
+        return 0;
+    case DBR_FRAME: {
+        if (len != (size_t)c->dbr.w * c->dbr.h * c->dbr.bpp) return dbr_fail(c, DBR_ERR_PROTOCOL, "FRAME must be one whole frame");
+        int whole[1][4] = { { 0, 0, (int)c->dbr.w, (int)c->dbr.h } };
+        return dbr_frame(c, seq, 1, whole, p);
+    }
+    case DBR_RECTS: {
+        int rects[DBR_MAX_RECTS][4];
+        const uint8_t *px;
+        int n = dbr_rects(p, len, (int)c->dbr.w, (int)c->dbr.h, c->dbr.bpp, rects, &px);
+        if (n < 0) return dbr_fail(c, DBR_ERR_PROTOCOL, "RECTS: regions outside the frame or not matching their pixels");
+        return dbr_frame(c, seq, n, rects, px);
+    }
+    case DBR_SHOW:
+    case DBR_HIDE:
+        c->visible = type == DBR_SHOW;
+        if (c->visible) c->show_seq = ++show_counter;
+        log_debug("%s: %s", c->app, c->visible ? "show" : "hide");
+        update_all();
+        return 0;
+    default:
+        return dbr_fail(c, DBR_ERR_PROTOCOL, "unknown message");
+    }
+}
+
 static void record(client *c, uint32_t type, const uint8_t *msg, uint32_t len) {
     static int n;
     if (type == M_HELLO && !c->rec && cfg.record_dir[0]) {
@@ -913,7 +1148,27 @@ static int client_read(client *c) {
         c->last_msg = now_us();
         if (c->stale) { c->stale = 0; log_info("%s: talking again", c->app); update_all(); }
     }
+    if (!c->started && c->inlen >= 4 && dbr_is_magic(c->in)) {
+        c->dialect = DIALECT_DBR;
+        snprintf(c->app, sizeof c->app, "display-bridge app (uid %u)", c->uid);
+    }
     size_t off = 0;
+    if (c->dialect == DIALECT_DBR) {
+        while (c->inlen - off >= DBR_HEADER) {
+            unsigned type; uint32_t len, seq;
+            if (dbr_header(c->in + off, &type, &len, &seq) < 0) { log_warn("%s: bad message", c->app); return -1; }
+            if (len > MAX_MSG) return -1;
+            if (c->inlen - off - DBR_HEADER < len) {
+                if (c->incap < len + DBR_HEADER) { c->incap = len + DBR_HEADER + 65536; uint8_t *n = realloc(c->in, c->incap); if (!n) return -1; c->in = n; }
+                break;
+            }
+            c->started = 1;
+            if (dbr_handle(c, type, seq, c->in + off + DBR_HEADER, len) < 0) return -1;
+            off += DBR_HEADER + len;
+        }
+        if (off) { memmove(c->in, c->in + off, c->inlen - off); c->inlen -= off; }
+        return 0;
+    }
     while (c->inlen - off >= 8) {
         uint32_t type, len;
         memcpy(&type, c->in + off, 4); memcpy(&len, c->in + off + 4, 4);
@@ -922,6 +1177,7 @@ static int client_read(client *c) {
             if (c->incap < len + 8) { c->incap = len + 8 + 65536; uint8_t *n = realloc(c->in, c->incap); if (!n) return -1; c->in = n; }
             break;
         }
+        c->started = 1;
         record(c, type, c->in + off, len);
         /* payload must be 4-byte aligned for the word views: copy if it is not */
         const uint8_t *pl = c->in + off + 8;
@@ -1073,23 +1329,28 @@ static int touch_start(void) {
     return touch_init(iface, strcmp(iface, "lo") ? cfg.touch_saddr : "", area) == 0;
 }
 
-/* ---------------- the community socket (share.c) ---------------- */
-static struct share share;
-static int share_state;
+/* ---------------- the community socket and display-bridge's (share.c) ---------------- */
+/* display-bridge's socket yields to nothing: display-bridge's own units stand down while mgu-render is installed
+ * (systemd/display-bridge-standdown.conf), and a socket it still listens on is never taken */
+static struct share shares[2];
+static int share_state[2];
 
 static void share_setup(void) {
     _Static_assert(CFG_MAX_SHARED_YIELD <= SHARE_MAX_YIELD, "shared_yield does not fit struct share");
-    share.own = cfg.socket_path;
-    share.shared = cfg.shared_path;
-    share.n_yield = cfg.n_shared_yield;
-    for (int i = 0; i < cfg.n_shared_yield; i++) share.yield[i] = cfg.shared_yield[i];
+    shares[0].own = shares[1].own = cfg.socket_path;
+    shares[0].shared = cfg.shared_path;
+    shares[0].n_yield = cfg.n_shared_yield;
+    for (int i = 0; i < cfg.n_shared_yield; i++) shares[0].yield[i] = cfg.shared_yield[i];
+    shares[1].shared = cfg.bridge_path;
 }
 
 static void share_tick(void) {
-    if (!cfg.shared_path[0]) return;
-    int r = share_update(&share);
-    if (r != share_state && r != SHARE_HELD) log_info("%s: %s", cfg.shared_path, share_name(r));
-    share_state = r == SHARE_TAKEN ? SHARE_HELD : r == SHARE_DROPPED ? SHARE_NONE : r;
+    for (int i = 0; i < 2; i++) {
+        if (!shares[i].shared[0]) continue;
+        int r = share_update(&shares[i]);
+        if (r != share_state[i] && r != SHARE_HELD) log_info("%s: %s", shares[i].shared, share_name(r));
+        share_state[i] = r == SHARE_TAKEN ? SHARE_HELD : r == SHARE_DROPPED ? SHARE_NONE : r;
+    }
 }
 
 /* ---------------- main ---------------- */
@@ -1120,9 +1381,11 @@ int main(int argc, char **argv) {
     if (rin) return replay(rin, rout, rraw);
     share_setup();
     if (share_only) {
-        if (!cfg.shared_path[0]) return 0;
-        int r = share_only == 1 ? share_update(&share) : share_drop(&share);
-        log_info("%s: %s", cfg.shared_path, share_name(r));
+        for (int i = 0; i < 2; i++) {
+            if (!shares[i].shared[0]) continue;
+            int r = share_only == 1 ? share_update(&shares[i]) : share_drop(&shares[i]);
+            log_info("%s: %s", shares[i].shared, share_name(r));
+        }
         return 0;
     }
 
@@ -1228,7 +1491,7 @@ int main(int argc, char **argv) {
     gate_stop();
     embed_disconnect();
     if (own_socket) {                                    /* run by hand: its socket and the link to it go */
-        if (cfg.shared_path[0]) share_drop(&share);
+        for (int i = 0; i < 2; i++) if (shares[i].shared[0]) share_drop(&shares[i]);
         unlink(cfg.socket_path);
     }
     log_info("exit");

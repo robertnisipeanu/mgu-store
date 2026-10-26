@@ -12,6 +12,7 @@ void cfg_defaults(struct cfg *c)
     memset(c, 0, sizeof *c);
     snprintf(c->socket_path, sizeof c->socket_path, "/run/mgu-render/render.sock");
     snprintf(c->shared_path, sizeof c->shared_path, "/run/mgu-renderd/renderd.sock");
+    snprintf(c->bridge_path, sizeof c->bridge_path, "/dev/shm/display-bridge/bridge.sock");
     const char *other[] = { "/etc/systemd/system/mgu-renderd.service", "/run/systemd/system/mgu-renderd.service",
                             "/etc/systemd/system/idrive7-renderd.service" };
     for (int i = 0; i < 3; i++) snprintf(c->shared_yield[i], sizeof c->shared_yield[i], "%s", other[i]);
@@ -71,6 +72,7 @@ int cfg_set(struct cfg *c, const char *key, const char *value)
     STR("socket_path", socket_path);
     STR("socket_group", socket_group);
     STR("shared_path", shared_path);
+    STR("bridge_path", bridge_path);
     STR("wayland_display", wayland_display);
     STR("hmi_display", hmi_display);
     STR("embed_marker", embed_marker);

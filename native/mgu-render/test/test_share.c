@@ -106,6 +106,8 @@ int main(void)
     int stray = listen_at(shared);
     CHECK(share_update(&s) == SHARE_OTHER && is_sock(shared), "stray socket replaced");
     CHECK(share_drop(&s) == SHARE_OTHER && is_sock(shared), "stray socket removed by unshare");
+    /* and told live without a connection (one would start a socket unit's service) */
+    CHECK(accept4(stray, NULL, NULL, SOCK_NONBLOCK) < 0 && errno == EAGAIN, "a live socket was connected to");
     close(stray);
 
     /* a socket nobody listens on (mgu-render 0.1's own, left after its socket unit restarted), no renderer

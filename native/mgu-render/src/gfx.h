@@ -1,6 +1,6 @@
 /*
  * GPU executor for draw command lists (gfx.c). Derived from mgu-renderd src/gfx.h (idrive7-apps
- * kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape; pictures by IterioDev, with permission).
+ * kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape; pictures by IterioDev).
  */
 #ifndef MGU_GFX_H
 #define MGU_GFX_H
@@ -65,6 +65,8 @@ void gfx_image_drop(gfx_client *c, uint32_t id);
 int gfx_pixmap_def(gfx_client *c, uint32_t id, int w, int h, int format, int linear);
 int gfx_pixmap_pixels(gfx_client *c, uint32_t id, const uint8_t *p, size_t len);
 int gfx_pixmap_palette(gfx_client *c, uint32_t id, const uint8_t *rgb);
+/* one region of a pixmap, px in its format's bytes (rows packed): 0, or -1 (gfx_error) */
+int gfx_pixmap_write(gfx_client *c, uint32_t id, int x, int y, int w, int h, const uint8_t *px);
 /* draw a command list into the bound framebuffer (size fbw x fbh, y down) */
 void gfx_draw(gfx_client *c, const gfx_xf *xf, int fbw, int fbh, const uint32_t *cmd, size_t nwords, int clear_transparent);
 const char *gfx_error(void);

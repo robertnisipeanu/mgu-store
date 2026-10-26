@@ -50,16 +50,26 @@ static int present(const char *p)
     return lstat(p, &st) == 0;
 }
 
+/* A socket file nobody listens on. Read from the kernel's table of unix sockets, not by connecting: a socket unit
+ * that still listens there (display-bridge's, before the head-unit start that stands it down) would start its
+ * service for a connection. */
 static int dead_socket(const char *p)
 {
     struct stat st;
-    struct sockaddr_un sa = { .sun_family = AF_UNIX };
-    if (lstat(p, &st) < 0 || !S_ISSOCK(st.st_mode) || strlen(p) >= sizeof sa.sun_path) return 0;
-    snprintf(sa.sun_path, sizeof sa.sun_path, "%s", p);
-    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);   /* a full backlog: EAGAIN, not a wait */
-    int dead = fd >= 0 && connect(fd, (struct sockaddr *)&sa, sizeof sa) < 0 && errno == ECONNREFUSED;
-    if (fd >= 0) close(fd);
-    return dead;
+    if (lstat(p, &st) < 0 || !S_ISSOCK(st.st_mode)) return 0;
+    FILE *f = fopen("/proc/net/unix", "r");
+    if (!f) return 0;                                    /* unknown: left alone */
+    char line[PATH_MAX + 128];
+    int listening = 0;
+    while (!listening && fgets(line, sizeof line, f)) {
+        unsigned flags;
+        int at = 0;
+        if (sscanf(line, "%*s %*x %*x %x %*x %*x %*u %n", &flags, &at) < 1 || !at) continue;
+        line[strcspn(line, "\n")] = 0;
+        listening = (flags & 0x10000) && !strcmp(line + at, p);   /* __SO_ACCEPTCON */
+    }
+    fclose(f);
+    return !listening;
 }
 
 int share_drop(const struct share *s)

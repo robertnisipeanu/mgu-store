@@ -75,6 +75,7 @@ const char *dialect_name(int d)
     case DIALECT_UPSTREAM: return "upstream";
     case DIALECT_ITERIO: return "iterio";
     case DIALECT_NATIVE: return "native";
+    case DIALECT_DBR: return "display-bridge";
     default: return "undecided";
     }
 }

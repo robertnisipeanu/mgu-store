@@ -8,7 +8,7 @@
  * (kit/runtime/canvas.js) closely. Output is premultiplied alpha.
  *
  * From mgu-renderd src/gfx.c (idrive7-apps kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape),
- * with both forks' images: upstream's pixel images and IterioDev's pictures (ported with permission),
+ * with both forks' images: upstream's pixel images and IterioDev's pictures,
  * and mgu-render's pixmaps (images written in regions, INDEX8 with a palette).
  */
 #include <GLES2/gl2.h>
@@ -360,6 +360,28 @@ static void index8_upload(gfx_image *m, int x, int y, int w, int h) {
     free(row);
 }
 
+/* region x,y,w,h of pixmap m from px (its format's bytes, rows packed); the region is inside m */
+static int pixmap_rect(gfx_image *m, int x, int y, int w, int h, const uint8_t *px) {
+    if (m->format == PIX_INDEX8) {
+        for (int j = 0; j < h; j++) memcpy(m->index + (size_t)(y + j) * m->w + x, px + (size_t)j * w, (size_t)w);
+        index8_upload(m, x, y, w, h);
+        return 0;
+    }
+    glBindTexture(GL_TEXTURE_2D, m->tex);
+    if (m->format == PIX_RGBA_OPAQUE) {
+        size_t sz = (size_t)w * h * 4;
+        uint8_t *o = malloc(sz);
+        if (!o) return -2;
+        memcpy(o, px, sz);
+        for (size_t i = 3; i < sz; i += 4) o[i] = 255;
+        glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, o);
+        free(o);
+    } else {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    }
+    return 0;
+}
+
 int gfx_pixmap_pixels(gfx_client *c, uint32_t id, const uint8_t *p, size_t len) {
     if (len < 4) return -1;
     uint32_t n; memcpy(&n, p, 4);
@@ -378,31 +400,23 @@ int gfx_pixmap_pixels(gfx_client *c, uint32_t id, const uint8_t *p, size_t len) 
     if (!m || m->kind != IMG_PIXMAP) { snprintf(err, sizeof err, "pixels: no pixmap %u", id); return -2; }
     for (uint32_t k = 0; k < n; k++) {
         uint32_t x = r[k][0], y = r[k][1], w = r[k][2], h = r[k][3];
-        size_t sz = (size_t)w * h * bpp;
         if (x > (uint32_t)m->w || y > (uint32_t)m->h || w > (uint32_t)m->w - x || h > (uint32_t)m->h - y) {
             snprintf(err, sizeof err, "pixels: rect %u,%u %ux%u outside pixmap %u", x, y, w, h, id);
             return -2;
         }
-        if (!w || !h) continue;
-        if (m->format == PIX_INDEX8) {
-            for (uint32_t j = 0; j < h; j++) memcpy(m->index + (size_t)(y + j) * m->w + x, px + (size_t)j * w, w);
-            index8_upload(m, (int)x, (int)y, (int)w, (int)h);
-        } else {
-            glBindTexture(GL_TEXTURE_2D, m->tex);
-            if (m->format == PIX_RGBA_OPAQUE) {
-                uint8_t *o = malloc(sz);
-                if (!o) return -2;
-                memcpy(o, px, sz);
-                for (size_t i = 3; i < sz; i += 4) o[i] = 255;
-                glTexSubImage2D(GL_TEXTURE_2D, 0, (int)x, (int)y, (int)w, (int)h, GL_RGBA, GL_UNSIGNED_BYTE, o);
-                free(o);
-            } else {
-                glTexSubImage2D(GL_TEXTURE_2D, 0, (int)x, (int)y, (int)w, (int)h, GL_RGBA, GL_UNSIGNED_BYTE, px);
-            }
-        }
-        px += sz;
+        if (w && h && pixmap_rect(m, (int)x, (int)y, (int)w, (int)h, px) < 0) return -2;
+        px += (size_t)w * h * bpp;
     }
     return 0;
+}
+
+int gfx_pixmap_write(gfx_client *c, uint32_t id, int x, int y, int w, int h, const uint8_t *px) {
+    gfx_image *m = find_image(c, id);
+    if (!m || m->kind != IMG_PIXMAP || x < 0 || y < 0 || w < 1 || h < 1 || w > m->w - x || h > m->h - y) {
+        snprintf(err, sizeof err, "pixels: rect %d,%d %dx%d not in pixmap %u", x, y, w, h, id);
+        return -1;
+    }
+    return pixmap_rect(m, x, y, w, h, px) < 0 ? -1 : 0;
 }
 
 int gfx_pixmap_palette(gfx_client *c, uint32_t id, const uint8_t *rgb) {

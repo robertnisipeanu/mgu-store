@@ -8,7 +8,8 @@ either on the app's own layer over the HMI or inside the app's own HMI page.
   apps already use: upstream idrive7-apps' `kit/renderd` (car_vitals, gforce,
   doom, ...) and IterioDev's mgu-renderd (oap-cardash, oap-draggy,
   oap-dtcscan, ...). Their draws come out byte for byte as from each original
-  (`make test`).
+  (`make test`). display-bridge's apps (mgu-apps DOOM, draw_gallery,
+  display_bridge_demo) draw through it too ("display-bridge's apps").
 - **Beside the other renderers.** Its own socket is
   `/run/mgu-render/render.sock` (the Store, `js/mgu_render_client.js`). The
   community socket `/run/mgu-renderd/renderd.sock` is a link to it while no
@@ -78,6 +79,8 @@ from the installed HmiMain3D.
   `/run/mgu-render/hmi-template`. Embed is offered from the next HMI start:
   after the first install, the next head-unit start. Any failure leaves the
   stock widgets; `umount /mnt/dataro/data/hmi/bmw/widget` undoes it.
+- Drop-ins `/etc/systemd/system/display-bridge{.socket,.service,-hmi.service}.d/mgu-render.conf`:
+  display-bridge's units stand down while mgu-render is installed ("display-bridge's apps").
 - Logs: `journalctl -u mgu-render -u mgu-render-hmi`.
 
 An update does not stop a running mgu-render (`keepRunning` in
@@ -90,8 +93,48 @@ tool restarts a changed socket whose service is stopped), else at the next
 head-unit start; meanwhile apps reach it through the community socket, which
 the client tries next.
 
-display-bridge (mgu-apps) uses the same page template and ivi id `0x500` for
-its own embed; the two are not run together.
+## display-bridge's apps
+
+mgu-apps' display-bridge draws DOOM, draw_gallery and display_bridge_demo in
+their pages with the same page template and ivi id `0x500` on the HMI's
+compositor. With mgu-render installed, mgu-render is the one embed provider
+and serves those apps, unchanged.
+
+- **Socket.** display-bridge's `/dev/shm/display-bridge/bridge.sock`
+  (`bridge_path`) is a link to ours, made as the community one is (`src/share.c`)
+  but with no other renderer to yield to: anything listening there is left
+  alone, a socket nobody listens on is replaced.
+- **display-bridge stands down.** The drop-in `mgu-render.conf` on
+  `display-bridge.socket`, `display-bridge.service` and
+  `display-bridge-hmi.service` (`ConditionPathExists=!/var/opt/mgu-render/current/mgu-render`)
+  keeps an installed display-bridge from starting, from the next head-unit
+  start: its socket path is free for the link, its template is not mounted
+  beside ours, its foreground gate does not run beside ours. Uninstalling
+  mgu-render removes the drop-ins, and display-bridge runs again from the
+  next start.
+- **Protocol.** A connection whose first four bytes are DBR1's magic speaks
+  display-bridge's protocol (`src/dbr.h`, the same as mgu-apps'
+  `native/display-bridge/src/wire.h`, version 2). HELLO's frame (INDEX8 with
+  PALETTE, XRGB8888, premultiplied ARGB8888, RGBA8888; up to 1920×720, as
+  display-bridge)
+  is kept as FRAME and RECTS write it, and shown in the HMI page's box,
+  fitted and centred with black around it as display-bridge places it, with
+  READY's `hmi` flag and that rectangle: written straight into the
+  compositor's buffer on the CPU (palette lookup, nearest-pixel scaling,
+  about 0.5 ms a frame), so a pixel app puts no GPU work beside the HMI's.
+  Without the page template (the first start after an install) it goes on
+  the app's own layer as a pixmap, fitted into the app area. SHOW and HIDE are
+  the app's wish; it shows only while the foreground gate reports it in front.
+- **Pacing.** READY offers 3 frames in flight: one waiting to be drawn, one
+  drawn and waiting for the compositor's frame callback, one committed. A
+  newer frame replaces the one waiting, or is drawn over the one not yet
+  committed (DROPPED either way). The committed one is PRESENTED on the
+  frame callback, or DROPPED when the picture goes first. In the emulator,
+  whose HMI repaints its embedded surfaces about 20 times a second, 10 s of
+  DOOM play showed 16.9 frames a second (3 dropped), display-bridge 17.9.
+- **Touch.** The picture is the app's claim: a touch that starts there comes
+  as TOUCH (down, motion, up) in frame pixels, source `evdev`, and the HMI does
+  not get it.
 
 ## Beside other renderers
 
@@ -231,6 +274,7 @@ the car can show:
 **iDrive 7**
 - [ ] Layer: an upstream app (car_vitals) draws at 60 fps under our unit (upstream measured 56-61 fps with its own); our layer's z-order over HMI popups and the camera, and the yield surface ids of the reversing camera.
 - [ ] Embed: DOOM-style pixmap frames inside the page: presented rate (`fps` in `test/pixel_client.js`), and the readback cost at 1796×632 (STATS avg µs) on the HD 505.
+- [ ] display-bridge's apps: after the update and a head-unit restart, display-bridge's units inactive (condition), DOOM, draw_gallery and display_bridge_demo drawn in their pages, DOOM's presented rate (`doom fps` in `/tmp/doom.log`) and touch on display_bridge_demo.
 - [ ] Embed: whether HmiMain3D's compositor offers `wl_drm`/`zwp_linux_dmabuf_v1` (`verbose = 1` logs its globals): an EGL surface there would skip the readback.
 - [ ] Touch: finger PDUs on UDP 30567 from 160.48.199.115 on vlan73, finger PDUs told by their finger count (payload byte 37) whatever their word type; the claim area 84,76,1836,644.
 - [ ] Touch in embed mode: a claimed area inside the page reaches the app and the HMI's hidden components under it do not react.

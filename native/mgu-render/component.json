@@ -1,7 +1,7 @@
 {
   "id": "mgu-render",
   "kind": "tool",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "title": "Renderer",
   "description": "Draws apps' screens on the GPU, over the HMI or inside the app's page",
   "mguProvides": "renderer",
@@ -27,6 +27,11 @@
   "enable": [
     { "unit": "mgu-render.socket", "target": "sockets.target" },
     { "unit": "mgu-render-hmi.service", "target": "hmi.service" }
+  ],
+  "dropins": [
+    { "unit": "display-bridge.socket", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" },
+    { "unit": "display-bridge.service", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" },
+    { "unit": "display-bridge-hmi.service", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" }
   ],
   "recmgr": ["mgu-render", "mgu-render-hmi"],
   "restart": ["mgu-render.service"],
