@@ -1,5 +1,10 @@
 # Updater changelog
 
+## 0.7.0
+
+- IterioDev's App Manager on the unit (the deploy tool's `status --json` `appmanager`) is adopted once through `mgu-deploy.sh appmanager adopt`. Each app it installed gets as origin the source that reads its public repository's index (added as an https source named after the repository when none does), the repository it recorded, else its default one when that listed the app; any other is `imported`: listed from no source as `imported`, installed and removable, not installed from nowhere.
+- `oap-appmanager` is listed as `Replaced by Store` and `ipheth-tether` as `Replaced by mgu-uplink` from every source (`blocked`), never installed; the App Manager's app keeps its row while it is on the unit, and its Remove is the deploy tool's `uninstall oap-appmanager`, which removes the App Manager.
+
 ## 0.6.0
 
 - Providers of one capability install side by side: a second renderer installs beside the first, with no Replace. `allProviders` lists every installed provider of each capability (`{"renderer": [{id, version}, ...]}`), and `providers` keeps one of them each (`{"renderer": {id, version}}`) for the Store 0.7; components carry no `replaces`; `install` takes no `replace`, and the phone page installs nothing (it showed only Replace) and shows a component's capability.

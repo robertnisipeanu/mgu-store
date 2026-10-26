@@ -504,6 +504,14 @@ class Fetcher {
 
 const SELF_SOURCE_ID = 'mgu-store';
 
+/* IterioDev's App Manager and its iPhone tether: the Store and mgu-uplink
+ * replace them, so whichever source lists them, they are not installed
+ * (README.md, "IterioDev's App Manager"). */
+const APP_MANAGER = 'oap-appmanager';
+const REPLACED = { [APP_MANAGER]: 'Replaced by Store', 'ipheth-tether': 'Replaced by mgu-uplink' };
+// the origin of an app the App Manager installed from no source the updater reads
+const IMPORTED = 'imported';
+
 /* The origin a source stands for: a stick's mgu-repo/<name>, which
  * mgu-install.js usb-repo writes from the source of that name, stands for
  * that source; any other source for itself. */
@@ -588,6 +596,9 @@ class Updater {
         this.pending = [];
         this.unit = null;
         this.providers = {};
+        // the deploy tool's word on IterioDev's App Manager (status --json appmanager)
+        this.appmanager = null;
+        this.adoptFailed = false;
         this.privacy = null;
         this.clients = new Set();
         this.checking = null;
@@ -616,6 +627,11 @@ class Updater {
         try {
             this.aliases = readJson(path.join(conf.state_dir, 'aliases.json'));
         } catch (e) { /* none yet */ }
+        // what was taken over from IterioDev's App Manager: { at, imported: [ids] }
+        this.adopted = { at: null, imported: [] };
+        try {
+            this.adopted = Object.assign(this.adopted, readJson(path.join(conf.state_dir, 'appmanager.json')));
+        } catch (e) { /* none */ }
         try {
             this.webEnabled = readJson(path.join(conf.state_dir, 'web.json')).enabled === true;
         } catch (e) { /* off */ }
@@ -704,6 +720,9 @@ class Updater {
      * (the installed app stays shown and removable). taken: ids no new
      * alias may have (every listed id, every alias). */
     place(source, entry, taken) {
+        if (REPLACED[entry.id]) {
+            return Object.assign({}, entry, { blocked: REPLACED[entry.id] });
+        }
         if (entry.kind !== 'app') {
             return entry;
         }
@@ -758,7 +777,34 @@ class Updater {
             });
             map.set(id, { entry: best.entry, source: best.source });
         });
+        this.unlisted().forEach((r) => {
+            if (!map.has(r.entry.id)) {
+                map.set(r.entry.id, r);
+            }
+        });
         return map;
+    }
+
+    /* Rows for what no source lists: the App Manager's app while it is on
+     * the unit (for its Remove), and the installed apps it put there from
+     * no source the updater reads (origin imported). */
+    unlisted() {
+        const row = (id, title, extra) => ({ source: IMPORTED, entry: Object.assign({ id, kind: 'app', title, version: null,
+            requires: {}, artifact: {}, uninstallable: true }, extra) });
+        const out = [];
+        const am = this.appmanager;
+        const mine = installedApp(this.conf, APP_MANAGER);
+        if (mine || (am && am.present)) {
+            out.push(row(APP_MANAGER, 'App Manager', { version: mine ? mine.version : am.app || am.version, author: 'IterioDev',
+                blocked: REPLACED[APP_MANAGER] }));
+        }
+        this.adopted.imported.forEach((id) => {
+            const i = installedApp(this.conf, id, true);
+            if (i) {
+                out.push(row(id, i.title || id, { version: i.version }));
+            }
+        });
+        return out;
     }
 
     installedOf(id, kind, wantTitle) {
@@ -1183,6 +1229,9 @@ class Updater {
         if (r.entry.blocked) {
             return r.entry.blocked;
         }
+        if (!this.src.get(r.source)) {
+            return `${id} is in no source`;
+        }
         const bad = this.incompatible(r.entry);
         if (bad) {
             this.errors[id] = bad;
@@ -1321,7 +1370,7 @@ class Updater {
             this.changed();
             return;
         }
-        (item.op === 'uninstall' ? this.uninstall(item) : this.install(item)).then((handover) => {
+        (item.op === 'uninstall' ? this.uninstall(item) : item.op === 'adopt' ? this.adopt() : this.install(item)).then((handover) => {
             if (handover) {
                 this.handover();
                 return;
@@ -1631,9 +1680,94 @@ class Updater {
             if (st) {
                 this.unit = unitOf(st);
                 this.providers = providersOf(st);
+                this.appmanager = st.appmanager && typeof st.appmanager === 'object' ? st.appmanager : null;
             }
             this.privacy = privacy;
+            this.takeOver();
         });
+    }
+
+    /* IterioDev's App Manager on the unit: the deploy tool adopts it once
+     * (its daemon stopped, its renderer our tool, its tether retired);
+     * then each app it installed gets as origin the source of the
+     * repository it came from (a public index, added as a source when
+     * none reads it), else imported. Nothing is reinstalled. */
+    takeOver() {
+        const am = this.appmanager;
+        if (am && am.present && !am.record && !this.adoptFailed && !this.queue.some((q) => q.op === 'adopt') &&
+            !(this.busy && this.busy.op === 'adopt')) {
+            this.queue.unshift({ op: 'adopt', id: APP_MANAGER });
+            if (!this.busy) {
+                this.next();
+            }
+            return;
+        }
+        const rec = am && am.record;
+        if (!rec || rec.at === this.adopted.at || this.sourcesError) {
+            return;
+        }
+        const repos = Array.isArray(rec.repos) ? rec.repos : [];
+        const imported = [];
+        (Array.isArray(rec.apps) ? rec.apps : []).forEach((app) => {
+            if (!app || !ID.test(app.id || '') || this.origins[app.id]) {
+                return;
+            }
+            // as the App Manager had it: an app it recorded no repository for updates from its default one
+            const url = app.from || (repos.find((r) => r.isDefault && r.enabled && (r.lists || []).indexOf(app.id) >= 0) || {}).url;
+            const repo = repos.find((r) => r.url === url);
+            const source = repo && !repo.private ? this.indexSource(repo) : null;
+            if (source) {
+                this.origins[app.id] = { source, commit: null };
+            } else {
+                imported.push(app.id);
+            }
+            console.log(`appmanager: ${app.id}${app.version ? `@${app.version}` : ''} adopted, origin ${source || IMPORTED}`);
+        });
+        this.saveOrigins();
+        this.adopted = { at: rec.at, imported: this.adopted.imported.filter((id) => imported.indexOf(id) < 0).concat(imported) };
+        mkdirp(this.conf.state_dir, 0o755);
+        writeAtomic(path.join(this.conf.state_dir, 'appmanager.json'), JSON.stringify(this.adopted, null, 1));
+        this.changed();
+    }
+
+    /* The source that reads an App Manager repository's index: the stored
+     * https source of that URL, else one added for it; null when it is not
+     * an https URL. */
+    indexSource(repo) {
+        const have = this.stored.find((d) => d.type === 'https' && d.url === repo.index);
+        if (have) {
+            return have.id;
+        }
+        const want = String(repo.url).split('/').filter(Boolean).pop() || '';
+        const err = this.sourceAdd({ type: 'https', url: repo.index }, want.toLowerCase());
+        const added = this.stored.find((d) => d.type === 'https' && d.url === repo.index);
+        if (err || !added) {
+            console.log(`appmanager: ${repo.url} not added as a source${err ? `: ${err}` : ''}`);
+            return null;
+        }
+        return added.id;
+    }
+
+    /* The deploy tool's appmanager adopt. */
+    adopt() {
+        this.busy = { id: APP_MANAGER, op: 'adopt', phase: 'check' };
+        this.changed();
+        console.log("appmanager: adopting IterioDev's App Manager");
+        return this.deployTool(['appmanager', 'adopt', '--yes'])
+            .then((code) => {
+                if (code !== 0) {
+                    // tried again at the next start
+                    this.adoptFailed = true;
+                    this.errors[APP_MANAGER] = `taking over the App Manager failed${this.deployError ? `: ${this.deployError}` : ''}`;
+                    console.log(`appmanager: ${this.errors[APP_MANAGER]}`);
+                }
+                return this.refresh();
+            })
+            .then(() => {
+                this.busy = null;
+                this.changed();
+                return false;
+            });
     }
 
     deploy(file) {
@@ -1784,7 +1918,8 @@ class Updater {
         this.stored = list;
     }
 
-    sourceAdd(req) {
+    /* want: the id to give it when that is free (else a random one). */
+    sourceAdd(req, want) {
         let def;
         const taken = (id) => this.stored.some((s) => s.id === id);
         const newId = (want) => (want && ID.test(want) && !taken(want) ? want : `s-${crypto.randomBytes(2).toString('hex')}`);
@@ -1804,7 +1939,7 @@ class Updater {
             }
         } else if (req.type === 'https') {
             try {
-                def = sourcesLib.checkStored({ id: newId(null), type: 'https', url: req.url });
+                def = sourcesLib.checkStored({ id: newId(want || null), type: 'https', url: req.url });
             } catch (e) {
                 return 'url must be https://';
             }

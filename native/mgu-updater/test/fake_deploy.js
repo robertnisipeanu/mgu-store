@@ -7,6 +7,10 @@
  *   fake_deploy.js rollback <id> --yes
  *   fake_deploy.js status --json
  *   fake_deploy.js sdk-donor --json       { path: $FAKE_DONOR, module: $FAKE_SDK_MODULE }
+ *   fake_deploy.js appmanager adopt --yes
+ * $FAKE_DEPLOY_LOG.appmanager holds what status --json says of IterioDev's
+ * App Manager (appmanager); adopt sets its record to the JSON in
+ * $FAKE_DEPLOY_LOG.amrecord, and uninstall oap-appmanager marks it removed.
  * A tool artifact (component.json at the root) lands in
  * $TOOL_ROOT/<id>/versions/<version>/ with `current` switched by rename,
  * and only the new version and the one `current` pointed to before remain;
@@ -88,6 +92,20 @@ if (cmd === 'rollback') {
     console.log(`${path.basename(root)} back to ${other}`);
     process.exit(0);
 }
+const AM_FILE = `${process.env.FAKE_DEPLOY_LOG}.appmanager`;
+const readAm = () => (fs.existsSync(AM_FILE) ? JSON.parse(fs.readFileSync(AM_FILE, 'utf8')) : null);
+if (cmd === 'appmanager') {
+    const am = readAm();
+    if (process.argv[3] !== 'adopt' || !am || !am.present) {
+        process.stderr.write('mgu-deploy: IterioDev\'s App Manager is not on this head unit\n');
+        process.exit(2);
+    }
+    am.record = JSON.parse(fs.readFileSync(`${process.env.FAKE_DEPLOY_LOG}.amrecord`, 'utf8'));
+    am.daemon = 'inactive';
+    fs.writeFileSync(AM_FILE, JSON.stringify(am));
+    console.log('adopted');
+    process.exit(0);
+}
 if (cmd === 'sdk-donor') {
     if (!process.env.FAKE_DONOR) {
         process.stderr.write('mgu-deploy: no donor bundle on this unit\n');
@@ -99,6 +117,10 @@ if (cmd === 'sdk-donor') {
 }
 if (cmd === 'uninstall') {
     const id = process.argv[3];
+    const am = readAm();
+    if (id === 'oap-appmanager' && am && am.present) {
+        fs.writeFileSync(AM_FILE, JSON.stringify(Object.assign(am, { present: false, record: Object.assign(am.record || {}, { removed: 'now' }) })));
+    }
     if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.fail`)) {
         process.stderr.write('mgu-deploy: test failure\n');
         process.exit(1);
@@ -128,7 +150,7 @@ if (cmd === 'status') {
     const pending = (process.env.FAKE_PENDING || '').split(',').filter(Boolean).concat(pendingIds());
     console.log(JSON.stringify({ unit: { hmi: process.env.FAKE_UNIT_HMI || 'ID7', firmware: 'test firmware' },
         components: tools().map((c) => ({ id: c.id, kind: 'tool', version: c.version, provides: c.mguProvides || null })),
-        pending_reboot: pending.map((id) => ({ id, reason: 'test' })) }));
+        pending_reboot: pending.map((id) => ({ id, reason: 'test' })), appmanager: readAm() }));
     process.exit(0);
 }
 if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.fail`)) {
