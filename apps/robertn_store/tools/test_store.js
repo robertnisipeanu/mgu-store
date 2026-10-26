@@ -271,9 +271,9 @@ function run() {
             reset();
             spellerAnswers.push('o/r', answer);
             app._addSource();
-            return tick().then(() => {
+            return tick(40).then(() => {
                 app._chooseChannel('branch');
-                return tick();
+                return tick(40);
             });
         };
         return branch(' dev ')
