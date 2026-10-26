@@ -2190,6 +2190,8 @@ function testUnitServices(certs, pubDir) {
         .then((err) => {
             ok('provides: a second provider is refused unless replacing', err === 'My renderer provides renderer, which mgu-renderd provides: replace mgu-renderd to install it' &&
                 deployed().length === 1, err);
+            ok('requires: a requirement providing what another installed tool provides counts as met, another one not',
+                u.requirementMet('my-render', '0.1.0') && !u.requirementMet('both_app', '9.0.0'));
             return ask(sock, { op: 'install', id: 'my-render', replace: true });
         })
         .then((err) => {

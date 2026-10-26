@@ -48,7 +48,7 @@
  *  30  ST_OnlineApps_StorePhone        Phone access: On/Off, the page's QR code,
  *                                      its address, its error
  *
- * The host states of the screens mgu-render draws (src/store_screens.js),
+ * The host states of the screens mgu-render draws (src/am_screens.js),
  * one per page depth: ST_OnlineApps_StoreLayer1..3 (LT_State_Wide, under the
  * renderer's own layer) and, on iDrive 7, ST_OnlineApps_StoreEmbed1..3
  * (LT_State_A4A_WelcomeApp, the page template the renderer draws into).

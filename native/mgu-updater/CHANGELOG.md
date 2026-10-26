@@ -4,6 +4,7 @@
 
 - `github_app_url`, shipped as the mgu-store GitHub App's page: the state's `signinApp.installUrl` is the App's install page (null without it), which the Store shows for a private source a sign-in does not reach.
 - A component's state carries the source's `description`.
+- A requirement that provides a capability another installed tool provides counts as met: a component requiring the renderer installs beside another renderer.
 
 ## 0.4.0
 

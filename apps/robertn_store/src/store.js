@@ -4,7 +4,7 @@
  * the phone page.
  *
  * Two sets of screens show the same: the ones mgu-render draws
- * (src/store_drawn.js, src/store_screens.js), while it runs and speaks
+ * (src/store_drawn.js, src/store_frame.js, src/store_ui.js), while it runs and speaks
  * mgu-render/1, and the HMI's own widgets otherwise (below), which take
  * over whenever the renderer goes away (while the Store installs or
  * updates it) and hand back when it is there again. The tile opens the
@@ -512,7 +512,7 @@ class Store extends OnlineApp {
 
     _closePage(kind, pred) {
         if (this._drawnUi()) {
-            this._drawn.close(pred);
+            this._drawn.closePage(pred);
             return Promise.resolve();
         }
         return this._closeState(S[kind]);
@@ -530,7 +530,7 @@ class Store extends OnlineApp {
             webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', adding: this._adding };
     }
 
-    /* A press on the drawn screens (src/store_screens.js acts). */
+    /* A press on the drawn screens (src/store_ui.js acts). */
     _act(act) {
         logger.info(`press ${act.do}${act.id ? ` ${act.id}` : ''}`);
         switch (act.do) {

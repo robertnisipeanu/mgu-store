@@ -2562,7 +2562,7 @@ function fakeRelease(api) {
     hu(['artifact', path.join(DEPLOY, '..', 'native', 'app-privacy'), '--out', art]);
     const privacy = fs.readdirSync(art).find((n) => n.startsWith('app-privacy@'));
     const files = [path.join(art, `mgu-deploy@${VERSION}.tgz`), path.join(art, privacy), namedTool('mgu-updater', '0.2.0'),
-        namedTool('mgu-uplink', '0.4.0'), storeArtifact(), namedTool('mgu-render', '0.1.0')];
+        namedTool('mgu-uplink', '0.4.0'), storeArtifact(), namedTool('mgu-render', '0.1.0', (c) => { c.mguProvides = 'renderer'; })];
     const entries = [publishedEntry(api, files[0], 0, 'tool'), publishedEntry(api, files[1], 1, 'tool'), publishedEntry(api, files[2], 2, 'tool'),
         publishedEntry(api, files[3], 3, 'tool', { optional: true, uninstallable: true }),
         publishedEntry(api, files[4], 4, 'app', { build: 'unit', requires: { 'mgu-deploy': '0.2.0' } }),
@@ -2650,6 +2650,16 @@ function testMguInstall() {
             ['mgu-uplink', 'mgu-render'].every((id) => root.status().components.some((x) => x.id === id)) &&
             r.stdout.endsWith('Restart the head unit to finish setup (a normal ignition cycle does it): the renderer and the uplink start then.\n'),
             r.out.slice(-2000));
+        // another renderer on a second unit: the renderer is left out, the rest installs
+        const unit2 = donorRoot();
+        const otherOpts = { bin: installBin(unit2), api: gh.api };
+        r = unit2.run(['install', '--artifact', namedTool('other-render', '1.0.0', (c) => { c.mguProvides = 'renderer'; }), '--yes']);
+        r = r.status === 0 ? mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, otherOpts)) : r;
+        const os2 = unit2.status();
+        check('mgu-install first-install: beside another renderer the renderer is left out, the rest installs', r.status === 0 &&
+            ['robertn_store', 'mgu-uplink', 'other-render'].every((id) => os2.components.some((x) => x.id === id)) &&
+            !os2.components.some((x) => x.id === 'mgu-render') && r.out.includes('mgu-render@0.1.0.tgz left out') &&
+            !/the renderer/.test(r.stdout), r.out.slice(-3000));
         const noRender = JSON.parse(fs.readFileSync(rel.files[rel.catalogIndex], 'utf8'));
         noRender.components = noRender.components.filter((c) => c.id !== 'mgu-render');
         const noRenderFile = path.join(rel.dir, 'no-render-catalog.json');

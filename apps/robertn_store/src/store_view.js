@@ -30,12 +30,6 @@ function incompatible(row) {
     return row.compat === 'no' && !row.installed;
 }
 
-/* Why it is not installable: `<title> is for iDrive 8; this head unit is iDrive 7`. */
-function compatReason(row, unit) {
-    const hmi = unit && unit.hmi;
-    return `${row.title} is for ${hmiNames(row.mguHmi)}${hmi ? `; this head unit is ${hmiNames([hmi])}` : ''}`;
-}
-
 /* The second column of a component's row. */
 function rowState(row, busy) {
     if (busy && busy.id === row.id) {
@@ -290,6 +284,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { removable, hmiNames, incompatible, compatReason, replacedTitle, parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { removable, hmiNames, incompatible, replacedTitle, parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

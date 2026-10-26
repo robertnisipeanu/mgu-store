@@ -142,7 +142,9 @@ counts only for ids no other source lists. `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
 same source if it has one at least that version, else from any (a
 newer updater installs alone: it restarts into its new version, which ends
-the queue, and the component is asked for again after);
+the queue, and the component is asked for again after; a requirement that
+provides a capability another installed tool provides counts as met, so a
+component requiring the renderer installs beside another renderer);
 `optional` components are listed but never counted as updates unless
 installed; `uninstallable` ones can be removed (Store, phone page), through
 `mgu-deploy.sh uninstall <id> --yes`, unless something installed requires

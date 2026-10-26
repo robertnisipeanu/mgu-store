@@ -476,13 +476,18 @@ function sayList(names) {
 
 /* On the unit, in the staging folder: the release's deploy tool installs
  * every artifact (itself among them; newer installed ones kept) and seeds
- * the updater's sources when it has none. */
+ * the updater's sources when it has none; then each of WITH on its own, so
+ * one it refuses (another renderer is installed) leaves the rest in place. */
 const RUN_SH = `set -e
 S=$(cd "$(dirname "$0")" && pwd)
 set --
 for f in "$S"/artifacts/*.tgz; do set -- "$@" --artifact "$f"; done
 sh "$S/mgu-deploy.sh" install "$@" --skip-older --yes
 sh "$S/mgu-deploy.sh" updater-sources < "$S/sources.json"
+for f in "$S"/with/*.tgz; do
+    [ -e "$f" ] || continue
+    sh "$S/mgu-deploy.sh" install --artifact "$f" --skip-older --yes || echo "first-install: $(basename "$f") left out" >&2
+done
 `;
 
 /* The deploy tool's own files, from its published artifact: component.json
@@ -521,7 +526,8 @@ async function firstInstall(o) {
     }
     const deploy = artifacts.find((a) => a.entry.id === 'mgu-deploy');
     const entries = deployToolFiles(deploy.data)
-        .concat(artifacts.map((a) => ({ name: `artifacts/${a.entry.artifact.name}`, data: a.data, mode: 0o644 })))
+        .concat(artifacts.map((a) => ({ name: `${withs.some((w) => w.id === a.entry.id) ? 'with' : 'artifacts'}/${a.entry.artifact.name}`,
+            data: a.data, mode: 0o644 })))
         .concat([{ name: 'run.sh', data: Buffer.from(RUN_SH), mode: 0o755 },
             { name: 'sources.json', data: Buffer.from(`${JSON.stringify(SOURCES, null, 2)}\n`), mode: 0o644 }]);
     // named so the deploy tool removes it a day later if this run is cut short
@@ -540,11 +546,12 @@ async function firstInstall(o) {
             return t;
         }
     }
-    const services = [{ unit: 'mgu-updater.service', name: 'the updater' }].concat(withs);
-    // the status on stderr, shown as it comes; which services run on stdout
-    const st = ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) => `systemctl is-active ${s.unit} 2>/dev/null || true`)).join('; '),
+    const services = [{ id: 'mgu-updater', unit: 'mgu-updater.service', name: 'the updater' }].concat(withs);
+    // the status on stderr, shown as it comes; which services run on stdout (absent: not installed)
+    const st = ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) =>
+        `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`)).join('; '),
         { capture: true });
-    const down = services.filter((s, i) => (st.stdout.split('\n')[i] || '').trim() !== 'active').map((s) => s.name);
+    const down = services.filter((s, i) => ['active', 'absent'].indexOf((st.stdout.split('\n')[i] || '').trim()) < 0).map((s) => s.name);
     say(down.length ? `Restart the head unit to finish setup (a normal ignition cycle does it): ${sayList(down)} ${down.length > 1 ? 'start' : 'starts'} then.` :
         'Setup is done: the Store installs and updates everything from here on.');
     return 0;

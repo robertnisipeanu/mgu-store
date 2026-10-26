@@ -13,7 +13,7 @@
  * logical pixels (touch, claims) are design pixels on either head unit.
  *
  * Pages: the stack's first page is the tabs; each page opened from it is
- * the host state of the next depth (src/store.js HOSTS), so the HMI's BACK
+ * the host state of the next depth (src/store.js hostName), so the HMI's BACK
  * closes it. A host state's proxies are its focusable buttons, one per
  * pressable item of the drawn page in focus order: the HMI's focus on one
  * draws the focus ring there, a press on one presses the item. Touch in the
@@ -41,7 +41,7 @@ const DRAG_PX = 14;
 
 class Drawn extends EventEmitter {
     /**
-     * host: { log, model() (the updater's side of store_screens' model),
+     * host: { log, model() (the updater's side of store_ui.js's model),
      * act(act) (a press), set(name, text), show(name, on), openState(name),
      * closeState(name), hostName(mode, depth), proxyName(mode, depth, i),
      * proxies (count per depth), modes (the host modes the RHMI has) }.
@@ -177,7 +177,7 @@ class Drawn extends EventEmitter {
     }
 
     /* Closes the top page when pred says it is the one. */
-    close(pred) {
+    closePage(pred) {
         if (this.stack.length > 1 && pred(this.top())) {
             this.pop();
         }

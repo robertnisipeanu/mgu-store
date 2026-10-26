@@ -240,7 +240,8 @@ node .\mgu-install.js usb-repo E:\ github:robertnisipeanu/mgu-store
 optional ones, and of those the renderer `mgu-render` (the Store draws its
 screens with it) and the internet uplink `mgu-uplink` (`--no-renderer`,
 `--no-uplink` leave them out; one the catalog does not list is skipped,
-saying so), downloads each
+saying so, and one the deploy tool refuses, such as a second renderer, is
+left out after the rest installs), downloads each
 artifact and checks its size and sha256 against the catalog; a mismatch
 stops it before it connects. The deploy tool's own files come from the
 published `mgu-deploy` artifact, each checked against its manifest; nothing

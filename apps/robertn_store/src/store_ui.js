@@ -394,8 +394,7 @@ function channelView(m) {
     };
 }
 
-/* The screen and its values for the page on top; a confirm step over the
- * page below it (that page's name rides along as `under`). */
+/* The screen and its values for the page on top. */
 function view(m) {
     const page = m.stack[m.stack.length - 1] || { name: 'main' };
     const tabSel = Math.max(0, TABS.indexOf(m.tab));

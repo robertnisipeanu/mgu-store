@@ -146,7 +146,7 @@ class RenderClient extends EventEmitter {
         this.grabbing = false;
     }
     connect() { gpuLog.push('connect'); }
-    close() {}
+    close() { gpuLog.push('close'); }
     mode(m) { if (m) { gpuLog.push(`mode ${m}`); this.wantMode = m; } return this.wantMode; }
     place(p) { gpuLog.push(`place ${p.x},${p.y} ${p.w}x${p.h} ${p.scale.toFixed(3)}`); this.placement = p; }
     show(on) { this.visible = on; gpuLog.push(`show ${on}`); }
@@ -695,6 +695,11 @@ function runDrawn() {
     }).then(() => {
         eq(app._ui, 'widgets');
         eq(states.slice(0, 2), ['map ST_OnlineApps_Store', 'open ST_OnlineApps_Store'], 'the tile and the screen back on the widget screens');
+        // shutting down with a page open closes the renderer connection
+        drawn.stack.push({ name: 'app', id: 'doom' });
+        gpuLog.length = 0;
+        drawn.close();
+        eq(gpuLog, ['close'], 'close() ends the connection whatever page is open');
         eq(states.slice(2).every((x) => /^close ST_OnlineApps_StoreLayer|^close ST_OnlineApps_StoreEmbed|^close ST_OnlineApps_Store[A-Z]/.test(x)), true,
             'the drawn screens\' states closed');
         eq(gpu.visible, false);
