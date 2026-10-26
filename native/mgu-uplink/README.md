@@ -86,7 +86,7 @@ device. iOS's USB Restricted Mode cuts USB data after an hour locked unless
 Settings → Face ID & Passcode → Accessories is on.
 
 The iPhone takeover (authorized toggle, configuration 4, no pairing) follows
-the approach of IterioDev's `ipheth-tether`, reused with permission.
+the approach of IterioDev's `ipheth-tether`.
 
 ### status.json
 

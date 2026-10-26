@@ -54,7 +54,7 @@ The sources come from both renderers this replaces:
 | From | Parts |
 |---|---|
 | idrive7-apps `kit/renderd` (MIT, `LICENSE.mgu-renderd`) | `src/gfx.c` (GLES2 executor), the main loop, layer surfaces, `--replay`, the wire protocol |
-| IterioDev's mgu-renderd (ported with permission) | touch routing (`src/touch.c`), pictures (IMAGE, DROP_IMAGE, limits), the frame cap (FPS), the client's picture cache (`js/mgu_render_client.js`) |
+| IterioDev's mgu-renderd | touch routing (`src/touch.c`), pictures (IMAGE, DROP_IMAGE, limits), the frame cap (FPS), the client's picture cache (`js/mgu_render_client.js`) |
 | display-bridge (mgu-apps) | the embed placement (`src/embed.c`, `js/hmi_template.js`, `systemd/mgu-render-hmi.sh`), the foreground gate (`src/gate.c`, `js/foreground_gate.js`), yield surfaces |
 
 The ivi protocol files (`protocol/*.xml`) are COVESA wayland-ivi-extension's,

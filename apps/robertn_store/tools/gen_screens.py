@@ -105,8 +105,7 @@ open(out, 'w').write("""'use strict';
  * screens out for iDrive 7's). store,
  * app, confirm (the sheet), installed, usb and settings are IterioDev's App
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
- * @ %s, the HMI UI builder's export of projects/app-manager.json, reused with
- * his permission) with the Store's labels; source, accounts, login and phone
+ * @ %s, the HMI UI builder's export of projects/app-manager.json) with the Store's labels; source, accounts, login and phone
  * are the Store's own in the same frame. Each element is drawn by
  * am_gpu.js; src/store_ui.js gives their values.
  */

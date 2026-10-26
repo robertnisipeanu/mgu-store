@@ -28,7 +28,7 @@
  * connection; least-recently-used pictures are dropped to stay in the renderer's limits.
  *
  * From IterioDev's kit renderd.js (idrive7-apps kit/runtime/renderd.js, MIT, Copyright (c) 2026
- * cauliflowermossgrape, with IterioDev's touch and pictures, ported with permission).
+ * cauliflowermossgrape, with IterioDev's touch and pictures).
  */
 const net = require('net');
 const fs = require('fs');
