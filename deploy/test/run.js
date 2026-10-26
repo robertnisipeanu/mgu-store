@@ -1228,6 +1228,10 @@ function testSelf() {
         'files/oap_link.js', 'files/oap_pack.js']),
     tarList(builds[0].file).join(' '));
     const built = untar(builds[0].file)['component.json'].data;
+    const huText = fs.readFileSync(HU, 'utf8');
+    const unstaged = readJson(path.join(DEPLOY, 'component.json')).files.map((f) => f.path)
+        .filter((n) => huText.indexOf(`{ name: '${n}'`) < 0);
+    check('self: deploy/hu stages every file of the deploy tool\'s manifest', unstaged.length === 0, unstaged.join(' '));
 
     // run from deploy/unit (no component.json beside it): the manifest is synthesized
     const root = fakeRoot();
@@ -1794,7 +1798,7 @@ function testHuToken() {
         x.stdin(1).toString() === `${TOKEN}\n`, `${x.r.stderr}\n${x.calls.join('\n')}`);
     const staged = Object.keys(untarBuf(x.stdin(0))).sort().join(' ');
     check('hu: the staging upload carries the deploy tool with its linker and packer', staged ===
-        'component.json fallback_build.js mgu-app-fallback.service mgu-deploy.js mgu-deploy.sh oap_link.js oap_pack.js', staged);
+        'component.json fallback_build.js mgu-app-fallback.service mgu-deploy-apply.service mgu-deploy.js mgu-deploy.sh oap_link.js oap_pack.js', staged);
     check('hu token: not in any ssh argument, the staging upload or the output',
         x.calls.every((c) => !c.includes(TOKEN)) && !zlib.gunzipSync(x.stdin(0)).includes(TOKEN) &&
         !`${x.r.stdout}${x.r.stderr}`.includes(TOKEN));

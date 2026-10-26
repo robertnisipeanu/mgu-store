@@ -87,6 +87,9 @@ function catalogFields(from, where) {
     });
     if (from.mguHmi !== undefined) {
         try {
+            if (from.mguHmi === null) {
+                throw new Error('mguHmi must list "ID7" and/or "ID8"');
+            }
             out.mguHmi = hmiList(from.mguHmi);
         } catch (e) {
             throw new Error(`${where}: ${e.message}`);

@@ -48,6 +48,7 @@ const UNIT_FILES = [
     { name: 'mgu-deploy.js', mode: 0o755 },
     { name: 'fallback_build.js', mode: 0o755 },
     { name: 'mgu-app-fallback.service', mode: 0o644 },
+    { name: 'mgu-deploy-apply.service', mode: 0o644 },
     { name: 'oap_link.js', mode: 0o644, dir: path.join(__dirname, '..', 'tools') },
     { name: 'oap_pack.js', mode: 0o644, dir: path.join(__dirname, '..', 'tools') }
 ];
