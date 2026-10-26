@@ -97,10 +97,10 @@ def deps(op=None, detect=None, answering=(), cert=None):
 
 def cache(name="", legacy=None, state=None):
     root = tempfile.mkdtemp(dir=TMP)
-    assets = os.path.join(root, "tool_analysis", "cap_assets")
+    assets = os.path.join(root, "keys", "assets")
     os.makedirs(assets)
     if legacy:
-        with open(os.path.join(root, "tool_analysis", mc.CACHE_NAME), "w") as f:
+        with open(os.path.join(root, "keys", mc.CACHE_NAME), "w") as f:
             f.write(legacy + "\n")
     st = os.path.join(root, "state")
     if state:

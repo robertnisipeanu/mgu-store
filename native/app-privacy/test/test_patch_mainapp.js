@@ -4,7 +4,7 @@
  * `sh test/run.sh`, or on any Node with `node test/test_patch_mainapp.js`.
  *
  * The firmware case runs when a decoded oap-mainapp is available
- * (FIRMWARE_MAINAPP_DIR, or the maintainer's local decode).
+ * (FIRMWARE_MAINAPP_DIR names its folder); it is skipped otherwise.
  */
 const assert = require('assert');
 const childProcess = require('child_process');
@@ -645,11 +645,9 @@ test('every app in this repository is marked and clean', () => {
 });
 
 function firmwareDir() {
-    const candidates = [
-        process.env.FIRMWARE_MAINAPP_DIR || ''
-    ];
-    return candidates.filter((c) => c && fs.existsSync(path.join(c, 'src', 'main.js')) &&
-        fs.existsSync(path.join(c, 'src', 'AppManagement', 'AppManagement.js')))[0];
+    const dir = process.env.FIRMWARE_MAINAPP_DIR;
+    return dir && fs.existsSync(path.join(dir, 'src', 'main.js')) &&
+        fs.existsSync(path.join(dir, 'src', 'AppManagement', 'AppManagement.js')) ? dir : undefined;
 }
 
 test('reference firmware bundles patch, upgrade, parse and revert exactly', () => {

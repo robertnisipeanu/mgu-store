@@ -21,9 +21,8 @@
  * Connection, without --host: --wifi (the DIRECT-BMW hotspot), --hu-ip
  * <addr>, --iface <if>, --lport <port> (2222), --arm-debug [--keep-armed]
  * (first-time bootstrap only), --assets-dir <dir> (HU_ASSETS_DIR; default
- * ~/.config/mgu-store/assets). The
- * default is ENET when an adapter is present, else the hotspot
- * (deploy/transport/mgu_connect.py).
+ * ~/.config/mgu-store/assets). The default is ENET when an adapter is
+ * present, else the hotspot (deploy/transport/mgu_connect.py).
  *
  * SSH options: --host (HU_HOST) and --port (HU_PORT, 22) name the target
  * themselves and skip the selection, --user (HU_USER, root), --identity
