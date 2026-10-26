@@ -1,6 +1,7 @@
 robertn_store: MIT, see the end of this file. It includes the parts below under their own licences.
+src/am_*.js and src/store_ui.js come from IterioDev's App Manager 2 (IterioDev/mgu-app-store), used with his permission.
 
-==== App kit and App Manager 2 screens (src/kit_*.js, src/am_*.js, lib/mgu_render_client.js) ====
+==== App kit and renderer client (src/kit_*.js, lib/mgu_render_client.js) ====
 
 MIT License
 

@@ -1,7 +1,7 @@
 {
   "id": "mgu-uplink",
   "kind": "tool",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "title": "Internet uplink",
   "description": "Internet for selected apps through a USB network adapter, an LTE stick or a USB-tethered phone",
   "optional": true,
