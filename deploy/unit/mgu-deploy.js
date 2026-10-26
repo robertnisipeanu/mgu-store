@@ -2469,7 +2469,9 @@ function cmdApplyPending() {
  * the renderer (renderer/mgu-renderd, mgu-renderd.service) and the iPhone
  * tether (tether/ipheth-tether, ipheth-tether.service). The Store
  * replaces it:
- *   appmanager adopt          its daemon stopped and disabled; its queued
+ *   appmanager adopt          its daemon disabled and stopped (where recmgr
+ *                             lets it run this boot, the rest waits for the
+ *                             next); its queued
  *                             app changes moved to ours (iDrive 8) and its
  *                             boot hook disabled; its tether stopped and
  *                             disabled (mgu-uplink drives the iPhone); its
@@ -2488,6 +2490,7 @@ var AM = { home: path.join(CFG.varOpt, 'appmanager'), app: 'oap-appmanager', dae
 var AM_RECORD = path.join(DEPLOY_DIR, 'appmanager.json');
 var AM_REMOVED = path.join(DEPLOY_DIR, 'appmanager-removed');
 var AM_LOG_MAX = 1 << 20;
+var AM_NEXT_BOOT = 'adopted at the next boot';
 function amFile(rel) { return path.join(AM.home, rel); }
 function amUnits() {
     return [AM.daemon, AM.apply].filter(function (u) { return !!lstatOrNull(path.join(CFG.systemd, u)); });
@@ -2569,18 +2572,15 @@ function amStatus() {
     return { present: present, version: amVersion(), app: app ? app.version : null,
         daemon: present ? unitState(AM.daemon, 'is-active') : null, record: record };
 }
-/* A unit of his stopped, when systemd runs it: where recmgr does not list
- * it, stopping it would restart the head unit, so it stops with the next
- * boot (its links are gone by then). */
-function amStop(unit, state) {
-    if (unitState(unit, 'is-active') !== 'active') return;
-    if (recmgrPresent() && !recmgrLoaded(recmgrBase(unit))) {
-        addPending(state, AM.app, 'stops at the next boot');
-        say(unit + ' stops at the next boot');
-        return;
-    }
-    runOk(CFG.systemctl, ['stop', unit]);
-    say('stopped ' + unit);
+/* A unit of his stopped: a running one unless recmgr does not list it
+ * (stopping it would restart the head unit), one that is not running
+ * always (a start the boot has queued is cancelled). -> stopped */
+function amStop(unit) {
+    var running = ['active', 'activating', 'reloading'].indexOf(unitState(unit, 'is-active')) >= 0;
+    if (running && recmgrPresent() && !recmgrLoaded(recmgrBase(unit))) return false;
+    systemctl(['stop', unit]);
+    if (running) say('stopped ' + unit);
+    return true;
 }
 function amTouched() {
     var paths = [AM_RECORD, ID8_PENDING, amFile('pending.json'), path.join(CFG.systemd, 'mgu-renderd.service')];
@@ -2635,21 +2635,28 @@ function amRenderer(state, stage) {
     return r.version;
 }
 /* Takes over: see the section's comment. Run under the lock, inside the
- * caller's snapshot. */
+ * caller's snapshot. His daemon rewrites the renderer's unit while it runs,
+ * so with it running past this boot (recmgr) only his units are disabled
+ * and the rest waits for the next boot. -> the record, or null then */
 function amAdopt(state, stage) {
     var rec = { at: new Date().toISOString(), version: amVersion(), app: (amAppOnUnit(AM.app) || {}).version || null,
         apps: amApps(), repos: amRepos(), renderer: null, tether: null };
     say("adopting IterioDev's App Manager " + (rec.version || '') + ': ' +
         (rec.apps.map(function (x) { return x.id + (x.version ? ' ' + x.version : ''); }).join(', ') || 'no apps'));
-    amStop(AM.daemon, state);
-    var t = amService('tether', 'ipheth-tether');
-    if (t) { rec.tether = t.version; amStop(AM.tether, state); }
-    amMoveQueue(state);
     var ops = [];
     [AM.daemon, AM.apply, AM.tether].forEach(function (u) {
         wantsLinks(u).forEach(function (l) { ops.push({ type: 'delete', path: l }); });
     });
     if (ops.length) { rootfsWindow(ops); runOk(CFG.systemctl, ['daemon-reload']); say('disabled ' + [AM.daemon, AM.apply, AM.tether].join(', ')); }
+    var held = [AM.daemon, AM.tether].filter(function (u) { return !amStop(u); });
+    if (held.length) {
+        addPending(state, AM.app, AM_NEXT_BOOT);
+        say(held.join(' and ') + ' run until the next boot (recmgr does not list them): the App Manager is adopted then');
+        return null;
+    }
+    var t = amService('tether', 'ipheth-tether');
+    if (t) rec.tether = t.version;
+    amMoveQueue(state);
     rec.renderer = amRenderer(state, stage);
     if (rec.renderer) say('the GPU renderer ' + rec.renderer + ' is the tool mgu-renderd');
     var old = readJsonOrNull(AM_RECORD);
@@ -2662,6 +2669,7 @@ function amAdopt(state, stage) {
 /* Removes it: see the section's comment. */
 function amRemove(state, stage) {
     var rec = amAdopt(state, stage), ops = [], ourTether = installedTools().some(function (t) { return t.id === 'ipheth-tether'; });
+    if (!rec) throw refuse("IterioDev's App Manager runs until the next boot; it can be removed then");
     [AM.daemon, AM.apply].concat(ourTether ? [] : [AM.tether]).forEach(function (u) {
         if (lstatOrNull(path.join(CFG.systemd, u))) ops.push({ type: 'delete', path: path.join(CFG.systemd, u) });
     });
@@ -2699,7 +2707,6 @@ function amCommand(command, fn) {
             if (ran && unitState(AM.daemon, 'is-active') !== 'active') systemctl(['start', AM.daemon]);
             pruneCreatedDirs(state);
         } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
-        if (e.code === 2) e.code = 1;
         throw e;
     } finally { rmrf(stage); }
     return 0;

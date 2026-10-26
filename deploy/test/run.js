@@ -3407,7 +3407,7 @@ function testAppManager() {
     const a = root.run(['appmanager', 'adopt', '--yes']);
     const calls = root.systemctlCalls();
     const rec = readJsonOrNull(root.p('var/opt/mgu-deploy/appmanager.json')) || {};
-    check('appmanager: adopt stops his daemon and his tether (never a restart of the renderer)', a.status === 0 &&
+    check('appmanager: adopt stops his daemon and his tether, a start queued for them too (never a restart of the renderer)', a.status === 0 &&
         calls.includes('stop appmanager.service') && calls.includes('stop ipheth-tether.service') &&
         !calls.some((c) => /^(stop|restart) mgu-renderd/.test(c)), a.out + calls.join('\n'));
     check('appmanager: his units stay, disabled', fs.existsSync(root.sys('appmanager.service')) && fs.existsSync(root.sys('appmanager-apply.service')) &&
@@ -3461,18 +3461,39 @@ function testAppManager() {
     const bad = amRoot();
     const hb = bad.hash((rel) => rel.startsWith('var/opt/mgu-deploy'));
     const f = bad.run(['appmanager', 'adopt', '--yes'], { FAKE_FAIL: 'daemon-reload' });
-    check('appmanager: a failed adopt puts everything back and starts his daemon again', f.status === 1 &&
-        bad.hash((rel) => rel.startsWith('var/opt/mgu-deploy')).hash === hb.hash && bad.systemctlCalls().includes('start appmanager.service') &&
+    const daemon = bad.unitFile('appmanager.service.active');
+    check('appmanager: a failed adopt puts everything back, his daemon running', f.status === 1 &&
+        bad.hash((rel) => rel.startsWith('var/opt/mgu-deploy')).hash === hb.hash &&
+        (!fs.existsSync(daemon) || fs.readFileSync(daemon, 'utf8').trim() === 'active') &&
         !fs.existsSync(bad.p('var/opt/mgu-deploy/appmanager.json')),
         f.out + treeDiff(hb, bad.hash((rel) => rel.startsWith('var/opt/mgu-deploy'))));
 
-    // iDrive 7 with a recmgr list: his units are not in it, so stopping them would restart the head unit
+    const late = amRoot();
+    write(late.H('renderer/mgu-renderd'), '#!/bin/sh\n', 0o755);
+    const hl = late.hash((rel) => rel.startsWith('var/opt/mgu-deploy'));
+    const fl = late.run(['appmanager', 'adopt', '--yes']);
+    check('appmanager: one failing after his daemon stopped (a renderer that is no program) starts it again, all else back', fl.status !== 0 &&
+        fl.out.includes('is not an x86-64 program') && late.systemctlCalls().includes('start appmanager.service') &&
+        late.hash((rel) => rel.startsWith('var/opt/mgu-deploy')).hash === hl.hash && !fs.existsSync(late.p('var/opt/mgu-renderd')),
+        fl.out + treeDiff(hl, late.hash((rel) => rel.startsWith('var/opt/mgu-deploy'))));
+
+    // a recmgr list without his units: stopping a running one would restart the head unit
     const seven = amRoot({ id7: true });
+    const unit7 = fs.readFileSync(seven.sys('mgu-renderd.service'), 'utf8');
     const s7 = seven.run(['appmanager', 'adopt', '--yes']);
-    check('appmanager: on iDrive 7 his daemon and tether are not stopped where recmgr does not list them, only disabled', s7.status === 0 &&
+    check('appmanager: with his daemon running and not in recmgr, adopt only disables his units; the rest waits for the next boot', s7.status === 0 &&
         !seven.systemctlCalls().some((c) => /^stop (appmanager|ipheth)/.test(c)) && !fs.existsSync(seven.sys('late.target.wants/appmanager.service')) &&
-        seven.status().pending_reboot.some((p) => p.id === 'oap-appmanager' && p.reason === 'stops at the next boot') &&
-        fs.existsSync(seven.H('pending.json')), s7.out);
+        seven.status().pending_reboot.some((p) => p.id === 'oap-appmanager' && p.reason === 'adopted at the next boot') &&
+        seven.status().appmanager.record === null && fs.readFileSync(seven.sys('mgu-renderd.service'), 'utf8') === unit7 &&
+        !fs.existsSync(seven.p('var/opt/mgu-renderd')), s7.out);
+    const r7 = seven.run(['uninstall', 'oap-appmanager', '--yes']);
+    check('appmanager: and it is not removed before then', r7.status === 2 && r7.out.includes('runs until the next boot') &&
+        fs.existsSync(seven.sys('appmanager.service')), r7.out);
+    seven.reboot(Math.floor(Date.now() / 1000) - 60);
+    const n7 = seven.run(['appmanager', 'adopt', '--yes'], { FAKE_ACTIVE: 'mgu-renderd.service' });
+    check('appmanager: at the next boot, his daemon not started, adopt completes', n7.status === 0 &&
+        seven.status().appmanager.record.renderer === '1.1.2' && fs.readlinkSync(seven.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2' &&
+        !fs.readFileSync(seven.sys('mgu-renderd.service'), 'utf8').includes('--touch'), n7.out);
 }
 
 // MGU_TEST_ONLY=<name>,...: only those test functions

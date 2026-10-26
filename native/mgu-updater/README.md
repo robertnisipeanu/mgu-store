@@ -352,9 +352,9 @@ iPhone tether: whichever source lists them, `oap-appmanager` is
 `blocked` `Replaced by Store` and `ipheth-tether` `Replaced by mgu-uplink`,
 and neither is installed. When the deploy tool's `status --json` says it is
 on the unit and not yet adopted (`appmanager.present`, no `record`), the
-updater runs `mgu-deploy.sh appmanager adopt --yes` once (deploy/README.md,
-"IterioDev's App Manager"; a failure is the row's `error` and waits for the
-next start). From the record the deploy tool keeps, each app it installed
+updater runs `mgu-deploy.sh appmanager adopt --yes` once per start
+(deploy/README.md, "IterioDev's App Manager"; a failure is the row's
+`error`). From the record the deploy tool keeps, each app it installed
 that has no origin yet gets one, once per record (`state/appmanager.json`):
 
 - the repository it recorded for the app, else its default repository

@@ -598,7 +598,8 @@ class Updater {
         this.providers = {};
         // the deploy tool's word on IterioDev's App Manager (status --json appmanager)
         this.appmanager = null;
-        this.adoptFailed = false;
+        // the deploy tool's appmanager adopt runs once per start
+        this.adoptTried = false;
         this.privacy = null;
         this.clients = new Set();
         this.checking = null;
@@ -1694,8 +1695,8 @@ class Updater {
      * none reads it), else imported. Nothing is reinstalled. */
     takeOver() {
         const am = this.appmanager;
-        if (am && am.present && !am.record && !this.adoptFailed && !this.queue.some((q) => q.op === 'adopt') &&
-            !(this.busy && this.busy.op === 'adopt')) {
+        if (am && am.present && !am.record && !this.adoptTried) {
+            this.adoptTried = true;
             this.queue.unshift({ op: 'adopt', id: APP_MANAGER });
             if (!this.busy) {
                 this.next();
@@ -1756,8 +1757,6 @@ class Updater {
         return this.deployTool(['appmanager', 'adopt', '--yes'])
             .then((code) => {
                 if (code !== 0) {
-                    // tried again at the next start
-                    this.adoptFailed = true;
                     this.errors[APP_MANAGER] = `taking over the App Manager failed${this.deployError ? `: ${this.deployError}` : ''}`;
                     console.log(`appmanager: ${this.errors[APP_MANAGER]}`);
                 }

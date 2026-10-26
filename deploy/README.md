@@ -472,11 +472,14 @@ any source, as is its tether. On a unit that runs it, it is:
 `appmanager adopt [--yes]` takes it over, in one snapshot, nothing
 reinstalled:
 
-- its daemon is stopped and its two units disabled (their enablement links
-  removed; the files stay); its tether is stopped and disabled. A unit
-  recmgr does not list is not stopped (that would restart the head unit):
-  disabled, it stops with the next boot (`oap-appmanager` pending, `stops
-  at the next boot`);
+- its two units and its tether are disabled (their enablement links
+  removed; the files stay), then stopped: `systemctl stop` also cancels a
+  start the boot has queued for them, since its daemon rewrites the
+  renderer's unit while it runs. A running one recmgr does not list is not
+  stopped (that would restart the head unit): the adoption stops there and
+  completes at the next boot, which starts neither (`oap-appmanager`
+  pending, `adopted at the next boot`; `uninstall oap-appmanager` is
+  refused until then);
 - its queued app changes go into ours (iDrive 8): an install with its
   staged package while that matches its sha256, a removal as it is; its
   own app is not carried over; `pending.json` goes;
