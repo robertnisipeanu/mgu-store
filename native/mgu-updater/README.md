@@ -152,8 +152,8 @@ commit). Without one: `releases` when the repo has a release, else
 - `needs` (an entry's, else `mguNeeds`): capabilities an installed tool
   must provide (`"needs": ["renderer"]`). The install is refused until one
   does (*Gate needs a renderer: install <the ones the sources list>
-  first*), and the last provider of a capability an installed component
-  needs is not removed (a replace is fine).
+  first*), and the last installed provider of a capability an installed
+  component needs is not removed.
 - `title`, `description`, `requires`, `optional` and `uninstallable` come
   from the entry, else from the component's own file. A component that
   cannot be used is left out and the source's `error` says why; the rest

@@ -257,8 +257,8 @@ systemd unit:
   apps' group, `tm_oap_app`), as root or `"user": "dynamic"` (systemd's
   `DynamicUser`) with `groups`, restarted when it stops, started with
   `wantedBy` (default `multi-user.target`) and after `after`;
-- `provides`: its capability (one renderer at a time, above); the Store
-  offers to replace the installed provider;
+- `provides`: its capability (`renderer`), which another component can
+  `need`;
 - each value is one plain word (letters, digits, `_.@:/=,+%-`).
 
 A committed library that a stock unit's process should load (`LD_PRELOAD`)

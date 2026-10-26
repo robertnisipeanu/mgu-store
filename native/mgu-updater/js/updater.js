@@ -1124,7 +1124,7 @@ class Updater {
             return `${r.entry.title} provides ${r.entry.mguProvides}, which ${holder.id} provides: replace ${holder.id} to install it`;
         }
         // a capability it needs: some installed tool provides it
-        const lacking = (r.entry.mguNeeds || []).filter((cap) => !this.providers[cap])[0];
+        const lacking = (r.entry.mguNeeds || []).filter((cap) => !this.providerIds(cap).length)[0];
         if (lacking) {
             const offer = Array.from(this.resolved().values()).filter((o) => o.entry.mguProvides === lacking).map((o) => o.entry.title);
             const why = `${r.entry.title} needs a ${lacking}: install ${offer.length ? offer.join(' or ') : 'one'} first`;
@@ -1160,6 +1160,13 @@ class Updater {
         return null;
     }
 
+    /* The ids of the installed tools providing cap: the deploy tool names one
+     * ({id, version}), or with providers side by side a list of them. */
+    providerIds(cap) {
+        const p = this.providers[cap];
+        return (Array.isArray(p) ? p : p ? [p] : []).map((x) => x.id);
+    }
+
     /* Queues a removal of id: one its source marks uninstallable, installed,
      * that nothing installed requires. */
     requestUninstall(id) {
@@ -1181,12 +1188,12 @@ class Updater {
         if (needs) {
             return `${needs.entry.title} needs ${id}`;
         }
-        // the provider of a capability an installed component needs stays
+        // the last provider of a capability an installed component needs stays
         const cap = r.entry.mguProvides;
-        const needer = cap && Array.from(all.values()).find((o) => (o.entry.mguNeeds || []).indexOf(cap) >= 0 &&
-            this.installedVersion(o.entry.id, o.entry.kind));
+        const needer = cap && !this.providerIds(cap).some((p) => p !== id) &&
+            Array.from(all.values()).find((o) => (o.entry.mguNeeds || []).indexOf(cap) >= 0 && this.installedVersion(o.entry.id, o.entry.kind));
         if (needer) {
-            return `${needer.entry.title} needs a ${cap}: remove it first, or replace ${id} with another ${cap}`;
+            return `${needer.entry.title} needs a ${cap}: remove it first, or install another ${cap}`;
         }
         const refused = this.enqueue({ op: 'uninstall', id });
         if (refused) {

@@ -2652,7 +2652,13 @@ function testPythonRepo() {
         })
         .then((why) => {
             ok('preload: the renderer it needs cannot be removed while it is installed',
-                why === 'Gate needs a renderer: remove it first, or replace svc with another renderer', why);
+                why === 'Gate needs a renderer: remove it first, or install another renderer', why);
+            // with renderers side by side (the deploy tool lists each provider), one of two can go
+            const reported = u.providers;
+            u.providers = { renderer: [{ id: 'svc', version: '1.0.0' }, { id: 'other-renderer', version: '1.0.0' }] };
+            ok('preload: with another renderer installed, the one it used can be removed', u.providerIds('renderer').length === 2 &&
+                u.requestUninstall('svc') === null, JSON.stringify(u.queue));
+            u.providers = reported;
             // the proxy serves the build uid alone, with its password
             const logs = [];
             return startProxy(conf, { online: true, dns: [`127.0.0.1:${DNS_PORT}`] }, (l) => logs.push(l), 'probe').then((p) => {
