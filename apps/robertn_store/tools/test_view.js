@@ -82,6 +82,7 @@ const cases = [
     [rowState(row({ blocked: 'doom is already installed from o/r', uninstallable: true }), null), 'Installed 1.0.0'],
     [rowAction(row({ blocked: 'doom is already installed from o/r', uninstallable: true }), null), 'remove'],
     [groupState([row({ blocked: 'doom is already installed from o/r' })], null), ''],
+    [statusLine(st({ components: [row({ blocked: 'doom is already installed from o/r' })] }), true, true), 'Up to date, checked 14:02'],
     [rowAction(row({ compat: 'no', uninstallable: true }), null), 'remove'],
     [rowAction(row({ compat: 'yes' }), null), 'install'],
     [groupState([row({}), row({ id: 'vc', compat: 'no' })], null), '1 update'],

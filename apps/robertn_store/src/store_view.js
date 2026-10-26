@@ -124,7 +124,7 @@ function statusLine(st, connected, secret) {
     if (st.catalog.error) {
         return `Check failed: ${st.catalog.error}`;
     }
-    const updates = st.components.filter((c) => c.status === 'update' && !notForUnit(c)).length;
+    const updates = st.components.filter((c) => c.status === 'update' && !notForUnit(c) && !c.blocked).length;
     return `${updates ? `${updates} update${updates > 1 ? 's' : ''}` : 'Up to date'}, ${checked}`;
 }
 

@@ -239,7 +239,7 @@ function appView(m, id) {
     const s = tileState(c, busy);
     const mine = busy && busy.id === c.id;
     const src = find(sources(m), c.source);
-    const avail = c.status === 'update' || c.status === 'available';
+    const avail = (c.status === 'update' || c.status === 'available') && !(c.blocked && c.installed);
     const v = {
         icon: Object.assign(iconOf(c), { badge: mine ? '' : s.badge, progress: s.progress }),
         name: { text: c.title },

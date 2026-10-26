@@ -33,7 +33,7 @@ USB, Settings) beside:
   or Tool, its head units and capability, the description; Installed and
   Available; the running phase (Downloading, Verifying, Building,
   Installing, Removing) with its progress; `Not installable` and why (a package of an id another source's app
-  holds), `Not for this head unit` / `For
+  holds; installed, it shows as installed, with Remove and no update), `Not for this head unit` / `For
   iDrive 8` (that version is not offered), the failure, `Replaces <tool>`, `Restart pending`; and
   what can be done: Install, Update to, Try again, Replace <tool> (a
   confirm step, then the privileged install with `replace`), Restart head

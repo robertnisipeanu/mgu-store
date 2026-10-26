@@ -227,7 +227,10 @@ the source of that name, counts as that source) is that app's alone:
 - A package built elsewhere (a release, catalog or index package, a
   stick's `oap/`) may name its id in its code, so it keeps it: it is listed
   as `<id>@<source>`, `blocked` with the reason (`<id> is already installed
-  from <source>`), and its install is refused.
+  from <source>`), and its install is refused. When no source of the
+  installed app's origin lists the id any more (a stick that is gone), it is
+  listed as `<id>` instead, so the installed app keeps its row and can be
+  removed, but not updated from it.
 
 An app installed outside the updater has no origin: any source updates
 it. Without internet, a network source's last listing
