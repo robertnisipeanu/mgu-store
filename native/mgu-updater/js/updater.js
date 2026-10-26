@@ -618,25 +618,31 @@ class Updater {
         return this.stored.concat(this.usb);
     }
 
-    /* Each component id once: from the source that installed it, if it lists
-     * it, else from the first source (sources.json order, then USB media). */
+    /* Each component id once: the highest version a source lists; of equal
+     * versions, the source that installed it (origins.json), then USB media,
+     * then sources.json order. Without internet, a network source's last
+     * listing counts only for ids no other source lists. */
     resolved() {
-        const map = new Map();
-        this.defs().forEach((def) => {
+        const online = readLease(this.conf).online;
+        const found = new Map();
+        this.defs().forEach((def, order) => {
             const rt = this.src.get(def.id);
             (rt ? rt.components : []).forEach((entry) => {
-                if (!map.has(entry.id)) {
-                    map.set(entry.id, { entry, source: def.id });
-                }
+                const list = found.get(entry.id) || [];
+                list.push({ entry, source: def.id, order, usb: def.type === 'usb', reachable: online || !rt.reader.network });
+                found.set(entry.id, list);
             });
         });
-        map.forEach((r, id) => {
+        const map = new Map();
+        found.forEach((list, id) => {
             const o = this.origins[id];
-            const rt = o && this.src.get(o.source);
-            const entry = rt && rt.components.find((c) => c.id === id);
-            if (entry) {
-                map.set(id, { entry, source: o.source });
-            }
+            const rank = (c) => (o && o.source === c.source ? 0 : c.usb ? 1 : 2);
+            const pool = list.some((c) => c.reachable) ? list.filter((c) => c.reachable) : list;
+            const best = pool.reduce((a, c) => {
+                const cmp = catalogLib.compareVersions(c.entry.version, a.entry.version);
+                return cmp > 0 || (cmp === 0 && (rank(c) < rank(a) || (rank(c) === rank(a) && c.order < a.order))) ? c : a;
+            });
+            map.set(id, { entry: best.entry, source: best.source });
         });
         return map;
     }

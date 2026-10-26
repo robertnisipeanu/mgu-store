@@ -1489,8 +1489,8 @@ function testSources(certs) {
             ok('sources: a private repo without a token needs auth', src('private').status === 'auth-needed' && src('private').auth === null,
                 JSON.stringify(src('private')));
             ok('sources: an https source answering 401 needs auth', src('hp').status === 'auth-needed', JSON.stringify(src('hp')));
-            ok('collision: an id two sources list is shown once, from the first source',
-                s.components.filter((c) => c.id === 'dup_app').length === 1 && comp('dup_app').source === 'mgu-store' && comp('dup_app').version === '1.0.0');
+            ok('collision: an id two sources list is shown once, at the highest version any lists',
+                s.components.filter((c) => c.id === 'dup_app').length === 1 && comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
             ok('state: rows carry their source and schema-2 fields', comp('needs_app').uninstallable === true && comp('opt_tool').optional === true &&
                 comp('robertn_demo').build === null && comp('p_app').build === 'unit' && comp('robertn_demo').revision === null);
             ok('releases: the newest package of each id, drafts and prereleases left out, the .tgz over the .mgu',
@@ -1608,10 +1608,11 @@ function testSources(certs) {
             ok('uninstall: through the deploy tool\'s uninstall; the row is available again', err === null &&
                 /^uninstall needs_app --yes$/m.test(fs.readFileSync(deployLog, 'utf8')) &&
                 !JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).needs_app);
-            // collision: the source that installed an id wins over the order
+            // collision: a higher version wins over the source that installed an id
             fs.writeFileSync(deployLog, '');
-            u.origins.dup_app = { source: 'second', commit: null };
-            ok('collision: the source that installed an id is the one it updates from', comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
+            u.origins.dup_app = { source: 'mgu-store', commit: null };
+            ok('collision: a newer version elsewhere is offered over the source that installed it',
+                comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
             delete u.origins.dup_app;
             return ask(sock, { op: 'install', id: 'rel_app' });
         })
@@ -1744,7 +1745,15 @@ function testSources(certs) {
             fs.symlinkSync('/etc', path.join(stick, 'mgu-repo'));
             const spaced = path.join(media, 'My Stick');
             mkdirp(path.join(spaced, 'mgu-repo', 'one'));
-            publish(path.join(spaced, 'mgu-repo', 'one'), [entry(appTgz(path.join(spaced, 'mgu-repo', 'one'), 'usb_app', '0.1.0'), 'app', 'From USB')]);
+            const one = path.join(spaced, 'mgu-repo', 'one');
+            const copyInto = (dir, file) => {
+                fs.copyFileSync(file, path.join(dir, path.basename(file)));
+                return path.join(dir, path.basename(file));
+            };
+            // besides its own app: a newer base_tool (installed from mgu-store) and robertn_demo at mgu-store's version
+            publish(one, [entry(appTgz(one, 'usb_app', '0.1.0'), 'app', 'From USB'),
+                entry(copyInto(one, toolKit(path.join(T, 'src'), 'base_tool', '1.1.0', { 'base.sh': ['#!/bin/sh\n', 0o755] })), 'tool', 'Base'),
+                entry(appTgz(one, 'robertn_demo', '1.0.0'), 'app', 'Demo')]);
             // the App Manager's folder: packages under any name, npm package/ prefix or flat, .mgu, a root service
             const oapDir = path.join(stick, 'oap');
             mkdirp(oapDir);
@@ -1798,6 +1807,23 @@ function testSources(certs) {
                 .then(() => installed('oap-appmanager'))
                 .then(() => {
                     ok('usb oap/: a package installs under its id and version', /oap-appmanager@1\.0\.9\.tgz --yes/.test(deployed()[0]), deployed()[0]);
+                    ok('usb: a newer version on a stick is an update of a component installed from a GitHub source',
+                        JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'mgu-store' &&
+                        comp('base_tool').status === 'update' && comp('base_tool').version === '1.1.0' &&
+                        comp('base_tool').source === 'usb:My Stick/mgu-repo/one', JSON.stringify(comp('base_tool')));
+                    ok('usb: of equal versions a stick comes before a stored source', comp('robertn_demo').source === 'usb:My Stick/mgu-repo/one');
+                    u.origins.robertn_demo = { source: 'mgu-store', commit: null };
+                    ok('usb: ...and the source that installed it before a stick', comp('robertn_demo').source === 'mgu-store');
+                    delete u.origins.robertn_demo;
+                    fs.writeFileSync(deployLog, '');
+                    return ask(sock, { op: 'install', id: 'base_tool' });
+                })
+                .then(() => installed('base_tool'))
+                .then(() => {
+                    ok('usb: the update installs from the stick, which becomes its origin',
+                        /base_tool@1\.1\.0\.tgz --yes/.test(deployed()[0]) && comp('base_tool').installed === '1.1.0' &&
+                        JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'usb:My Stick/mgu-repo/one',
+                        JSON.stringify(deployed()));
                     return before;
                 });
         })
@@ -1812,6 +1838,9 @@ function testSources(certs) {
             fs.writeFileSync(mounts, 'proc /proc proc rw 0 0\n');
             u.scanUsb();
             ok('usb: a stick taken out is no longer a source', !st().sources.some((x) => x.usb) && !comp('usb_app').id);
+            ok('usb: with the stick out, a component it installed follows the stored source again',
+                comp('base_tool').source === 'mgu-store' && comp('base_tool').installed === '1.1.0' && comp('base_tool').status === 'newer',
+                JSON.stringify(comp('base_tool')));
             return fs.existsSync(path.join(ROOT, 'js', 'web.js')) ? null : priv({ op: 'web', enable: true });
         })
         .then((err) => {

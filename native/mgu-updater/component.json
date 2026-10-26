@@ -1,7 +1,7 @@
 {
   "id": "mgu-updater",
   "kind": "tool",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "title": "Updater",
   "description": "Installs, updates and removes apps and head-unit tools from its sources",
   "files": [
