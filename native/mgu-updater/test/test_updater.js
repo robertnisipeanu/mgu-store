@@ -2549,6 +2549,27 @@ function testAppManager(certs, pubDir) {
             ok('appmanager: a later start does not adopt again', adopts() === 1 && u.adopted.at === '2026-10-26T10:00:00.000Z' &&
                 u.origins['oap-cardash'].source === 'car-apps', calls().join('; '));
             u.server.close();
+            // install.sh run again, without his app: his service alone
+            const am = JSON.parse(fs.readFileSync(`${deployLog}.appmanager`, 'utf8'));
+            fs.writeFileSync(`${deployLog}.appmanager`, JSON.stringify(Object.assign(am, { present: true, app: null, daemon: 'active' })));
+            fs.writeFileSync(`${deployLog}.amrecord`, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(`${deployLog}.amrecord`, 'utf8')),
+                { at: '2026-10-27T10:00:00.000Z' })));
+            u = new Updater(conf);
+            return u.serve().then(() => u.refresh()).then(() => until(() => u.adopted.at, (at) => at === '2026-10-27T10:00:00.000Z' && !u.busy,
+                30000, 'the reinstalled App Manager adopted'));
+        })
+        .then(() => {
+            const am = comp('oap-appmanager');
+            ok('appmanager: one installed again after its removal is adopted again', adopts() === 2, calls().join('; '));
+            ok('appmanager: its service alone keeps a Remove', am.blocked === 'Replaced by Store' && am.installed === '2.0.3' &&
+                am.uninstallable === true, JSON.stringify(am));
+            return ask(conf.socket, { op: 'uninstall', id: 'oap-appmanager', secret: u.secret });
+        })
+        .then((err) => until(st, () => !st().busy && u.appmanager.present === false, 30000, 'the service removed').then(() => err))
+        .then((err) => {
+            ok('appmanager: and that Remove is the deploy tool\'s uninstall of oap-appmanager', err === null &&
+                calls().filter((l) => l === 'uninstall oap-appmanager --yes').length === 2, `${err} ${calls().join('; ')}`);
+            u.server.close();
             delete process.env.FAKE_UNIT_HMI;
         });
 }

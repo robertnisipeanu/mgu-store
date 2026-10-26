@@ -311,10 +311,10 @@ Packages made for IterioDev's App Manager install as they are:
   its `icon.png` beside `package.json` (a PNG of at most 128 KiB), `author`
   (or `author.name`) and `store.description` (else `description`).
 - **Service packages** (`package.json` `{name, version, mguService}` and
-  the x86-64 program under its name): `renderer` (`mgu-renderd`) or
-  `tether` (`ipheth-tether`). One installs as a root tool of that name,
-  with the unit the App Manager writes (deploy/README.md, "Service
-  packages"), and provides its kind.
+  the x86-64 program under its name): `renderer` (`mgu-renderd`) installs
+  as a root tool of that name, with the unit the App Manager writes
+  (deploy/README.md, "Service packages"), and provides `renderer`; a
+  `tether` (`ipheth-tether`) is refused: mgu-uplink drives the iPhone.
 
 ## Offline copies
 

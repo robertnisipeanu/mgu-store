@@ -3,7 +3,8 @@
 ## 0.7.0
 
 - IterioDev's App Manager on the unit (the deploy tool's `status --json` `appmanager`) is adopted once through `mgu-deploy.sh appmanager adopt`. Each app it installed gets as origin the source that reads its public repository's index (added as an https source named after the repository when none does), the repository it recorded, else its default one when that listed the app; any other is `imported`: listed from no source as `imported`, installed and removable, not installed from nowhere.
-- `oap-appmanager` is listed as `Replaced by Store` and `ipheth-tether` as `Replaced by mgu-uplink` from every source (`blocked`), never installed; the App Manager's app keeps its row while it is on the unit, and its Remove is the deploy tool's `uninstall oap-appmanager`, which removes the App Manager.
+- `oap-appmanager` is listed as `Replaced by Store` and `ipheth-tether` as `Replaced by mgu-uplink` from every source (`blocked`), never installed; the App Manager's app keeps its row while it or the App Manager's service is on the unit, and its Remove is the deploy tool's `uninstall oap-appmanager`, which removes the App Manager. An App Manager installed again after its removal is adopted again.
+- Requires `mgu-deploy` 0.5.0.
 
 ## 0.6.0
 

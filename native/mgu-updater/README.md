@@ -351,7 +351,8 @@ renderers").
 iPhone tether: whichever source lists them, `oap-appmanager` is
 `blocked` `Replaced by Store` and `ipheth-tether` `Replaced by mgu-uplink`,
 and neither is installed. When the deploy tool's `status --json` says it is
-on the unit and not yet adopted (`appmanager.present`, no `record`), the
+on the unit and not adopted (`appmanager.present`, no `record`, or one that
+says it was `removed`: installed again since), the
 updater runs `mgu-deploy.sh appmanager adopt --yes` once per start
 (deploy/README.md, "IterioDev's App Manager"; a failure is the row's
 `error`). From the record the deploy tool keeps, each app it installed
@@ -367,9 +368,11 @@ that has no origin yet gets one, once per record (`state/appmanager.json`):
   lists keeps a row of source `imported`, installed and removable, that
   installs from nowhere.
 
-The App Manager's app keeps a row while it is on the unit, listed or not;
-its Remove is `mgu-deploy.sh uninstall oap-appmanager`, which removes the
-App Manager and leaves what it installed.
+The App Manager's app keeps a row while it or the App Manager's service is
+on the unit, listed or not, installed (the service's version when its app
+is not); its Remove is `mgu-deploy.sh uninstall oap-appmanager`, which
+removes the App Manager and leaves what it installed. The updater requires
+`mgu-deploy` 0.5.0, which does that.
 
 **First start.** The installers seed `sources.json` (the deploy tool's
 `updater-sources`, from `deploy/sources.json`) and never replace

@@ -786,6 +786,10 @@ class Updater {
         return map;
     }
 
+    amPresent() {
+        return !!(this.appmanager && this.appmanager.present);
+    }
+
     /* Rows for what no source lists: the App Manager's app while it is on
      * the unit (for its Remove), and the installed apps it put there from
      * no source the updater reads (origin imported). */
@@ -795,7 +799,7 @@ class Updater {
         const out = [];
         const am = this.appmanager;
         const mine = installedApp(this.conf, APP_MANAGER);
-        if (mine || (am && am.present)) {
+        if (mine || this.amPresent()) {
             out.push(row(APP_MANAGER, 'App Manager', { version: mine ? mine.version : am.app || am.version, author: 'IterioDev',
                 blocked: REPLACED[APP_MANAGER] }));
         }
@@ -847,6 +851,10 @@ class Updater {
                 row.status = 'update';
             }
             const icon = entry.icon ? this.iconFile(resolved[i].source, entry) : null;
+            // the App Manager's service alone is enough for its Remove
+            if (row.id === APP_MANAGER && !row.installed && this.amPresent()) {
+                row.installed = this.appmanager.version;
+            }
             return Object.assign(row, {
                 // the kept icon (a PNG anyone may read), null without one
                 icon: icon && fs.existsSync(icon) ? icon : null,
@@ -1295,7 +1303,7 @@ class Updater {
         if (!r.entry.uninstallable || id === SELF || id === this.conf.deploy_tool) {
             return `${id} cannot be removed`;
         }
-        if (!this.installedVersion(id, r.entry.kind)) {
+        if (!this.installedVersion(id, r.entry.kind) && !(id === APP_MANAGER && this.amPresent())) {
             return `${id} is not installed`;
         }
         const needs = Array.from(all.values()).find((o) => o.entry.requires[id] && this.installedVersion(o.entry.id, o.entry.kind));
@@ -1695,7 +1703,7 @@ class Updater {
      * none reads it), else imported. Nothing is reinstalled. */
     takeOver() {
         const am = this.appmanager;
-        if (am && am.present && !am.record && !this.adoptTried) {
+        if (am && am.present && (!am.record || am.record.removed) && !this.adoptTried) {
             this.adoptTried = true;
             this.queue.unshift({ op: 'adopt', id: APP_MANAGER });
             if (!this.busy) {
@@ -1749,7 +1757,6 @@ class Updater {
         return added.id;
     }
 
-    /* The deploy tool's appmanager adopt. */
     adopt() {
         this.busy = { id: APP_MANAGER, op: 'adopt', phase: 'check' };
         this.changed();

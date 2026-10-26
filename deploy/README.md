@@ -485,10 +485,13 @@ reinstalled:
   own app is not carried over; `pending.json` goes;
 - its renderer becomes the tool `mgu-renderd` (`versions/<its version>/`
   from the program it runs), our unit written over its unit; a running
-  renderer keeps running and runs ours from its next start;
+  renderer keeps running and runs ours from its next start. With our
+  `mgu-renderd` installed before it, its unit is written over ours: ours
+  goes back, and our tool runs from the renderer's next start;
 - `/var/opt/mgu-deploy/appmanager.json` records the apps it installed that
   are on the unit (`state.json`'s `installedFrom`, and what `apply.log` last
-  shows installed; not its app, its services or a system app) with the
+  shows installed; not its app, its services or a system app) and the
+  installs moved from its queue, with the
   repository it recorded for each (`from`), its repositories without their
   tokens (`url`, `index`, `private`, `enabled`, `isDefault`, and the ids
   its last catalog fetch saw there as `lists`), and the renderer and tether

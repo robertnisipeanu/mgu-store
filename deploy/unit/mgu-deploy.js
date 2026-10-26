@@ -1084,7 +1084,7 @@ var SERVICE_MAX = 16 << 20;
 /* The renderer's touch routing takes the HMI's touch PDUs on iDrive 8
  * (UDP 30567 into Hmi8), the app area there being 0,76,2880,764; on any
  * other unit it runs without touch routing. */
-function serviceUnit(kind, bin) {
+function serviceUnit(bin) {
     var touch = unitInfo().hmi === 'ID8' ?
         ' --touch ' + (fs.existsSync(CFG.vminput) ? 'vm' : 'car') + ' --touch-area 0,76,2880,764' : '';
     return ['# GPU renderer for custom apps (mgu-renderd), installed by mgu-deploy: draws renderer apps\' screens over the HMI.',
@@ -1115,7 +1115,7 @@ function validateService(file, dir, pkgDir, pkg) {
     mkdirp(path.join(kit, 'files')); mkdirp(path.join(kit, 'units'));
     fs.writeFileSync(path.join(kit, 'files', s.name), fs.readFileSync(bin));
     fs.writeFileSync(path.join(kit, 'files', 'package.json'), fs.readFileSync(path.join(pkgDir, 'package.json')));
-    fs.writeFileSync(path.join(kit, 'units', unit), serviceUnit(kind, path.join(CFG.varOpt, s.name, 'current', s.name)));
+    fs.writeFileSync(path.join(kit, 'units', unit), serviceUnit(path.join(CFG.varOpt, s.name, 'current', s.name)));
     var c = { id: s.name, kind: 'tool', version: pkg.version,
         title: typeof pkg.productName === 'string' && pkg.productName ? pkg.productName : s.title,
         description: typeof pkg.description === 'string' ? pkg.description : '', mguService: kind,
@@ -2503,7 +2503,6 @@ function amVersion() {
     return fs.existsSync(amFile('appmanager.js')) ? '1.0.x' : null;
 }
 function amPresent() { return amUnits().length > 0 || !!amVersion(); }
-/* A unit's enablement links, in any <target>.wants folder. */
 function wantsLinks(unit) {
     if (!fs.existsSync(CFG.systemd)) return [];
     return fs.readdirSync(CFG.systemd).filter(function (n) { return /\.wants$/.test(n); })
@@ -2593,10 +2592,11 @@ function amTouched() {
 }
 /* His queued app changes, into our queue (iDrive 8, where his apply step
  * installs): an install with its staged package while that still
- * matches, a removal as it is; his own app is not carried over. */
+ * matches, a removal as it is; his own app is not carried over.
+ * -> [{ id, version }] of the installs moved */
 function amMoveQueue(state) {
-    var changes = (readJsonOrNull(amFile('pending.json')) || {}).changes;
-    if (!isId8() || !Array.isArray(changes) || !changes.length) return;
+    var changes = (readJsonOrNull(amFile('pending.json')) || {}).changes, moved = [];
+    if (!isId8() || !Array.isArray(changes) || !changes.length) return moved;
     changes.forEach(function (c) {
         if (!c || typeof c.appId !== 'string' || c.appId === AM.app || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(c.appId)) return;
         if (c.action === 'install') {
@@ -2610,6 +2610,7 @@ function amMoveQueue(state) {
             mkdirp(ID8_QUEUE, 0o700);
             copyFileMode(staged, file, 0o600);
             queueId8({ action: 'install', id: c.appId, version: c.version, file: file, sha256: sha256File(file) });
+            moved.push({ id: c.appId, version: c.version });
             say(c.appId + ' ' + c.version + ' ' + ID8_INSTALLS + ' (queued by the App Manager)');
         } else if (c.action === 'remove') {
             ensureApplyUnit(state);
@@ -2618,13 +2619,26 @@ function amMoveQueue(state) {
         }
     });
     rmrf(amFile('pending.json'));
+    return moved;
 }
 /* His renderer as our tool mgu-renderd, from the program and version it
  * has; installTool writes our unit over his and keeps a running renderer
- * running. */
+ * running. With our tool installed first, his App Manager has written
+ * its unit over ours: ours goes back, and runs from the next start. */
 function amRenderer(state, stage) {
-    var r = amService('renderer', 'mgu-renderd');
-    if (!r || installedTools().some(function (t) { return t.id === 'mgu-renderd'; })) return null;
+    var r = amService('renderer', 'mgu-renderd'), unit = path.join(CFG.systemd, 'mgu-renderd.service');
+    var ours = installedTools().filter(function (t) { return t.id === 'mgu-renderd'; })[0];
+    if (ours) {
+        var text = serviceUnit(path.join(CFG.varOpt, 'mgu-renderd', 'current', 'mgu-renderd'));
+        if (ours.component.mguService === 'renderer' && !bytesEqualFile(Buffer.from(text), unit)) {
+            rootfsWindow([{ type: 'copy', data: text, path: unit, mode: 0o644 }]);
+            runOk(CFG.systemctl, ['daemon-reload']);
+            addPending(state, 'mgu-renderd', PENDING_NEXT_START);
+            say('mgu-renderd.service is ours again; it runs ' + ours.version + ' from its next start');
+        }
+        return null;
+    }
+    if (!r) return null;
     var dir = path.join(stage, 'am-renderer'), pkgDir = path.join(dir, 'package');
     mkdirp(pkgDir);
     fs.writeFileSync(path.join(pkgDir, 'mgu-renderd'), fs.readFileSync(r.bin));
@@ -2656,7 +2670,11 @@ function amAdopt(state, stage) {
     }
     var t = amService('tether', 'ipheth-tether');
     if (t) rec.tether = t.version;
-    amMoveQueue(state);
+    var from = (readJsonOrNull(amFile('state.json')) || {}).installedFrom || {};
+    amMoveQueue(state).forEach(function (q) {
+        rec.apps = rec.apps.filter(function (x) { return x.id !== q.id; })
+            .concat([{ id: q.id, version: q.version, from: typeof from[q.id] === 'string' ? from[q.id] : null }]);
+    });
     rec.renderer = amRenderer(state, stage);
     if (rec.renderer) say('the GPU renderer ' + rec.renderer + ' is the tool mgu-renderd');
     var old = readJsonOrNull(AM_RECORD);

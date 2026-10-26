@@ -3425,9 +3425,10 @@ function testAppManager() {
     check('appmanager: his queued install moves to our queue, his pending.json goes', !fs.existsSync(root.H('pending.json')) &&
         fs.readFileSync(root.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')).equals(fs.readFileSync(root.H('staged/oap-driverecorder-next@1.0.8.tgz'))) &&
         root.status().pending_reboot.some((p) => p.id === 'oap-driverecorder-next' && p.reason === 'installs at the next start'), a.out);
-    check('appmanager: the record names the apps he installed that are on the unit, with the repository he recorded',
+    check('appmanager: the record names the apps he installed that are on the unit or in his queue, with the repository he recorded',
         JSON.stringify(rec.apps) === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', from: 'github.com/IterioDev/car-apps' },
-            { id: 'oap-draggy', version: '1.1.3', from: null }]) && rec.renderer === '1.1.2' && rec.tether === '1.0.1', JSON.stringify(rec));
+            { id: 'oap-draggy', version: '1.1.3', from: null }, { id: 'oap-driverecorder-next', version: '1.0.8', from: null }]) &&
+        rec.renderer === '1.1.2' && rec.tether === '1.0.1', JSON.stringify(rec));
     check('appmanager: and his repositories with what his store saw there, without the token',
         rec.repos && rec.repos.length === 2 && rec.repos[0].isDefault === true && rec.repos[0].lists.indexOf('oap-draggy') >= 0 &&
         rec.repos[1].private === true && !fs.readFileSync(root.p('var/opt/mgu-deploy/appmanager.json'), 'utf8').includes('SECRET'), JSON.stringify(rec.repos));
@@ -3476,6 +3477,19 @@ function testAppManager() {
         fl.out.includes('is not an x86-64 program') && late.systemctlCalls().includes('start appmanager.service') &&
         late.hash((rel) => rel.startsWith('var/opt/mgu-deploy')).hash === hl.hash && !fs.existsSync(late.p('var/opt/mgu-renderd')),
         fl.out + treeDiff(hl, late.hash((rel) => rel.startsWith('var/opt/mgu-deploy'))));
+
+    // our renderer tool first, his App Manager installed after it: his unit over ours
+    const first = amRoot();
+    fs.renameSync(first.sys('mgu-renderd.service'), `${first.R}.his-unit`);
+    fs.unlinkSync(first.sys('late.target.wants/mgu-renderd.service'));
+    const ownTool = first.run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--yes']);
+    fs.copyFileSync(`${first.R}.his-unit`, first.sys('mgu-renderd.service'));
+    const fa = first.run(['appmanager', 'adopt', '--yes']);
+    check('appmanager: over our own renderer tool, adopt puts our unit back; the tool stays as it was', ownTool.status === 0 && fa.status === 0 &&
+        fs.readFileSync(first.sys('mgu-renderd.service'), 'utf8').includes(`ExecStart=${first.p('var/opt/mgu-renderd/current/mgu-renderd')} `) &&
+        fs.readlinkSync(first.p('var/opt/mgu-renderd/current')) === 'versions/1.1.0' &&
+        first.status().pending_reboot.some((p) => p.id === 'mgu-renderd' && p.reason === 'the new version runs from its next start') &&
+        first.status().appmanager.record.renderer === null, fa.out);
 
     // a recmgr list without his units: stopping a running one would restart the head unit
     const seven = amRoot({ id7: true });
