@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0
+
+The Store's screens are drawn by mgu-render: IterioDev's App Manager 2
+(side menu Store, Installed, USB, Settings; a grid of tiles with package
+pictures or letter tiles, states and badges; a component's page with
+Installed and Available; confirm sheets), on iDrive 7 and iDrive 8, with
+the controller (the HMI's focus over hidden buttons, a ring on the drawn
+page) and touch. The widget screens show whenever the renderer is not
+there, and the Store moves between the two as it comes and goes. A
+component not for this head unit says for which it is and does not
+install; one providing what another installed tool provides asks Replace?
+and installs with replace. Sign in with GitHub shows while the updater
+offers it, and a private source a sign-in does not reach shows the GitHub
+App's install page as a QR code. An iDrive 8 widget layout. Needs
+mgu-updater 0.4.0, mgu-deploy 0.3.0 and mgu-render.
+
 ## 0.6.0
 
 The package ships no entry point of its own: the build supplies

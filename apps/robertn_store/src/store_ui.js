@@ -339,6 +339,7 @@ function sourceView(m, id) {
         facts: { items: [sourceChannel(s) && { text: sourceChannel(s) }, sourceAccount(s) && { text: sourceAccount(s) },
             typeof s.components === 'number' && { text: plural(s.components, 'component') }].filter(Boolean) },
         desc: { text: s.error ? String(s.error) : '' },
+        panel: { hidden: !installUrl },
         appLabel: { text: installUrl ? 'Install on GitHub' : '' },
         appQr: { text: installUrl },
         appUrl: { text: installUrl },

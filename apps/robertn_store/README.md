@@ -1,4 +1,4 @@
-# robertn_store 0.6.0
+# robertn_store 0.7.0
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
@@ -7,7 +7,73 @@ which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
 privileged ones (uninstall, source-add, source-remove, token-remove,
 login-start, login-cancel, web), which carry the secret the updater leaves in the app's data folder
-(`data/updater-secret`, read again for every request).
+(`data/updater-secret`, read again for every request). It is for iDrive 7
+and iDrive 8 (`mguHmi`).
+
+## Two sets of screens
+
+**Drawn by [mgu-render](../../native/mgu-render/README.md)** while it runs
+and speaks its own protocol (mgu-render/1): IterioDev's App Manager 2
+screens (his [mgu-app-store](https://github.com/IterioDev/mgu-app-store)
+`apps/oap-appmanager`, reused with his permission: the screens, their
+widgets and the kit they are drawn with, `src/am_*.js` and `src/kit_*.js`,
+MIT notice in `src/LICENSE-kit.txt`), fed from the updater's state
+(`src/store_ui.js`). A side menu (Store, Installed with its update count,
+USB, Settings) beside:
+
+- **Store**: All / Apps / Tools, Online / Offline / Checking, the status line
+  (or the running install), a grid of tiles: the package's picture when the
+  updater names one (`components[].icon`, a PNG file), else a letter tile
+  (round for a tool), its state (`Installed`, `Update 1.0.1`, `Downloading
+  42 %`, `Waiting`, `For iDrive 8`, `Failed`, `Restart pending`, version and
+  size) and a badge or progress ring.
+- **A component's page**: picture, name, source, Version, Commit, size, App
+  or Tool, its head units and capability, the description; Installed and
+  Available; the running phase (Downloading, Verifying, Building,
+  Installing, Removing) with its progress; `For iDrive 8` / `This head
+  unit: iDrive 7`, the failure, `Replaces <tool>`, `Restart pending`; and
+  what can be done: Install, Update to, Try again, Replace <tool> (a
+  confirm step, then the privileged install with `replace`), Restart head
+  unit, Remove (a confirm step).
+- **Installed**: apps and head-unit tools, each with its update (a press on
+  Update installs it) or state, and Update all.
+- **USB**: the components of the sticks' sources.
+- **Settings**: the sources (each opens its page: channel, account,
+  components, error, Remove with a confirm step, and while a sign-in does
+  not reach a private one the GitHub App's install page as a QR code and
+  its address), Add source, Accounts (each one's Remove with a confirm
+  step; Sign in with GitHub while `state.signin` is true), Phone access, the
+  head unit and versions, Check now, Restart head unit.
+
+Confirm steps are a sheet over the page, Cancel first. Every page is a host
+state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
+`ST_OnlineApps_StoreEmbed1..3` on the renderer's page template), so BACK
+leaves it. Each host state's focusable buttons stand for what the page has
+to press, in focus order: the controller moves the HMI's focus over them
+and the drawn page shows it as a ring; a press presses it. A page's focus
+starts on what it is for, a tab's on the side menu. Touch in the box goes
+to the drawn items; a drag scrolls a grid or list. With the HMI's
+controller gate loaded (the renderer's `controller`), the dial and push
+come straight from the renderer instead.
+
+The screens are laid out in iDrive 8 design pixels (2880 x 960) and scaled
+into the renderer's box: embed (inside the page, iDrive 7 once the
+template is loaded) or layer (over the page, on the app area). Text is
+Inter (SIL OFL, `src/LICENSE-Inter.txt`), baked by `tools/bake_fonts.py`;
+the atlases are at most 1024 px wide and use about a quarter of the
+renderer's glyph texture, which all apps share. Nothing from the HMI is
+drawn: icons are the kit's vector icons or package pictures.
+
+**The HMI's own widgets** (below) whenever the renderer is not there, not
+yet answering at start (1.5 s), or gone (the Store installs or updates it):
+the Store moves to them at once and back once the renderer answers again,
+and the tile opens whichever set is in use (`mapEntryState`). The HMI keeps
+the entry state of the set left, so after such a switch BACK passes
+through it once. iDrive 8 has its own widget layout
+(`uiDescriptions/ID8`, `LT_State_Wide_List` with
+`LT_Button_MediaEntry_1Row` rows) and no embed host states.
+
+## The widget screens
 
 | Row (`LT_Button_1Row_2Col7030_2Text`) | Press |
 |---|---|
@@ -20,6 +86,8 @@ login-start, login-cancel, web), which carry the secret the updater leaves in th
 | `Extended dashboard` · `Waiting` | nothing (queued) |
 | `Display bridge` · `Restart pending` | nothing (installed; active after the next reboot) |
 | `DOOM` · `Failed, retry` | try again (the status line names the error) |
+| `Car Data` · `For iDrive 8` | nothing (not for this head unit) |
+| `Renderer` · `Install 0.1.1` | *Replace?* when another installed tool provides the same capability |
 
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,
 `Checking for updates`, `Restarting`, the last error; `Restart the head
@@ -121,32 +189,47 @@ on, and the Store shows the result when it is opened again.
 ## Layout
 
 ```
-mgu-app.json               the source package's manifest: tree, modules, oap-sdk names
-src/store.js               the app (bundle module 10000)
-src/store_view.js          its texts from the updater's state (10001)
-lib/client.js              mgu-updater's socket client (10002), copied by tools/build.js
-src/qr.js                  QR code PNG with a caption (10003)
-src/qrcodegen.js           Project Nayuki's QR Code generator 1.5.0 (10004, src/LICENSE-qrcodegen.txt)
-src/speller.js             the HMI's free-text speller (10005)
-tools/gen_rhmi.js          application.xml + uiDescription.json from one table
-tools/build.js             RHMI, lib/client.js, the source package, and given a donor the OAP tgz
-tools/test_view.js         the texts for every row, source, account, sign-in and phone state, offline
-tools/test_rhmi.js         the generated RHMI files' structure and the names src/store.js binds
+mgu-app.json               the source package's manifest: tree, modules (bundle ids from 10000 in this order), oap-sdk names
+src/store.js               the app: updater client, widget screens, which set of screens shows
+src/store_view.js          the texts from the updater's state (both sets of screens)
+lib/client.js              mgu-updater's socket client, copied by tools/build.js
+src/qr.js, src/qrcodegen.js  QR codes (Project Nayuki's generator 1.5.0, src/LICENSE-qrcodegen.txt)
+src/speller.js             the HMI's free-text speller
+src/store_drawn.js         the drawn screens: renderer connection, placement, pages, host states, proxies, touch, pictures
+src/store_frame.js         one frame: the screen, its values, what can be pressed, the focus ring
+src/store_ui.js            the drawn screens' values from the updater's state
+src/store_elements.js      the Store's own element: QR code
+src/am_screens.js          the screens (App Manager 2's screens.json, with the Store's pages)
+src/am_gpu.js, src/am_elements.js, src/am_widgets.js, src/am_store_widgets.js
+                           App Manager 2's element drawing (no gauges, no HMI icon atlas)
+src/kit_*.js               the kit: record, canvas, vicons, png, themes (MIT, src/LICENSE-kit.txt);
+                           kit_fonts.js maps its families onto Inter
+src/font_regular.js, src/font_semibold.js   Inter glyph atlases (tools/bake_fonts.py)
+lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
+tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table
+tools/build.js             RHMI, lib/, the source package, and given a donor the OAP tgz
+tools/bake_fonts.py        the Inter atlases (Pillow, Inter 4.1's TTFs)
+tools/fixture.js           an updater state with one of everything, and the drawn screens over it
+tools/test_view.js         the texts for every row, source, account, sign-in and phone state
+tools/test_rhmi.js         both HMIs' RHMI files, host states and proxies, the names src/store.js binds
 tools/test_qr.js           the QR pictures (decoded back with zbarimg when installed)
 tools/test_speller.js      src/speller.js against a fake use case factory
-tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater and speller
+tools/test_screens.js      every drawn screen at both scales: values, presses, focus order, scrolling, touch
+tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
+tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.6.0/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.7.0/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.6.0.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.6.0.tgz (MGU_SDK_DONOR)
-node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js &&
-    node tools/test_speller.js && node tools/test_store.js
+node tools/build.js                                # robertn_store@0.7.0.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.7.0.tgz (MGU_SDK_DONOR)
+node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
+    node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js
+(cd ../../native/mgu-render && make test) && node tools/shots.js <out dir>     # screenshots
 ```
 
 The published artifact is the source package: `mgu-app.json`, the modules
@@ -160,5 +243,17 @@ the unit builds, for the emulator: the modules linked against the donor's
 oap-sdk modules with its module ids, the donor package's own entry point
 as `javascript/runner.js` (the package's `main`) with a `runnerConfig.json`
 naming the bundle and data folder, `node --check`, `javascript/build.json`.
-`lib/client.js` is committed: run the build after
-`native/mgu-updater/js/client.js` changes and commit the copy.
+`lib/client.js` and `lib/mgu_render_client.js` are committed: run the build
+after `native/mgu-updater/js/client.js` or
+`native/mgu-render/js/mgu_render_client.js` changes and commit the copies.
+The Store requires mgu-render (`release.json`), so an install puts it on.
+
+## Needs the head unit
+
+- iDrive 7: the embed host states on the page template (proxies' focus and
+  touch inside it; the emulator's HMI compositor did not answer the
+  renderer); the drawn screens' scale (0.65) for reading in the car.
+- iDrive 8: the widget layout (`LT_State_Wide_List`, `LT_Button_MediaEntry_1Row`
+  cells, the QR picture label), the layer host states' proxies and focus
+  events, `mapEntryState` switching, the manifest's proxies under MainApp-21,
+  the entry point's insertion there.

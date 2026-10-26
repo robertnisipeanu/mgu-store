@@ -118,7 +118,7 @@ ok(screen('settings', {}, idle).labels.indexOf('Restart head unit') >= 0, 'Resta
 // a source: Remove; the GitHub App's install page while a sign-in does not reach it
 f = screen('source');
 eq(own(f), ['Remove', 'Back']);
-eq(f.values.appQr.text, '', 'a source that reads needs no install page');
+eq([f.values.appQr.text, f.values.panel.hidden], ['', true], 'a source that reads needs no install page');
 f = screen('source-install-app');
 eq([f.values.appLabel.text, f.values.appQr.text], ['Install on GitHub', 'https://github.com/apps/mgu-store/installations/new']);
 eq(screen('source-install-app', {}, { signinApp: null }).values.appQr.text, '', 'none without the App');
