@@ -115,12 +115,45 @@ commit). Without one: `releases` when the repo has a release, else
   "unit"`) is a **source package**: the folder packed as it is
   (`mgu-app.json` at the root), built and installed by the deploy tool
   (phase `build`).
-- An app with `build.node` is built by the repo's own script (below); its
-  version and title come from `app.json`, else `package.json`, in its
-  folder.
+- An app with `build.node` or `build.python` is built by the repo's own
+  script (below); its version and title come from its `manifest`, else
+  `app.json`, else `package.json`, in its folder. A Python build requires
+  `mgu-python` (1.0.0), one with `sdk` `mgu-deploy` 0.3.2, which are
+  installed first.
+- `apps` (`{ "path": "<folder>/*", "manifest", "exclude", ...the entry's
+  other fields }`, or a list of them) lists every subfolder of that folder
+  holding the manifest as an app with a build script, its id the
+  subfolder's name; a subfolder without the manifest is no component.
 - A tool is its folder's `component.json`, packed as a tool kit
   (`files/`, `units/`, each file's sha256; the other fields kept). It needs
   no build step: one with `build` is left out.
+- A tool in `tools` with `service` is a committed program in its `path`:
+  its kit holds the program, a unit written from the entry
+  (`sources.js` `serviceUnit`: `ExecStart=/var/opt/<id>/current/<exec>
+  <args>`, root or `DynamicUser` with its groups, environment, runtime
+  folder, `After=`, `Restart=always`), enabled for `wantedBy`, its recmgr
+  entry, restarted on install, and `mguProvides` from `provides`; such a
+  tool is optional and removable, and with `provides` requires `mgu-deploy`
+  0.3.0. A value that is not one plain word leaves the tool out.
+- A tool in `tools` with `preload` (`{library, unit, process, strikes: 2,
+  checkAfterSeconds: 120, healthySeconds: 60}`) is a committed library the
+  unit's process loads from the next head-unit start (`sources.js`
+  `preloadFiles`, after idrive7-apps' `mgu-app-install.sh inputgate`): its
+  kit holds the library and `guard.sh`; `<id>-guard.service` (before the
+  unit, a oneshot that stays active) writes `/run/<id>.env` with
+  `LD_PRELOAD`, the unit's other preloads first, unless the process failed
+  to come up healthy with it `strikes` starts in a row (counted in
+  `/var/opt/<id>/strikes`; a new version, or removing and installing,
+  starts again); `<id>-check.service` (after the unit, never exits) resets
+  the count once the process has run with it for `healthySeconds`,
+  `checkAfterSeconds` after the start; the unit's drop-in `zz-<id>.conf`
+  pulls both in and reads the env file (`EnvironmentFile=-`). Nothing is
+  started or restarted: it requires `mgu-deploy` 0.3.2 (drop-ins).
+- `needs` (an entry's, else `mguNeeds`): capabilities an installed tool
+  must provide (`"needs": ["renderer"]`). The install is refused until one
+  does (*Gate needs a renderer: install <the ones the sources list>
+  first*), and the last installed provider of a capability an installed
+  component needs is not removed.
 - `title`, `description`, `requires`, `optional` and `uninstallable` come
   from the entry, else from the component's own file. A component that
   cannot be used is left out and the source's `error` says why; the rest
@@ -133,15 +166,29 @@ commit). Without one: `releases` when the repo has a release, else
   `revision` is the short commit it would install, and
   `state/origins.json` records the commit installed.
 
-**Building on the unit.** `build.node` runs under this Node as
-`build_uid` 12995 (no account, in none of the uplink's lists: no network;
-no other service may run as it),
+**Building on the unit.** `build.node` runs under this Node, and
+`build.python` under `python` (`/var/opt/mgu-python/current/bin/python3`,
+with `SSL_CERT_FILE` its CA bundle), as `build_uid` 12995 (no account, in
+none of the uplink's lists: no network; no other service may run as it),
 in a copy of the repo in `state/build-<random>/repo` that only it can
 write, with `MGU_SDK_DONOR` (the donor bundle `mgu-deploy.sh sdk-donor
---json` names, read-only), `MGU_OUT` (an empty folder) and `HOME`/`TMPDIR`
-in its own folder. It must leave exactly `<id>@<version>.tgz` in
-`MGU_OUT`, which goes to the deploy tool like a release package (an
-`oap-sdk` module generated for it there when it requires one). It is
+--json` names, read-only), `MGU_OUT` (an empty folder), `HOME`/`TMPDIR`
+in its own folder, and this Node's folder (and Python's) first on `PATH`.
+With `sdk`, the oap-sdk module `sdk-donor` generates (`module`: its
+`index.js` and `package.json`) is copied into that folder of the repo
+first. It must leave exactly `<id>@<version>.tgz` in `MGU_OUT`, or the
+file its `output` names in the repo, which is copied there as the build
+uid; that goes to the deploy tool like a release package (an `oap-sdk`
+module generated for it there when it requires one). A build with
+`network` gets the internet through `js/proxy.js`, an HTTP proxy on
+127.0.0.1 at a random port that the updater runs as the fetch uid for that
+build alone, resolving names through the lease's DNS: `http_proxy`,
+`https_proxy` (and upper case) name it with a random password, and it
+serves only connections of the build uid (`/proc/net/tcp`) that carry it;
+CONNECT to port 443 and http GET/HEAD to port 80, to host names with a
+public IPv4 address; at most `build_max_bytes` in all; each host it is
+asked for is logged (`build <id>: internet: CONNECT host:443`). Without the
+uplink's lease, such a build fails: *needs internet to build*. It is
 stopped past `build_timeout_s` (600) or once its folder holds more than
 `build_max_bytes` (200 MB); every process of the build uid is killed
 before a build and after it, so nothing a script leaves running reaches
@@ -470,7 +517,7 @@ updates. Keys: `sources`, `credentials_dir`, `builtin_repo`,
 `github_client_id`, `github_app_url`, `github_api`, `github_web`, `ca_file`,
 `check_interval_s`, `first_check_s`, `mounts`, `usb_roots`, `usb_poll_s`,
 `repo_max_bytes`, `build_uid`, `build_gid`, `build_timeout_s`,
-`build_max_bytes`, `fetch_uid`, `fetch_gid`, `lease`, `deploy`,
+`build_max_bytes`, `python`, `fetch_uid`, `fetch_gid`, `lease`, `deploy`,
 `deploy_tool`, `uplink_tool`, `bootstrap_check_s`, `privacy_tool`,
 `state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `store_app`,
 `reboot`, `log_file`, `socket`, `socket_group`, `web_uid`, `web_gid`,

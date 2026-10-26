@@ -232,30 +232,160 @@ function safeRel(p) {
         p.split('/').every((s) => s !== '..' && s !== '.' && s !== '');
 }
 
-/* A build script entry: { node: <script relative to the repo root>, args }. */
-function checkScript(b) {
-    if (!b || typeof b !== 'object' || !safeRel(b.node) ||
-        (b.args !== undefined && !(Array.isArray(b.args) && b.args.length <= 64 && b.args.every((a) => typeof a === 'string')))) {
-        throw new Error('build must be {"node": "<script in the repo>", "args": [...]}');
+/* What a component needs that another one provides: Python for a
+ * "python" build, the deploy tool that hands a build the oap-sdk module
+ * ("sdk") and installs drop-ins (a preload tool, a tool with dropins), and
+ * the one that knows capabilities (mguProvides). */
+const PYTHON_TOOL = 'mgu-python';
+const PYTHON_MIN = '1.0.0';
+const DEPLOY_SDK_MIN = '0.3.2';
+const DEPLOY_PROVIDES_MIN = '0.3.0';
+
+/* {id}, {version} and {dir} (the app's folder) in a build's strings; any
+ * other brace is refused. */
+function fill(text, vars) {
+    const out = text.replace(/\{(id|version|dir)\}/g, (m, k) => vars[k]);
+    if (/[{}]/.test(out)) {
+        throw new Error(`${text}: only {id}, {version} and {dir} can be filled in`);
     }
-    return { node: b.node, args: b.args || [] };
+    return out;
+}
+
+/* A build entry: { node | python: <script relative to the repo root>, args,
+ * output (the package the build leaves, else MGU_OUT), sdk (the folder the
+ * oap-sdk module goes to before the build), network (true, or the ids of
+ * the apps whose build downloads) }, its strings filled in for one app. */
+function checkScript(b, vars) {
+    const strings = (a) => a === undefined || (Array.isArray(a) && a.length <= 64 && a.every((x) => typeof x === 'string'));
+    const network = b && (b.network === undefined || typeof b.network === 'boolean' ||
+        (Array.isArray(b.network) && b.network.every((x) => typeof x === 'string')));
+    if (!b || typeof b !== 'object' || (b.node === undefined) === (b.python === undefined) || !safeRel(b.node || b.python) ||
+        !strings(b.args) || !network ||
+        (b.output !== undefined && typeof b.output !== 'string') || (b.sdk !== undefined && !safeRel(b.sdk))) {
+        throw new Error('build must be {"node" or "python": "<script in the repo>", "args": [...], "output", "sdk", "network"}');
+    }
+    const output = b.output === undefined ? null : fill(b.output, vars);
+    if (output !== null && !safeRel(output)) {
+        throw new Error(`build output ${output} is not a path in the repo`);
+    }
+    return {
+        [b.node ? 'node' : 'python']: b.node || b.python,
+        args: (b.args || []).map((a) => fill(a, vars)),
+        output,
+        sdk: b.sdk || null,
+        network: Array.isArray(b.network) ? b.network.indexOf(vars.id) >= 0 : !!b.network
+    };
+}
+
+/* A service tool of mgu-repo.json: a committed program the updater makes a
+ * tool kit of, with the systemd unit its fields describe (packComponent).
+ *   { exec, args, user: "root" | "dynamic", groups, environment,
+ *     runtimeDirectory, after, wantedBy }
+ * Every value goes into the unit as it is, so each is one word of a
+ * narrow alphabet; "{app_gid}" in args is the apps' group (tm_oap_app). */
+const APP_GID = 12202;
+// a file name in the tool's folder: it goes into units and the guard script as it is
+const FILE_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$/;
+/* The title as one line for a generated file's comment or Description=:
+ * control characters and systemd's % specifiers become spaces. */
+function oneLine(text) {
+    return String(text).replace(/[\x00-\x1f\x7f%]/g, ' ');
+}
+const WORD = /^[A-Za-z0-9_.@:\/=,+%-]{1,200}$/;
+const UNIT = /^[A-Za-z0-9_.@-]{1,100}\.(service|target|socket|mount|path)$/;
+// a drop-in for a unit the tool does not own (deploy tool 0.3.2)
+const DROPIN_UNIT = /^[A-Za-z0-9_.@-]{1,100}\.(service|socket|target|mount|path|timer)$/;
+const DROPIN_NAME = /^[A-Za-z0-9_.@-]{1,100}\.conf$/;
+function checkService(sv) {
+    const words = (a, re) => a === undefined || (Array.isArray(a) && a.length <= 32 && a.every((x) => typeof x === 'string' && re.test(x)));
+    const env = sv && sv.environment;
+    if (!sv || typeof sv !== 'object' || !FILE_NAME.test(sv.exec || '') ||
+        !words(sv.args ? sv.args.map((a) => a.replace(/\{app_gid\}/g, String(APP_GID))) : undefined, WORD) ||
+        ['root', 'dynamic', undefined].indexOf(sv.user) < 0 || !words(sv.groups, /^[a-z_][a-z0-9_-]{0,31}$/) ||
+        (env !== undefined && (typeof env !== 'object' || Array.isArray(env) ||
+            Object.keys(env).some((k) => !/^[A-Z_][A-Z0-9_]{0,63}$/.test(k) || typeof env[k] !== 'string' || !WORD.test(env[k])))) ||
+        (sv.runtimeDirectory !== undefined && !/^[a-z0-9][a-z0-9_.-]{0,63}$/.test(sv.runtimeDirectory)) ||
+        !words(sv.after, UNIT) || (sv.wantedBy !== undefined && !UNIT.test(sv.wantedBy))) {
+        throw new Error('service must be {"exec": "<file in its path>", "args", "user": "root" or "dynamic", "groups", ' +
+            '"environment", "runtimeDirectory", "after", "wantedBy"}, each value one plain word');
+    }
+    return {
+        exec: sv.exec, args: (sv.args || []).map((a) => a.replace(/\{app_gid\}/g, String(APP_GID))),
+        user: sv.user || 'root', groups: sv.groups || [], environment: env || {},
+        runtimeDirectory: sv.runtimeDirectory || null, after: sv.after || [], wantedBy: sv.wantedBy || 'multi-user.target'
+    };
+}
+
+/* A preload tool of mgu-repo.json: a committed library a stock unit's
+ * process loads (LD_PRELOAD) from the next head-unit start, behind a boot
+ * guard (packPreload).
+ *   { library, unit: "hmi.service", process: "HmiMain3D", strikes: 2,
+ *     checkAfterSeconds: 120, healthySeconds: 60 } */
+function checkPreload(pl) {
+    const num = (v, d, lo, hi) => (v === undefined ? d : (Number.isInteger(v) && v >= lo && v <= hi ? v : NaN));
+    const out = pl && typeof pl === 'object' && {
+        library: pl.library, unit: pl.unit, process: pl.process,
+        strikes: num(pl.strikes, 2, 1, 10), checkAfterSeconds: num(pl.checkAfterSeconds, 120, 10, 3600),
+        healthySeconds: num(pl.healthySeconds, 60, 1, 3600)
+    };
+    if (!out || !FILE_NAME.test(out.library || '') || !/\.so$/.test(out.library) ||
+        !DROPIN_UNIT.test(out.unit || '') || !/^[A-Za-z0-9_.-]{1,15}$/.test(out.process || '') ||
+        [out.strikes, out.checkAfterSeconds, out.healthySeconds].some((n) => Number.isNaN(n)) ||
+        out.healthySeconds >= out.checkAfterSeconds) {
+        throw new Error('preload must be {"library": "<file.so in its path>", "unit": "<unit>", "process": "<name>", ' +
+            '"strikes", "checkAfterSeconds", "healthySeconds" (less than checkAfterSeconds)}');
+    }
+    return out;
+}
+
+/* The repo's components as mgu-repo.json lists them, its patterns expanded:
+ *   components  [{ id, kind, path, build, ... }]  one component each
+ *   apps        { path: "<folder>/*", manifest, exclude, build, ... } (or a
+ *               list of them): every folder there holding the manifest
+ *               (app.json) is an app, its id the folder's name
+ *   tools       [{ id, path, version, service, provides, ... }]
+ * listDir(rel) resolves with the names of the folders in rel. */
+function repoEntries(doc, listDir) {
+    const entries = (Array.isArray(doc.components) ? doc.components : []).slice();
+    const patterns = doc.apps === undefined ? [] : Array.isArray(doc.apps) ? doc.apps : [doc.apps];
+    (Array.isArray(doc.tools) ? doc.tools : []).forEach((t) => entries.push(Object.assign({}, t, { kind: 'tool' })));
+    const skipped = [];
+    return patterns.reduce((p, pat) => p.then(() => {
+        const m = pat && typeof pat.path === 'string' && /^((?:[^*{}]+\/)?)\*$/.exec(pat.path);
+        if (!m || (m[1] && !safeRel(m[1].replace(/\/$/, '')))) {
+            skipped.push(`apps ${pat && pat.path}: path must be "<folder>/*"`);
+            return null;
+        }
+        const exclude = Array.isArray(pat.exclude) ? pat.exclude : [];
+        return listDir(m[1].replace(/\/$/, '')).then((names) => names.sort().forEach((name) => {
+            if (exclude.indexOf(name) < 0 && exclude.indexOf(`${m[1]}${name}`) < 0) {
+                entries.push(Object.assign({}, pat, { id: name, kind: 'app', path: `${m[1]}${name}`, pattern: true }));
+            }
+        }), (err) => {
+            skipped.push(`apps ${pat.path}: ${err.missing ? 'no such folder' : err.message}`);
+        });
+    }), Promise.resolve()).then(() => ({ entries, skipped }));
 }
 
 /* The components of a repo tree at commit (null: a folder). readFile(rel)
  * resolves with a file's bytes (rejecting with err.missing when it is not
- * there). An app is built on the unit: from mgu-app.json in its folder (a
- * source package, built by the deploy tool), or by the repo's own build
- * script (`build.node`; version and title from app.json or package.json in
- * its folder). A tool is its folder's component.json and needs no build.
+ * there); listDir(rel) with the folders in rel. An app is built on the
+ * unit: from mgu-app.json in its folder (a source package, built by the
+ * deploy tool), or by the repo's own build script (`build.node` or
+ * `build.python`; version and title from its manifest: app.json, else
+ * package.json, in its folder). A tool is its folder's component.json, or a
+ * service the entry describes; neither has a build step.
  * revision: the short commit shown for a component (a branch channel).
  * Components that cannot be used are left out, each reason in `skipped`. */
-function repoCatalog(readFile, commit, revision) {
+function repoCatalog(readFile, commit, revision, listDir) {
     return readFile('mgu-repo.json').then((buf) => {
         const doc = parseJson(buf, 'mgu-repo.json');
-        if (!doc || doc.schema !== 1 || !Array.isArray(doc.components)) {
+        if (!doc || doc.schema !== 1 || !(Array.isArray(doc.components) || doc.apps !== undefined || Array.isArray(doc.tools))) {
             throw new Error('mgu-repo.json: schema is not 1');
         }
-        const skipped = [];
+        const list = listDir || (() => Promise.reject(new Error('cannot list folders here')));
+        return repoEntries(doc, list).then((r) => ({ doc, entries: r.entries, skipped: r.skipped }));
+    }).then(({ entries, skipped }) => {
         const seen = new Set();
         const firstOf = (names) => names.reduce((p, n) => p.catch((err) => {
             if (!err.missing) {
@@ -263,43 +393,73 @@ function repoCatalog(readFile, commit, revision) {
             }
             return readFile(n).then((b) => ({ name: n, data: b }));
         }), Promise.reject(Object.assign(new Error('none'), { missing: true })));
-        return doc.components.reduce((p, rc) => p.then((list) => {
+        return entries.reduce((p, rc) => p.then((list) => {
             if (!rc || !ID.test(rc.id) || ['app', 'tool'].indexOf(rc.kind) < 0 || !safeRel(rc.path) || seen.has(rc.id)) {
                 skipped.push(`${rc && rc.id}: needs a unique id, kind app or tool and a path`);
                 return list;
             }
             seen.add(rc.id);
             const scripted = rc.kind === 'app' && rc.build !== undefined && rc.build !== 'unit';
-            const names = rc.kind === 'tool' ? ['component.json'] : scripted ? ['app.json', 'package.json'] : ['mgu-app.json'];
+            const manifest = typeof rc.manifest === 'string' && /^[A-Za-z0-9._-]+$/.test(rc.manifest) ? [rc.manifest] : null;
+            const names = rc.kind === 'tool' ? ['component.json'] : manifest || (scripted ? ['app.json', 'package.json'] : ['mgu-app.json']);
+            const service = rc.kind === 'tool' && (rc.service !== undefined || rc.preload !== undefined);
+            const own = () => (service ? Promise.resolve({ name: 'mgu-repo.json', data: Buffer.from(JSON.stringify(rc)) }) :
+                firstOf(names.map((n) => `${rc.path}/${n}`)));
             return Promise.resolve()
                 .then(() => {
                     if (rc.kind === 'tool' && rc.build !== undefined) {
                         throw new Error('a tool in a repo tree needs no build step');
                     }
-                    return firstOf(names.map((n) => `${rc.path}/${n}`));
-                })
-                .then((own) => {
-                    const c = parseJson(own.data, own.name);
-                    if (!c || (c.id !== undefined && c.id !== rc.id) || (!scripted && c.id !== rc.id) ||
-                        !catalogLib.SEMVER.test(c.version || '')) {
-                        throw new Error(`${own.name} needs id ${rc.id} and an x.y.z version`);
+                    if (rc.pattern && !scripted) {
+                        throw new Error('an apps pattern needs a build script');
                     }
-                    if (rc.kind === 'tool' && (c.kind !== 'tool' || c.build)) {
+                    return own();
+                })
+                .then((o) => {
+                    const c = parseJson(o.data, o.name);
+                    if (!c || (c.id !== undefined && c.id !== rc.id) || (!scripted && !service && c.id !== rc.id) ||
+                        !catalogLib.SEMVER.test(c.version || '')) {
+                        throw new Error(`${o.name} needs id ${rc.id} and an x.y.z version`);
+                    }
+                    if (rc.kind === 'tool' && !service && (c.kind !== 'tool' || c.build)) {
                         throw new Error('a tool in a repo tree is kind "tool" and needs no build step');
                     }
                     const pick = (k) => (rc[k] !== undefined ? rc[k] : c[k]);
+                    // checked with the other catalog fields (catalog.js checkExtras)
+                    const provides = rc.kind === 'tool' ? pick('provides') || pick('mguProvides') || null : null;
+                    const script = scripted ? checkScript(rc.build, { id: rc.id, version: c.version, dir: rc.path }) : null;
+                    const needs = {};
+                    if (script && script.python) {
+                        needs[PYTHON_TOOL] = PYTHON_MIN;
+                    }
+                    if (script && script.sdk) {
+                        needs['mgu-deploy'] = DEPLOY_SDK_MIN;
+                    } else if (rc.kind === 'tool' && (rc.preload !== undefined || (!service && c.dropins !== undefined))) {
+                        // the deploy tool that installs a drop-in
+                        needs['mgu-deploy'] = DEPLOY_SDK_MIN;
+                    } else if (provides) {
+                        // the deploy tool that knows capabilities
+                        needs['mgu-deploy'] = DEPLOY_PROVIDES_MIN;
+                    }
+                    const requires = Object.assign(needs, pick('requires') || {});
                     return list.concat([catalogLib.checkExtras({
                         id: rc.id, kind: rc.kind, version: c.version, title: pick('title'), description: pick('description'),
-                        build: rc.kind === 'app' ? 'unit' : null, requires: pick('requires'),
-                        optional: pick('optional'), uninstallable: pick('uninstallable'),
-                        mguHmi: pick('mguHmi'), mguProvides: rc.kind === 'tool' ? pick('mguProvides') : undefined,
+                        build: rc.kind === 'app' ? 'unit' : null, requires: Object.keys(requires).length ? requires : undefined,
+                        optional: pick('optional') !== undefined ? pick('optional') : service || undefined,
+                        uninstallable: pick('uninstallable') !== undefined ? pick('uninstallable') : service || undefined,
+                        mguHmi: pick('mguHmi'), mguProvides: provides || undefined,
                         artifact: { name: `${rc.id}@${c.version}.tgz`, size: null, sha256: null },
-                        path: rc.path, script: scripted ? checkScript(rc.build) : null,
+                        path: rc.path, script, daemon: rc.kind === 'tool' && rc.service !== undefined ? checkService(rc.service) : null,
+                        preload: rc.kind === 'tool' && rc.preload !== undefined ? checkPreload(rc.preload) : null,
+                        mguNeeds: pick('needs') !== undefined ? pick('needs') : pick('mguNeeds'),
                         commit: commit || null, revision: revision || null
                     })]);
                 })
                 .catch((err) => {
-                    skipped.push(`${rc.id}: ${err.missing ? `${names.map((n) => `${rc.path}/${n}`).join(' or ')} is missing` : err.message}`);
+                    // a folder a pattern matched that is not an app (no manifest) is no component
+                    if (!(rc.pattern && err.missing)) {
+                        skipped.push(`${rc.id}: ${err.missing ? `${names.map((n) => `${rc.path}/${n}`).join(' or ')} is missing` : err.message}`);
+                    }
                     return list;
                 });
         }), Promise.resolve([])).then((components) => ({ mode: 'repo', commit, components, skipped }));
@@ -322,6 +482,12 @@ function packComponent(entry, files) {
             throw new Error(`${entry.path}/mgu-app.json does not name ${entry.id}@${entry.version}`);
         }
         return tar.tgz(files.map((f) => ({ name: f.name, data: f.data, mode: f.mode & 0o111 ? 0o755 : 0o644 })).sort(byName), MTIME);
+    }
+    if (entry.daemon) {
+        return packService(entry, byPath);
+    }
+    if (entry.preload) {
+        return packPreload(entry, byPath);
     }
     const own = byPath.get('component.json');
     const c = own && parseJson(own.data, 'component.json');
@@ -353,9 +519,192 @@ function packComponent(entry, files) {
             return { name: u.name };
         })
     });
+    if (c.dropins !== undefined) {
+        manifest.dropins = (Array.isArray(c.dropins) ? c.dropins : [null]).map((d) => {
+            if (!d || !DROPIN_UNIT.test(d.unit || '') || !DROPIN_NAME.test(d.name || '')) {
+                throw new Error(`${entry.id}: bad dropins entry ${JSON.stringify(d)}`);
+            }
+            entries.push({ name: `dropins/${d.unit}.d/${d.name}`, data: take(d.from || d.name, 'drop-in'), mode: 0o644 });
+            return { unit: d.unit, name: d.name };
+        });
+    }
     delete manifest.build;
     entries.push({ name: 'component.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), mode: 0o644 });
     return tar.tgz(entries.sort(byName), MTIME);
+}
+
+/* The systemd unit of a service tool (checkService), running its program
+ * from the tool's current version. */
+function serviceUnit(entry) {
+    const sv = entry.daemon;
+    const title = oneLine(entry.title);
+    const lines = [`# ${title} (${entry.id}): a service from its repository's mgu-repo.json, installed by mgu-deploy.`,
+        '[Unit]', `Description=${title} (${entry.id})`, 'RequiresMountsFor=/var/opt']
+        .concat(sv.after.length ? [`After=${sv.after.join(' ')}`] : [])
+        .concat(['StartLimitIntervalSec=0', '', '[Service]'])
+        .concat(sv.user === 'dynamic' ? ['DynamicUser=yes'] : [])
+        .concat(sv.groups.length ? [`SupplementaryGroups=${sv.groups.join(' ')}`] : [])
+        .concat(Object.keys(sv.environment).sort().map((k) => `Environment=${k}=${sv.environment[k]}`))
+        .concat(sv.runtimeDirectory ? [`RuntimeDirectory=${sv.runtimeDirectory}`, 'RuntimeDirectoryMode=0755'] : [])
+        .concat([`ExecStart=/var/opt/${entry.id}/current/${sv.exec}${sv.args.map((a) => ` ${a}`).join('')}`,
+            'Restart=always', 'RestartSec=3', '', '[Install]', `WantedBy=${sv.wantedBy}`, '']);
+    return lines.join('\n');
+}
+
+/* A service tool's kit: its program, the unit, enabled for wantedBy, its
+ * recmgr entry and the capability it provides. */
+function packService(entry, byPath) {
+    const sv = entry.daemon;
+    const bin = byPath.get(sv.exec);
+    if (!bin) {
+        throw new Error(`${entry.id}: ${entry.path}/${sv.exec} is missing`);
+    }
+    const unit = `${entry.id}.service`;
+    const manifest = {
+        id: entry.id, kind: 'tool', version: entry.version, title: entry.title, description: entry.description,
+        files: [{ path: sv.exec, mode: '0755', sha256: crypto.createHash('sha256').update(bin.data).digest('hex') }],
+        units: [{ name: unit }], enable: [{ unit, target: sv.wantedBy }], recmgr: [entry.id], restart: [unit]
+    };
+    if (entry.mguProvides) {
+        manifest.mguProvides = entry.mguProvides;
+    }
+    if (entry.mguHmi) {
+        manifest.mguHmi = entry.mguHmi;
+    }
+    return tar.tgz([
+        { name: 'component.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), mode: 0o644 },
+        { name: `files/${sv.exec}`, data: bin.data, mode: 0o755 },
+        { name: `units/${unit}`, data: Buffer.from(serviceUnit(entry)), mode: 0o644 }
+    ].sort(byName), MTIME);
+}
+
+/* A preload tool's kit, after the controller gate's installer in
+ * idrive7-apps (deploy/mgu-app-install.sh, inputgate): the library and a
+ * guard script in its version folder; <id>-guard.service before the unit,
+ * which writes /run/<id>.env with LD_PRELOAD (the unit's other preloads,
+ * then the library) unless the process failed to come up healthy with it
+ * `strikes` starts in a row; <id>-check.service after the unit, which
+ * resets the count once the process has run with the library for
+ * `healthySeconds`, `checkAfterSeconds` after the start, and never exits;
+ * and the unit's drop-in zz-<id>.conf that pulls both in and reads the env
+ * file. Nothing starts now: the unit loads it at the next head-unit start.
+ * A new version starts the count again; so does removing and installing. */
+function preloadFiles(entry) {
+    const pl = entry.preload;
+    const id = entry.id;
+    const title = oneLine(entry.title);
+    const D = `/var/opt/${id}`;
+    const guard = `${id}-guard.service`;
+    const check = `${id}-check.service`;
+    const guardSh = `#!/bin/sh
+# ${title} (${id}): boot guard for ${pl.library} in ${pl.unit}, from its repository's
+# mgu-repo.json, installed by mgu-deploy (after idrive7-apps' deploy/mgu-app-install.sh inputgate).
+D=${D}; SO=$D/current/${pl.library}; RUN=/run/${id}.env; N=$D/strikes; MAX=${pl.strikes}
+n=$(cat "$N" 2>/dev/null); case "$n" in ''|*[!0-9]*) n=0;; esac
+# a version installed since the count was kept starts it again
+v=$(readlink "$D/current" 2>/dev/null)
+if [ "$(cat "$D/strikes.version" 2>/dev/null)" != "$v" ]; then n=0; echo 0 > "$N"; echo "$v" > "$D/strikes.version"; fi
+other_preload() {   # the unit's LD_PRELOAD without ours; the last assignment wins, as in systemd
+    systemctl cat ${pl.unit} --no-pager 2>/dev/null | awk '
+        /^# \\// { ours = index($0, "${id}") > 0; next }
+        ours { next }
+        /^[ \\t]*Environment=/ && index($0, "LD_PRELOAD=") {
+            v = substr($0, index($0, "LD_PRELOAD=") + 11)
+            q = index(v, "\\""); if (q) v = substr(v, 1, q - 1)
+            last = v
+        }
+        END { print last }' | tr ':' ' ' | tr ' ' '\\n' | grep -v '^$' | grep -v '${id}' | tr '\\n' ' ' | sed 's/ $//'
+}
+case "\${1:-}" in
+boot)
+    rm -f "$RUN"
+    [ -f "$SO" ] || exit 0
+    if [ "$n" -ge $MAX ]; then
+        echo "${id} left out: ${pl.process} did not come up healthy with it $n times in a row (remove and install it again to retry)"
+        exit 0
+    fi
+    echo $((n + 1)) > "$N"; sync
+    other=$(other_preload)
+    echo "LD_PRELOAD=\${other:+$other }$SO" > "$RUN"
+    ;;
+check)   # (${check}, after ${pl.unit}) the process has run with the library long enough
+    sleep ${pl.checkAfterSeconds}
+    p=$(pidof ${pl.process} 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$p" ] && grep -q "${pl.library}" "/proc/$p/maps" 2>/dev/null && systemctl is-active -q ${pl.unit}; then
+        up=$(cut -d. -f1 /proc/uptime); st=$(cut -d')' -f2 "/proc/$p/stat" | awk '{print $20}')
+        if [ $((up - st / 100)) -ge ${pl.healthySeconds} ]; then echo 0 > "$N"; sync; echo "${id}: ${pl.process} healthy with it"; fi
+    fi
+    # never exit: the head unit's lifecycle reboots the unit when a service stops
+    while :; do sleep 86400; done
+    ;;
+esac
+exit 0
+`;
+    const guardUnit = `# ${title} (${id}): decides at boot whether ${pl.unit} loads ${pl.library}
+[Unit]
+Description=${id} boot guard
+DefaultDependencies=no
+RequiresMountsFor=${D}
+Before=${pl.unit}
+
+[Service]
+Type=oneshot
+# stays "active" after it ran: a service that stops makes the head unit's lifecycle reboot the unit
+RemainAfterExit=yes
+TimeoutStartSec=10
+ExecStart=/bin/sh ${D}/current/guard.sh boot
+`;
+    const checkUnit = `# ${title} (${id}): ${pl.process} came up healthy with ${pl.library}: reset the guard
+[Unit]
+Description=${id} check
+After=${pl.unit}
+RequiresMountsFor=${D}
+
+[Service]
+# runs on after the check (never exits): a service that stops makes the head unit reboot
+Type=simple
+ExecStart=/bin/sh ${D}/current/guard.sh check
+`;
+    const dropin = `# ${title} (${id}): ${pl.library} in ${pl.unit}, loaded only if ${guard} puts /run/${id}.env there
+[Unit]
+Wants=${guard} ${check}
+After=${guard}
+
+[Service]
+EnvironmentFile=-/run/${id}.env
+`;
+    return { guardSh, guard, guardUnit, check, checkUnit, dropinName: `zz-${id}.conf`, dropin };
+}
+
+function packPreload(entry, byPath) {
+    const pl = entry.preload;
+    const lib = byPath.get(pl.library);
+    if (!lib) {
+        throw new Error(`${entry.id}: ${entry.path}/${pl.library} is missing`);
+    }
+    const f = preloadFiles(entry);
+    const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+    const guardSh = Buffer.from(f.guardSh);
+    const manifest = {
+        id: entry.id, kind: 'tool', version: entry.version, title: entry.title, description: entry.description,
+        files: [{ path: pl.library, mode: '0755', sha256: sha(lib.data) }, { path: 'guard.sh', mode: '0755', sha256: sha(guardSh) }],
+        units: [{ name: f.guard }, { name: f.check }], dropins: [{ unit: pl.unit, name: f.dropinName }],
+        enable: [], recmgr: [], restart: []
+    };
+    if (entry.mguHmi) {
+        manifest.mguHmi = entry.mguHmi;
+    }
+    if (entry.mguNeeds) {
+        manifest.mguNeeds = entry.mguNeeds;
+    }
+    return tar.tgz([
+        { name: 'component.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), mode: 0o644 },
+        { name: `files/${pl.library}`, data: lib.data, mode: 0o755 },
+        { name: 'files/guard.sh', data: guardSh, mode: 0o755 },
+        { name: `units/${f.guard}`, data: Buffer.from(f.guardUnit), mode: 0o644 },
+        { name: `units/${f.check}`, data: Buffer.from(f.checkUnit), mode: 0o644 },
+        { name: `dropins/${pl.unit}.d/${f.dropinName}`, data: Buffer.from(f.dropin), mode: 0o644 }
+    ].sort(byName), MTIME);
 }
 
 /* The files under rel of a repo's files, named relative to rel. */
@@ -387,6 +736,16 @@ function folderReader(root, ctx) {
     const readFile = (rel) => Promise.resolve().then(() => readInside(root, rel, SMALL)).catch((err) => {
         throw Object.assign(err, { missing: err.code === 'ENOENT' });
     });
+    // the folders in rel, none reached through a link
+    const listDir = (rel) => Promise.resolve().then(() => {
+        const dir = rel ? safePath(root, rel) : root;
+        if (!fs.lstatSync(dir).isDirectory()) {
+            throw new Error(`${rel}: not a folder`);
+        }
+        return fs.readdirSync(dir).filter((n) => !SKIP(n) && fs.lstatSync(path.join(dir, n)).isDirectory()).slice(0, 1000);
+    }).catch((err) => {
+        throw Object.assign(err, { missing: err.code === 'ENOENT' });
+    });
     return {
         network: false,
         catalog: () => Promise.resolve().then(() => {
@@ -397,7 +756,7 @@ function folderReader(root, ctx) {
                 return readFile('catalog.json').then((b) => Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8'))));
             }
             if (isFileInside(root, 'mgu-repo.json')) {
-                return repoCatalog(readFile, null, null);
+                return repoCatalog(readFile, null, null, listDir);
             }
             throw new Error('no catalog.json or mgu-repo.json');
         }),
@@ -712,7 +1071,15 @@ function githubReader(s, ctx) {
             .catch((e) => {
                 throw Object.assign(e, { missing: e.status === 404 });
             });
-        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null).catch((e) => {
+        const listDir = (rel) => json(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, 'contents.json').then((items) => {
+            if (!Array.isArray(items)) {
+                throw new Error(`${rel}: not a folder`);
+            }
+            return items.filter((i) => i && i.type === 'dir' && typeof i.name === 'string').map((i) => i.name);
+        }, (e) => {
+            throw Object.assign(e, { missing: e.status === 404 });
+        });
+        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null, listDir).catch((e) => {
             throw e.missing ? new Error(`no mgu-repo.json at ${sha.slice(0, 7)}`) : e;
         });
     };
@@ -994,5 +1361,5 @@ function label(s) {
 
 module.exports = {
     load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
-    repoCatalog, packComponent, subtree, packageInfo, packageEntry, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE, ICON_BYTES
+    repoCatalog, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE, ICON_BYTES
 };

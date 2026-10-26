@@ -26,7 +26,12 @@
  *    capability (refused, replaced with the secret, uninstalled);
  *  - an App Manager index version 2 listed without downloads, its packages
  *    checked on install, and the icons it, a folder catalog and a repo's
- *    mgu-store.json name, and those a package carries (a stick, a version 1 index).
+ *    mgu-store.json name, and those a package carries (a stick, a version 1 index);
+ *  - a repo whose apps a pattern lists and Python builds (mgu-python
+ *    installed first, the oap-sdk module and the declared output), a build
+ *    that downloads through its proxy (and fails without the uplink), a
+ *    service tool and a preload tool with the capability it needs.
+ *    MGU_TEST_PROXY_OPEN lets that proxy reach the tests' local servers.
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -404,9 +409,11 @@ function testShipped() {
     fs.readdirSync(path.join(ROOT, 'js')).forEach((f) => {
         const text = fs.readFileSync(path.join(ROOT, 'js', f), 'utf8');
         (text.match(/require\('\.\/([a-z_]+)'\)/g) || []).forEach((r) => needed.push(`${/'\.\/([a-z_]+)'/.exec(r)[1]}.js`));
+        // the scripts it runs as children
+        (text.match(/path\.join\((?:HERE|__dirname), '([a-z_]+\.js)'\)/g) || []).forEach((r) => needed.push(/'([a-z_]+\.js)'/.exec(r)[1]));
     });
-    ok('shipped: component.json installs every module the updater loads (the phone page\'s web.js is optional)',
-        needed.filter((n) => n !== 'web.js').every((n) => shipped.indexOf(n) >= 0), JSON.stringify(needed));
+    ok('shipped: component.json installs every module the updater loads or runs (the phone page\'s web.js is optional)',
+        needed.filter((n) => n !== 'web.js').every((n) => shipped.indexOf(n) >= 0) && needed.indexOf('proxy.js') >= 0, JSON.stringify(needed));
     ok('shipped: component.json installs each file it names (web.js once the phone page is in this tree)',
         component.files.every((f) => f.path === 'web.js' || fs.existsSync(path.join(ROOT, f.from))) && shipped.indexOf('web.js') >= 0);
     ok('shipped: the mgu-store GitHub App\'s client id and page', conf.github_client_id === 'Iv23li9nab1iob4a6eyC' &&
@@ -2416,6 +2423,286 @@ function testIndexV2(certs, pubDir) {
         });
 }
 
+/* A repo whose apps build with Python, listed by a pattern (mgu-repo.json
+ * "apps"), with a service tool and a preload tool: requirements, the oap-sdk
+ * module, the declared output, the build proxy, the service tool's kit, and
+ * the capability the preload tool needs. The Python
+ * here is this Node behind a shell script: the plumbing is what is tested. */
+function testPythonRepo() {
+    const { Updater } = require('../js/updater');
+    const sourcesLib = require('../js/sources');
+    const { startProxy } = require('../js/build');
+    const { isPublic } = require('../js/proxy');
+    const M = path.join(T, 'py');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const repo = path.join(M, 'repo');
+    const tools = path.join(M, 'tools');
+    const sdkDir = path.join(M, 'sdk');
+    [M, opt, oap, repo, tools, sdkDir, path.join(M, 'shm')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog, FAKE_DONOR: path.join(M, 'donor.js'),
+        FAKE_SDK_MODULE: sdkDir, MGU_TEST_PROXY_OPEN: '1' });
+    delete process.env.FAKE_LEASE;
+    fs.writeFileSync(path.join(M, 'donor.js'), '// the SDK donor bundle\n');
+    fs.writeFileSync(path.join(sdkDir, 'index.js'), '// the generated oap-sdk module\n');
+    fs.writeFileSync(path.join(sdkDir, 'package.json'), '{"name":"oap-sdk","version":"9.8.7"}\n');
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    // the deploy tool that hands out the module is installed
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.2'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.2', 'component.json'), JSON.stringify({ id: 'mgu-deploy', version: '0.3.2' }));
+    fs.symlinkSync('versions/0.3.2', path.join(opt, 'mgu-deploy', 'current'));
+    const lease = path.join(M, 'lease.json');
+    const leaseText = JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] });
+    fs.writeFileSync(path.join(T, 'pub', 'py-asset.txt'), 'downloaded data\n');
+    const write = (root, files) => Object.keys(files).forEach((rel) => {
+        mkdirp(path.dirname(path.join(root, rel)));
+        const [data, mode] = Array.isArray(files[rel]) ? files[rel] : [files[rel], 0o644];
+        fs.writeFileSync(path.join(root, rel), data, { mode });
+    });
+    // the "build.py": an app's package from apps/<id>/app.json, the oap-sdk folder beside it, and for
+    // netapp a download through the proxy the build is given (CONNECT, then TLS)
+    const buildPy = [
+        "const fs = require('fs'); const path = require('path'); const cp = require('child_process');",
+        "const http = require('http'); const tls = require('tls'); const { URL } = require('url');",
+        'const id = process.argv[2];',
+        "const app = JSON.parse(fs.readFileSync(path.join('apps', id, 'app.json'), 'utf8'));",
+        "const done = (fetched) => {",
+        "  const dir = path.join('dist', id); fs.mkdirSync('dist', { recursive: false }); fs.mkdirSync(dir);",
+        "  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: id, version: app.version, uid: process.getuid(),",
+        "    sdk: fs.readFileSync('oap-sdk/index.js', 'utf8'), proxy: process.env.https_proxy || null, fetched,",
+        "    path: process.env.PATH, cert: process.env.SSL_CERT_FILE }));",
+        "  cp.execFileSync('tar', ['-czf', path.join('dist', `${id}@${app.version}.tgz`), '-C', dir, 'package.json']);",
+        "  console.log('built ' + id);",
+        '};',
+        "if (id === 'fifoapp') { fs.mkdirSync('dist'); cp.execFileSync('mkfifo', [path.join('dist', `${id}@${app.version}.tgz`)]); process.exit(0); }",
+        "if (id === 'zeroapp') { fs.mkdirSync('dist'); fs.symlinkSync('/dev/zero', path.join('dist', `${id}@${app.version}.tgz`)); process.exit(0); }",
+        "if (id !== 'netapp') { done(null); } else {",
+        '  const p = new URL(process.env.https_proxy);',
+        "  const auth = 'Basic ' + Buffer.from(`${p.username}:${p.password}`).toString('base64');",
+        `  const req = http.request({ host: p.hostname, port: p.port, method: 'CONNECT', path: 'updates.test:${HTTPS_PORT}',`,
+        "    headers: { 'Proxy-Authorization': auth } });",
+        "  req.on('connect', (res, socket) => {",
+        "    if (res.statusCode !== 200) { console.log('proxy said ' + res.statusCode); process.exit(4); }",
+        "    const t = tls.connect({ socket, servername: 'updates.test', rejectUnauthorized: false }, () => {",
+        "      t.write('GET /py-asset.txt HTTP/1.0\\r\\nHost: updates.test\\r\\n\\r\\n');",
+        '    });',
+        "    let body = ''; t.on('data', (d) => { body += d; }); t.on('end', () => done(body.split('\\r\\n\\r\\n')[1]));",
+        '  });',
+        "  req.on('error', (e) => { console.log('no proxy: ' + e.message); process.exit(5); });",
+        '  req.end();',
+        '}'
+    ].join('\n');
+    write(repo, {
+        'mgu-repo.json': JSON.stringify({ schema: 1,
+            apps: { path: 'apps/*', manifest: 'app.json', exclude: ['skipme'],
+                build: { python: 'kit/build.py', args: ['{id}'], sdk: 'oap-sdk', output: 'dist/{id}@{version}.tgz', network: ['netapp'] } },
+            tools: [
+                { id: 'svc', path: 'prebuilt', version: '1.0.0', title: 'Test renderer', provides: 'renderer',
+                    service: { exec: 'svc-bin', args: ['--group', '{app_gid}'], user: 'dynamic', groups: ['video', 'tm_oap_app'],
+                        environment: { XDG_RUNTIME_DIR: '/run/wayland' }, runtimeDirectory: 'svc', after: ['winston.service'],
+                        wantedBy: 'oapcontroller.service' } },
+                { id: 'evil_svc', path: 'prebuilt', version: '1.0.0', service: { exec: 'svc-bin', args: ['x\nExecStartPre=/bin/evil'] } },
+                { id: 'gate', path: 'prebuilt', version: '1.0.0', title: 'Gate', needs: ['renderer'],
+                    preload: { library: 'gate.so', unit: 'hmi.service', process: 'HmiMain3D' } },
+                { id: 'shell_gate', path: 'prebuilt', version: '1.0.0', preload: { library: 'g$(reboot).so', unit: 'hmi.service', process: 'HmiMain3D' } },
+                { id: 'never_gate', path: 'prebuilt', version: '1.0.0',
+                    preload: { library: 'gate.so', unit: 'hmi.service', process: 'HmiMain3D', checkAfterSeconds: 60, healthySeconds: 300 } },
+                { id: 'title_svc', path: 'prebuilt', version: '1.0.0', title: 'T\n[Service]\nExecStartPre=/bin/evil %h',
+                    service: { exec: 'svc-bin' } }
+            ] }),
+        'apps/a1/app.json': JSON.stringify({ id: 'a1', version: '1.2.0', title: 'App one', description: 'first' }),
+        'apps/netapp/app.json': JSON.stringify({ id: 'netapp', version: '2.0.0', title: 'Downloads' }),
+        'apps/skipme/app.json': JSON.stringify({ id: 'skipme', version: '1.0.0' }),
+        'apps/fifoapp/app.json': JSON.stringify({ id: 'fifoapp', version: '1.0.0' }),
+        'apps/zeroapp/app.json': JSON.stringify({ id: 'zeroapp', version: '1.0.0' }),
+        'apps/notanapp/readme.txt': 'not an app\n',
+        'kit/build.py': buildPy,
+        'prebuilt/svc-bin': ['#!/bin/sh\nexec sleep 1000\n', 0o755],
+        'prebuilt/gate.so': 'ELF stand-in\n'
+    });
+    // the Python tool, from a source of its own
+    write(tools, {
+        'mgu-repo.json': JSON.stringify({ schema: 1, components: [{ id: 'mgu-python', kind: 'tool', path: 'py' }] }),
+        'py/component.json': JSON.stringify({ id: 'mgu-python', kind: 'tool', version: '1.0.0', optional: true,
+            files: [{ path: 'bin/python3', mode: '0755' }, { path: 'ssl/cacert.pem', mode: '0644' }] }),
+        'py/bin/python3': [`#!/bin/sh\nexec ${process.execPath} "$@"\n`, 0o755],
+        'py/ssl/cacert.pem': 'roots\n'
+    });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [
+        { id: 'pyrepo', type: 'file', path: repo }, { id: 'pytools', type: 'file', path: tools }] }));
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: path.join(M, 'state'), tool_root: opt, oap_root: oap,
+        mainapp_uid: '12201', store_app: 'robertn_store', deploy: deploySh, lease, ca_file: '', github_api: API, github_web: GH_WEB,
+        github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store', fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID),
+        build_uid: '12995', build_gid: '12995', build_timeout_s: '20', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        python: path.join(opt, 'mgu-python', 'current', 'bin', 'python3'),
+        mounts: '/nonexistent', usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    const u = new Updater(conf);
+    const st = () => u.state();
+    const comp = (id) => st().components.find((c) => c.id === id) || {};
+    const src = (id) => st().sources.find((s) => s.id === id) || {};
+    const entryOf = (id) => u.src.get('pyrepo').components.find((c) => c.id === id);
+    const pkgOf = (id) => {
+        const reg = JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`)));
+        return JSON.parse(fs.readFileSync(path.join(oap, `oap_${reg.userId}`, 'source', 'package.json'), 'utf8'));
+    };
+    const settle = (id) => until(st, (s) => !s.busy && !s.components.some((c) => c.queued) &&
+        (comp(id).status === 'installed' || !!comp(id).error), 60000, `${id} settled`);
+    const deployed = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^install/.test(l));
+
+    ok('proxy: public IPv4 addresses only', isPublic('140.82.121.4') && !isPublic('127.0.0.1') && !isPublic('10.1.2.3') &&
+        !isPublic('172.20.0.1') && !isPublic('192.168.1.1') && !isPublic('169.254.0.1') && !isPublic('100.64.0.1') &&
+        !isPublic('0.0.0.0') && !isPublic('224.0.0.1') && !isPublic('::1') && !isPublic('example.com'));
+    return u.serve()
+        .then(() => u.check())
+        .then(() => {
+            const a1 = comp('a1');
+            ok('pattern: every folder holding the manifest is an app, its id the folder\'s, title and version from app.json',
+                a1.version === '1.2.0' && a1.title === 'App one' && a1.build === 'unit' && comp('netapp').version === '2.0.0' &&
+                !st().components.some((c) => c.id === 'skipme' || c.id === 'notanapp'), JSON.stringify(st().components));
+            ok('pattern: a python build with sdk requires mgu-python and the deploy tool that hands out the module',
+                JSON.stringify(entryOf('a1').requires) === JSON.stringify({ 'mgu-python': '1.0.0', 'mgu-deploy': '0.3.2' }) &&
+                entryOf('a1').script.python === 'kit/build.py' && entryOf('a1').script.args[0] === 'a1' &&
+                entryOf('a1').script.output === 'dist/a1@1.2.0.tgz' && entryOf('a1').script.network === false &&
+                entryOf('netapp').script.network === true, JSON.stringify(entryOf('a1')));
+            ok('service: listed as an optional, removable tool providing its capability; a unit field with a line break is refused',
+                comp('svc').kind === 'tool' && comp('svc').optional === true && comp('svc').uninstallable === true &&
+                entryOf('svc').mguProvides === 'renderer' && !comp('evil_svc').id && /evil_svc: service must be/.test(src('pyrepo').error || ''),
+                JSON.stringify([comp('svc'), src('pyrepo').error]));
+            const titled = sourcesLib.serviceUnit(entryOf('title_svc'));
+            const gated = sourcesLib.preloadFiles(Object.assign({}, entryOf('gate'), { title: 'G\nExecStartPre=/bin/evil' }));
+            ok('generated files: a title is one line without % specifiers; a library name that is not a plain file name, and a ' +
+                'check that cannot see the process healthy, leave the tool out',
+                titled.split('\n').filter((l) => /^(ExecStartPre|\[Service\])/.test(l)).length === 1 && titled.indexOf('%') < 0 &&
+                [gated.guardSh, gated.guardUnit, gated.checkUnit, gated.dropin].every((t) => !/^ExecStartPre/m.test(t)) &&
+                /shell_gate: preload must be/.test(src('pyrepo').error || '') && /never_gate: preload must be/.test(src('pyrepo').error || ''),
+                JSON.stringify([titled, src('pyrepo').error]));
+            const unit = sourcesLib.serviceUnit(entryOf('svc'));
+            ok('service: its unit runs the program from current/ with the declared user, groups, environment and target', [
+                'DynamicUser=yes', 'SupplementaryGroups=video tm_oap_app', 'Environment=XDG_RUNTIME_DIR=/run/wayland',
+                'RuntimeDirectory=svc', 'After=winston.service', 'ExecStart=/var/opt/svc/current/svc-bin --group 12202',
+                'Restart=always', 'WantedBy=oapcontroller.service'].every((l) => unit.split('\n').indexOf(l) >= 0), unit);
+            fs.writeFileSync(lease, leaseText);
+            return ask(conf.socket, { op: 'install', id: 'a1' }).then(() => settle('a1'));
+        })
+        .then(() => {
+            const pkg = comp('a1').status === 'installed' ? pkgOf('a1') : {};
+            const order = deployed();
+            ok('python build: mgu-python installed first, then the app built by the build uid, under Python, with the oap-sdk module',
+                order.length === 2 && /mgu-python@1\.0\.0/.test(order[0]) && /a1@1\.2\.0/.test(order[1]) && pkg.uid === 12995 &&
+                pkg.sdk === '// the generated oap-sdk module\n' && pkg.proxy === null &&
+                pkg.cert === path.join(opt, 'mgu-python', 'current', 'ssl', 'cacert.pem') &&
+                pkg.path.split(':')[0] === path.dirname(process.execPath), JSON.stringify([comp('a1'), order, pkg]));
+            fs.unlinkSync(lease);
+            return ask(conf.socket, { op: 'install', id: 'netapp' }).then(() => settle('netapp'));
+        })
+        .then(() => {
+            ok('network build: without the uplink it fails, saying it needs internet', comp('netapp').status !== 'installed' &&
+                /needs internet to build/.test(comp('netapp').error || ''), JSON.stringify(comp('netapp')));
+            fs.writeFileSync(lease, leaseText);
+            return ask(conf.socket, { op: 'install', id: 'netapp' }).then(() => settle('netapp'));
+        })
+        .then(() => {
+            const pkg = comp('netapp').status === 'installed' ? pkgOf('netapp') : {};
+            ok('network build: downloads through the proxy the fetch uid runs for it', comp('netapp').status === 'installed' &&
+                pkg.fetched === 'downloaded data\n' && /^http:\/\/mgu:[0-9a-f]{32}@127\.0\.0\.1:\d+$/.test(pkg.proxy || '') &&
+                seen.some((x) => x.url === '/py-asset.txt'), JSON.stringify([comp('netapp'), pkg]));
+            const t0 = Date.now();
+            return ask(conf.socket, { op: 'install', id: 'fifoapp' }).then(() => settle('fifoapp'))
+                .then(() => ask(conf.socket, { op: 'install', id: 'zeroapp' })).then(() => settle('zeroapp'))
+                .then(() => {
+                    ok('output: a FIFO or a link (to /dev/zero) at the declared output is refused at once, nothing installed',
+                        /fifoapp@1\.0\.0\.tgz: not a regular file/.test(comp('fifoapp').error || '') &&
+                        /zeroapp@1\.0\.0\.tgz: not a file the build left \(ELOOP\)/.test(comp('zeroapp').error || '') &&
+                        comp('fifoapp').status !== 'installed' && comp('zeroapp').status !== 'installed' && Date.now() - t0 < 30000,
+                        JSON.stringify([comp('fifoapp').error, comp('zeroapp').error, Date.now() - t0]));
+                    return ask(conf.socket, { op: 'install', id: 'gate' });
+                });
+        })
+        .then((why) => {
+            ok('preload: listed with what it needs; refused while no installed tool provides it, naming one that does',
+                comp('gate').kind === 'tool' && JSON.stringify(entryOf('gate').mguNeeds) === '["renderer"]' &&
+                entryOf('gate').requires['mgu-deploy'] === '0.3.2' && why === 'Gate needs a renderer: install Test renderer first',
+                JSON.stringify([why, entryOf('gate')]));
+            return ask(conf.socket, { op: 'install', id: 'svc' }).then(() => settle('svc'));
+        })
+        .then(() => {
+            let c = {};
+            try {
+                c = JSON.parse(fs.readFileSync(path.join(opt, 'svc', 'current', 'component.json'), 'utf8'));
+            } catch (e) { /* checked below */ }
+            ok('service: installed as a tool kit: its program, unit, recmgr entry, restart and capability', comp('svc').status === 'installed' &&
+                c.mguProvides === 'renderer' && JSON.stringify(c.units) === '[{"name":"svc.service"}]' &&
+                JSON.stringify(c.enable) === '[{"unit":"svc.service","target":"oapcontroller.service"}]' &&
+                JSON.stringify(c.recmgr) === '["svc"]' && JSON.stringify(c.restart) === '["svc.service"]' &&
+                fs.statSync(path.join(opt, 'svc', 'current', 'svc-bin')).mode & 0o100, JSON.stringify([comp('svc'), c]));
+            return u.check().then(() => ask(conf.socket, { op: 'install', id: 'gate' })).then((why) => settle('gate').then(() => why));
+        })
+        .then((why) => {
+            const dir = path.join(opt, 'gate', 'current');
+            let c = {};
+            try {
+                c = JSON.parse(fs.readFileSync(path.join(dir, 'component.json'), 'utf8'));
+            } catch (e) { /* checked below */ }
+            const guard = fs.existsSync(path.join(dir, 'guard.sh')) ? fs.readFileSync(path.join(dir, 'guard.sh'), 'utf8') : '';
+            const f = sourcesLib.preloadFiles(entryOf('gate'));
+            ok('preload: with a renderer installed, it installs: library, guard, its two units and the drop-in, nothing started',
+                why === null && comp('gate').status === 'installed' && fs.readFileSync(path.join(dir, 'gate.so'), 'utf8') === 'ELF stand-in\n' &&
+                JSON.stringify(c.units) === '[{"name":"gate-guard.service"},{"name":"gate-check.service"}]' &&
+                JSON.stringify(c.dropins) === '[{"unit":"hmi.service","name":"zz-gate.conf"}]' && JSON.stringify(c.restart) === '[]' &&
+                JSON.stringify(c.recmgr) === '[]' && guard.indexOf('SO=$D/current/gate.so') >= 0 && /MAX=2/.test(guard) && /sleep 120/.test(guard) &&
+                f.dropin.indexOf('EnvironmentFile=-/run/gate.env') >= 0 && f.dropin.indexOf('Wants=gate-guard.service gate-check.service') >= 0 &&
+                f.guardUnit.indexOf('Before=hmi.service') >= 0 && f.checkUnit.indexOf('After=hmi.service') >= 0, JSON.stringify([why, comp('gate'), c]));
+            const sh = cp.spawnSync('sh', ['-n', path.join(dir, 'guard.sh')], { encoding: 'utf8' });
+            ok('preload: the guard script parses', sh.status === 0, sh.stderr);
+            return ask(conf.socket, { op: 'uninstall', id: 'svc', secret: u.secret });
+        })
+        .then((why) => {
+            ok('preload: the renderer it needs cannot be removed while it is installed',
+                why === 'Gate needs a renderer: remove it first, or install another renderer', why);
+            // with renderers side by side (the deploy tool lists each provider), one of two can go
+            const reported = u.providers;
+            u.providers = { renderer: [{ id: 'svc', version: '1.0.0' }, { id: 'other-renderer', version: '1.0.0' }] };
+            ok('preload: with another renderer installed, the one it used can be removed', u.providerIds('renderer').length === 2 &&
+                u.requestUninstall('svc') === null, JSON.stringify(u.queue));
+            u.providers = reported;
+            // the proxy serves the build uid alone, with its password
+            const logs = [];
+            return startProxy(conf, { online: true, dns: [`127.0.0.1:${DNS_PORT}`] }, (l) => logs.push(l), 'probe').then((p) => {
+                const url = new URL(p.url);
+                const connect = (password) => new Promise((resolve) => {
+                    const headers = password === null ? {} : { 'Proxy-Authorization': `Basic ${Buffer.from(`mgu:${password}`).toString('base64')}` };
+                    const req = require('http').request({ host: '127.0.0.1', port: url.port, method: 'CONNECT',
+                        path: `updates.test:${HTTPS_PORT}`, headers });
+                    req.on('connect', (res, socket) => {
+                        socket.destroy();
+                        resolve(res.statusCode);
+                    });
+                    req.on('response', (res) => resolve(res.statusCode));
+                    req.on('error', () => resolve(0));
+                    req.end();
+                });
+                return Promise.all([connect(url.password), connect('wrong'), connect(null)]).then((codes) => {
+                    p.stop();
+                    ok('proxy: a connection from another uid, a wrong password and none are all refused (407)',
+                        codes.every((c) => c === 407) && logs.some((l) => /connection from uid 0/.test(l)), JSON.stringify([codes, logs]));
+                });
+            });
+        })
+        .then(() => {
+            delete process.env.MGU_TEST_PROXY_OPEN;
+            delete process.env.FAKE_SDK_MODULE;
+            return null;
+        });
+}
+
 /* A first start without sources.json, and one this version cannot read. */
 function testFirstStart() {
     const { Updater } = require('../js/updater');
@@ -2508,6 +2795,7 @@ function main() {
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
+            .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
             .then(() => testDaemon(certs, pubDir))
             .then(() => {
                 dnsSrv.close();

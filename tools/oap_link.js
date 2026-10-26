@@ -49,7 +49,7 @@
  *   link.packSource(appDir, outFile)                           -> the packed paths
  *   link.preparePackage(pkgDir, outFile, { donors })           -> { file, sdk: null | { donor, api } }
  *   link.needsSdk(pkgDir)                                      -> whether preparePackage generates oap-sdk
- *   link.sdkDonor(donors)                                      -> { label, text, sdkVersion } of module mode's donor
+ *   link.sdkModule(donors)                                     -> module mode's donor and the oap-sdk module made from it
  *   link.unitDonors(mainappDir, oapDir, opts)                   -> the head unit's donors, in search order
  */
 const fs = require('fs');
@@ -698,11 +698,16 @@ Object.keys(ids).forEach(function (name) {
 `;
 }
 
-/* The first donor holding the oap-sdk core, as module mode picks it:
- * { label, text, sdkVersion }. */
-function sdkDonor(donors) {
-    const d = findDonor(donors, SDK_CORE, apiPick, `the oap-sdk core (${SDK_CORE.join(', ')})`);
-    return { label: d.label, text: d.text, sdkVersion: d.sdkVersion };
+/* The oap-sdk module module mode generates from the first donor holding
+ * the oap-sdk core: { donor (its label), text (its bundle), sdkVersion,
+ * api, index (index.js text), pkg (package.json text) }. */
+function sdkModule(donors) {
+    const donor = findDonor(donors || [], SDK_CORE, apiPick, `the oap-sdk core (${SDK_CORE.join(', ')})`);
+    return {
+        donor: donor.label, text: donor.text, sdkVersion: donor.sdkVersion || null, api: Object.keys(donor.ids), index: sdkModuleText(donor),
+        pkg: JSON.stringify({ name: 'oap-sdk', version: donor.sdkVersion || '0.0.0', main: 'index.js',
+            description: `generated from ${donor.label} by tools/oap_link.js` }, null, 2) + '\n'
+    };
 }
 
 /* MainApp installs a package that has no node_modules/ through its
@@ -751,19 +756,17 @@ function preparePackage(pkgDir, outFile, opts) {
     opts = opts || {};
     let sdk = null;
     if (needsSdk(pkgDir)) {
-        const donor = findDonor(opts.donors || [], SDK_CORE, apiPick, `the oap-sdk core (${SDK_CORE.join(', ')})`);
+        const m = sdkModule(opts.donors);
         const dir = path.join(pkgDir, 'node_modules', 'oap-sdk');
         [path.join(pkgDir, 'node_modules'), dir].forEach((d) => {
             if (!fs.existsSync(d)) {
                 fs.mkdirSync(d);
             }
         });
-        fs.writeFileSync(path.join(dir, 'index.js'), sdkModuleText(donor));
-        fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'oap-sdk',
-            version: donor.sdkVersion || '0.0.0', main: 'index.js',
-            description: `generated from ${donor.label} by tools/oap_link.js` }, null, 2) + '\n');
+        fs.writeFileSync(path.join(dir, 'index.js'), m.index);
+        fs.writeFileSync(path.join(dir, 'package.json'), m.pkg);
         nodeCheck(path.join(dir, 'index.js'));
-        sdk = { donor: donor.label, api: Object.keys(donor.ids) };
+        sdk = { donor: m.donor, api: m.api };
     }
     const shrinkwrap = needsShrinkwrap(pkgDir);
     if (shrinkwrap) {
@@ -793,7 +796,7 @@ function rmrf(p) {
     }
 }
 
-module.exports = { build, packSource, readManifest, preparePackage, needsSdk, needsShrinkwrap, sdkDonor, unitDonors, untar, SDK_API, ENTRY_ID,
+module.exports = { build, packSource, readManifest, preparePackage, needsSdk, needsShrinkwrap, sdkModule, unitDonors, untar, SDK_API, ENTRY_ID,
     LOADER };
 
 /* Private worker protocol: no donor code runs here with root privileges. */

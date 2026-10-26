@@ -72,6 +72,10 @@ function checkExtras(c) {
     } catch (e) {
         throw new Error(`${where}: ${e.message}`);
     }
+    if (c.mguNeeds !== undefined && c.mguNeeds !== null &&
+        !(Array.isArray(c.mguNeeds) && c.mguNeeds.length && c.mguNeeds.every((n) => typeof n === 'string' && PROVIDES.test(n)))) {
+        throw new Error(`${where}: mguNeeds lists capabilities (lower-case names)`);
+    }
     if (c.mguProvides !== undefined && c.mguProvides !== null && !(c.kind === 'tool' && PROVIDES.test(c.mguProvides))) {
         throw new Error(`${where}: mguProvides is one lower-case name, for a tool`);
     }
@@ -83,6 +87,7 @@ function checkExtras(c) {
         author: typeof c.author === 'string' ? c.author.slice(0, 80) : '',
         mguHmi: hmi,
         mguProvides: c.mguProvides || null,
+        mguNeeds: c.mguNeeds || null,
         service: c.service || null,
         build: c.build || null,
         requires: req,
@@ -152,6 +157,7 @@ function plan(entries, installed) {
             author: c.author || '',
             mguHmi: c.mguHmi,
             provides: c.mguProvides,
+            needs: c.mguNeeds || null,
             service: c.service
         };
     });

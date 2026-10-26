@@ -2462,6 +2462,12 @@ function testSourcesAndDonor() {
         j.path === path.join(run, 'sdk-donor', 'javascript', 'app.js') && fs.readFileSync(j.path, 'utf8') === donor.bundle() &&
         mode(j.path) === 0o644 && mode(path.join(run, 'sdk-donor')) === 0o755 && j.donor === 'donor_app@1.0.0.tgz:javascript/app.js' &&
         readJson(path.join(run, 'sdk-donor', 'package.json')).dependencies['oap-sdk'] === '9.8.7', r.out);
+    const mod = j && j.module;
+    let api = null;
+    try { api = Object.keys(require(path.join(mod, 'index.js'))); } catch (e) { /* checked below */ }
+    check('donor: sdk-donor --json also names the oap-sdk module generated from it (index.js, package.json)', !!mod &&
+        mod === path.join(run, 'sdk-donor', 'oap-sdk') && mode(path.join(mod, 'index.js')) === 0o644 && mode(mod) === 0o755 &&
+        readJson(path.join(mod, 'package.json')).version === '9.8.7' && api && api.indexOf('OnlineApp') >= 0, r.out);
     const none = fakeRoot().run(['sdk-donor', '--json'], { MGU_DEPLOY_RUN: run + '-none' });
     check('donor: no donor on the unit, exit 2', none.status === 2 && none.out.includes('no donor holds the oap-sdk core'), none.out);
 }
@@ -3069,6 +3075,79 @@ function providerArtifact(version, edit) {
     return path.join(out, `fixture-tool@${version}.tgz`);
 }
 
+/* A tool's drop-in for a unit it does not own: installed into a folder it
+ * creates, the unit's own files untouched, refused over a foreign one,
+ * rolled back with a failed install, and removed (with the folder) on
+ * uninstall, leaving the unit as it was. */
+function testDropins() {
+    const dropinTool = (version, none) => {
+        const out = fs.mkdtempSync(path.join(T, 'art-'));
+        const r = hu(['artifact', fixtureCopy(version, (c) => {
+            c.enable = [];
+            if (!none) {
+                c.dropins = [{ unit: 'hmi.service', name: 'zz-fixture-tool.conf', from: 'fixture-tool.conf' }];
+            }
+        }), '--out', out]);
+        if (r.status !== 0) {
+            throw new Error(`deploy/hu artifact failed: ${r.stderr}`);
+        }
+        return path.join(out, `fixture-tool@${version}.tgz`);
+    };
+    const root = fakeRoot({ recmgr: ['fixture-tool'] });
+    write(root.p('etc/systemd/system/hmi.service'), '[Service]\nExecStart=/usr/bin/HmiMain3D\n');
+    // the deploy tool's own files and the recmgr list (the fixture's entry) are not what this is about
+    const skip = (rel) => rel.startsWith('var/opt/mgu-deploy') || rel === 'etc/recmgr-restartlist.conf';
+    const before = root.hash(skip);
+    const art = dropinTool('0.2.0');
+    const r = root.run(['install', '--artifact', art, '--yes']);
+    const drop = root.p('etc/systemd/system/hmi.service.d/zz-fixture-tool.conf');
+    check('dropins: installed into <unit>.d/, the unit itself untouched', r.status === 0 && fs.existsSync(drop) &&
+        fs.readFileSync(drop, 'utf8') === fs.readFileSync(path.join(FIXTURE_TOOL, 'fixture-tool.conf'), 'utf8') &&
+        fs.readFileSync(root.p('etc/systemd/system/hmi.service'), 'utf8') === '[Service]\nExecStart=/usr/bin/HmiMain3D\n' &&
+        root.systemctlCalls().indexOf('daemon-reload') >= 0, r.out);
+    const un = root.run(['uninstall', 'fixture-tool', '--yes']);
+    const after = root.hash(skip);
+    check('dropins: uninstall removes the drop-in and the folder it created: the unit is as before', un.status === 0 &&
+        !fs.existsSync(root.p('etc/systemd/system/hmi.service.d')) && after.hash === before.hash, `${un.out}\n${treeDiff(before, after)}`);
+
+    // a folder that was there stays, with the other drop-ins in it
+    write(root.p('etc/systemd/system/hmi.service.d/10-stock.conf'), '[Service]\nEnvironment=A=1\n');
+    const r2 = root.run(['install', '--artifact', art, '--yes']);
+    const u2 = root.run(['uninstall', 'fixture-tool', '--yes']);
+    check('dropins: a folder that was there stays with its other drop-ins', r2.status === 0 && u2.status === 0 &&
+        fs.readdirSync(root.p('etc/systemd/system/hmi.service.d')).join() === '10-stock.conf', `${r2.out}\n${u2.out}`);
+
+    // a drop-in of that name no tool of ours installed
+    write(drop, '[Service]\nEnvironment=OTHER=1\n');
+    const h = root.hash(skip);
+    const foreign = root.run(['install', '--artifact', art, '--yes']);
+    check('dropins: one of that name no tool of ours installed is refused, nothing changed', foreign.status === 2 &&
+        foreign.out.includes('hmi.service.d/zz-fixture-tool.conf is installed, but by no tool of ours') && root.hash(skip).hash === h.hash, foreign.out);
+    fs.unlinkSync(drop);
+
+    // an update that adds the drop-in and fails its health check is rolled back without it
+    const h2 = root.hash(skip);
+    const first = root.run(['install', '--artifact', dropinTool('0.1.0', true), '--yes']);
+    write(root.unitFile('fixture-tool.service.crash'), `${root.p('var/opt/fixture-tool/current')} versions/0.2.0`);
+    const bad = root.run(['install', '--artifact', art, '--yes']);
+    fs.unlinkSync(root.unitFile('fixture-tool.service.crash'));
+    check('dropins: a failed update is rolled back without its drop-in', first.status === 0 && bad.status === 1 && !fs.existsSync(drop) &&
+        fs.readlinkSync(root.p('var/opt/fixture-tool/current')) === 'versions/0.1.0', `${bad.out}`);
+    // an update without the drop-in that fails its health check puts the drop-in back
+    const withIt = root.run(['install', '--artifact', art, '--yes']);
+    write(root.unitFile('fixture-tool.service.crash'), `${root.p('var/opt/fixture-tool/current')} versions/0.4.0`);
+    const failed = root.run(['install', '--artifact', dropinTool('0.4.0', true), '--yes']);
+    fs.unlinkSync(root.unitFile('fixture-tool.service.crash'));
+    check('dropins: a failed update without the drop-in is rolled back with it', withIt.status === 0 && failed.status === 1 &&
+        fs.existsSync(drop) && fs.readlinkSync(root.p('var/opt/fixture-tool/current')) === 'versions/0.2.0', failed.out);
+    // an update without the drop-in removes it
+    const without = root.run(['install', '--artifact', dropinTool('0.3.0', true), '--yes']);
+    check('dropins: an update whose version has no drop-in removes the one before it', without.status === 0 &&
+        !fs.existsSync(drop), `${withIt.out}\n${without.out}`);
+    root.run(['uninstall', 'fixture-tool', '--yes']);
+    check('dropins: ...and after its removal the unit\'s folder is as before', root.hash(skip).hash === h2.hash, treeDiff(h2, root.hash(skip)));
+}
+
 function testProvides() {
     const opts = { recmgr: ['mgu-renderd', 'fixture-tool'], active: 'mgu-renderd.service' };
     const root = fakeRoot(opts);
@@ -3247,6 +3326,7 @@ const SUITES = [
     testCompat,
     testServices,
     testProvides,
+    testDropins,
     testId8Apps
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);

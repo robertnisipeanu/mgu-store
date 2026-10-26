@@ -1,0 +1,22 @@
+{
+  "id": "mgu-python",
+  "kind": "tool",
+  "version": "1.0.0",
+  "title": "Python",
+  "description": "Python 3.12 for apps that build on the head unit with Python",
+  "optional": true,
+  "uninstallable": true,
+  "mguHmi": ["ID7", "ID8"],
+  "build": ["node", "build.js"],
+  "files": [
+    { "path": "bin/python3", "from": "build/python/bin/python3", "mode": "0755" },
+    { "path": "lib/python312.zip", "from": "build/python/lib/python312.zip", "mode": "0644" },
+    { "path": "lib/python3.12/lib-dynload/.empty", "from": "build/python/lib/python3.12/lib-dynload/.empty", "mode": "0644" },
+    { "path": "ssl/cacert.pem", "from": "build/python/ssl/cacert.pem", "mode": "0644" },
+    { "path": "LICENSES.txt", "from": "build/python/LICENSES.txt", "mode": "0644" }
+  ],
+  "units": [],
+  "enable": [],
+  "recmgr": [],
+  "restart": []
+}

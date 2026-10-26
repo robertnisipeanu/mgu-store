@@ -151,6 +151,18 @@ function buildArtifact(compDir, outDir) {
         entries.push({ name: `units/${u.name}`, data: fs.readFileSync(from), mode: 0o644 });
         return { name: u.name };
     });
+    const dropins = (c.dropins || []).map((d) => {
+        if (!d || !/^[A-Za-z0-9_.@-]{1,100}\.(service|socket|target|mount|path|timer)$/.test(d.unit || '') ||
+            !/^[A-Za-z0-9_.@-]{1,100}\.conf$/.test(d.name || '')) {
+            throw new Error(`${rel}/component.json: bad dropins entry ${JSON.stringify(d)}`);
+        }
+        const from = path.join(dir, d.from || d.name);
+        if (!fs.existsSync(from)) {
+            throw new Error(`${id}: drop-in ${path.relative(dir, from)} is missing`);
+        }
+        entries.push({ name: `dropins/${d.unit}.d/${d.name}`, data: fs.readFileSync(from), mode: 0o644 });
+        return { unit: d.unit, name: d.name };
+    });
     const manifest = {
         id: c.id,
         kind: c.kind,
@@ -163,6 +175,9 @@ function buildArtifact(compDir, outDir) {
         recmgr: c.recmgr || [],
         restart: c.restart || []
     };
+    if (dropins.length) {
+        manifest.dropins = dropins;
+    }
     if (c.internet !== undefined) {
         manifest.internet = c.internet;
         manifest.uids = c.uids;
@@ -205,11 +220,11 @@ function selectComponents(ids) {
 }
 
 /* The components named (none: every one but the optional ones), and with
- * --with-uplink the optional ones too. */
+ * --with-uplink mgu-uplink too. */
 function chosen(ids, withUplink, named) {
     const list = named === false ? [] : selectComponents(ids);
     if (withUplink) {
-        components().filter((c) => c.optional && !list.some((x) => x.id === c.id)).forEach((c) => list.push(c));
+        components().filter((c) => c.id === 'mgu-uplink' && !list.some((x) => x.id === c.id)).forEach((c) => list.push(c));
     }
     return list;
 }
