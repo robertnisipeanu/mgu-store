@@ -1,70 +1,192 @@
 # mgu-store
 
-The Store for the BMW iDrive 7 (MGU) head unit: an on-screen app store, the
-updater daemon behind it, the on-unit deploy tool every install goes through,
-and an opt-in network driver that gives apps internet through a USB adapter
-or a tethered phone.
+An app store for BMW iDrive 7 (MGU) head units, made of:
 
-| Path | What |
-|---|---|
-| [`apps/robertn_store`](apps/robertn_store) | the Store app (OAP/RHMI) |
-| [`native/mgu-updater`](native/mgu-updater) | the updater daemon: sources, downloads, installs |
-| [`deploy`](deploy) | the deploy tool (`mgu-deploy`) and the Mac-side installer |
-| [`native/mgu-uplink`](native/mgu-uplink) | the network driver (opt-in) |
-| [`native/app-privacy`](native/app-privacy) | keeps installed apps out of the unit's backend app reporting |
-| [`release`](release) | versions, reproducible builds, the catalog |
-| [`tools/oap_link.js`](tools/oap_link.js) | builds an app from its source package against the oap-sdk of an app on the unit |
-| [`tools/oap_pack.js`](tools/oap_pack.js) | the flat, reproducible OAP tgz |
-| [`docs/PUBLISHING.md`](docs/PUBLISHING.md) | publishing apps for the Store from any repository |
-| [`mgu-repo.json`](mgu-repo.json) | this repository as a source the unit builds from (the Store app) |
+- the **Store** app on the car's screen, where you browse, install, update and remove apps;
+- the **updater**, a background service on the head unit that downloads and installs what the Store asks for;
+- the **deploy tool**, which performs every install on the head unit and can roll it back;
+- **app privacy**, which keeps installed apps out of the head unit's reports to BMW's backend;
+- the **renderer** (mgu-render), which draws the Store's screens and other apps' graphics;
+- the optional **internet uplink** (mgu-uplink), which gives apps internet through a USB network adapter, an LTE stick or a USB-tethered phone.
 
-No file of BMW's oap-sdk is in this repository: the Store is published as
-a source package, and the deploy tool links it on the unit against the
-oap-sdk of an app already there.
+It also ships **mgu-python** (Python 3.12), which the updater installs when an app has to be built with Python.
+
+The Store is built and used on iDrive 7. iDrive 8 support is in the code
+but has not been tested on a real iDrive 8 head unit. On iDrive 8, app
+installs and removals take effect at the next head-unit restart.
+
+## Requirements
+
+- A computer running Windows 10/11, macOS or Linux, with
+  [Node.js](https://nodejs.org) 18 or newer and the OpenSSH client (`ssh`;
+  built into all three).
+- Root SSH access to the head unit, already set up, and root's private key
+  as a file on the computer. Getting root access is not covered here.
+- The computer joined to the car's Wi-Fi hotspot. The installer connects to
+  the head unit at `172.16.222.97`.
+- The car parked, on stable power (engine running or a charger connected),
+  and awake until the install finishes.
 
 ## Install
 
-### First install over SSH
+1. Download the installer, `deploy/mgu-install.js`. It is a single file
+   with no dependencies.
 
-Whoever installs has SSH to the unit (root's key). On a computer with
-Node 18 or newer and the OpenSSH client (Windows 10/11, macOS, Linux), with
-[`deploy/mgu-install.js`](deploy/mgu-install.js), one file with no
-dependencies:
+   ```sh
+   # macOS, Linux
+   curl -LO https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/mgu-install.js
+   ```
+
+   ```powershell
+   # Windows PowerShell
+   Invoke-WebRequest https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/mgu-install.js -OutFile mgu-install.js
+   ```
+
+2. Join the car's hotspot with the computer.
+
+3. Run the first install, pointing `--identity` at root's key:
+
+   ```sh
+   # macOS, Linux
+   node mgu-install.js first-install --identity ~/.ssh/mgu_root_key
+   ```
+
+   ```powershell
+   # Windows PowerShell
+   node .\mgu-install.js first-install --identity $HOME\.ssh\mgu_root_key
+   ```
+
+   It downloads the newest release of this repository, checks every file
+   against the release's size and sha256, and installs the deploy tool, app
+   privacy, the updater, the renderer, the internet uplink and the Store.
+   The Store is built on the head unit.
+
+4. Restart the head unit when the installer says
+   `Restart the head unit to finish setup`. A normal ignition cycle does it.
+   The updater and the other services start then.
+
+The Store's tile then appears among the car's apps. From here on, every
+update, the Store's own included, comes through the Store. Running
+`first-install` again is safe: newer installed components are kept.
+
+| Option | What it does |
+|---|---|
+| `--identity <file>` | root's private SSH key |
+| `--token` | asks for a GitHub token (hidden prompt) and gives it to the updater, for private repositories |
+| `--no-renderer` | leaves out the renderer; the Store then shows its plain list screens until a Store update installs the renderer it requires |
+| `--no-uplink` | leaves out the internet uplink |
+| `--host <address>`, `--port <n>` | reach the head unit somewhere other than `172.16.222.97:22` |
+| `--user <name>` | SSH user (default `root`) |
+| `--ssh-opt <option>` | an extra `ssh -o` option; repeatable |
+
+GitHub tokens can also be managed later from the computer, with the same
+`--identity` (and connection options) as the install:
 
 ```sh
-node mgu-install.js first-install --identity <root's key> [--token] [--with-uplink]
+node mgu-install.js token --identity ~/.ssh/mgu_root_key                # add one (hidden prompt, or piped on stdin)
+node mgu-install.js token --identity ~/.ssh/mgu_root_key --list         # list them
+node mgu-install.js token --identity ~/.ssh/mgu_root_key --remove <id>  # remove one
 ```
 
-It downloads the newest published release of this repository, checks every
-file against the catalog's size and sha256, and installs the deploy tool,
-app-privacy, the updater, the Store (built on the unit) and, with
-`--with-uplink`, the internet uplink, over SSH to `172.16.222.97` (the
-car's hotspot; `--host`/`--port` for another address). It seeds the
-updater's sources with this repository, and with `--token` adds a GitHub
-token for the updater, typed at a hidden prompt (or piped on stdin). It
-ends with `Restart the head unit to finish setup`: the updater starts at
-the next ignition cycle. Running it again is safe; newer installed
-components are kept. After that every update comes through the Store.
+On Windows, run these in PowerShell or cmd. Git Bash shows no hidden
+prompt; pipe the token in instead.
 
-```powershell
-# Windows PowerShell
-node .\mgu-install.js first-install --identity $HOME\.ssh\mgu_root_key --token
-```
+## Using the Store
 
-```sh
-# macOS, Linux
-node mgu-install.js first-install --identity ~/.ssh/mgu_root_key --token
-```
+Open the Store's tile. The side menu has four pages:
 
-Later, `node mgu-install.js token` adds a token, `token --list` lists them
-and `token --remove <id>` removes one. On Windows, run it in PowerShell or
-cmd: Git Bash's terminal shows no hidden prompt (pipe the token instead). Downloading a private release needs
-a token too: the one given with `--token`, else the GitHub CLI's (`gh auth
-login`), else a hidden prompt. deploy/README.md ("mgu-install") has the
-details; `deploy/hu install` installs components built from a checkout,
-for development.
+- **Store**: every app and head-unit tool from your sources, with All /
+  Apps / Tools filters. Each tile shows its state: `Installed`,
+  `Update 1.0.1`, a download in progress, `Not for this head unit`,
+  `Failed`, `Restart pending`.
+- **Installed**: what is installed, with **Update** on each one that has
+  an update, and **Update all**.
+- **USB**: what the plugged-in USB sticks offer.
+- **Settings**: sources, accounts, phone access, versions, **Check now**
+  and **Restart head unit**.
 
-### Offline: a USB stick as a local repo
+Press a component to open its page, which shows its version, size, source
+and description, and the button for what can be done: **Install**,
+**Update to**, **Try again**, **Remove** or **Restart head unit**.
+
+- Nothing installs on its own. Updates are listed; you start them.
+- Installing an app can restart the other running apps.
+- A tool that shows `Restart pending` takes effect after the head unit
+  restarts. Settings → **Restart head unit** does it.
+- **Remove** appears only for components that can be removed. The updater
+  and the deploy tool cannot be removed.
+
+The updater checks its sources at start, at regular intervals, when the
+internet comes up, when a USB stick is plugged in, and on **Check now**.
+
+Without the renderer, the Store shows the same information as plain
+lists: Apps, Head-unit tools, Sources, Phone access and Restart head unit.
+
+### Adding a repository
+
+Settings → **Add source**, then type one of:
+
+| You type | The Store adds |
+|---|---|
+| `owner/repo` or `https://github.com/owner/repo` | a GitHub repository: its releases, or its default branch when it has no releases |
+| `https://github.com/owner/repo/tree/<branch>` | that branch of the repository |
+| any other `https://…` address | a `catalog.json` at that address, or an App Manager index |
+
+`github.com/owner/repo`, a trailing `/` and `.git` are accepted too. Open a
+source in Settings to see its channel, the account that reads it, its
+components and errors, and to remove it. The Store's own source cannot be
+removed.
+
+### Private repositories: GitHub accounts
+
+Public repositories need no account. For a private one, add an account in
+Settings → **Accounts**:
+
+- **Sign in with GitHub** shows a QR code and a code. Open the page on your
+  phone, enter the code, and sign in. The private repository must also have
+  the [mgu-store GitHub App](https://github.com/apps/mgu-store) installed;
+  a source that still cannot be read shows the App's install page as a QR
+  code.
+- **Add token** types a GitHub token on the car's keyboard: a fine-grained
+  token with read access to the repository's contents, or a classic token
+  with the `repo` scope.
+
+Accounts belong to the updater, not to one source: each source is read with
+whichever account can reach it. Tokens can also be added from the computer
+(`mgu-install.js token`) or from the phone page.
+
+### The phone page
+
+Settings → **Phone access** → On shows a QR code. Scan it with a phone
+joined to the car's hotspot. The page (port 8470 on the head unit) shows the
+sources, components, installs in progress, errors and logs, and lets you add
+and remove sources and accounts with the phone's keyboard. When adding a
+repository there, pick its channel: **Releases** (the default), **Branch**
+or **Tags**; a repository with only `mgu-repo.json` needs **Branch**.
+Every time phone access is turned on, it gets a new access code; turn it
+off when done.
+
+### Internet: the uplink
+
+The head unit gives apps no internet of its own. The internet uplink gives
+it to the updater and to the apps that ask for it, through one of:
+
+- a USB Ethernet adapter (for example one cabled to an LTE router);
+- a Huawei HiLink LTE stick (E3372h) or another CDC-ECM stick;
+- an Android phone with USB tethering on (Settings → Network → Hotspot &
+  tethering → USB tethering);
+- an iPhone with Personal Hotspot on, unlocked, and **Trust** tapped when it
+  asks. While it tethers, USB media playback from that iPhone stops.
+
+Android and iPhone tethering are untested on a real car.
+
+`first-install` installs the uplink unless you pass `--no-uplink`. To add
+it later, install **Internet uplink** from the Store's Tools (from a USB
+stick when the car has no internet yet), then restart the head unit. After
+that, plug a device in; a wired adapter or stick is preferred over a phone.
+The Store shows `Online` once there is a connection.
+
+## Offline: a USB stick as a repository
 
 A car without internet installs and updates from a USB stick. On the
 computer:
@@ -73,19 +195,121 @@ computer:
 node mgu-install.js usb-repo <stick> [<input>...]
 ```
 
-writes each input as a folder `mgu-repo/<name>/` on the stick: a published
-GitHub repository (`github:<owner>/<repo>`), a `catalog.json` URL, a
-folder holding `catalog.json` or `mgu-repo.json` (a checkout), or package
-files (`*.tgz`, `*.mgu`: apps, source packages, tool kits; together in
-`mgu-repo/local/`). Without inputs it takes this repository's newest
-release. Running it again replaces what a folder held with the newer
-versions. Plugged into the car, the stick is a source in the Store: it
-lists its apps and tools, installs them, and offers a newer version there
-as an update of a component installed from anywhere else.
+Each input becomes a folder `mgu-repo/<name>/` on the stick:
+
+| Input | Example |
+|---|---|
+| a published GitHub repository | `github:owner/repo` |
+| a catalog URL | `https://example.org/repo/catalog.json` |
+| a folder holding `catalog.json` or `mgu-repo.json` (a checkout) | `../my-apps` |
+| package files: apps, source packages, tool kits | `gauges@1.2.0.tgz`, `doom@1.0.0.mgu` |
+
+With no inputs it writes this repository's newest release. Running it
+again replaces each folder with the newer versions.
 
 ```powershell
 node .\mgu-install.js usb-repo E:\ github:robertnisipeanu/mgu-store C:\Users\me\Downloads\gauges@1.2.0.tgz
 ```
+
+Plug the stick into the car. Its contents appear under **USB** in the
+Store, and a newer version there is offered as an update to a component
+installed from anywhere. A stick with IterioDev's App Manager packages in a
+folder `oap/` works too.
+
+## Publishing apps: your own repository
+
+Any GitHub repository, HTTPS address or USB stick can be a source. A
+repository uses one of three layouts:
+
+| Layout | The repository has | Who builds the apps |
+|---|---|---|
+| Releases | built app packages attached to GitHub Releases | you |
+| Catalog | a `catalog.json` (in a release named `catalog`, or at an HTTPS address) listing each component | you, or the head unit for source packages |
+| Repo tree | `mgu-repo.json` at the repository root | the head unit, from source; no releases needed |
+
+**Releases**, the simplest: build your app and attach
+`<id>@<version>.tgz` (or `.mgu`) to a GitHub release. The newest version of
+each id is offered.
+
+**Repo tree**: commit `mgu-repo.json` and the head unit builds each app.
+The Store reads it on the branch you add (`…/tree/main`), or on the
+default branch when the repository has no releases. For a folder of apps
+built by your own script, as in
+[idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps):
+
+```json
+{ "schema": 1,
+  "apps": { "path": "apps/*", "manifest": "app.json", "mguHmi": ["ID7"],
+    "build": { "python": "kit/tools/build.py", "args": ["{id}"], "sdk": "oap-sdk",
+      "output": "dist/{id}@{version}.tgz" } } }
+```
+
+Every subfolder of `apps/` that holds an `app.json` is an app: the folder
+name is its id, and `app.json` gives its `version` (`x.y.z`). The build
+script runs on the head unit, without internet unless the entry allows it,
+and must leave the package at `output`.
+
+**Catalog**: a `catalog.json` listing each component with its artifact.
+Served from an HTTPS address, `url` can be relative to the catalog:
+
+```json
+{ "schema": 2, "components": [
+  { "id": "acme_gauges", "kind": "app", "title": "Gauges", "version": "1.2.0",
+    "mguHmi": ["ID7"],
+    "artifact": { "name": "acme_gauges@1.2.0.tgz", "size": 41210, "sha256": "<hex>",
+                  "url": "acme_gauges@1.2.0.tgz" } } ] }
+```
+
+What every app needs:
+
+- **No BMW SDK files.** BMW's oap-sdk is not redistributable. Leave
+  `node_modules/oap-sdk` out; the head unit links the app against the
+  oap-sdk of an app already installed on it.
+- **An id of your own**, with a prefix (`acme_gauges`). Ids are shared by
+  every source on the head unit, and an id BMW uses can hide your tile.
+- **The head units it is for**: `"mguHmi": ["ID7"]`, `["ID8"]` or both,
+  in the app's `package.json`, its catalog entry or its `mgu-repo.json` entry.
+  The Store lists an app for another head unit but does not install it.
+- **Apps or tools.** `kind` is `app` (an OAP app) or `tool` (a root
+  program, such as a renderer or a service, packed with its
+  `component.json`). An app's own code cannot install a tool.
+- **`requires`** (optional): `{"<id>": "<min version>"}` components the
+  updater installs first.
+- **Internet**: an app that needs it says `"mguInternet": true` in its
+  `package.json` (`"internet": true` in `mgu-app.json`). It gets internet
+  while the uplink is online.
+
+Nothing is signed: adding a source means trusting it. A download is
+checked against the size and sha256 its catalog lists; release assets and
+repo trees list no hash.
+
+[docs/PUBLISHING.md](docs/PUBLISHING.md) is the full reference: every
+layout and field, source packages (`mgu-app.json`), build scripts on the
+head unit, tools and services, and App Manager packages and indexes.
+
+## Repository layout
+
+| Path | What |
+|---|---|
+| [`apps/robertn_store`](apps/robertn_store) | the Store app |
+| [`native/mgu-updater`](native/mgu-updater) | the updater: sources, downloads, installs, the phone page |
+| [`deploy`](deploy) | the deploy tool (`mgu-deploy`) and the installer (`mgu-install.js`) |
+| [`native/mgu-render`](native/mgu-render) | the renderer |
+| [`native/mgu-uplink`](native/mgu-uplink) | the internet uplink |
+| [`native/mgu-python`](native/mgu-python) | Python 3.12 for builds on the head unit |
+| [`native/app-privacy`](native/app-privacy) | keeps installed apps out of the head unit's reports to BMW's backend |
+| [`release`](release) | versions, reproducible builds, the published catalog |
+| [`tools`](tools) | `oap_link.js` (builds a source package against the head unit's oap-sdk) and `oap_pack.js` (packs an OAP tgz) |
+| [`docs/PUBLISHING.md`](docs/PUBLISHING.md) | publishing apps for the Store |
+| [`mgu-repo.json`](mgu-repo.json) | this repository as a repo-tree source (the Store app) |
+
+## Building from source
+
+Each component's README covers its build and tests.
+[`deploy/README.md`](deploy/README.md) covers `deploy/hu`, which builds
+components from a checkout and installs them over SSH, for development.
+[`release/README.md`](release/README.md) covers versions and publishing a
+release.
 
 ## License
 
