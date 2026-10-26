@@ -8,9 +8,10 @@
  *
  * Placement: embed (inside the host state's page template, iDrive 7, while
  * the renderer offers it) or layer (the renderer's own layer over the host
- * state, placed on the app area). The screens are laid out in iDrive 8
- * design pixels; the placement scales their content into the box, so
- * logical pixels (touch, claims) are design pixels on either head unit.
+ * state, placed on the app area). src/store_frame.js placement() picks the
+ * layout for the box: on iDrive 8 the design's, scaled into it; on iDrive 7
+ * one made for the box at scale 1. Logical pixels (touch, claims) are the
+ * layout's.
  *
  * Pages: the stack's first page is the tabs; each page opened from it is
  * the host state of the next depth (src/store.js hostName), so the HMI's BACK
@@ -31,7 +32,7 @@ const fs = require('fs');
 const kit = require('./kit_record.js');
 const png = require('./kit_png.js');
 const { setPicture } = require('./am_widgets.js');
-const { frame, hit, placement, VIEWPORT } = require('./store_frame.js');
+const { frame, hit, placement } = require('./store_frame.js');
 
 const DEPTHS = 3;
 const ICON_BYTES = 128 * 1024;          // a package picture: at most this big
@@ -61,6 +62,8 @@ class Drawn extends EventEmitter {
         this.mode = null;
         this.w = 0;
         this.scale = 1;
+        this.layout = null;
+        this.viewport = null;
         this.stack = [{ name: 'main' }];
         this.tab = 'store';
         this.filter = 'all';
@@ -125,6 +128,8 @@ class Drawn extends EventEmitter {
             const box = mode === 'embed' ? info.embedBox : info.appArea;
             const p = placement(box.w, box.h);
             this.scale = p.scale;
+            this.layout = p.layout;
+            this.viewport = p.viewport;
             this.w = box.w;
             this.gpu.mode(mode);
             this.gpu.place({ x: box.x, y: box.y, w: box.w, h: box.h, scale: p.scale, ox: p.ox, oy: p.oy });
@@ -285,7 +290,7 @@ class Drawn extends EventEmitter {
             return;
         }
         this.on_ = on;
-        this.gpu.claim(on ? [VIEWPORT] : []);
+        this.gpu.claim(on ? [this.viewport] : []);
         this.gpu.grab(on && !!this.controller);
         if (on) {
             this.render();
@@ -302,7 +307,7 @@ class Drawn extends EventEmitter {
             return;
         }
         const m = Object.assign(this.host.model(), { stack: this.stack, tab: this.tab, filter: this.filter });
-        const r = frame(m, { textScale: this.scale, focus: this.focus, scroll: this.scroll });
+        const r = frame(m, { textScale: this.scale, focus: this.focus, scroll: this.scroll, layout: this.layout });
         const rec = r.rec;
         this.items = r.items;
         this.regions = r.regions;

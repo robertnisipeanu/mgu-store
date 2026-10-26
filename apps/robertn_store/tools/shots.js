@@ -55,7 +55,7 @@ function session(file, unit, m) {
         gpu.on('ready', () => {
             const p = placement(unit.w, unit.h);
             gpu.place({ x: 0, y: 0, w: unit.w, h: unit.h, scale: p.scale, ox: p.ox, oy: p.oy });
-            gpu.frame(frame(m, { textScale: p.scale, focus: m.focus, scroll: {} }).rec);
+            gpu.frame(frame(m, { textScale: p.scale, focus: m.focus, scroll: {}, layout: p.layout }).rec);
             gpu.close();
             resolve();
         });

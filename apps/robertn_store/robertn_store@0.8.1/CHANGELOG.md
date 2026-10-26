@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1
+
+On iDrive 7 the drawn screens are laid out for the renderer's box itself
+(1796 x 632 in the page, 1790 x 638 as a layer) at full size: a one-row
+header (title, status, filters, online state), small margins, three rows
+of tiles, larger text, list rows and buttons, and nothing at the box's
+edges. iDrive 8 is unchanged.
+
 ## 0.8.0
 
 A component providing what another installed tool provides installs

@@ -1,4 +1,4 @@
-# robertn_store 0.8.0
+# robertn_store 0.8.1
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
@@ -64,9 +64,11 @@ controller gate loaded (the renderer's `controller`), the dial and push
 come straight from the renderer instead.
 
 The screens are drawn at most 30 times a second (the renderer's frame
-cap). They are laid out in iDrive 8 design pixels (2880 x 960) and scaled
-into the renderer's box: embed (inside the page, iDrive 7 once the
-template is loaded) or layer (over the page, on the app area). Text is
+cap) into the renderer's box: embed (inside the page, iDrive 7 once the
+template is loaded) or layer (over the page, on the app area). On iDrive 8
+they are App Manager 2's design (2880 x 960) scaled into the box; on
+iDrive 7 (a box under 700 px high) `src/store_compact.js` lays the same
+screens out for the box itself at full size. Text is
 Inter (SIL OFL, `src/LICENSE-Inter.txt`), baked by `tools/bake_fonts.py`;
 the atlases are at most 1024 px wide and use about a quarter of the
 renderer's glyph texture, which all apps share. Nothing from the HMI is
@@ -205,7 +207,8 @@ lib/client.js              mgu-updater's socket client, copied by tools/build.js
 src/qr.js, src/qrcodegen.js  QR codes (Project Nayuki's generator 1.5.0, src/LICENSE-qrcodegen.txt)
 src/speller.js             the HMI's free-text speller
 src/store_drawn.js         the drawn screens: renderer connection, placement, pages, host states, proxies, touch, pictures
-src/store_frame.js         one frame: the screen, its values, what can be pressed, the focus ring
+src/store_frame.js         one frame: the screen, its values, what can be pressed, the focus ring; the placement
+src/store_compact.js       the screens laid out for iDrive 7's box
 src/store_ui.js            the drawn screens' values from the updater's state
 src/store_elements.js      the Store's own element: QR code
 src/am_screens.js          the screens (App Manager 2's screens.json, with the Store's pages)
@@ -224,19 +227,19 @@ tools/test_view.js         the texts for every row, source, account, sign-in and
 tools/test_rhmi.js         both HMIs' RHMI files, host states and proxies, the names src/store.js binds
 tools/test_qr.js           the QR pictures (decoded back with zbarimg when installed)
 tools/test_speller.js      src/speller.js against a fake use case factory
-tools/test_screens.js      every drawn screen at both scales: values, presses, focus order, scrolling, touch
+tools/test_screens.js      every drawn screen in iDrive 7's and 8's boxes: in the box, values, presses, focus order, scrolling, touch
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.8.0/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.8.1/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.8.0.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.8.0.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.8.1.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.8.1.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js
 (cd ../../native/mgu-render && make test) && node tools/shots.js <out dir>     # screenshots
@@ -262,7 +265,8 @@ The Store requires mgu-render (`release.json`), so an install puts it on.
 
 - iDrive 7: whether the HMI routes focus and presses to the page
   template's buttons, else FrontCCU's dial and push there; touch inside the
-  page template; the drawn screens' scale (0.65) for reading in the car.
+  page template; the compact layout's text and buttons for reading and
+  pressing in the car.
 - iDrive 8: the widget layout (`LT_State_Wide_List`, `LT_Button_MediaEntry_1Row`
   cells, the QR picture label), the layer host states' proxies and focus
   events, `mapEntryState` switching, the manifest's proxies under MainApp-21,
