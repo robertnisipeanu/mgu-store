@@ -758,6 +758,8 @@ class Updater {
             },
             sources,
             tokens,
+            // GitHub sign-in is offered only with a GitHub App client id configured
+            signin: !!this.conf.github_client_id,
             login: this.login.state(),
             busy: this.busy,
             rebooting: this.rebooting,

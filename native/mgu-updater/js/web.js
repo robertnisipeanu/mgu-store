@@ -826,6 +826,7 @@ function render(st) {
     var bar = $('busyBar');
     if (b.total) { bar.max = b.total; bar.value = b.progress || 0; } else { bar.removeAttribute('value'); }
   }
+  $('loginStart').hidden = !st.signin;
   if (changed('sources', st.sources || [])) { renderSources(st.sources || []); }
   if (changed('tokens', [st.tokens || [], st.sources || []])) { renderTokens(st.tokens || [], st.sources || []); }
   if (changed('components', st.components || [])) { renderComponents(st.components || []); }
