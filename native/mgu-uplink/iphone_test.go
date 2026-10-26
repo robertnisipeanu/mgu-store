@@ -2,128 +2,13 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 )
-
-func TestPlistRoundTrip(t *testing.T) {
-	v := map[string]interface{}{
-		"Request":  "Pair",
-		"Label":    "a<b>&c",
-		"Data":     []byte{0, 1, 2, 0xff},
-		"Bool":     true,
-		"False":    false,
-		"Int":      int64(-42),
-		"Big":      uint64(1 << 63),
-		"Real":     1.5,
-		"Array":    []interface{}{"x", int64(1), map[string]interface{}{"k": "v"}},
-		"Nested":   map[string]interface{}{"ExtendedPairingErrors": true},
-		"EmptyStr": "",
-	}
-	b, err := plistEncode(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := plistDecode(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(got, v) {
-		t.Fatalf("got %#v\nwant %#v\n%s", got, v, b)
-	}
-	// lockdownd's own layout: whitespace and line-wrapped data.
-	got, err = plistDecode([]byte(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Value</key>
-	<data>
-	AAEC
-	/w==
-	</data>
-	<key>Error</key>
-	<string>PairingDialogResponsePending</string>
-</dict>
-</plist>`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := got.(map[string]interface{})
-	if !bytes.Equal(m["Value"].([]byte), []byte{0, 1, 2, 0xff}) || m["Error"] != "PairingDialogResponsePending" {
-		t.Fatalf("%#v", m)
-	}
-	for _, bad := range []string{"", "<plist><dict><string>x</string></dict></plist>", "<plist><integer>x</integer></plist>",
-		"<plist><dict><key>a</key>", "<plist><foo/></plist>", strings.Repeat("<array>", 40) + strings.Repeat("</array>", 40)} {
-		if _, err := plistDecode([]byte(bad)); err == nil {
-			t.Errorf("%q: accepted", bad)
-		}
-	}
-}
-
-func TestMuxFraming(t *testing.T) {
-	v1 := encodeMux(0, muxProtoVersion, 9, 9, putBE32(2, 0, 0))
-	if !bytes.Equal(v1, append(putBE32(0, 20), putBE32(2, 0, 0)...)) {
-		t.Fatalf("v1 % x", v1)
-	}
-	th := tcpHdr{sport: 1, dport: lockdownPort, seq: 5, ack: 7, flags: thACK, window: 512}
-	v2 := encodeMux(2, muxProtoTCP, 3, 0xffff, th.encode([]byte("hi")))
-	want := append(putBE32(6, 16+20+2, muxMagic), 0, 3, 0xff, 0xff)
-	if !bytes.Equal(v2[:16], want) {
-		t.Fatalf("v2 header % x", v2[:16])
-	}
-	tcp := v2[16:]
-	if binary.BigEndian.Uint16(tcp) != 1 || binary.BigEndian.Uint16(tcp[2:]) != 62078 || tcp[12] != 0x50 ||
-		tcp[13] != thACK || binary.BigEndian.Uint16(tcp[14:]) != 512 {
-		t.Fatalf("tcphdr % x", tcp[:20])
-	}
-	got, payload, ok := parseTCPHdr(tcp)
-	if !ok || got != th || string(payload) != "hi" {
-		t.Fatalf("%+v %q %v", got, payload, ok)
-	}
-	if _, _, ok := parseTCPHdr(make([]byte, 19)); ok {
-		t.Fatal("short header accepted")
-	}
-}
-
-// A usbmux stream split and joined across transfers is reassembled.
-func TestMuxDispatch(t *testing.T) {
-	m := &usbMux{version: 2, conns: map[uint16]*muxConn{}}
-	c := &muxConn{m: m, sport: 1, dport: lockdownPort, connected: true, estab: make(chan error, 1), notify: make(chan struct{}, 1)}
-	m.conns[1] = c
-	sent := &recordPipe{}
-	m.p = sent
-	seg := func(s string) []byte {
-		return encodeMux(2, muxProtoTCP, 0, 0, tcpHdr{sport: lockdownPort, dport: 1, flags: thACK}.encode([]byte(s)))
-	}
-	stream := append(seg("hello "), seg("world")...)
-	rest := m.dispatch(stream[:10])
-	rest = m.dispatch(append(rest, stream[10:30]...))
-	rest = m.dispatch(append(rest, stream[30:]...))
-	if len(rest) != 0 || string(c.buf) != "hello world" || c.txAck != 11 {
-		t.Fatalf("rest %d, buf %q, ack %d", len(rest), c.buf, c.txAck)
-	}
-	if len(sent.pkts) != 2 { // one ACK per segment
-		t.Fatalf("%d packets sent", len(sent.pkts))
-	}
-	if r := m.dispatch(putBE32(6, 4)); r != nil {
-		t.Fatal("impossible length kept")
-	}
-}
-
-type recordPipe struct{ pkts [][]byte }
-
-func (r *recordPipe) write(b []byte, zlp bool) error {
-	r.pkts = append(r.pkts, append([]byte{}, b...))
-	return nil
-}
-func (r *recordPipe) read(buf []byte, timeoutMS uint32) (int, error) { return 0, nil }
 
 func TestIPhethLegacy(t *testing.T) {
 	frame := bytes.Repeat([]byte{7}, 60)
@@ -196,107 +81,6 @@ func TestCarrierOn(t *testing.T) {
 	}
 }
 
-// pairOnce runs pairIPhone against a fake phone attachment.
-func pairOnce(t *testing.T, phone *fakePhone, dir string) (string, []string, error) {
-	t.Helper()
-	m, err := newUSBMux(&fakeMuxPipe{p: phone})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer m.Close()
-	var mu sync.Mutex
-	var prompts []string
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	udid, err := pairIPhone(ctx, m, dir, func(msg string) error {
-		mu.Lock()
-		prompts = append(prompts, msg)
-		mu.Unlock()
-		return nil
-	})
-	return udid, prompts, err
-}
-
-func TestPairIPhone(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "pair")
-	trust := newFakeTrust("00008030-001A2B3C4D5E6F70")
-
-	// First plug-in: the Trust prompt for two rounds, then trust.
-	phone := newFakePhone(trust)
-	phone.prompts = 2
-	phone.logf = t.Logf
-	udid, prompts, err := pairOnce(t, phone, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if udid != trust.udid || !reflect.DeepEqual(prompts, []string{trustWaiting, trustWaiting}) || phone.pairs != 3 || !phone.Trusted() {
-		t.Fatalf("udid %s prompts %v pairs %d trusted %v", udid, prompts, phone.pairs, phone.Trusted())
-	}
-	st, err := os.Stat(pairRecordPath(dir, udid))
-	if err != nil || st.Mode().Perm() != 0600 {
-		t.Fatalf("pair record: %v %v", st, err)
-	}
-	if d, _ := os.Stat(dir); d.Mode().Perm() != 0700 {
-		t.Fatalf("pair dir mode %v", d.Mode())
-	}
-	rec := loadPairRecord(dir, udid)
-	if rec == nil || string(rec.EscrowBag) != "escrow" || rec.HostID != trust.hostID {
-		t.Fatalf("record %+v", rec)
-	}
-
-	// Next plug-in: the stored record, no prompt.
-	phone = newFakePhone(trust)
-	_, prompts, err = pairOnce(t, phone, dir)
-	if err != nil || len(prompts) != 0 || phone.pairs != 0 || phone.sessions != 1 {
-		t.Fatalf("replug: %v prompts %v pairs %d sessions %d", err, prompts, phone.pairs, phone.sessions)
-	}
-
-	// The phone forgot this unit (Reset Location & Privacy): pair again.
-	trust.mu.Lock()
-	trust.hostID = ""
-	trust.mu.Unlock()
-	phone = newFakePhone(trust)
-	_, _, err = pairOnce(t, phone, dir)
-	if err != nil || phone.pairs != 1 || !phone.Trusted() {
-		t.Fatalf("re-pair: %v pairs %d", err, phone.pairs)
-	}
-	if r := loadPairRecord(dir, udid); r == nil || r.HostID == rec.HostID {
-		t.Fatal("record not replaced")
-	}
-
-	// Declined.
-	other := newFakeTrust("0123456789abcdef0123456789abcdef01234567")
-	phone = newFakePhone(other)
-	phone.deny = true
-	if _, _, err := pairOnce(t, phone, dir); err != errTrustDenied || phone.Trusted() {
-		t.Fatalf("declined: %v", err)
-	}
-
-	// Unplugged while the prompt is open.
-	phone = newFakePhone(other)
-	phone.prompts = 1000
-	go func() {
-		time.Sleep(3 * time.Second)
-		phone.unplug()
-	}()
-	if _, _, err := pairOnce(t, phone, dir); err == nil || !strings.Contains(err.Error(), "left") {
-		t.Fatalf("unplugged: %v", err)
-	}
-}
-
-func TestPairRecordName(t *testing.T) {
-	for _, bad := range []string{"../../etc/x", "a/b", "short", ""} {
-		if udidRe.MatchString(bad) {
-			t.Errorf("%q accepted as a UDID", bad)
-		}
-	}
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "x.json"), `{"udid":"y","hostID":"h","hostCertificate":"AA=="}`)
-	if loadPairRecord(dir, "x") != nil {
-		t.Fatal("record for another UDID loaded")
-	}
-}
-
 func TestDropIns(t *testing.T) {
 	c := defaults()
 	c.StateDir, c.OAPDir = t.TempDir(), t.TempDir()
@@ -343,12 +127,51 @@ func TestStatusFile(t *testing.T) {
 	if !strings.Contains(string(b), `"kind": "iphone"`) || !strings.Contains(string(b), `"error": "Personal Hotspot is off"`) {
 		t.Fatalf("%s", b)
 	}
-	setStatus(&statusDevice{Kind: kindIPhone, Name: "Apple Inc. iPhone"}, stateTrustNeeded, trustWaiting)
-	if b, _ := os.ReadFile(p); !strings.Contains(string(b), `"state": "trust-needed"`) || !strings.Contains(string(b), trustWaiting) {
+	setStatus(&statusDevice{Kind: kindIPhone, Name: "Apple Inc. iPhone"}, stateTrustNeeded, "Tap Trust on the iPhone")
+	if b, _ := os.ReadFile(p); !strings.Contains(string(b), `"state": "trust-needed"`) || !strings.Contains(string(b), "Tap Trust on the iPhone") {
 		t.Fatalf("%s", b)
 	}
 	statusClear(p)
 	if _, err := os.Stat(p); !os.IsNotExist(err) {
 		t.Fatal("status.json left")
 	}
+}
+
+// setLinkTrust is reflected as trust-needed only while a link is up and has
+// no lease; a lease takes priority.
+func TestLinkTrustState(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "status.json")
+	statusInit(p)
+	defer statusInit("")
+	s := &service{}
+	s.link = stubLink{}
+	setLinkTrust(true, "Tap Trust on the iPhone")
+	s.publishStatus()
+	if b, _ := os.ReadFile(p); !strings.Contains(string(b), `"state": "trust-needed"`) {
+		t.Fatalf("trust not shown: %s", b)
+	}
+	// A lease hides the trust note.
+	s.lease = &Lease{IP: "172.20.10.2"}
+	s.publishStatus()
+	if b, _ := os.ReadFile(p); !strings.Contains(string(b), `"state": "online"`) {
+		t.Fatalf("lease did not take priority: %s", b)
+	}
+	s.lease = nil
+	setLinkTrust(false, "")
+	s.publishStatus()
+	if b, _ := os.ReadFile(p); !strings.Contains(string(b), `"state": "connecting"`) {
+		t.Fatalf("not connecting after clear: %s", b)
+	}
+}
+
+// stubLink is a minimal Link reporting an iPhone device, for publishStatus.
+type stubLink struct{}
+
+func (stubLink) Ifname() string        { return Ifname }
+func (stubLink) Done() <-chan struct{} { return nil }
+func (stubLink) Err() error            { return nil }
+func (stubLink) Close()                {}
+func (stubLink) String() string        { return "stub" }
+func (stubLink) device() statusDevice {
+	return statusDevice{Kind: kindIPhone, Name: "Apple Inc. iPhone"}
 }

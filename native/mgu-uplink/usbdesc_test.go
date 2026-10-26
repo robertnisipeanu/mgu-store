@@ -285,7 +285,8 @@ func TestNCMFunction(t *testing.T) {
 }
 
 // iphoneDesc is an iPhone in its default mode: four configurations, PTP
-// in each, usbmux from configuration 3, the hotspot interface in 4.
+// in each, a usbmux interface from configuration 3, the hotspot interface
+// in 4.
 func iphoneDesc(withHotspot bool) []byte {
 	ptp := [][]byte{ifaceDesc(0, 0, 0x06, 0x01), endpointDesc(0x81, 512), endpointDesc(0x02, 512)}
 	mux := [][]byte{{9, 4, 1, 0, 2, 0xff, 0xfe, 0x02, 0}, endpointDesc(0x04, 512), endpointDesc(0x85, 512)}
@@ -306,8 +307,7 @@ func TestIPhoneFunction(t *testing.T) {
 	info := usbDeviceInfo{vidpid: "05ac:12a8", config: 1, configs: parseDescriptors(iphoneDesc(true))}
 	fn, ok := info.function(kindIPhone)
 	want := netFunction{kind: kindIPhone, config: 4, commIface: 2, dataIface: 2, dataAlt: 1,
-		bulkIn: 0x86, bulkOut: 0x07, inPacket: 512, outPacket: 512,
-		muxIface: 1, muxIn: 0x85, muxOut: 0x04, muxOutPacket: 512, numConfigurations: 4}
+		bulkIn: 0x86, bulkOut: 0x07, inPacket: 512, outPacket: 512}
 	if !ok || fn != want {
 		t.Fatalf("got %+v %v, want %+v", fn, ok, want)
 	}

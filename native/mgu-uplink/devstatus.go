@@ -8,10 +8,10 @@ package main
 //	 "error": null | "Tap Trust on the iPhone" | ...}
 //
 // searching: no usable device. connecting: a device is being set up or
-// waits for its DHCP lease. trust-needed: an iPhone shows its Trust prompt
-// (error says what to do). busy: the device is held by another driver or
-// process and is left alone. online: there is a lease. error: setting the
-// device up failed; it is retried.
+// waits for its DHCP lease. trust-needed: an iPhone is up but sends nothing,
+// so its owner still has to tap Trust (error says what to do). busy: the
+// device is held by another driver or process and is left alone. online:
+// there is a lease. error: setting the device up failed; it is retried.
 
 import (
 	"bytes"
@@ -46,15 +46,17 @@ type deviceLink interface {
 
 var ustat struct {
 	sync.Mutex
-	path string
-	last []byte
-	note string // a running link's own remark, e.g. the iPhone's hotspot being off
+	path     string
+	last     []byte
+	note     string // a running link's own remark, e.g. the iPhone's hotspot being off
+	trust    bool   // a running iPhone link is waiting for Trust
+	trustMsg string
 }
 
 // statusInit makes setStatus write to path ("" writes nothing).
 func statusInit(path string) {
 	ustat.Lock()
-	ustat.path, ustat.last, ustat.note = path, nil, ""
+	ustat.path, ustat.last, ustat.note, ustat.trust, ustat.trustMsg = path, nil, "", false, ""
 	ustat.Unlock()
 }
 
@@ -89,6 +91,21 @@ func setLinkNote(note string) {
 	ustat.Lock()
 	ustat.note = note
 	ustat.Unlock()
+}
+
+// setLinkTrust records that a running iPhone link is waiting for Trust.
+// publishStatus shows it as trust-needed while there is no lease.
+func setLinkTrust(on bool, msg string) {
+	ustat.Lock()
+	ustat.trust, ustat.trustMsg = on, msg
+	ustat.Unlock()
+}
+
+// linkTrust reports the current waiting-for-Trust note.
+func linkTrust() (bool, string) {
+	ustat.Lock()
+	defer ustat.Unlock()
+	return ustat.trust, ustat.trustMsg
 }
 
 func statusClear(path string) {
