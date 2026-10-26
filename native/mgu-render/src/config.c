@@ -25,7 +25,6 @@ void cfg_defaults(struct cfg *c)
     c->touch = 1;
     snprintf(c->touch_iface, sizeof c->touch_iface, "auto");
     snprintf(c->touch_saddr, sizeof c->touch_saddr, "160.48.199.115");
-    c->touch_finger_tag = 8;
     snprintf(c->controller_gate, sizeof c->controller_gate, "/run/mgu-renderd/inputgate");
     snprintf(c->controller_lib, sizeof c->controller_lib, "mgu-inputgate");
 }
@@ -116,7 +115,6 @@ int cfg_set(struct cfg *c, const char *key, const char *value)
     else if (!strcmp(key, "embed_surface_id")) c->embed_surface_id = (uint32_t)n;
     else if (!strcmp(key, "gate_legacy")) c->gate_legacy = n != 0;
     else if (!strcmp(key, "touch")) c->touch = n != 0;
-    else if (!strcmp(key, "touch_finger_tag")) c->touch_finger_tag = (int)n;
     else if (!strcmp(key, "verbose")) c->verbose = n != 0;
     else {
         log_error("unknown setting '%s'", key);

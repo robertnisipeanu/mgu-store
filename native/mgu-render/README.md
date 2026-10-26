@@ -90,7 +90,6 @@ The unit-specific ones:
 | screen, app area | read from Winston's output: 1920×720, area 108,82,1790,638 | 2880×960, area 0,76,2880,764 |
 | `touch_iface`, `touch_saddr` | `vlan73`, `160.48.199.115` (`auto`: `lo` when there is no vlan73, as in the emulator) | same |
 | `touch_area` | 84,76,1836,644 (`auto` by screen size) | 0,76,2880,764 |
-| `touch_finger_tag` | 8 (on-car) | 8 |
 | `embed`, `embed_area` | 1, 104,88,1796,632 | never offered: no HmiMain3D, so no template is loaded |
 | `foreground_gate`, `hmi_process` | node + `foreground_gate.js`, `HmiMain3D` | the gate reads ID7's oap-mainapp paths: on-car |
 
@@ -154,7 +153,7 @@ the car can show:
 - [ ] Layer: an upstream app (car_vitals) draws at 60 fps under our unit (upstream measured 56-61 fps with its own); our layer's z-order over HMI popups and the camera, and the yield surface ids of the reversing camera.
 - [ ] Embed: DOOM-style pixmap frames inside the page: presented rate (`fps` in `test/pixel_client.js`), and the readback cost at 1796×632 (STATS avg µs) on the HD 505.
 - [ ] Embed: whether HmiMain3D's compositor offers `wl_drm`/`zwp_linux_dmabuf_v1` (`verbose = 1` logs its globals): an EGL surface there would skip the readback.
-- [ ] Touch: finger PDUs on UDP 30567 from 160.48.199.115 on vlan73, payload byte 12 tag 8, the firewall accepting 30568 with the inserted rule; the claim area 84,76,1836,644.
+- [ ] Touch: finger PDUs on UDP 30567 from 160.48.199.115 on vlan73, finger PDUs told by their finger count (payload byte 37) whatever their word type, the firewall accepting 30568 with the inserted rule; the claim area 84,76,1836,644.
 - [ ] Touch in embed mode: a claimed area inside the page reaches the app and the HMI's hidden components under it do not react.
 - [ ] The foreground gate as root:root (gid 0) under the unit's SOME/IP credentials.
 - [ ] GRAB with upstream's `mgu-inputgate.so` loaded (installed separately).

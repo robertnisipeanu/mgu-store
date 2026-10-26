@@ -6,7 +6,7 @@ must match byte for byte.
 
 - `upstream/`: idrive7-apps `kit/renderd/src` at commit 7829757 (protocol 1), MIT,
   Copyright (c) 2026 cauliflowermossgrape (`upstream/LICENSE`).
-- `iterio/`: IterioDev's mgu-renderd 1.1.0 `src` (protocol 3: upstream f277cc9 plus touch routing
+- `iterio/`: IterioDev's mgu-renderd 1.1.1 `src` (protocol 3: upstream f277cc9 plus touch routing
   and pictures), MIT as above (`iterio/LICENSE`); IterioDev's additions included with permission.
 
 They are built against `../../protocol/*.xml` and are never installed.

@@ -1024,7 +1024,7 @@ static int touch_start(void) {
     if (!strcmp(iface, "auto")) snprintf(iface, sizeof iface, "%s", access("/sys/class/net/vlan73", F_OK) == 0 ? "vlan73" : "lo");
     int area[4];
     touch_defaults(area);
-    return touch_init(iface, strcmp(iface, "lo") ? cfg.touch_saddr : "", area, cfg.touch_finger_tag) == 0;
+    return touch_init(iface, strcmp(iface, "lo") ? cfg.touch_saddr : "", area) == 0;
 }
 
 /* ---------------- main ---------------- */
