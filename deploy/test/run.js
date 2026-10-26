@@ -2803,7 +2803,7 @@ function testMguInstallUsb() {
         check('mgu-install usb-repo: the updater reads every folder, and every artifact matches its listed size and sha256 (unit Node)',
             Object.keys(seen).length === 5 && allOk, JSON.stringify(seen));
         check('mgu-install usb-repo: a published catalog keeps its schema-2 fields',
-            ids('mgu-store') === `app-privacy@${rel.entries[1].version} mgu-deploy@${VERSION} mgu-updater@0.2.0 mgu-uplink@0.4.0 robertn_store@${rel.entries[4].version}:unit`,
+            ids('mgu-store') === `app-privacy@${rel.entries[1].version} mgu-deploy@${VERSION} mgu-render@0.1.0 mgu-updater@0.2.0 mgu-uplink@0.4.0 robertn_store@${rel.entries[4].version}:unit`,
             ids('mgu-store'));
         const relCat = JSON.parse(fs.readFileSync(path.join(repo, 'rel', 'catalog.json'), 'utf8'));
         check('mgu-install usb-repo: a releases-mode repo gets a catalog: the newest of each id, the .tgz over the .mgu, titles from mgu-store.json',

@@ -87,7 +87,7 @@ function compact(W, H) {
         label('connLabel', rx + 18, HEAD + 18, 'ACCESS'),
         list('access', rx + 12, HEAD + 52, rw - 24, 2 * LIST.rowH),
         text('unit', rx + 18, HEAD + 60 + 2 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
-        text('versions', rx + 18, HEAD + 100 + 2 * LIST.rowH, rw - 36, 30, '', 22, 'label', DIM),
+        text('versions', rx + 18, HEAD + 100 + 2 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
         button('checkNow', rx + 16, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Check now', 'outline', 25, { vicon: 'refresh' }),
         button('restart', rx + 28 + (rw - 44) / 2, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Restart head unit', 'outline', 25,
             { vicon: 'refresh' })
