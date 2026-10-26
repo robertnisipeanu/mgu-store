@@ -503,6 +503,19 @@ class Fetcher {
 /* ---- the daemon ----------------------------------------------------------- */
 
 const SELF_SOURCE_ID = 'mgu-store';
+
+/* The origin a source stands for: a stick's mgu-repo/<name>, which
+ * mgu-install.js usb-repo writes from the source of that name, stands for
+ * that source; any other source for itself. */
+function originOf(sourceId) {
+    const m = /^usb:[^/]*\/mgu-repo\/([^/]+)$/.exec(sourceId);
+    return m ? m[1] : sourceId;
+}
+
+/* entry as it installs under id, its own id as listedId (Updater.place). */
+function under(entry, id) {
+    return Object.assign({}, entry, { id, listedId: entry.id, artifact: Object.assign({}, entry.artifact, { name: `${id}@${entry.version}.tgz` }) });
+}
 // Requests only the Store and the phone page may make (they hold the secret).
 const PRIVILEGED = ['uninstall', 'source-add', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs'];
 
@@ -598,6 +611,11 @@ class Updater {
         try {
             this.origins = readJson(path.join(conf.state_dir, 'origins.json'));
         } catch (e) { /* none yet */ }
+        // { "<origin>:<id its source lists>": "<id it is installed under>" } (README.md, "Ids")
+        this.aliases = {};
+        try {
+            this.aliases = readJson(path.join(conf.state_dir, 'aliases.json'));
+        } catch (e) { /* none yet */ }
         try {
             this.webEnabled = readJson(path.join(conf.state_dir, 'web.json')).enabled === true;
         } catch (e) { /* off */ }
@@ -664,16 +682,66 @@ class Updater {
         return this.stored.concat(this.usb);
     }
 
+    /* The source an installed app's id belongs to, when the updater
+     * installed it (origins.json), else null. */
+    holder(id) {
+        const o = this.origins[id];
+        return o && installedApp(this.conf, id) ? o.source : null;
+    }
+
+    sourceLabel(id) {
+        const def = this.defs().find((d) => d.id === id);
+        return def ? sourcesLib.label(def) : id;
+    }
+
+    /* Where a source's entry goes on the unit (README.md, "Ids"). An app
+     * whose id an installed app of another origin holds goes under the id
+     * it was installed under before (aliases.json), else, when the updater
+     * builds it, under the first free <id>2, <id>3, ...: the entry as that
+     * id, its own id as listedId. A package built elsewhere keeps its id
+     * and is blocked, keyed <id>@<source> beside the installed one's row;
+     * when the installed one's origin lists that id no more, it is that row
+     * (the installed app stays shown and removable). taken: ids no new
+     * alias may have (every listed id, every alias). */
+    place(source, entry, taken) {
+        if (entry.kind !== 'app') {
+            return entry;
+        }
+        const alias = this.aliases[`${originOf(source)}:${entry.id}`];
+        if (alias && sourcesLib.renameable(entry)) {
+            return under(entry, alias);
+        }
+        const holder = this.holder(entry.id);
+        if (!holder || originOf(holder) === originOf(source)) {
+            return entry;
+        }
+        for (let n = 2; sourcesLib.renameable(entry) && n < 100; n += 1) {
+            const id = `${entry.id}${n}`;
+            if (ID.test(id) && !taken.has(id) && !this.installedOf(id)) {
+                taken.add(id);
+                return under(entry, id);
+            }
+        }
+        const listed = this.defs().some((d) => originOf(d.id) === originOf(holder) &&
+            (this.src.get(d.id) || { components: [] }).components.some((c) => c.id === entry.id));
+        return Object.assign({}, entry, { id: listed ? `${entry.id}@${source}` : entry.id, listedId: entry.id,
+            blocked: `${entry.id} is already installed from ${this.sourceLabel(holder)}` });
+    }
+
     /* Each component id once: the highest version a source lists; of equal
      * versions, the source that installed it (origins.json), then USB media,
      * then sources.json order. Without internet, a network source's last
-     * listing counts only for ids no other source lists. */
+     * listing counts only for ids no other source lists. An app another
+     * origin's app holds the id of is placed beside it (place). */
     resolved() {
         const online = readLease(this.conf).online;
         const found = new Map();
+        const taken = new Set(Object.keys(this.aliases).map((k) => this.aliases[k]));
+        this.defs().forEach((def) => (this.src.get(def.id) || { components: [] }).components.forEach((e) => taken.add(e.id)));
         this.defs().forEach((def, order) => {
             const rt = this.src.get(def.id);
-            (rt ? rt.components : []).forEach((entry) => {
+            (rt ? rt.components : []).forEach((own) => {
+                const entry = this.place(def.id, own, taken);
                 const list = found.get(entry.id) || [];
                 list.push({ entry, source: def.id, order, usb: def.type === 'usb', reachable: online || !rt.reader.network });
                 found.set(entry.id, list);
@@ -741,6 +809,10 @@ class Updater {
                 // the installed tool this one would replace (they provide the same capability)
                 replaces: holder && holder.id !== row.id ? holder.id : null,
                 revision: entry.revision || null,
+                // the id its source lists, when it is (or would be) installed under another one
+                listedId: entry.listedId || null,
+                // why it cannot be installed: another origin's app holds its id
+                blocked: entry.blocked || null,
                 pendingReboot: this.pending.indexOf(row.id) >= 0,
                 queued: this.queue.some((q) => q.id === row.id),
                 error: this.errors[row.id] || null
@@ -916,7 +988,7 @@ class Updater {
     /* Where an entry's icon is kept: <state_dir>/icons/<sha256>.png, named by
      * the sha256 its source gives, else by source, id, version and URL. */
     iconFile(source, entry) {
-        const key = entry.icon.sha256 || sha256(`${source}\0${entry.id}\0${entry.version}\0${entry.icon.ref}`);
+        const key = entry.icon.sha256 || sha256(`${source}\0${entry.listedId || entry.id}\0${entry.version}\0${entry.icon.ref}`);
         return path.join(this.conf.state_dir, 'icons', `${key}.png`);
     }
 
@@ -1068,7 +1140,7 @@ class Updater {
                 }
             });
         });
-        steps.push({ id: r.entry.id, source: r.source });
+        steps.push(Object.assign({ id: r.entry.id, source: r.source }, r.entry.listedId ? { listed: r.entry.listedId } : {}));
         return steps;
     }
 
@@ -1113,6 +1185,9 @@ class Updater {
         if (!r) {
             return `${id} is not in any source`;
         }
+        if (r.entry.blocked) {
+            return r.entry.blocked;
+        }
         const bad = this.incompatible(r.entry);
         if (bad) {
             this.errors[id] = bad;
@@ -1147,7 +1222,8 @@ class Updater {
             steps = [self];
             this.errors[id] = `needs a newer ${SELF}: it installs first, then ${id} can be installed`;
         }
-        const items = steps.map((s) => Object.assign({ op: 'install', id: s.id, source: s.source }, s.id === id && replace ? { replace: true } : {}));
+        const items = steps.map((s) => Object.assign({ op: 'install', id: s.id, source: s.source }, s.listed ? { listed: s.listed } : {},
+            s.id === id && replace ? { replace: true } : {}));
         const refused = items.map((i) => this.conflict(i)).filter(Boolean)[0];
         if (refused) {
             return refused;
@@ -1271,6 +1347,11 @@ class Updater {
         writeAtomic(path.join(this.conf.state_dir, 'origins.json'), JSON.stringify(this.origins, null, 1));
     }
 
+    saveAliases() {
+        mkdirp(this.conf.state_dir, 0o755);
+        writeAtomic(path.join(this.conf.state_dir, 'aliases.json'), JSON.stringify(this.aliases, null, 1));
+    }
+
     /* The deploy tool's SDK donor (`sdk-donor --json`: { path, module }), for
      * a repo's build script: the donor bundle, and the folder of the oap-sdk
      * module generated from it (mgu-deploy 0.3.2 and newer; else null). */
@@ -1294,8 +1375,11 @@ class Updater {
     /* The bytes to hand the deploy tool for entry: the file a catalog or a
      * release lists, or a repo-tree component packed from the repo's files
      * at its commit (a source package or tool kit), or the package the
-     * repo's build script makes. */
-    artifact(rt, entry) {
+     * repo's build script makes. own: the entry as its source lists it;
+     * entry: the same under the id it installs as, which for an app placed
+     * beside another one's id (place) is built from a copy made over to
+     * that id (sourcesLib.renameApp), and must come out as that id. */
+    artifact(rt, entry, own) {
         const progress = (bytes, total) => {
             this.busy.progress = bytes;
             if (total && !this.busy.total) {
@@ -1308,13 +1392,23 @@ class Updater {
         }
         // a build script needs the whole repo; packing, the component's folder
         return rt.reader.files(entry.commit, progress, entry.script ? null : entry.path).then((files) => {
+            const job = { entry: own, files: entry.script ? files : sourcesLib.subtree(files, entry.path) };
+            const made = own.id === entry.id ? job : sourcesLib.renameApp(own, job.files, entry.id);
             if (!entry.script) {
-                return sourcesLib.packComponent(entry, sourcesLib.subtree(files, entry.path));
+                return sourcesLib.packComponent(made.entry, made.files);
             }
             this.busy.phase = 'build';
             this.changed();
-            return this.sdkDonor().then((donor) => runBuild({ conf: this.conf, entry, files, donor: donor.path, sdk: donor.module,
-                lease: readLease(this.conf), log: (l) => console.log(l) }));
+            return this.sdkDonor()
+                .then((donor) => runBuild({ conf: this.conf, entry: made.entry, files: made.files, donor: donor.path, sdk: donor.module,
+                    lease: readLease(this.conf), log: (l) => console.log(l) }))
+                .then((bytes) => (own.id === entry.id ? bytes : sourcesLib.packageId(bytes, Number(this.conf.build_max_bytes) || 200 << 20)
+                    .then((out) => {
+                        if (out !== entry.id) {
+                            throw new Error(`the build of ${own.id} as ${entry.id} made ${out}: it cannot install beside ${own.id}`);
+                        }
+                        return bytes;
+                    })));
         });
     }
 
@@ -1323,11 +1417,12 @@ class Updater {
     install(item) {
         const id = item.id;
         const rt = this.src.get(item.source);
-        const entry = rt && rt.components.find((c) => c.id === id);
-        if (!entry) {
+        const own = rt && rt.components.find((c) => c.id === (item.listed || id));
+        if (!own) {
             this.errors[id] = 'no longer in its source';
             return Promise.resolve(false);
         }
+        const entry = item.listed ? under(own, id) : own;
         // an uplink installed without internet (from a stick) has none to give back
         const wasOnline = readLease(this.conf).online;
         this.busy = { id, op: 'install', phase: 'download', progress: 0, total: entry.artifact.size || null };
@@ -1347,7 +1442,12 @@ class Updater {
                         throw new Error(`needs ${dep} ${entry.requires[dep]} or newer${dep === SELF ? ': update the updater first' : ''}`);
                     }
                 });
-                return this.artifact(rt, entry);
+                // an app of another origin holds the id (it was placed so since it was asked for)
+                const holder = entry.kind === 'app' ? this.holder(id) : null;
+                if (holder && originOf(holder) !== originOf(item.source)) {
+                    throw new Error(`${id} is already installed from ${this.sourceLabel(holder)}`);
+                }
+                return this.artifact(rt, entry, own);
             })
             .then((bytes) => {
                 this.busy.phase = 'verify';
@@ -1396,6 +1496,10 @@ class Updater {
                 }
                 this.origins[id] = { source: item.source, commit: entry.commit || null };
                 this.saveOrigins();
+                if (entry.listedId) {
+                    this.aliases[`${originOf(item.source)}:${entry.listedId}`] = id;
+                    this.saveAliases();
+                }
                 return this.bootstrapCheck(entry, toolDir, before, wasOnline);
             })
             .then(() => self)
@@ -1437,6 +1541,9 @@ class Updater {
                 console.log(`uninstalled ${id}`);
                 delete this.origins[id];
                 this.saveOrigins();
+                // the id it was installed under is given again only while it is free
+                Object.keys(this.aliases).filter((k) => this.aliases[k] === id).forEach((k) => delete this.aliases[k]);
+                this.saveAliases();
             })
             .catch((err) => {
                 console.log(`${id}: ${err.message}`);

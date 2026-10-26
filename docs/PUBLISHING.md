@@ -20,7 +20,12 @@ What every layout shares:
   installed).
 - **App ids are global on the unit**, and the head unit's provisioning
   knows apps by id: an id BMW uses (`store`, `x_call`, ...) can hide the
-  tile. Pick a prefix of your own.
+  tile. Pick a prefix of your own. When another source's app already has
+  your app's id on a unit, the Store installs your app beside it under
+  `<id>2` (`<id>3`, …) only when it builds it: from a repo tree (below),
+  with the id taken from the arguments (`{id}`) and the manifest, never
+  written into the code. A release, catalog or index package of that id
+  is not installable there.
 - **No signing.** The owner trusts a source by adding it; the unit fetches
   over HTTPS (with a token for a private repository) and checks every
   download against its size and sha256.
@@ -223,7 +228,9 @@ An app builds on the unit in one of two ways:
      `https_proxy`; https by CONNECT to port 443, http to port 80, public
      addresses only). It fails without internet on the unit;
    - `{id}`, `{version}` and `{dir}` (the app's folder) in `args` and
-     `output` are filled in;
+     `output` are filled in; for an app installed under another id (above)
+     they are that id and a copy of the folder named for it, whose manifest
+     names it;
    - the package then installs as in releases mode (the oap-sdk module
      generated when it calls `require('oap-sdk')` without one).
 

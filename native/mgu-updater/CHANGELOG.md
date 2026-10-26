@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.5.3
+
+- An app whose id an installed app of another origin holds: built here (a repo tree's build script, or source package), it installs as `<id>2`, `<id>3`, … (the first id free on the unit and in every source), from a copy of its folder made over to that id; `state/aliases.json` keeps that id for its source, so its updates land there, until it is removed. A package built elsewhere is listed as blocked (`<id> is already installed from <source>`) and not installed. State rows carry `listedId` and `blocked`.
+
 ## 0.5.2
 
 - `mgu-repo.json` `apps`: every subfolder of a folder holding the manifest (`app.json`) is an app, its id the subfolder's name.

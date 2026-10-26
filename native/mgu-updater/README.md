@@ -201,7 +201,39 @@ version on a USB stick is an update of a component installed from GitHub.
 Of equal versions it comes from the source that installed it
 (`state/origins.json`), else a USB stick, else the first source in
 `sources.json` order; the source an install comes from becomes the
-component's origin. Without internet, a network source's last listing
+component's origin.
+
+An app id an installed app of another origin holds (its origin in
+`origins.json`; a stick's `mgu-repo/<name>`, which `usb-repo` writes from
+the source of that name, counts as that source) is that app's alone:
+
+- An app the updater builds (a repo tree's build script, or source
+  package) installs beside it as `<id>2`, `<id>3`, …: the first id no app or
+  tool on the unit has, no source lists and no other app was given. A
+  build script builds it from a copy of the app's folder named for that
+  id beside the folder, its manifest's `id` (`package.json`: `name`) that
+  id and `{id}` and `{dir}` filled in for it (`network` stays the app's),
+  so all the script derives from the id follows (idrive7-apps' `build.py`:
+  the package name, the RHMI names and UUIDs, the settings key); one whose
+  folder is not named for its id cannot. A source package gets its
+  `mgu-app.json` id (and a tree named `<id>@<version>`), its package's
+  name, settings key, RHMI names and the UUIDs of its
+  `rhmiData/application.json`, made anew from the new id in every text
+  file of the folder. A build that still comes out under the old id is
+  refused. `state/aliases.json` (`{"<origin>:<id>": "<id on the unit>"}`)
+  keeps the id for the source, so its updates land there, until the app
+  is removed. Its state row has that id as `id`, the source's as
+  `listedId`, and the title its source gives.
+- A package built elsewhere (a release, catalog or index package, a
+  stick's `oap/`) may name its id in its code, so it keeps it: it is listed
+  as `<id>@<source>`, `blocked` with the reason (`<id> is already installed
+  from <source>`), and its install is refused. When no source of the
+  installed app's origin lists the id any more (a stick that is gone), it is
+  listed as `<id>` instead, so the installed app keeps its row and can be
+  removed, but not updated from it.
+
+An app installed outside the updater has no origin: any source updates
+it. Without internet, a network source's last listing
 counts only for ids no other source lists. `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
 same source if it has one at least that version, else from any (a
@@ -571,10 +603,12 @@ each request, and whenever it changes (at most every 250 ms):
     "build": null, "optional": false, "uninstallable": true, "revision": null,
     "description": "…", "author": "…", "icon": "/var/opt/mgu-updater/state/icons/…png",
     "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null, "replaces": null,
-    "pendingReboot": false, "queued": false, "error": null } ] }
+    "listedId": null, "blocked": null, "pendingReboot": false, "queued": false, "error": null } ] }
 ```
 
-- `components`: each id once (Sources, "Ids"). `status` is `installed`,
+- `components`: each id once (Sources, "Ids"); `listedId` the id its
+  source lists when it installs under another one, `blocked` why it cannot
+  be installed (else null). `status` is `installed`,
   `update`, `available` or `newer` (a local build ahead of its source);
   `build` is `"unit"` for what is built on the unit; `revision` the short
   commit a branch would install; `size` null where the source states none;
@@ -619,7 +653,7 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 | `{"op":"install","id","replace":true}` | installs a tool that replaces the installed one providing the same capability |
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
-| `{"op":"source-remove","id"}` | removes a source (not the built-in one) and its record in `origins.json` |
+| `{"op":"source-remove","id"}` | removes a source (not the built-in one) and its records in `origins.json`; the ids `aliases.json` keeps for it stay with the apps installed under them |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
 | `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |
@@ -705,6 +739,14 @@ releases, branches, tags, contents, tarballs, the device flow), with
   package, links not followed, nothing written), the privileged requests and their secret files, `web-url`
   (with a stand-in page), `rid`, a first start without `sources.json`, and
   the Store 0.3's texts from the state;
+- ids two origins share: a repo laid out as idrive7-apps building its doom
+  as doom2 beside a catalog's installed doom (from a copy made over to
+  doom2, with its download), its update landing on doom2, a package built
+  elsewhere blocked, a build that comes out under the old id refused, a
+  source package made over and installed as `shared2`, the removal;
+  `test/test_rename_real.js <idrive7-apps clone> [<app>...]` builds its apps
+  under another id with the repo's own `build.py` on the machine's python3
+  (`run.sh` runs it when `IDRIVE7_APPS` names a clone);
 - the head unit and compatibility: the unit from the deploy tool, an
   iDrive 8 app refused on iDrive 7 (and not on iDrive 8); an App Manager
   index (packages kept by sha256, one that does not match left out, a kept

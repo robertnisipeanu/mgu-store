@@ -42,6 +42,9 @@ function rowState(row, busy) {
     if (notForUnit(row)) {
         return 'Not for this head unit';
     }
+    if (row.blocked) {
+        return row.installed ? `Installed ${row.installed}` : 'Not installable';
+    }
     if (row.error) {
         return 'Failed, retry';
     }
@@ -59,7 +62,7 @@ function rowAction(row, busy) {
     if ((busy && busy.id === row.id) || row.queued) {
         return null;
     }
-    if (!notForUnit(row) && (row.status === 'update' || row.status === 'available' || row.error)) {
+    if (!notForUnit(row) && !row.blocked && (row.status === 'update' || row.status === 'available' || row.error)) {
         return row.replaces ? 'replace' : 'install';
     }
     return row.uninstallable === true && row.installed ? 'remove' : null;
@@ -87,7 +90,7 @@ function groupState(rows, busy) {
     if (rows.some((r) => r.error)) {
         return 'Failed';
     }
-    const updates = rows.filter((r) => r.status === 'update' && !notForUnit(r)).length;
+    const updates = rows.filter((r) => r.status === 'update' && !notForUnit(r) && !r.blocked).length;
     return updates ? `${updates} update${updates > 1 ? 's' : ''}` : '';
 }
 
@@ -121,7 +124,7 @@ function statusLine(st, connected, secret) {
     if (st.catalog.error) {
         return `Check failed: ${st.catalog.error}`;
     }
-    const updates = st.components.filter((c) => c.status === 'update' && !notForUnit(c)).length;
+    const updates = st.components.filter((c) => c.status === 'update' && !notForUnit(c) && !c.blocked).length;
     return `${updates ? `${updates} update${updates > 1 ? 's' : ''}` : 'Up to date'}, ${checked}`;
 }
 

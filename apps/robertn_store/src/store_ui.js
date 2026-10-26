@@ -93,6 +93,10 @@ function tileState(c, busy) {
     if (notForUnit(c)) {
         return { sub: 'Not for this head unit', subColor: AMBER, badge: c.installed ? 'installed' : '', progress: -1 };
     }
+    if (c.blocked) {
+        return c.installed ? { sub: 'Installed', subColor: GREEN, badge: 'installed', progress: -1 }
+            : { sub: 'Not installable', subColor: AMBER, badge: '', progress: -1 };
+    }
     if (c.error) {
         return { sub: 'Failed', subColor: RED, badge: '', progress: -1 };
     }
@@ -113,10 +117,10 @@ function tile(c, busy) {
 }
 
 function nav(m, sel) {
-    const updates = comps(m).filter((c) => c.status === 'update' && !notForUnit(c)).length;
+    const updates = comps(m).filter((c) => c.status === 'update' && !notForUnit(c) && !c.blocked).length;
     const usbIds = (sources(m) || []).filter((s) => s.usb).map((s) => s.id);
     const usbNew = comps(m).filter((c) => usbIds.indexOf(c.source) >= 0 && (c.status === 'available' || c.status === 'update') &&
-        !notForUnit(c)).length;
+        !notForUnit(c) && !c.blocked).length;
     return { sel, items: [['Store', 'grid', ''], ['Installed', 'check', updates || ''], ['USB', 'usb', usbNew || ''], ['Settings', 'gear', '']]
         .map(([label, vicon, badge], i) => ({ id: TABS[i], label, vicon, badge: String(badge), act: { do: 'tab', tab: TABS[i] } })) };
 }
@@ -235,12 +239,14 @@ function appView(m, id) {
     const s = tileState(c, busy);
     const mine = busy && busy.id === c.id;
     const src = find(sources(m), c.source);
-    const avail = c.status === 'update' || c.status === 'available';
+    const avail = (c.status === 'update' || c.status === 'available') && !(c.blocked && c.installed);
     const v = {
         icon: Object.assign(iconOf(c), { badge: mine ? '' : s.badge, progress: s.progress }),
         name: { text: c.title },
         author: { text: [c.author && `by ${c.author}`, `from ${src ? sourceLabel(src) : c.source}`].filter(Boolean).join(' · ') },
         facts: { items: [{ text: `Version ${c.version}` }, c.revision && { text: `Commit ${c.revision}` }, c.size && { text: size(c.size) },
+            // installed under another id than its source's: another source's app has that one
+            c.listedId && !c.blocked && { text: `Id ${c.id}` },
             { text: isTool(c) ? 'Tool' : 'App', color: isTool(c) ? TEAL : BLUE }, c.mguHmi && c.mguHmi.length && { text: hmiNames(c.mguHmi) },
             c.provides && { text: c.provides }].filter(Boolean) },
         desc: { text: c.description || '' },
@@ -255,6 +261,9 @@ function appView(m, id) {
         if (c.mguHmi && c.mguHmi.length) {
             notes.push([`For ${hmiNames(c.mguHmi)}`, AMBER]);
         }
+    }
+    if (c.blocked) {
+        notes.push([c.blocked, AMBER]);
     }
     if (c.error && !mine) {
         notes.push([`Failed: ${c.error}`, RED]);

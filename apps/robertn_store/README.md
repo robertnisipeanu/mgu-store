@@ -1,4 +1,4 @@
-# robertn_store 0.7.0
+# robertn_store 0.7.1
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
@@ -28,10 +28,12 @@ USB, Settings) beside:
   42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`,
   version and size) and a badge or progress ring. A version not for this
   head unit is not counted as an update.
-- **A component's page**: picture, name, author and source, Version, Commit, size, App
+- **A component's page**: picture, name, author and source, Version, Commit, size, `Id
+  <id>` (an app installed under another id than its source's), App
   or Tool, its head units and capability, the description; Installed and
   Available; the running phase (Downloading, Verifying, Building,
-  Installing, Removing) with its progress; `Not for this head unit` / `For
+  Installing, Removing) with its progress; `Not installable` and why (a package of an id another source's app
+  holds; installed, it shows as installed, with Remove and no update), `Not for this head unit` / `For
   iDrive 8` (that version is not offered), the failure, `Replaces <tool>`, `Restart pending`; and
   what can be done: Install, Update to, Try again, Replace <tool> (a
   confirm step, then the privileged install with `replace`), Restart head
@@ -226,15 +228,15 @@ tools/test_screens.js      every drawn screen at both scales: values, presses, f
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.7.0/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.7.1/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.7.0.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.7.0.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.7.1.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.7.1.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js
 (cd ../../native/mgu-render && make test) && node tools/shots.js <out dir>     # screenshots
