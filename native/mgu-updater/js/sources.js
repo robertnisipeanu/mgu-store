@@ -731,6 +731,6 @@ function label(s) {
 }
 
 module.exports = {
-    load, save, checkStored, writePrivate, reader, label, usbSources, mountPoints,
+    load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
     repoCatalog, packComponent, subtree, packageInfo, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE
 };

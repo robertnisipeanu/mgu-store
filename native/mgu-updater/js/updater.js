@@ -757,7 +757,7 @@ class Updater {
             const due = this.tokens.all().filter((t) => t.expiresAt && t.expiresAt <= Date.now() + 60000 && t.refreshToken);
             this.renewing = due.reduce((p, t) => p.then(() => this.login.refresh(t)).then((r) => {
                 if (r) {
-                    this.tokens.setText(t.id, r.token, r.meta);
+                    this.tokens.setText(t.id, r.token, Object.assign({}, r.meta, { rejected: false }));
                     console.log(`token ${t.id}: renewed`);
                 }
             }), Promise.resolve()).catch((e) => console.log(`tokens: ${e.message}`)).then(() => {
@@ -846,6 +846,13 @@ class Updater {
             .then(() => {
                 rt.checking = null;
                 this.changed();
+                if (rt.tokensChanged) {
+                    rt.tokensChanged = false;
+                    if (rt.status === 'auth-needed' || (rt.tokenId && !this.tokens.get(rt.tokenId))) {
+                        rt.tokenId = this.tokens.get(rt.tokenId) ? rt.tokenId : null;
+                        this.checkSource(id);
+                    }
+                }
             });
         return rt.checking;
     }
@@ -1547,14 +1554,14 @@ class Updater {
         return null;
     }
 
-    /* What GitHub says of each token (login, scopes, rejected); quietly
-     * nothing without an answer. only: those ids alone. */
+    /* What GitHub says of each token (login, scopes, rejected), once the
+     * expired ones are renewed; quietly nothing without an answer. only:
+     * those ids alone. */
     validateTokens(only) {
         if (!readLease(this.conf).online) {
             return Promise.resolve();
         }
-        const list = this.tokens.all().filter((t) => !only || only.indexOf(t.id) >= 0);
-        return Promise.all(list.map((t) => this.login.account(this.tokens.text(t.id)).then((a) => {
+        return this.freshTokens().then(() => Promise.all(this.tokens.all().filter((t) => !only || only.indexOf(t.id) >= 0).map((t) => this.login.account(this.tokens.text(t.id)).then((a) => {
             if (a.status === 'unknown' || !this.tokens.get(t.id)) {
                 return;
             }
@@ -1565,7 +1572,7 @@ class Updater {
             this.tokens.update(t.id, Object.assign(fields, { checkedAt: Date.now() }));
             console.log(`token ${t.id}: ${fields.rejected ? 'GitHub does not accept it' : `${a.login}${a.scopes ? ` (${a.scopes})` : ''}`}`);
             this.changed();
-        }))).catch((e) => console.log(`tokens: ${e.message}`));
+        })))).catch((e) => console.log(`tokens: ${e.message}`));
     }
 
     /* Reads the token files again (the deploy tool adds and removes tokens
@@ -1580,9 +1587,15 @@ class Updater {
         return true;
     }
 
+    /* A source being read meanwhile tried the tokens as they were: it is
+     * read again once done, if it then needs one or lost its own. */
     tokensChanged() {
         this.stored.filter((d) => d.type === 'github').forEach((d) => {
             const rt = this.src.get(d.id);
+            if (rt.checking) {
+                rt.tokensChanged = true;
+                return;
+            }
             const gone = rt.tokenId && !this.tokens.get(rt.tokenId);
             if (gone) {
                 rt.tokenId = null;
@@ -1630,7 +1643,7 @@ class Updater {
     }
 
     tokenRemove(id) {
-        this.tokens.scan();
+        this.scanTokens();
         if (typeof id !== 'string' || !this.tokens.get(id)) {
             return `no token ${id}`;
         }
@@ -1652,7 +1665,6 @@ class Updater {
             const r = this.tokens.add(token, fields);
             console.log(`token ${r.id}: added by sign-in`);
         }
-        this.tokens.scan();
         this.tokensChanged();
     }
 

@@ -13,7 +13,8 @@
  * tool writes both too (`mgu-deploy.sh updater-token`), so the files are
  * what counts: a token-<id> file is a token whether or not tokens.json names
  * it yet, an entry without its file is none, and tokens.json is read again
- * before every change. scan() notices either changing.
+ * before every change. scan() notices either changing, including a change
+ * made by someone else just before one of the updater's own.
  *
  * Per-source files of earlier versions (credentials/<source id>, with
  * <source id>.json) are converted into tokens, one per distinct text;
@@ -23,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { ID } = require('./catalog');
-const { writePrivate } = require('./sources');
+const { writePrivate, mkdirPrivate } = require('./sources');
 
 const TOKEN_ID = /^[0-9a-f]{8}$/;
 const TOKEN = /^[\x21-\x7e]{1,1024}$/;
@@ -52,6 +53,7 @@ class Tokens {
     constructor(dir) {
         this.dir = dir;
         this.key = null;
+        this.external = false;
         this.list = [];
         this.scan();
     }
@@ -106,17 +108,38 @@ class Tokens {
         return out;
     }
 
-    /* Reads the list again when tokens.json or the token files changed;
-     * true when they did. */
-    scan() {
-        const key = this.names().filter((n) => n === LIST || /^token-[0-9a-f]{8}$/.test(n))
+    /* What the files look like now: names, mtimes, sizes. */
+    diskKey() {
+        return this.names().filter((n) => n === LIST || /^token-[0-9a-f]{8}$/.test(n))
             .map((n) => `${n}@${mtime(path.join(this.dir, n))}`).join('\n');
-        if (key === this.key) {
+    }
+
+    /* Reads the list again when tokens.json or the token files changed
+     * since the last scan, by someone else; true when they did. */
+    scan() {
+        const key = this.diskKey();
+        if (key === this.key && !this.external) {
             return false;
         }
         this.key = key;
+        this.external = false;
         this.list = this.read();
         return true;
+    }
+
+    /* Before a change of its own: a change someone else made since the last
+     * scan is still reported by the next one. */
+    noteExternal() {
+        if (this.diskKey() !== this.key) {
+            this.external = true;
+        }
+    }
+
+    /* After a change of its own: the list as it is now, the change not one
+     * for scan() to report. */
+    settle() {
+        this.key = this.diskKey();
+        this.list = this.read();
     }
 
     all() {
@@ -146,19 +169,7 @@ class Tokens {
             });
             return e;
         }), null, 2) + '\n');
-        this.key = null;
-        this.scan();
-    }
-
-    mkdir() {
-        const make = (d) => {
-            if (!fs.existsSync(d)) {
-                make(path.dirname(d));
-                fs.mkdirSync(d, 0o700);
-            }
-        };
-        make(this.dir);
-        fs.chmodSync(this.dir, 0o700);
+        this.settle();
     }
 
     /* Stores text as a token, or merges fields into the one with that text
@@ -167,9 +178,10 @@ class Tokens {
         if (!TOKEN.test(text || '')) {
             throw new Error('a token is 1 to 1024 printable characters without spaces');
         }
-        this.mkdir();
-        this.key = null;
-        this.scan();
+        mkdirPrivate(this.dir);
+        fs.chmodSync(this.dir, 0o700);
+        this.noteExternal();
+        this.list = this.read();
         const have = this.byText(text);
         if (have) {
             this.update(have.id, fields);
@@ -188,30 +200,32 @@ class Tokens {
 
     /* Merges fields into the entry of id (tokens.json as it is on disk). */
     update(id, fields) {
-        const list = this.read();
-        const t = list.find((x) => x.id === id);
-        if (!t) {
-            return;
-        }
-        Object.assign(t, fields);
-        this.save(list);
+        this.noteExternal();
+        this.merge(id, fields);
     }
 
     /* A token renewed: the new text under the same id. */
     setText(id, text, fields) {
+        this.noteExternal();
         writePrivate(this.file(id), `${text}\n`);
-        this.update(id, fields);
+        this.merge(id, fields);
+    }
+
+    merge(id, fields) {
+        const list = this.read();
+        const t = list.find((x) => x.id === id);
+        if (t) {
+            Object.assign(t, fields);
+            this.save(list);
+        }
     }
 
     remove(id) {
-        if (!this.get(id) && !fs.existsSync(this.file(id))) {
-            return false;
-        }
+        this.noteExternal();
         try {
             fs.unlinkSync(this.file(id));
         } catch (e) { /* gone */ }
         this.save(this.read().filter((t) => t.id !== id));
-        return true;
     }
 
     /* The per-source files of earlier versions: [{ source, file, text, meta }]. */

@@ -4,7 +4,7 @@
  * and check a catalog (schema 1, or 2 with build / requires / optional /
  * uninstallable), and compare the components every source lists with what
  * is installed. A `signature` in a catalog is ignored: trust is HTTPS (and
- * the source's credential) to the source the owner added, and every
+ * a token that reaches it) to the source the owner added, and every
  * download is checked against the size and sha256 it lists. Node 8; no I/O.
  */
 

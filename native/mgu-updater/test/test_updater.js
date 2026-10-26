@@ -112,7 +112,8 @@ const seen = [];
 
 const API = `https://api.github.com:${HTTPS_PORT}`;
 const GH_WEB = `https://github.com:${HTTPS_PORT}`;
-const gh = { repos: {}, users: { 'tok-all': 'tester', 'tok-third': 'other-acct', 'tok-device': 'tester' }, polls: 0, refreshes: 0, device: null };
+const gh = { repos: {}, users: { 'tok-all': 'tester', 'tok-third': 'other-acct', 'tok-device': 'tester' }, polls: 0, refreshes: 0, device: null,
+    deviceExpired: false };
 
 /* A repo: private ones answer only to one of their tokens (404 without, 401
  * with a wrong one). trees: commit sha -> { path: [data, mode] }. */
@@ -161,7 +162,8 @@ function ghApi(req, res, auth) {
     };
     if (u.pathname === '/user') {
         const token = auth && auth.replace(/^Bearer /, '');
-        const login = token && gh.users[token];
+        // an expired sign-in token is refused until it is renewed
+        const login = token && !(token === 'tok-device' && gh.deviceExpired) && gh.users[token];
         // a classic token's scopes; a GitHub App's (device flow) has none
         send(login ? 200 : 401, login ? { login } : { message: 'Bad credentials' }, login && token !== 'tok-device' ? { 'X-OAuth-Scopes': 'repo' } : {});
         return;
@@ -252,6 +254,7 @@ function ghWeb(req, res, body) {
             { access_token: 'tok-device', token_type: 'bearer', expires_in: 28800, refresh_token: 'refresh-1', refresh_token_expires_in: 15811200 });
     } else if (req.method === 'POST' && req.url === '/login/oauth/access_token' && f.grant_type === 'refresh_token' && f.refresh_token === 'refresh-1') {
         gh.refreshes += 1;
+        gh.deviceExpired = false;
         out = { access_token: 'tok-device', expires_in: 28800, refresh_token: 'refresh-1' };
     } else {
         out = { error: 'bad_request' };
@@ -271,7 +274,9 @@ function startHttps(certs, dir) {
             const auth = req.headers.authorization || null;
             seen.push({ host: req.headers.host, url: req.url, auth, method: req.method });
             if (host === 'api.github.com') {
-                ghApi(req, res, auth);
+                // a repo's delayMs holds its answers back: a read stays under way
+                const m = /^\/repos\/([^/]+\/[^/?]+)/.exec(req.url);
+                setTimeout(() => ghApi(req, res, auth), (m && gh.repos[m[1]] && gh.repos[m[1]].delayMs) || 0);
                 return;
             }
             if (host === 'github.com') {
@@ -1554,12 +1559,23 @@ function testSources(certs) {
         .then(() => until(st, () => src('third').status === 'auth-needed', 20000, 'the third repo refused'))
         .then(() => {
             ok('token: a repo no stored token reaches needs auth', src('third').auth === null);
-            // a token the deploy tool writes: its file and its entry, picked up without a request
+            // a token the deploy tool writes (its file and its entry) while the repo is being read with
+            // the tokens there were, and just before a write of the updater's own: picked up without a
+            // request, and the repo read again once that read is done
+            seen.length = 0;
+            gh.repos['other/third'].delayMs = 1500;
+            u.checkSource('third');
+            return until(() => seen.some((x) => /\/repos\/other\/third/.test(x.url)), (x) => x, 10000, 'the read under way');
+        })
+        .then(() => {
             const list = JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8'));
             fs.writeFileSync(path.join(M, 'cred', 'token-0badc0de'), 'tok-third\n', { mode: 0o600 });
             list.push({ id: '0badc0de', kind: 'github', addedAt: Date.now() });
             fs.writeFileSync(path.join(M, 'cred', 'tokens.json'), JSON.stringify(list));
-            ok('token files: a change is noticed', u.scanTokens() === true && u.scanTokens() === false);
+            u.tokens.update(list[0].id, { label: 'tester' });
+            ok('token files: a change is noticed, also after a write of the updater\'s own', src('third').status === 'checking' &&
+                u.scanTokens() === true && u.scanTokens() === false);
+            gh.repos['other/third'].delayMs = 0;
             return until(st, () => src('third').status === 'ok' && (st().tokens.find((t) => t.id === '0badc0de') || {}).login === 'other-acct',
                 20000, 'the third repo read with the new token');
         })
@@ -1610,6 +1626,18 @@ function testSources(certs) {
         .then((devId) => {
             ok('login: an expired token is renewed from its refresh token', gh.refreshes === 1 && src('private').status === 'ok' &&
                 JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8')).find((t) => t.id === devId).expiresAt > Date.now());
+            // checking the tokens with GitHub renews an expired one first
+            const list = JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8'));
+            list.find((t) => t.id === devId).expiresAt = Date.now() - 1000;
+            fs.writeFileSync(path.join(M, 'cred', 'tokens.json'), JSON.stringify(list));
+            gh.deviceExpired = true;
+            u.scanTokens();
+            return u.validateTokens().then(() => devId);
+        })
+        .then((devId) => {
+            const t = st().tokens.find((x) => x.id === devId);
+            ok('tokens: an expired sign-in token is renewed before GitHub is asked about it, not rejected', gh.refreshes === 2 &&
+                t.rejected === false && t.login === 'tester', JSON.stringify(t));
             // the token that reads both private repos goes: the device token reaches one of them
             return priv({ op: 'token-remove', id: st().tokens.find((t) => t.id !== devId).id }).then(() => devId);
         })

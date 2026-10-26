@@ -7,8 +7,8 @@
 # The kit's own deploy tool installs itself, app-privacy, the updater and
 # the Store (a source package, built here against an app already on the
 # unit), with --with-uplink also the internet uplink, then seeds the
-# updater's sources and, when the kit carries a token, the mgu-store
-# source's token. Newer installed apps and tools are kept. recmgr reads its
+# updater's sources and, when the kit carries a token, stores it as the
+# updater's token. Newer installed apps and tools are kept. recmgr reads its
 # list only at boot, so a freshly installed updater (and uplink) starts at
 # the head unit's next start; the last line then says so.
 set -e

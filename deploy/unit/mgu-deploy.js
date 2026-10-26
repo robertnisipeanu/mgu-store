@@ -2567,7 +2567,8 @@ function cmdUpdaterToken(args) {
         if (!list.some(function (t) { return t.id === args.remove; })) { say('updater token ' + args.remove + ': absent already'); return 0; }
         takeSnapshot('updater-token', [tokenFile(args.remove)]);
         rmrf(tokenFile(args.remove));
-        writePrivate(tokensFile(), JSON.stringify(list.filter(function (t) { return t.id !== args.remove; }), null, 2) + '\n');
+        // the entries as they are now: the updater may have written since
+        writePrivate(tokensFile(), JSON.stringify(storedTokens(), null, 2) + '\n');
         saveState(state);
         say('updater token ' + args.remove + ' removed');
         return 0;

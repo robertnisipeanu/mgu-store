@@ -260,7 +260,7 @@ setup; after it, every update comes through the Store.
   artifacts/                app-privacy, the updater, the deploy tool, the Store
   optional/                 the internet uplink (kits made with --with-uplink)
   sources.json              the updater's sources (written when it has none)
-  token                     the mgu-store source's token (kits made with one)
+  token                     the updater's token (kits made with one)
 
 On the unit, as root:
 
@@ -308,7 +308,7 @@ function cmdKit(opts) {
     console.log(`kit: ${out}`);
     built.forEach((a) => console.log(`  ${a.sha256}  ${path.relative(out, a.file)}`));
     if (token) {
-        console.log('  token: the kit carries the mgu-store source\'s token; keep the stick private');
+        console.log('  token: the kit carries the updater\'s token; keep the stick private');
     }
     if (opts.tar) {
         const top = path.basename(out);
