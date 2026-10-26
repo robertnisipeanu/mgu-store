@@ -79,7 +79,7 @@ class Drawn extends EventEmitter {
         this.touch = null;
         this.ccu = null;
         this.fccu = null;
-        this.embedProxies = false;          // the HMI routes focus and presses to embed proxies
+        this.embedProxies = false;          // the HMI routes presses to embed proxies
         this.pics = new Map();              // picture file -> { img, used }
         this.decoding = new Set();
         this.gpu.on('ready', (screen, info) => this._ready(info));
@@ -252,7 +252,6 @@ class Drawn extends EventEmitter {
     }
 
     proxyFocus(depth, i, value) {
-        this._proxyInput();
         if (depth === this.stack.length && value) {
             this.focus = i;
             this.render();
@@ -267,8 +266,8 @@ class Drawn extends EventEmitter {
         }
     }
 
-    /* An HMI that gives the page template's buttons focus or presses drives
-     * embed mode itself: FrontCCU then stands down (frontCcu). */
+    /* An HMI that presses the page template's buttons drives embed mode
+     * itself: FrontCCU then stands down (frontCcu). */
     _proxyInput() {
         if (this.mode === 'embed') {
             this.embedProxies = true;
@@ -412,10 +411,11 @@ class Drawn extends EventEmitter {
         });
     }
 
-    /* A FrontCCU.statusRotaryEncoderState sample. The page template gives
-     * the embed host states' buttons neither focus nor presses, so in embed
-     * mode without the controller gate the dial and push come from here while
-     * the page has the HMI's focus. An invalid counter keeps the last valid
+    /* A FrontCCU.statusRotaryEncoderState sample. In embed mode without the
+     * controller gate the dial and push come from here while the page has
+     * the HMI's focus, until the HMI presses one of the page template's
+     * buttons itself (the emulator's HMI routes them neither focus nor
+     * presses). An invalid counter keeps the last valid
      * one; a push value other than pushed or released keeps the last state;
      * a new sequence number while pushed is a new push. */
     frontCcu(s) {
@@ -426,11 +426,11 @@ class Drawn extends EventEmitter {
         this.fccu = {
             knob: typeof op === 'number' && op !== 0xffff ? op : (last ? last.knob : 0xffff),
             press: PUSHED.indexOf(push) >= 0 ? true : RELEASED.indexOf(push) >= 0 ? false : !!(last && last.press),
-            seq
+            seq: PUSHED.indexOf(push) >= 0 ? seq : last && last.seq
         };
         if (last && this.mode === 'embed' && !this.controller && !this.embedProxies && !this.focusLost) {
-            this._dial(last.knob, this.fccu.knob,
-                this.fccu.press && (!last.press || (seq !== undefined && seq !== last.seq)));
+            this._dial(last.knob, this.fccu.knob, PUSHED.indexOf(push) >= 0 &&
+                (!last.press || (seq !== undefined && seq !== last.seq)));
         }
     }
 

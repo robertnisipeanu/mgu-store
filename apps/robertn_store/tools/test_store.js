@@ -718,7 +718,7 @@ function runDrawn() {
         if (mode === 'embed') {
             const ccu = (op, push, seq) => frontCcu({ frontRotaryEncoderOperation: op, frontSequenceNumberOperatingElement: seq || 0,
                 frontRotaryEncoderPushButton: push || 'KEINE_BETAETIGUNG' });
-            eq(drawn.embedProxies, true, 'the stand-in HMI focused an embed proxy above');
+            eq(drawn.embedProxies, true, 'the stand-in HMI pressed an embed proxy above');
             ccu(0);
             drawn.focus = 5;
             ccu(2);
@@ -745,7 +745,7 @@ function runDrawn() {
             reset();
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
-            ccu(101, 'SIGNAL_UNGUELTIG');
+            ccu(101, 'SIGNAL_UNGUELTIG', 5);
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
             eq(drawn.top(), { name: 'app', id: 'doom' }, 'a push presses the focused tile (DOOM)');
             eq(states.length, 1, 'once while held, an invalid sample in between');
