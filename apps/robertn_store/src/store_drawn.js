@@ -42,6 +42,8 @@ const CLOSED_RESHOW_MS = 700;           // a touch outside that left the page wh
 const DRAG_PX = 14;
 // FrontCCU frontRotaryEncoderPushButton pushed (short, long): by name or ordinal
 const PUSHED = ['DREHGEBER_KURZ_GEDRUECKT', 'DREHGEBER_LANG_GEDRUECKT', 1, 2];
+const RELEASED = ['KEINE_BETAETIGUNG', 0];
+const DIAL_MAX_STEP = 24;
 
 class Drawn extends EventEmitter {
     /**
@@ -77,6 +79,7 @@ class Drawn extends EventEmitter {
         this.touch = null;
         this.ccu = null;
         this.fccu = null;
+        this.embedProxies = false;          // the HMI routes focus and presses to embed proxies
         this.pics = new Map();              // picture file -> { img, used }
         this.decoding = new Set();
         this.gpu.on('ready', (screen, info) => this._ready(info));
@@ -249,6 +252,7 @@ class Drawn extends EventEmitter {
     }
 
     proxyFocus(depth, i, value) {
+        this._proxyInput();
         if (depth === this.stack.length && value) {
             this.focus = i;
             this.render();
@@ -256,9 +260,18 @@ class Drawn extends EventEmitter {
     }
 
     proxyPress(depth, i) {
+        this._proxyInput();
         if (depth === this.stack.length && this.items[i]) {
             this.focus = i;
             this.host.act(this.items[i].act);
+        }
+    }
+
+    /* An HMI that gives the page template's buttons focus or presses drives
+     * embed mode itself: FrontCCU then stands down (frontCcu). */
+    _proxyInput() {
+        if (this.mode === 'embed') {
+            this.embedProxies = true;
         }
     }
 
@@ -401,14 +414,23 @@ class Drawn extends EventEmitter {
 
     /* A FrontCCU.statusRotaryEncoderState sample. The page template gives
      * the embed host states' buttons neither focus nor presses, so in embed
-     * mode without the controller gate the dial and push come from here. */
+     * mode without the controller gate the dial and push come from here while
+     * the page has the HMI's focus. An invalid counter keeps the last valid
+     * one; a push value other than pushed or released keeps the last state;
+     * a new sequence number while pushed is a new push. */
     frontCcu(s) {
         const last = this.fccu;
         const op = s && s.frontRotaryEncoderOperation;
-        this.fccu = { knob: typeof op === 'number' ? op : 0xffff,
-            press: PUSHED.indexOf(s && s.frontRotaryEncoderPushButton) >= 0 };
-        if (last && this.mode === 'embed' && !this.controller) {
-            this._dial(last.knob, this.fccu.knob, this.fccu.press && !last.press);
+        const push = s && s.frontRotaryEncoderPushButton;
+        const seq = s && s.frontSequenceNumberOperatingElement;
+        this.fccu = {
+            knob: typeof op === 'number' && op !== 0xffff ? op : (last ? last.knob : 0xffff),
+            press: PUSHED.indexOf(push) >= 0 ? true : RELEASED.indexOf(push) >= 0 ? false : !!(last && last.press),
+            seq
+        };
+        if (last && this.mode === 'embed' && !this.controller && !this.embedProxies && !this.focusLost) {
+            this._dial(last.knob, this.fccu.knob,
+                this.fccu.press && (!last.press || (seq !== undefined && seq !== last.seq)));
         }
     }
 
@@ -420,13 +442,14 @@ class Drawn extends EventEmitter {
         }
     }
 
-    /* The dial counter moves the focus, a push presses the focused item. */
+    /* The dial counter moves the focus, a push presses the focused item. A
+     * jump past DIAL_MAX_STEP detents is a stale or garbage sample. */
     _dial(from, to, pushed) {
         if (!this.on_) {
             return;
         }
-        if (to !== 0xffff && from !== 0xffff && to !== from) {
-            const steps = ((to - from + 0x18000) % 0x10000) - 0x8000;
+        const steps = ((to - from + 0x18000) % 0x10000) - 0x8000;
+        if (to !== 0xffff && from !== 0xffff && steps !== 0 && Math.abs(steps) <= DIAL_MAX_STEP) {
             this.focus = Math.max(0, Math.min(this.items.length - 1, (this.focus < 0 ? 0 : this.focus + steps)));
             this.render();
         }
