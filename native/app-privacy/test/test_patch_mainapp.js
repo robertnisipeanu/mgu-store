@@ -646,8 +646,7 @@ test('every app in this repository is marked and clean', () => {
 
 function firmwareDir() {
     const candidates = [
-        process.env.FIRMWARE_MAINAPP_DIR || '',
-        path.join(os.homedir(), 'workspaces/personal/claude-bmw-ecu/mgu18/decoded/oap-mainapp')
+        process.env.FIRMWARE_MAINAPP_DIR || ''
     ];
     return candidates.filter((c) => c && fs.existsSync(path.join(c, 'src', 'main.js')) &&
         fs.existsSync(path.join(c, 'src', 'AppManagement', 'AppManagement.js')))[0];

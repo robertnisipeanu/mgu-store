@@ -79,7 +79,7 @@ Without them, every SSH command (and `connect`) first finds the unit with
 the command, and shuts it down after:
 
 - **Default, debug-free.** The unit runs a permanent field-mode sshd
-  (claude-bmw-ecu `mgu18/PERSISTENT_SSH_SETUP.md`); nothing arms, disarms or
+  (the unit's root SSH access, set up beforehand); nothing arms, disarms or
   resets it.
   - **ENET** when a `169.254.x` adapter is present (or `--iface <if>`). The
     unit's link-local address is, in order: `--hu-ip <addr>` (used alone);
@@ -103,7 +103,7 @@ the command, and shuts it down after:
   while armed: when no banner appears after arming, debug is left armed and
   the command stops, saying to reboot the unit (UDS `11 01` to `0x63`, or
   hold the volume/power knob ~25 s) and run it again with `--arm-debug`.
-  Then make SSH permanent (claude-bmw-ecu `mgu18/PERSISTENT_SSH_SETUP.md`)
+  Then set up permanent SSH on the unit
   and go back to the default. `--arm-debug` with `--wifi` or `--hu-ip` is a
   usage error.
 
@@ -114,8 +114,7 @@ whichever unit answers.
 
 **Assets.** The SSH key and the debug-certificate material are **not in this
 repository** and must never be committed. `--assets-dir <dir>`
-(`HU_ASSETS_DIR`; default
-`~/workspaces/personal/claude-bmw-ecu/mgu18/tool_analysis/cap_assets`) holds
+(`HU_ASSETS_DIR`; default `~/.config/mgu-store/assets`) holds
 `mgu_ssh_key_rsa.pem` (root's key on the unit), and for `--arm-debug` also
 `asset_03.bin` (PMO intermediate CA certificate) and `asset_04.bin` (its
 key). `--identity` replaces the key. A missing file stops the command
@@ -124,8 +123,7 @@ before any connection, naming the file and the folder it looked in.
 
 **State.** The last ENET address that answered is written to
 `~/.cache/mgu-store/last_hu_enet_ip` (`HU_STATE_DIR`), and also read from
-`last_hu_enet_ip` beside the assets folder, where the claude-bmw-ecu tools
-kept it.
+`last_hu_enet_ip` beside the assets folder.
 
 ```sh
 deploy/hu connect                       # ENET or hotspot; prints the ssh command, holds until Ctrl-C
@@ -830,7 +828,7 @@ tile stays hidden (`tile_visible: false`), and the install says so.
 
 ### The retired installer's leftovers
 
-claude-bmw-ecu's retired installer (`tools/mgu7_install_app.py`) listed its
+An earlier installer, not part of this repository, listed its
 apps by editing the app manager's bundles in place: `main.js` puts their ids
 in `installable_apps` and forces their provisioning flags. It kept the files
 it replaced beside them (`main.js.capbak`, the stock file; `main.js.vcbak`,
@@ -981,11 +979,9 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
   effect before oapcontroller starts.
 - `setquota` clearing an app uid's quota on `/var/opt`.
 - busybox `tar -xzf -` reading the staging stream from ssh stdin.
-- SSH over the ENET relay in field mode (claude-bmw-ecu
-  `mgu18/SSH_CONNECT_STEPS.md`).
+- SSH over the ENET relay in field mode.
 - The unit answering DID `22 17 2A` while debug is disarmed.
-- `deploy/hu`'s `--arm-debug` flow end to end on the car (the sequence and
-  the reboot requirement are the claude-bmw-ecu tools' proven ones).
+- `deploy/hu`'s `--arm-debug` flow end to end on the car.
 - The migration of the retired installer's leftovers on the car: its
   backups' names and content, and our apps keeping their tiles through the
   fallback once the stock bundles are back (proven in the emulator on a

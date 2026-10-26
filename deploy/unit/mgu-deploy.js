@@ -2065,7 +2065,7 @@ function fallbackOff(state, opts) {
 }
 
 /* ---- the retired installer's leftovers ------------------------------------------ */
-/* claude-bmw-ecu's retired installer listed its apps through an edit of
+/* The retired installer listed its apps through an edit of
  * main.js and kept the files it replaced beside the bundles as
  * <bundle>.<letters>bak (deploy/README.md). A backup app-privacy reports as
  * the stock reference is that bundle's verified stock copy. */

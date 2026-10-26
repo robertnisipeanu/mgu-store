@@ -20,7 +20,8 @@
  *
  * Connection, without --host: --wifi (the DIRECT-BMW hotspot), --hu-ip
  * <addr>, --iface <if>, --lport <port> (2222), --arm-debug [--keep-armed]
- * (first-time bootstrap only), --assets-dir <dir> (HU_ASSETS_DIR). The
+ * (first-time bootstrap only), --assets-dir <dir> (HU_ASSETS_DIR; default
+ * ~/.config/mgu-store/assets). The
  * default is ENET when an adapter is present, else the hotspot
  * (deploy/transport/mgu_connect.py).
  *
@@ -61,7 +62,7 @@ const SSH_COMMANDS = ['check', 'install', 'status', 'uninstall', 'rollback', 're
 const TRANSPORT = path.join(__dirname, 'transport', 'mgu_connect.py');
 const WIFI_HU_IP = '172.16.222.97';
 /* The SSH key and the debug-certificate material, never in this repo. */
-const DEFAULT_ASSETS = path.join(os.homedir(), 'workspaces', 'personal', 'claude-bmw-ecu', 'mgu18', 'tool_analysis', 'cap_assets');
+const DEFAULT_ASSETS = path.join(os.homedir(), '.config', 'mgu-store', 'assets');
 const ASSET_KEY = 'mgu_ssh_key_rsa.pem';
 const DEFAULT_STATE = path.join(os.homedir(), '.cache', 'mgu-store');
 /* ssh options for a selected connection: the relay's 127.0.0.1:<lport>

@@ -53,11 +53,11 @@ BOOTSTRAP_HINT = (
     "Debug mode was NOT armed. Permanent (field-mode) SSH seems disabled on this HU, or the HU is\n"
     "asleep / the IP is wrong. Check the cable, wake the car, or pass --hu-ip <addr> / --wifi (hotspot).\n"
     "Only if this HU has never had permanent SSH enabled: re-run with --arm-debug to bootstrap\n"
-    "(arms debug mode, which invalidates the MyBMW login and personal settings; then follow\n"
-    "claude-bmw-ecu mgu18/PERSISTENT_SSH_SETUP.md).")
+    "(arms debug mode, which invalidates the MyBMW login and personal settings; then set up\n"
+    "permanent SSH on the unit).")
 
 ARM_WARNING = ("[!] --arm-debug: arming debug mode (31 01 A0 FD). This invalidates the MyBMW login and "
-               "personal settings; use it only to bootstrap permanent SSH (claude-bmw-ecu mgu18/PERSISTENT_SSH_SETUP.md).")
+               "personal settings; use it only to bootstrap permanent SSH.")
 
 REBOOT_HINT = (
     "[!] debug is armed, but the HU's :22 serves no SSH banner: the debug sshd starts only at boot\n"
@@ -214,8 +214,7 @@ class _Pair:
 # ---- the last address that answered -------------------------------------------------------
 class Cache:
     """The unit's last ENET address that answered: written to <state>/last_hu_enet_ip; read from
-    there and from last_hu_enet_ip beside the assets folder (claude-bmw-ecu keeps one in
-    mgu18/tool_analysis/)."""
+    there and from last_hu_enet_ip beside the assets folder."""
 
     def __init__(self, state_dir, assets=None):
         self.file = os.path.join(state_dir, CACHE_NAME)
