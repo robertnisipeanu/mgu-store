@@ -38,7 +38,7 @@ and checks again every 2 s:
 | `usbecm` | a CDC-ECM stick: a Huawei HiLink stick (E3372h, `12d1:14db`/`14dc`), any ECM device in `auto` | usbfs; a stick still presenting its install CD-ROM (`12d1:1f01`) is switched into network mode with the usb_modeswitch Huawei message |
 | `rndis` | an Android phone in USB tethering: most phones (AOSP's default); control interface `e0/01/03`, `02/02/ff` or `ef/04/01` | usbfs, RNDIS (rndis.go) |
 | `ncm` | an Android phone in USB tethering presenting CDC-NCM: Pixel 6 and later | usbfs, NCM transfer blocks (ncm.go) |
-| `iphone` | an iPhone with Personal Hotspot on | usbfs: configuration 4, trust over usbmux and lockdown, the hotspot interface as Linux's `ipheth` drives it (iphone.go, lockdown.go) |
+| `iphone` | an iPhone with Personal Hotspot on | usbfs: taken from the media daemon with the sysfs `authorized` toggle, configuration 4, the hotspot interface as Linux's `ipheth` drives it (iphone.go) |
 | `netdev:<ifname>` | an existing interface, used under its own name (the emulator's second NIC) | — |
 
 A wired adapter or stick is preferred over a phone: while `auto` runs on a
@@ -55,12 +55,11 @@ of a veth pair, `vethuplinkp`; the other end is `vethuplink` with the MAC
 the device assigns to the host and its checksum and segmentation offloads
 off, so every frame reaches the device complete. Nothing loads or changes
 kernel code (the unit's kernel has none of `cdc_ether`, `cdc_ncm`,
-`rndis_host`, `ipheth`). This is the mechanism of mgu-tether
-(`luigiwidmore/bmw_project` `tools/tether`), whose RNDIS driver this one
-follows and extends: the RNDIS control classes beyond `e0/01/03`, the data
-interface from the CDC Union, a pad byte after a message that fills whole
-USB packets, the device's maximum transfer size, its KEEPALIVE and status
-messages, and HALT on stop.
+`rndis_host`, `ipheth`). The RNDIS driver follows the sequence of a
+user-space RNDIS host proven with Android phones on the car: the RNDIS
+control classes beyond `e0/01/03`, the data interface from the CDC Union, a
+pad byte after a message that fills whole USB packets, the device's maximum
+transfer size, its KEEPALIVE and status messages, and HALT on stop.
 
 All of them run the same DHCP, routing, firewall and lease files.
 
@@ -69,20 +68,25 @@ All of them run the same DHCP, routing, firewall and lease files.
 Android: plug the phone in and turn on Settings → Network → Hotspot &
 tethering → USB tethering (most phones turn it off again when unplugged).
 
-iPhone: turn on Settings → Personal Hotspot and plug the phone in. The
-first time, the phone asks "Trust This Computer?": tap Trust and enter the
-passcode (an unlocked phone is needed). Until then `status.json` says
-`trust-needed` with `"Tap Trust on the iPhone"` (`"Unlock the iPhone"` while
-it is locked), and the service asks again every 2 s. An iPhone drops every
-packet from a host it has not paired with, so the unit pairs the way
-usbmuxd does: a certificate chain made on the unit, the phone's Pair
-answer kept in `/var/opt/mgu-uplink/pair/<UDID>.json` (root, 0600), and a
-lockdown session with TLS on every plug-in. A trusted phone needs no tap
-again until it is told to forget the unit (Settings → General → Transfer
-or Reset → Reset Location & Privacy), after which it asks again. A
-declined prompt is not repeated until the phone is plugged in again.
-iOS's USB Restricted Mode cuts USB data after an hour locked unless
+iPhone: turn on Settings → Personal Hotspot, plug the phone in and keep it
+unlocked. The first time, the phone asks "Trust This Computer?": tap Trust.
+An iPhone needs no host-side pairing for tethering, but it drops every packet
+until its owner trusts the host, so until Trust is tapped (and the hotspot is
+on) no DHCP lease arrives and `status.json` says `trust-needed` with
+`"Tap Trust on the iPhone"`. On the head unit a stock media daemon grabs a
+connected iPhone and holds it on configuration 2 (iAP/iPod media); the uplink
+takes the device by deauthorizing and reauthorizing it through sysfs
+(`/sys/bus/usb/devices/<X>/authorized`), then selecting configuration 4 and
+claiming the hotspot interface before the media daemon puts the device back,
+retried until it wins. While tethering the iPhone is a network device, so USB
+media playback from that phone stops; it resumes when tethering ends (the
+uplink reauthorizes the device on stop so the media daemon reclaims it). Only
+that one Apple device is touched; the media daemon keeps serving every other
+device. iOS's USB Restricted Mode cuts USB data after an hour locked unless
 Settings → Face ID & Passcode → Accessories is on.
+
+The iPhone takeover (authorized toggle, configuration 4, no pairing) follows
+the approach of IterioDev's `ipheth-tether`, reused with permission.
 
 ### status.json
 
@@ -98,7 +102,7 @@ the Store and the phone page:
 |---|---|
 | `searching` | no usable device (`device` null) |
 | `connecting` | the device is being set up, or waits for its DHCP lease; `error` may say why (`"Personal Hotspot is off"`) |
-| `trust-needed` | an iPhone shows its Trust prompt; `error` says what to do |
+| `trust-needed` | an iPhone is up but sends nothing: its owner still has to tap Trust (and turn Personal Hotspot on); `error` says what to do |
 | `busy` | another driver or process holds the device; it is left alone |
 | `online` | there is a lease |
 | `error` | setting the device up failed (`error`); it is tried again after 15 s |
@@ -141,18 +145,17 @@ deploy/hu install mgu-uplink        # build and install over SSH (deploy/README.
 ```
 
 The unit tests cover the framing (RNDIS, NCM blocks with several datagrams
-and chained NDPs, ipheth legacy and NCM receive), the descriptor matching,
-plists, usbmux, and the whole pairing flow against a fake phone
-(fakephone_test.go) with real TLS. [`test/vm-gadget.sh`](test/vm-gadget.sh)
-runs the uplinks against USB gadgets in a Linux VM: ECM, NCM and RNDIS
-(f_rndis, and as `e0/01/03` through a descriptor-rewriting usbip proxy)
-gadgets with a DHCP server and NAT behind them, and a FunctionFS fake
-iPhone (gadget_test.go: Apple ids, four configurations, usbmux, lockdown
-with the Trust prompt and TLS, the hotspot interface in NCM or legacy
-framing) on dummy_hcd. What only a real iPhone can show: that iOS accepts
-this pairing and session as it accepts usbmuxd's, the hotspot's framing on
-current iOS, and whether the phone needs the zero-length packet after a
-frame of a whole number of USB packets that the unit sends.
+and chained NDPs, ipheth legacy and NCM receive), the descriptor matching and
+the status file. [`test/vm-gadget.sh`](test/vm-gadget.sh) runs the uplinks
+against USB gadgets in a Linux VM: ECM, NCM and RNDIS (f_rndis, and as
+`e0/01/03` through a descriptor-rewriting usbip proxy) gadgets with a DHCP
+server and NAT behind them, and a FunctionFS fake iPhone (gadget_test.go:
+Apple ids, four configurations, the hotspot interface in NCM or legacy
+framing, and a stand-in media daemon holding the device on configuration 2)
+on dummy_hcd. What only a real iPhone can show: that iOS serves the hotspot
+to an authorized-toggle takeover as it does to its own driver, the hotspot's
+framing on current iOS, and whether the phone needs the zero-length packet
+after a frame of a whole number of USB packets that the unit sends.
 
 mgu-uplink is a tool component ([`component.json`](component.json)): the
 deploy tool installs it, from the Mac, from the offline kit, or from the
@@ -165,7 +168,6 @@ updater (the Store's "Internet uplink" row). The version is
 | `/var/opt/mgu-uplink/current` | the version in use |
 | `/var/opt/mgu-uplink/mgu-uplink.local.conf` | the unit's settings |
 | `/var/opt/mgu-uplink/uids.d/`, `apps.d/` | per-component drop-ins (the deploy tool's) |
-| `/var/opt/mgu-uplink/pair/` | iPhone pair records (root, 0700) |
 | `/etc/systemd/system/mgu-uplink.service` | enabled for `multi-user.target` |
 | `/etc/recmgr-restartlist.conf` | `mgu-uplink` in `[Whitelist]` and `[WhitelistExitSuccess]` |
 
