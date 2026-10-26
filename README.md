@@ -86,3 +86,7 @@ as an update of a component installed from anywhere else.
 ```powershell
 node .\mgu-install.js usb-repo E:\ github:robertnisipeanu/mgu-store C:\Users\me\Downloads\gauges@1.2.0.tgz
 ```
+
+## License
+
+MIT (`LICENSE`). Third-party parts keep their own licences: `THIRD_PARTY_NOTICES.md`.
