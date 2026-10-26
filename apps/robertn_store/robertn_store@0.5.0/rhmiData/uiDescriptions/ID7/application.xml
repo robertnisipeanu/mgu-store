@@ -112,6 +112,10 @@
                 <property id="2" value="1"/>
                 <property id="3" value="3"/>
             </component>
+            <component id="140" type="button" widget="LT_Button_1Row_2Col7030_2Text">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
             <component id="39" type="button" widget="LT_Button_1Row">
                 <property id="2" value="1"/>
                 <property id="3" value="3"/>
@@ -147,18 +151,60 @@
                 <property id="2" value="1"/>
                 <property id="3" value="0"/>
             </component>
-            <component id="87" type="button" widget="LT_Button_1Row">
-                <property id="2" value="1"/>
-                <property id="3" value="3"/>
-            </component>
             <component id="88" type="button" widget="LT_Button_1Row">
                 <property id="2" value="1"/>
                 <property id="3" value="3"/>
             </component>
         </layoutGroup>
     </container>
+    <container id="32" type="state" widget="LT_State_Wide">
+        <property id="9" value="5"/>
+        <layoutGroup id="164" name="Titlebar">
+            <component id="41" type="title">
+                <property id="2" value="1"/>
+            </component>
+        </layoutGroup>
+        <layoutGroup id="165" name="List">
+            <property id="3" value="1"/>
+            <component id="134" type="button" widget="LT_Button_1Row_2Col7030_2Text">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+            <component id="135" type="button" widget="LT_Button_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+        </layoutGroup>
+    </container>
+    <container id="33" type="state" widget="LT_State_Wide">
+        <property id="9" value="32"/>
+        <layoutGroup id="166" name="Titlebar">
+            <component id="42" type="title">
+                <property id="2" value="1"/>
+            </component>
+        </layoutGroup>
+        <layoutGroup id="167" name="List">
+            <property id="3" value="1"/>
+            <component id="136" type="label" widget="LT_Label_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="0"/>
+            </component>
+            <component id="137" type="label" widget="LT_Label_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="0"/>
+            </component>
+            <component id="138" type="button" widget="LT_Button_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+            <component id="139" type="button" widget="LT_Button_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+        </layoutGroup>
+    </container>
     <container id="7" type="state" widget="LT_State_Wide">
-        <property id="9" value="6"/>
+        <property id="9" value="32"/>
         <layoutGroup id="114" name="Titlebar">
             <component id="16" type="title">
                 <property id="2" value="1"/>

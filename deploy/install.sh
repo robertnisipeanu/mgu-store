@@ -43,7 +43,7 @@ fi
 sh "$STAGE/mgu-deploy.sh" install "$@" --skip-older --yes
 sh "$STAGE/mgu-deploy.sh" updater-sources < "$STAGE/sources.json"
 if [ -f "$STAGE/token" ]; then
-    sh "$STAGE/mgu-deploy.sh" updater-token --source mgu-store < "$STAGE/token"
+    sh "$STAGE/mgu-deploy.sh" updater-token < "$STAGE/token"
 fi
 sh "$VAR_OPT/mgu-deploy/mgu-deploy.sh" status
 SYSTEMCTL=${MGU_DEPLOY_SYSTEMCTL:-systemctl}

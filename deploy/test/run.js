@@ -798,7 +798,7 @@ function testStatusJson() {
                 r.stdout.trim().split('\n').length === 1, r.stdout);
             check(`status --json ${i ? 'after installs' : 'on a fresh unit'}: has every field`, obj &&
                 ['version', 'components', 'pending_reboot', 'display_bridge_socket', 'display_bridge_todo_on_car', 'fallback',
-                    'backups', 'stock_backup', 'updater_token'].every((k) => k in obj), obj && Object.keys(obj).join(','));
+                    'backups', 'stock_backup', 'updater_tokens'].every((k) => k in obj), obj && Object.keys(obj).join(','));
         });
 }
 
@@ -1669,13 +1669,27 @@ function testTodoLines() {
         st.display_bridge_todo_on_car.every((l) => /^[a-z_]+: TODO\(on-car\)/.test(l)), JSON.stringify(st.display_bridge_todo_on_car));
 }
 
-/* ---- the updater's token ------------------------------------------------------------------ */
+/* ---- the updater's tokens ------------------------------------------------------------------ */
 
 const TOKEN = 'github_pat_FIXTURE0only0for0the0deploy0tests0000000000';
 
+/* The texts of the updater's tokens under a fake root, by id. */
+function tokenTexts(root) {
+    const dir = root.p('var/opt/mgu-updater/credentials');
+    const out = {};
+    (fs.existsSync(dir) ? fs.readdirSync(dir) : []).forEach((n) => {
+        const m = /^token-([0-9a-f]{8})$/.exec(n);
+        if (m) {
+            out[m[1]] = fs.readFileSync(path.join(dir, n), 'utf8').trim();
+        }
+    });
+    return out;
+}
+
 function testToken() {
     const root = fakeRoot();
-    const file = root.p('var/opt/mgu-updater/credentials/mgu-store');
+    const dir = root.p('var/opt/mgu-updater/credentials');
+    const list = () => readJson(path.join(dir, 'tokens.json'));
     const runIn = (args, input) => {
         const r = cp.spawnSync(UNIT_NODE, [UNIT_JS].concat(args), { encoding: 'utf8', env: root.env, input });
         r.out = `${r.stdout}${r.stderr}`;
@@ -1684,28 +1698,50 @@ function testToken() {
     const outputs = [];
     let r = runIn(['updater-token'], `${TOKEN}\n`);
     outputs.push(r.out);
-    check('token: the mgu-store source\'s, written from stdin, trailing newline dropped, 0600 in a 0700 folder', r.status === 0 &&
-        fs.readFileSync(file, 'utf8') === TOKEN && mode(file) === 0o600 && mode(path.dirname(file)) === 0o700 &&
-        r.out.includes(`${TOKEN.length} bytes`), r.out);
-    r = runIn(['updater-token', '--source', 'idrive7-apps'], TOKEN);
+    const id = Object.keys(tokenTexts(root))[0];
+    check('token: stored from stdin as a token of its own, trailing newline dropped, 0600 in a 0700 folder, with its entry',
+        r.status === 0 && /^[0-9a-f]{8}$/.test(id) && tokenTexts(root)[id] === TOKEN && mode(path.join(dir, `token-${id}`)) === 0o600 &&
+        mode(dir) === 0o700 && mode(path.join(dir, 'tokens.json')) === 0o600 && list().length === 1 && list()[0].id === id &&
+        list()[0].kind === 'github' && r.out.includes(`${TOKEN.length} bytes`) && r.out.includes(id), r.out);
+    r = runIn(['updater-token'], TOKEN);
     outputs.push(r.out);
-    check('token: --source names another source\'s credential', r.status === 0 &&
-        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/idrive7-apps'), 'utf8') === TOKEN, r.out);
-    r = runIn(['updater-token', '--source', '../x'], TOKEN);
-    check('token: a bad source id is refused, exit 2', r.status === 2 && r.out.includes('bad source id') &&
-        !fs.existsSync(root.p('var/opt/mgu-updater/x')), r.out);
-    runIn(['updater-token', '--source', 'idrive7-apps', '--remove'], '');
+    check('token: the same text again is not stored twice', r.status === 0 && r.out.includes(`stored already as ${id}`) &&
+        Object.keys(tokenTexts(root)).length === 1, r.out);
+    // the updater's own fields stay when another token is added
+    fs.writeFileSync(path.join(dir, 'tokens.json'), JSON.stringify([Object.assign(list()[0], { label: 'robert', login: 'someone' })]));
+    r = runIn(['updater-token'], `${TOKEN}2\n`);
+    const id2 = Object.keys(tokenTexts(root)).find((x) => x !== id);
+    check('token: a second token beside the first, whose entry is kept', r.status === 0 && id2 && list().length === 2 &&
+        list().find((t) => t.id === id).login === 'someone', JSON.stringify(list()));
+    r = runIn(['updater-token', '--source', 'idrive7-apps'], TOKEN);
+    check('token: no source is named (exit 2)', r.status === 2 && r.out.includes('no source'), r.out);
+    r = runIn(['updater-token', '--list']);
+    outputs.push(r.out);
+    check('token: --list names id, label and account', r.status === 0 && r.out.includes(`${id}  robert  someone`) &&
+        r.out.includes(`${id2}  -  -`), r.out);
+    r = runIn(['updater-token', '--list', '--json']);
+    outputs.push(r.out);
+    const listed = JSON.parse(r.stdout);
+    check('token: --list --json', listed.length === 2 && listed[0].id === id && listed[0].login === 'someone' && listed[1].label === null &&
+        Object.keys(listed[0]).sort().join() === 'addedAt,id,label,login', r.stdout);
+    // a file the updater has not listed yet counts too
+    fs.writeFileSync(path.join(dir, 'token-0badc0de'), 'ghp_x\n', { mode: 0o600 });
+    check('token: a token file without an entry is listed', JSON.parse(runIn(['updater-token', '--list', '--json']).stdout).some((t) => t.id === '0badc0de'));
+    r = runIn(['updater-token', '--remove', '0badc0de']);
+    check('token: --remove <id> removes it', r.status === 0 && !tokenTexts(root)['0badc0de'], r.out);
     const st = root.status();
     const human = root.run(['status']);
     outputs.push(JSON.stringify(st), human.out);
-    check('token: status says present, in both forms', st.updater_token === 'present' && human.stdout.includes('updater token: present'));
-    const before = fs.readFileSync(file);
+    check('token: status counts them, in both forms', st.updater_tokens === 2 && human.stdout.includes('updater tokens: 2'));
+    const before = JSON.stringify(tokenTexts(root));
     [['', 'no token'], ['a\nb\n', 'more than one line'], ['x'.repeat(513), 'over 512'], ['has space', 'spaces']].forEach(([input, why]) => {
         const bad = runIn(['updater-token'], input);
         outputs.push(bad.out);
-        check(`token: refused (${why}), exit 2, the file unchanged`, bad.status === 2 && bad.out.includes(why) &&
-            fs.readFileSync(file).equals(before), bad.out);
+        check(`token: refused (${why}), exit 2, nothing changed`, bad.status === 2 && bad.out.includes(why) &&
+            JSON.stringify(tokenTexts(root)) === before, bad.out);
     });
+    r = runIn(['updater-token', '--remove', '../x']);
+    check('token: --remove takes a token id (exit 2)', r.status === 2 && r.out.includes('token id'), r.out);
     const backups = root.p('var/opt/mgu-deploy/backups');
     const stored = fs.readdirSync(backups).map((d) => path.join(backups, d, 'files')).filter((d) => fs.existsSync(d))
         .flatMap((d) => fs.readdirSync(d).map((n) => path.join(d, n)));
@@ -1715,12 +1751,13 @@ function testToken() {
             e.path.includes('/credentials') || e.path.endsWith('/sources.json'))));
     r = root.run(['restore', 'stock', '--yes']);
     outputs.push(r.out);
-    check('token: restoring stock keeps the updater credential', r.status === 0 &&
-        fs.readFileSync(file, 'utf8') === TOKEN, r.out);
-    runIn(['updater-token'], TOKEN);
-    r = runIn(['updater-token', '--remove'], '');
+    check('token: restoring stock keeps the updater\'s tokens', r.status === 0 && tokenTexts(root)[id] === TOKEN, r.out);
+    r = runIn(['updater-token', '--remove', id]);
     outputs.push(r.out);
-    check('token: --remove deletes it', r.status === 0 && !fs.existsSync(file) && root.status().updater_token === 'absent', r.out);
+    check('token: --remove deletes the file and the entry', r.status === 0 && !tokenTexts(root)[id] && !list().some((t) => t.id === id) &&
+        list().length === 1, r.out);
+    r = runIn(['updater-token', '--remove', id]);
+    check('token: removing it again is no error', r.status === 0 && r.out.includes('absent already'), r.out);
     check('token: the value is in no output', outputs.every((o) => !o.includes(TOKEN)));
 
     // the updater's config goes with it
@@ -1758,13 +1795,16 @@ function testHuToken() {
         x.calls.every((c) => !c.includes(TOKEN)) && !zlib.gunzipSync(x.stdin(0)).includes(TOKEN) &&
         !`${x.r.stdout}${x.r.stderr}`.includes(TOKEN));
     x = run(['install', '--artifact', toolArtifact('0.2.0')], { HU_UPDATER_TOKEN_FILE: tokenFile });
-    check('hu token: install seeds the updater\'s sources, then sends the token for mgu-store', x.r.status === 0 &&
+    check('hu token: install seeds the updater\'s sources, then sends the token', x.r.status === 0 &&
         x.calls.length === 5 && x.calls[1].includes("'install'") && x.calls[2].includes("'updater-sources'") &&
         x.stdin(2).equals(fs.readFileSync(path.join(DEPLOY, 'sources.json'))) &&
-        x.calls[3].includes("'updater-token' '--source' 'mgu-store'") && x.stdin(3).toString() === `${TOKEN}\n` &&
+        /'updater-token'$/.test(x.calls[3]) && x.stdin(3).toString() === `${TOKEN}\n` &&
         x.calls.every((c) => !c.includes(TOKEN)), x.calls.join('\n'));
-    x = run(['updater-token', '--remove']);
-    check('hu token: --remove sends no token', x.r.status === 0 && x.calls[1].includes("'--remove'") && x.stdin(1).length === 0,
+    x = run(['updater-token', '--remove', '3f9a01c2']);
+    check('hu token: --remove <id> sends the id and no token', x.r.status === 0 && x.calls[1].includes("'updater-token' '--remove' '3f9a01c2'") &&
+        x.stdin(1).length === 0, x.calls.join('\n'));
+    x = run(['updater-token', '--list', '--json']);
+    check('hu token: --list sends no token', x.r.status === 0 && x.calls[1].includes("'updater-token' '--list' '--json'") && x.stdin(1).length === 0,
         x.calls.join('\n'));
     x = run(['updater-token']);
     check('hu token: updater-token without a file is a usage error, nothing sent', x.r.status === 2 && x.calls.length === 0, x.r.stderr);
@@ -2489,9 +2529,9 @@ function testKit() {
     check('kit: install.sh ends saying a restart finishes setup while the updater is not running',
         r.out.endsWith('\nRestart the head unit to finish setup (the next ignition cycle does it): the updater will run from then on.\n'),
         r.out.slice(-1000));
-    check('kit: install.sh seeds the sources and the mgu-store token, root\'s alone',
+    check('kit: install.sh seeds the sources and the token, root\'s alone',
         fs.existsSync(root.p('var/opt/mgu-updater/sources.json')) && mode(root.p('var/opt/mgu-updater/sources.json')) === 0o600 &&
-        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/mgu-store'), 'utf8') === TOKEN && !r.out.includes(TOKEN));
+        Object.values(tokenTexts(root)).join() === TOKEN && !r.out.includes(TOKEN));
     check('kit: install.sh leaves no staging copy', !fs.readdirSync(root.p('var/opt')).some((n) => /^mgu-deploy-kit-/.test(n)));
     // the updater running since the next start
     fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'active\n');
@@ -2512,7 +2552,7 @@ function testKit() {
     pkg.version = '9.0.0';
     fs.writeFileSync(pkgFile, JSON.stringify(pkg));
     fs.unlinkSync(root.p('var/opt/mgu-updater/sources.json'));
-    fs.unlinkSync(root.p('var/opt/mgu-updater/credentials/mgu-store'));
+    fs.rmSync(root.p('var/opt/mgu-updater/credentials'), { recursive: true });
     r = sh();
     const current = root.status().components;
     check('kit: an older kit skips newer tools (including deploy) and Store, then seeds sources and token', r.status === 0 &&
@@ -2522,7 +2562,7 @@ function testKit() {
             r.out.includes(id + ' ' + (id === 'mgu-deploy' ? VERSION : id === 'robertn_store' ? store.version :
                 id === 'mgu-updater' ? '0.2.0' : comps.find((c) => c.id === id).version) + ' skipped')) &&
         fs.existsSync(root.p('var/opt/mgu-updater/sources.json')) &&
-        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/mgu-store'), 'utf8') === TOKEN &&
+        Object.values(tokenTexts(root)).join() === TOKEN &&
         !r.out.includes('built robertn_store'), r.out.slice(-4000));
     const envKit = path.join(fs.mkdtempSync(path.join(T, 'env-kit-')), 'kit');
     const envOnly = hu(['kit', '--out', envKit, 'mgu-deploy'], { HU_UPDATER_TOKEN_FILE: tokenFile });

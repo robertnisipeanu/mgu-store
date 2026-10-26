@@ -15,7 +15,7 @@
  *   deploy/hu backups
  *   deploy/hu rollback <id> [--yes]
  *   deploy/hu fallback <on|off|status|migrate> [--yes]
- *   deploy/hu updater-token [--updater-token-file <f>] [--source <id>] [--remove]
+ *   deploy/hu updater-token [--updater-token-file <f>] | --list [--json] | --remove <id>
  *   deploy/hu connect [--hold <seconds>] [--cmd <command>]
  *
  * Connection, without --host: --wifi (the DIRECT-BMW hotspot), --hu-ip
@@ -27,7 +27,7 @@
  * SSH options: --host (HU_HOST) and --port (HU_PORT, 22) name the target
  * themselves and skip the selection, --user (HU_USER, root), --identity
  * <key> (HU_IDENTITY), --ssh-opt <o> (repeatable, passed as ssh -o <o>),
- * --keep-stage. The mgu-store source's token comes from --updater-token-file
+ * --keep-stage. The updater's token comes from --updater-token-file
  * or HU_UPDATER_TOKEN_FILE for SSH commands; kits include a token only
  * with --updater-token-file.
  *
@@ -390,7 +390,7 @@ async function cmdRemote(command, opts) {
 
 function prepareRemote(command, opts, keepTmp) {
     let artifacts = [];
-    const removeToken = command === 'updater-token' && opts.rest.includes('--remove');
+    const removeToken = command === 'updater-token' && (opts.rest.includes('--remove') || opts.rest.includes('--list'));
     const token = command === 'install' || (command === 'updater-token' && !removeToken) ? tokenData(opts) : null;
     if (command === 'updater-token' && !removeToken && !token) {
         throw new Usage('updater-token needs --updater-token-file <file> (or HU_UPDATER_TOKEN_FILE)');
@@ -444,12 +444,12 @@ function runRemote(job, opts) {
             status = run('updater-token', args, token);
         } else {
             status = run(command, args, null);
-            // the updater's sources, when it has none, and the Store source's token
+            // the updater's sources, when it has none, and its token
             if (status === 0 && command === 'install') {
                 status = run('updater-sources', [], fs.readFileSync(SOURCES));
             }
             if (status === 0 && command === 'install' && token) {
-                status = run('updater-token', ['--source', 'mgu-store'], token);
+                status = run('updater-token', [], token);
             }
         }
     } finally {
@@ -644,6 +644,7 @@ function parse(argv) {
     for (let i = 0; i < opts.pass.length; i += 1) {
         const a = opts.pass[i];
         if (a === '--artifact') opts.artifacts.push(opts.pass[++i]);
+        else if (a === '--remove' && opts.command === 'updater-token' && i + 1 < opts.pass.length) opts.rest.push(a, opts.pass[++i]);
         else if (a.startsWith('--')) opts.rest.push(a);
         else opts.ids.push(a);
     }

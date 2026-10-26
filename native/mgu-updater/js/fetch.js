@@ -6,14 +6,15 @@
  * Node 8.
  *
  * stdin: one JSON job
- *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], ca, method, body }
+ *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], ca, method, body, keep }
  *   dns: resolve host names through these servers (the uplink lease's);
  *   empty: the system resolver. ca: PEM roots to trust instead of Node's
  *   bundled ones (a self-hosted catalog with its own CA). method: GET
- *   (default) or POST, with body (a string) sent as it is.
+ *   (default) or POST, with body (a string) sent as it is. keep: the
+ *   response headers (lower case) to report with done.
  * stdout: one JSON line per event
  *   { progress: <bytes>, total: <bytes|null> }  while downloading
- *   { done: true, bytes, status }               dest complete
+ *   { done: true, bytes, status, headers }      dest complete (headers: those kept)
  *   { error: "<reason>", status }               nothing usable at dest
  *                                               (status: the HTTP answer, if any)
  *
@@ -121,7 +122,13 @@ function get(job, url, headers, hops) {
         res.pipe(out);
         out.on('finish', () => {
             if (!process.exitCode) {
-                emit({ done: true, bytes, status: res.statusCode });
+                const kept = {};
+                (job.keep || []).forEach((h) => {
+                    if (typeof res.headers[h] === 'string') {
+                        kept[h] = res.headers[h];
+                    }
+                });
+                emit({ done: true, bytes, status: res.statusCode, headers: kept });
             }
         });
         out.on('error', (err) => {

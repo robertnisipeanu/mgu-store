@@ -1,8 +1,8 @@
 'use strict';
 /**
  * The updater's sources (README.md, "Sources"): the stored list
- * (sources.json), their credentials, the USB media mounted now, and for each
- * one how to read its components and fetch one of them. Node 8.
+ * (sources.json), the USB media mounted now, and for each one how to read
+ * its components and fetch one of them. Node 8.
  *
  * A source reads as one of these layouts:
  *  - catalog   a published catalog.json (release/README.md): a GitHub
@@ -17,9 +17,10 @@
  *              package.json.
  *
  * Network reads go through `net` (the updater's Fetcher: fetch.js as the
- * fetch uid). A GitHub token goes to the API host (api.github.com) only, an
- * https source's credential to its catalog's host only; fetch.js drops both
- * on a redirect. Folders (a `file` source, a USB stick) are read without
+ * fetch uid). A GitHub source is read with the token the updater picked for
+ * it (ctx.tokenFor; tokens.js), which goes to the API host (api.github.com)
+ * only, and fetch.js drops on a redirect; an https source is read without
+ * one. Folders (a `file` source, a USB stick) are read without
  * following links, regular files only, every size bounded, never written.
  */
 const fs = require('fs');
@@ -33,17 +34,16 @@ const ID = catalogLib.ID;
 const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
 const PACKAGE = /^([a-z0-9][a-z0-9_-]{0,63})@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\.(tgz|mgu)$/;
 const CHANNEL = /^(releases|tags|branch|branch:[A-Za-z0-9._][A-Za-z0-9._\/-]{0,199})$/;
-const TOKEN = /^[\x21-\x7e]{1,1024}$/;
 const SMALL = 1 << 20; // a JSON file of a source: catalog part, mgu-repo.json, component.json
 // Packed components carry one fixed mtime: the same tree gives the same bytes.
 const MTIME = Math.floor(Date.UTC(2026, 9, 18) / 1000);
 
-/* An HTTP answer that says the source needs a (better) credential. */
+/* An HTTP answer that says the source needs a token that reaches it. */
 function authError(message) {
     return Object.assign(new Error(message), { auth: true });
 }
 
-/* ---- sources.json and credentials ------------------------------------------- */
+/* ---- sources.json -------------------------------------------------------------- */
 
 function readJsonFile(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -119,59 +119,6 @@ function load(file) {
 function save(file, list) {
     mkdirPrivate(path.dirname(file));
     writePrivate(file, JSON.stringify({ schema: 1, sources: list.map(checkStored) }, null, 2) + '\n');
-}
-
-/* credentials/<source id>: the token text; credentials/<source id>.json:
- * what the login knows about it (login name, expiry, refresh token). */
-class Credentials {
-    constructor(dir) {
-        this.dir = dir;
-    }
-
-    file(id) {
-        if (!ID.test(id)) {
-            throw new Error(`no credentials for ${id}`);
-        }
-        return path.join(this.dir, id);
-    }
-
-    token(id) {
-        try {
-            return fs.readFileSync(this.file(id), 'utf8').trim();
-        } catch (e) {
-            return '';
-        }
-    }
-
-    meta(id) {
-        try {
-            return readJsonFile(`${this.file(id)}.json`);
-        } catch (e) {
-            return {};
-        }
-    }
-
-    set(id, token, meta) {
-        if (!TOKEN.test(token)) {
-            throw new Error('a token is 1 to 1024 printable characters without spaces');
-        }
-        mkdirPrivate(this.dir);
-        writePrivate(this.file(id), `${token}\n`);
-        writePrivate(`${this.file(id)}.json`, JSON.stringify(meta || {}) + '\n');
-    }
-
-    setMeta(id, meta) {
-        mkdirPrivate(this.dir);
-        writePrivate(`${this.file(id)}.json`, JSON.stringify(meta) + '\n');
-    }
-
-    clear(id) {
-        [this.file(id), `${this.file(id)}.json`].forEach((f) => {
-            try {
-                fs.unlinkSync(f);
-            } catch (e) { /* none */ }
-        });
-    }
 }
 
 /* ---- folders (file sources, USB media) ----------------------------------------- */
@@ -456,21 +403,13 @@ function folderReader(root, ctx) {
 
 /* An https source: catalog.json at a URL, artifacts absolute or relative to it. */
 function httpsReader(s, ctx) {
-    const host = new URL(s.url).host;
-    const headers = (url) => {
-        const token = ctx.credentials.token(s.id);
-        return Object.assign(token && new URL(url).host === host ? { Authorization: `Bearer ${token}` } : {}, ua(ctx.version));
-    };
     return {
         network: true,
-        catalog: () => ctx.net.get(s.url, headers(s.url), 'catalog.json', 4 << 20)
-            .catch((err) => {
-                throw err.status === 401 || err.status === 403 ? authError(err.message) : err;
-            })
+        catalog: () => ctx.net.get(s.url, ua(ctx.version), 'catalog.json', 4 << 20)
             .then((b) => Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8')))),
         artifact: (entry, onProgress) => {
             const url = new URL(entry.artifact.url || entry.artifact.name, s.url).toString();
-            return ctx.net.get(url, headers(url), entry.artifact.name, entry.artifact.size, onProgress);
+            return ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress);
         },
         files: () => Promise.reject(new Error('an https source has no repo tree'))
     };
@@ -484,12 +423,13 @@ const SEMVER_TAG = /^(?:v|[a-z0-9][a-z0-9_-]{0,63}@)?((?:0|[1-9]\d*)\.(?:0|[1-9]
  *  branch:<name>  mgu-repo.json at the branch's head commit;
  *  branch         the same, on the repo's default branch;
  *  tags           mgu-repo.json at the highest x.y.z tag (v1.2.3, 1.2.3, <id>@1.2.3).
- * No channel: releases when the repo has a release, else its default branch. */
+ * No channel: releases when the repo has a release, else its default branch.
+ * catalog()'s `public` is the repo's own word (`private: false`). */
 function githubReader(s, ctx) {
     const api = ctx.githubApi.replace(/\/+$/, '');
     const repoUrl = `${api}/repos/${s.repo}`;
     const headers = (url, accept) => {
-        const token = ctx.credentials.token(s.id);
+        const token = ctx.tokenFor(s.id);
         // the token goes to the API host only
         const auth = token && new URL(url).hostname === 'api.github.com' ? { Authorization: `Bearer ${token}` } : {};
         return Object.assign({ Accept: accept }, auth, ua(ctx.version));
@@ -607,10 +547,10 @@ function githubReader(s, ctx) {
             })
             .then((repo) => {
                 const branch = `branch:${repo.default_branch || 'main'}`;
-                return s.channel ? (s.channel === 'branch' ? branch : s.channel) :
-                    releasesList(1).then((r) => (r.length ? 'releases' : branch));
-            })
-            .then((channel) => onChannel(channel).then((c) => Object.assign(c, { channel }))),
+                return Promise.resolve(s.channel ? (s.channel === 'branch' ? branch : s.channel) :
+                    releasesList(1).then((r) => (r.length ? 'releases' : branch)))
+                    .then((channel) => onChannel(channel).then((c) => Object.assign(c, { channel, public: repo.private === false })));
+            }),
         artifact: (entry, onProgress) => raw(entry.artifact.url, entry.artifact.name, entry.artifact.size, onProgress),
         files: (commit, onProgress, under) => tarball(commit, onProgress)
             .then((buf) => tar.untgz(buf, ctx.maxBuildBytes))
@@ -770,8 +710,8 @@ function looseReader(root, ctx) {
 
 /* ---- one source --------------------------------------------------------------------- */
 
-/* A reader for a stored source or a USB folder. ctx: { net, credentials,
- * version, githubApi, maxRepoBytes (a tarball download), maxBuildBytes (a
+/* A reader for a stored source or a USB folder. ctx: { net, tokenFor(source
+ * id) -> the token text for it or '', version, githubApi, maxRepoBytes (a tarball download), maxBuildBytes (a
  * repo's files) }. */
 function reader(s, ctx) {
     if (s.type === 'github') {
@@ -791,6 +731,6 @@ function label(s) {
 }
 
 module.exports = {
-    load, save, checkStored, Credentials, reader, label, usbSources, mountPoints,
-    repoCatalog, packComponent, subtree, packageInfo, readInside, walkInside, authError, REPO, CHANNEL, TOKEN, PACKAGE
+    load, save, checkStored, writePrivate, reader, label, usbSources, mountPoints,
+    repoCatalog, packComponent, subtree, packageInfo, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE
 };
