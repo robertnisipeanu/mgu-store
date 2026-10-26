@@ -1,8 +1,9 @@
 'use strict';
 /**
  * Offline check of the renderer screens: src/store_ui.js's values and
- * src/store_frame.js's frames for every screen of tools/fixture.js, at
- * iDrive 7's and iDrive 8's scale: drawn without an element error, what can
+ * src/store_frame.js's frames for every screen of tools/fixture.js, in
+ * iDrive 7's boxes (the compact layout) and iDrive 8's (the design, scaled):
+ * drawn without an element error, inside the box, what can
  * be pressed in focus order with its press, the texts each state shows,
  * scrolling that follows the focus, touch hits, package pictures. Node 8+.
  *
@@ -10,35 +11,55 @@
  */
 const assert = require('assert');
 const path = require('path');
-const { frame, hit, placement, VIEWPORT } = require(path.join(__dirname, '..', 'src', 'store_frame.js'));
+const { frame, hit, placement } = require(path.join(__dirname, '..', 'src', 'store_frame.js'));
+const SCREENS = require(path.join(__dirname, '..', 'src', 'am_screens.js'));
 const fixture = require('./fixture.js');
 
 let checks = 0;
 const eq = (got, want, msg) => { checks += 1; assert.deepStrictEqual(got, want, msg); };
 const ok = (cond, msg) => { checks += 1; assert(cond, msg); };
-const SCALES = { 'iDrive 7': placement(1796, 632).scale, 'iDrive 8': placement(2880, 764).scale };
+const UNITS = { 'iDrive 7 embed': placement(1796, 632), 'iDrive 7 layer': placement(1790, 638), 'iDrive 8': placement(2880, 764) };
+const ID7 = UNITS['iDrive 7 embed'];
+const RING = 11;                // the focus ring's reach outside an item (8 out, 5 wide)
 
 function screen(name, over, stOver) {
     const s = fixture.screens().find((x) => x[0] === name);
     const st = s[2] || stOver ? Object.assign(fixture.state(), s[2] || {}, stOver || {}) : undefined;
     const m = fixture.model(Object.assign({}, s[1], over || {}), st);
-    const f = frame(m, { textScale: SCALES['iDrive 7'], focus: m.focus, scroll: {} });
+    const f = frame(m, { textScale: ID7.scale, focus: m.focus, scroll: {}, layout: ID7.layout });
     f.labels = f.items.map((i) => i.label);
     return f;
 }
 const own = (f) => f.labels.slice(0, -4);      // a page's items before its side menu
 const text = (f, el) => (f.values[el] || {}).text;
 
-ok(SCALES['iDrive 7'] > 0.64 && SCALES['iDrive 7'] < 0.66 && SCALES['iDrive 8'] > 1 && SCALES['iDrive 8'] < 1.02,
-    `the design's content scaled into each box: ${JSON.stringify(SCALES)}`);
-Object.keys(SCALES).forEach((unit) => fixture.screens().forEach(([name, over, stOver]) => {
+const I8 = UNITS['iDrive 8'];
+ok(I8.scale > 1 && I8.scale < 1.02 && !I8.layout, 'iDrive 8: the design scaled into its box');
+['iDrive 7 embed', 'iDrive 7 layer'].forEach((unit) => {
+    const p = UNITS[unit];
+    const vp = p.viewport;
+    eq([p.scale, p.ox, p.oy, vp.x, vp.y, p.layout.design.w, p.layout.design.h], [1, 0, 0, 0, 0, vp.w, vp.h], `${unit}: its own layout at scale 1`);
+    SCREENS.screens.forEach((def) => {
+        const own = p.layout.screens.find((s) => s.name === def.name);
+        eq(own.components.map((c) => c.name).sort(), def.components.map((c) => c.name).sort(), `${unit} ${def.name}: the design's elements`);
+        own.components.forEach((c) => ok(c.x >= 0 && c.y >= 0 && c.x + c.w <= vp.w && c.y + c.h <= vp.h,
+            `${unit} ${def.name}.${c.name} inside the box: ${JSON.stringify([c.x, c.y, c.w, c.h])}`));
+    });
+    const grid = p.layout.screens.find((s) => s.name === 'store').components.find((c) => c.name === 'grid');
+    eq(Math.floor(grid.h / grid.opts.tileH), 3, `${unit}: three rows of tiles`);
+});
+Object.keys(UNITS).forEach((unit) => fixture.screens().forEach(([name, over, stOver]) => {
+    const p = UNITS[unit];
+    const vp = p.viewport;
+    const ring = p.layout ? RING : 0;
     const st = stOver ? Object.assign(fixture.state(), stOver) : undefined;
     const m = fixture.model(over, st);
-    const f = frame(m, { textScale: SCALES[unit], focus: m.focus, scroll: {} });
+    const f = frame(m, { textScale: p.scale, focus: m.focus, scroll: {}, layout: p.layout });
     ok(!f.rec.errors, `${unit} ${name}: every element draws (${f.rec.errors})`);
     ok(f.items.length && f.items.every((it) => it.label && it.act), `${unit} ${name}: every item has a label and a press`);
-    ok(f.items.filter((it) => !it.reveal).every((it) => it.x >= VIEWPORT.x - 1 && it.x + it.w <= VIEWPORT.x + VIEWPORT.w + 1),
-        `${unit} ${name}: items in view`);
+    const out = f.items.filter((it) => !it.reveal && !(it.x - ring >= vp.x - 1 && it.x + it.w + ring <= vp.x + vp.w + 1 &&
+        (!p.layout || (it.y - ring >= vp.y && it.y + it.h + ring <= vp.y + vp.h))));
+    eq(out.map((it) => it.label), [], `${unit} ${name}: items and their focus ring in view`);
 }));
 
 // the Store tab: side menu, filters, a tile per component with its state
@@ -60,7 +81,7 @@ for (let i = 0; i < 30; i++) {
     many.components.push(Object.assign({}, many.components[3], { id: `x${i}`, title: `Extra ${i}` }));
 }
 const scroll = {};
-f = frame(fixture.model({}, many), { textScale: 1, focus: 7 + 40, scroll });
+f = frame(fixture.model({}, many), { textScale: 1, focus: 7 + 40, scroll, layout: ID7.layout });
 ok(scroll['store.grid'] > 0 && !f.items[47].reveal, 'the focused tile scrolled into view');
 eq(hit(f.items, f.items[47].x + 5, f.items[47].y + 5), 47);
 ok(f.items[7].reveal, 'the first tiles out of view now');
@@ -168,4 +189,4 @@ eq(text(screen('offline'), 'subtitle'), 'Restart the head unit to finish setup')
 f = screen('store', {}, { components: [Object.assign(fixture.state().components[1], { icon: '/run/mgu-updater/icons/doom.png' })] });
 eq([f.values.grid.items[0].icon, f.icons], ['key:/run/mgu-updater/icons/doom.png', ['/run/mgu-updater/icons/doom.png']]);
 
-console.log(`screens: ${fixture.screens().length} screens at 2 scales, ${checks} checks pass`);
+console.log(`screens: ${fixture.screens().length} screens in ${Object.keys(UNITS).length} boxes, ${checks} checks pass`);

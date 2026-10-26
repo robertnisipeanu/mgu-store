@@ -45,15 +45,16 @@ const DRAW = {
 
 /**
  * Record one frame of a renderer screen. opts: { time (s, animate), textScale (device px per design px),
- * view (head unit 'id8' | 'id7': where its app area is) }.
+ * view (head unit 'id8' | 'id7': where its app area is), design ({ w, h }: the layout's size, the
+ * design's when absent), area (the app area there, view's when absent) }.
  * Preview frames show the given values at once; animated ones glide with the kit's smoothing.
  */
 function record(st, opts = {}) {
-    const tg = E.DESIGN, t = kitTheme(st.theme);
+    const tg = opts.design || E.DESIGN, t = kitTheme(st.theme), area = opts.area || E.appArea(opts.view);
     const rec = new Recorder(tg.w, tg.h, { textScale: opts.textScale || 1 });
     rec.clear([0, 0, 0, 0]);
     if (st.bg !== 'none') {
-        const a = st.bgArea === 'app' ? E.appArea(opts.view) : { x: 0, y: 0, w: tg.w, h: tg.h };
+        const a = st.bgArea === 'app' ? area : { x: 0, y: 0, w: tg.w, h: tg.h };
         rec.fillRect(a.x, a.y, a.w, a.h, st.bg && st.bg !== 'theme' ? st.bg : t.bg);
     }
     (st.components || []).forEach((c, i) => {
@@ -62,7 +63,7 @@ function record(st, opts = {}) {
         const o = Object.assign(E.defaults(c.gpu), c.opts || {});
         for (const f of def.fields) if (f.kind === 'color' && !o[f.key]) delete o[f.key];
         o.smooth = false;
-        o.area = E.appArea(opts.view);         // the head unit's app area (a sheet dims only that, never the HMI's menus)
+        o.area = area;                          // the head unit's app area (a sheet dims only that, never the HMI's menus)
         const b = { x: c.x || 0, y: c.y || 0, w: c.w || 0, h: c.h || 0 };
         try { DRAW[c.gpu](rec, t, b, o); } catch (e) {
             rec.errors = (rec.errors || []).concat(`${c.name}: ${e.message}`);

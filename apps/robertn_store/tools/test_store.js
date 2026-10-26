@@ -603,13 +603,14 @@ function runDrawn() {
     return tick().then(() => {
         eq(app._ui, mode, `the renderer offering embed: ${mode} (the host states this HMI has)`);
         eq(fpsAsked, 30, 'at most 30 frames a second');
-        eq(gpuLog.slice(0, 2), [`mode ${mode}`, mode === 'embed' ? 'place 104,88 1796x632 0.652' : 'place 108,82 1790x638 0.650']);
+        eq(gpuLog.slice(0, 2), [`mode ${mode}`, mode === 'embed' ? 'place 104,88 1796x632 1.000' : 'place 108,82 1790x638 1.000'],
+            'iDrive 7: the compact layout, at scale 1');
         eq(states.slice(0, 2), [`map ${host(1)}`, `open ${host(1)}`], 'the tile maps to the drawn screens; the Store on screen moves there');
         app._states[host(1)].emit('visible', { visible: true });
         return tick();
     }).then(() => {
         eq(gpu.visible, true, 'shown with its host state');
-        eq(gpu.claims.length, 1, 'touch claimed');
+        eq(gpu.claims, [mode === 'embed' ? { x: 0, y: 0, w: 1796, h: 632 } : { x: 0, y: 0, w: 1790, h: 638 }], 'touch claimed: the box');
         eq(frames.length > 0 && drawn.items.some((i) => i.label === 'DOOM'), true, 'the Store tab drawn');
         eq([lastText(proxy(1, 0)), lastText(proxy(1, 3)), lastText(proxy(1, 4)), lastText(proxy(1, 7))],
             ['Store', 'Settings', 'All', 'DOOM'], 'proxies in focus order: side menu, filters, tiles');

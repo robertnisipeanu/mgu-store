@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "id": "robertn_store",
-  "version": "0.8.0",
-  "tree": "robertn_store@0.8.0",
+  "version": "0.8.1",
+  "tree": "robertn_store@0.8.1",
   "modules": [
     "src/store.js",
     "src/store_view.js",
@@ -12,6 +12,7 @@
     "src/speller.js",
     "src/store_drawn.js",
     "src/store_frame.js",
+    "src/store_compact.js",
     "src/store_ui.js",
     "src/store_elements.js",
     "src/am_screens.js",

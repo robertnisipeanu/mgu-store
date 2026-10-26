@@ -98,14 +98,16 @@ function visibleIds(b, o) {
     const g = gridView(b, o);
     return g.all.slice(g.top * g.cols, (g.top + g.shown) * g.cols).map((a) => a.id);
 }
+// (the Store: o.iconK, o.titleSize, o.subSize size a smaller tile's icon and texts; the defaults are the design's)
 function appGrid(cv, t, b, o) {
-    const g = gridView(b, o), s = Math.round(g.th * 0.5);
-    g.all.slice(g.top * g.cols, (g.top + g.shown) * g.cols).forEach((a, k) => {
-        const x = b.x + (k % g.cols) * g.tw, y = b.y + Math.floor(k / g.cols) * g.th;
-        appIcon(cv, t, a, x + (g.tw - s) / 2, y + 12, s);
-        const ny = y + 12 + s + 58;
-        cv.text(String(a.title || ''), x + g.tw / 2, ny, 40, t.text, { align: 'center', font: 'bold' });
-        if (a.sub) cv.text(String(a.sub), x + g.tw / 2, ny + 42, 30, C(t, a.subColor, t.dim), { align: 'center' });
+    const g = gridView(b, o), k = g.th / 274, s = Math.round(g.th * (o.iconK || 0.5));
+    const ts = o.titleSize || 40, ss = o.subSize || 30, top = 12 * k;
+    g.all.slice(g.top * g.cols, (g.top + g.shown) * g.cols).forEach((a, i) => {
+        const x = b.x + (i % g.cols) * g.tw, y = b.y + Math.floor(i / g.cols) * g.th;
+        appIcon(cv, t, a, x + (g.tw - s) / 2, y + top, s);
+        const ny = y + top + s + ts * 1.45;
+        cv.text(W.fit(cv, String(a.title || ''), g.tw - 16, ts, 'bold'), x + g.tw / 2, ny, ts, t.text, { align: 'center', font: 'bold' });
+        if (a.sub) cv.text(W.fit(cv, String(a.sub), g.tw - 16, ss), x + g.tw / 2, ny + ss * 1.4, ss, C(t, a.subColor, t.dim), { align: 'center' });
     });
     if (!g.all.length && o.empty) mid(cv, o.empty, b.x + b.w / 2, b.y + b.h / 2, 36, t.dim, { align: 'center' });
     if (g.rows > g.shown) {             // scroll bar
@@ -123,38 +125,42 @@ function listView(b, o) {
 }
 // the right-hand controls of a row ("toggle:on+trash": laid out from the right) -> [{ kind, arg, x, w }]
 const RIGHT_W = { chevron: 60, trash: 80, toggle: 150 };
-function rightBoxes(b, it, cv) {
+// (the Store: c scales the controls of a smaller row, o.ctlK)
+function rightBoxes(b, it, cv, c) {
     let x = b.x + b.w;
+    const k = c || 1;
     return String(it.right || '').split('+').filter(Boolean).reverse().map((r) => {
         const kind = r.split(':')[0], arg = r.slice(kind.length + 1);
-        const w = (kind === 'chip' ? cv.textWidth(arg, 26) + 54 : RIGHT_W[kind] || 0) + 24;
+        const w = (kind === 'chip' ? cv.textWidth(arg, 26 * k) + 54 * k : (RIGHT_W[kind] || 0) * k) + 24 * k;
         x -= w;
         return { kind, arg, x, w };
     });
 }
+// (the Store: o.titleSize, o.subSize and o.ctlK size a smaller row's texts and controls; the defaults are the design's)
 function appList(cv, t, b, o) {
-    const v = listView(b, o), gap = Math.round(v.rh * 0.13);
+    const v = listView(b, o), gap = Math.round(v.rh * 0.13), q = o.ctlK || 1, ts = o.titleSize || 40, ss = o.subSize || 30;
     v.all.slice(v.top, v.top + v.n).forEach((it, k) => {
         const y = b.y + k * v.rh, h = v.rh - gap, s = Math.round(h * 0.73);
-        cv.card(b.x, y, b.w, h, 22, [[0, t.panelTop], [1, t.panelBottom]]);
-        let tx = b.x + 28;
+        cv.card(b.x, y, b.w, h, 22 * q, [[0, t.panelTop], [1, t.panelBottom]]);
+        let tx = b.x + 28 * q;
         if (it.icon || it.vicon || it.colors || it.letter) {
-            if (it.plain && it.vicon) vicon(cv, it.vicon, b.x + 28, y + (h - s) / 2, s, C(t, it.iconColor, t.text));
-            else appIcon(cv, t, it, b.x + 22, y + (h - s) / 2, s, t.panelTop);
-            tx = b.x + 22 + s + 32;
+            if (it.plain && it.vicon) vicon(cv, it.vicon, b.x + 28 * q, y + (h - s) / 2, s, C(t, it.iconColor, t.text));
+            else appIcon(cv, t, it, b.x + 22 * q, y + (h - s) / 2, s, t.panelTop);
+            tx = b.x + 22 * q + s + 32 * q;
         }
-        cv.text(String(it.title || ''), tx, y + h * 0.47, 40, t.text, { font: 'bold' });
-        if (it.sub) cv.text(String(it.sub), tx, y + h * 0.83, 30, C(t, it.subColor, t.dim));
+        const boxes = rightBoxes(b, it, cv, q), room = (boxes.length ? boxes[boxes.length - 1].x : b.x + b.w) - tx - 8;
+        cv.text(W.fit(cv, String(it.title || ''), room, ts, 'bold'), tx, y + h * 0.47, ts, t.text, { font: 'bold' });
+        if (it.sub) cv.text(W.fit(cv, String(it.sub), room, ss), tx, y + h * 0.83, ss, C(t, it.subColor, t.dim));
         const cy = y + h / 2;
-        for (const rb of rightBoxes(b, it, cv)) {
-            const re = rb.x + rb.w - 24;                    // the control's right edge
-            if (rb.kind === 'chevron') W.chevron(cv, re - 28, cy, 22, 'right', 4, t.dim);
-            else if (rb.kind === 'trash') vicon(cv, 'trash', re - 66, cy - 30, 60, t.dim);
+        for (const rb of boxes) {
+            const re = rb.x + rb.w - 24 * q;                // the control's right edge
+            if (rb.kind === 'chevron') W.chevron(cv, re - 28 * q, cy, 22 * q, 'right', 4 * q, t.dim);
+            else if (rb.kind === 'trash') vicon(cv, 'trash', re - 66 * q, cy - 30 * q, 60 * q, t.dim);
             else if (rb.kind === 'toggle') {
-                const on = rb.arg === 'on', tw = 150, th = 76, tx0 = re - tw;
+                const on = rb.arg === 'on', tw = 150 * q, th = 76 * q, tx0 = re - tw;
                 cv.roundRect(tx0, cy - th / 2, tw, th, th / 2, on ? GREEN : '#3a4352');
-                cv.circle(on ? tx0 + tw - th / 2 : tx0 + th / 2, cy, th / 2 - 8, '#ffffff');
-            } else if (rb.kind === 'chip') chip(cv, rb.arg, re, cy - 30, 60, C(t, it.chipColor, BLUE), it.chipDot, true);
+                cv.circle(on ? tx0 + tw - th / 2 : tx0 + th / 2, cy, th / 2 - 8 * q, '#ffffff');
+            } else if (rb.kind === 'chip') chip(cv, rb.arg, re, cy - 30 * q, 60 * q, C(t, it.chipColor, BLUE), it.chipDot, true);
         }
     });
     if (!v.all.length && o.empty) mid(cv, o.empty, b.x + b.w / 2, b.y + b.h / 2, 36, t.dim, { align: 'center' });
@@ -163,8 +169,9 @@ function appList(cv, t, b, o) {
 // ---- side menu with vector icons and count badges ------------------------------------------------------------
 const navItems = (o) => (Array.isArray(o.items) ? o.items
     : lines(o.items).map((l, i) => ({ id: l[0].toLowerCase(), label: l[0], vicon: l[1] || '', badge: l[2] || '' })));
+// (the Store: o.labelSize for a narrower menu; the default is the design's)
 function sideNav(cv, t, b, o) {
-    const items = navItems(o), ih = b.h / Math.max(1, items.length), is = Math.min(68, ih * 0.38);
+    const items = navItems(o), ih = b.h / Math.max(1, items.length), is = Math.min(68, ih * 0.38), ls = o.labelSize || 34;
     cv.fillRect(b.x, b.y, b.w, b.h, withAlpha(t.panelBottom, 0.85));
     cv.fillRect(b.x + b.w - 1.5, b.y, 1.5, b.h, t.panelEdge);
     items.forEach((it, i) => {
@@ -174,7 +181,7 @@ function sideNav(cv, t, b, o) {
             cv.roundRect(b.x + 8, y + ih * 0.22, 6, ih * 0.56, 3, t.text);
         }
         vicon(cv, it.vicon, b.x + b.w / 2 - is / 2, iy, is, c);
-        cv.text(String(it.label), b.x + b.w / 2, iy + is + 50, 34, c, { align: 'center' });
+        cv.text(String(it.label), b.x + b.w / 2, iy + is + ls * 1.47, ls, c, { align: 'center' });
         if (it.badge && String(it.badge) !== '0') {
             const bx = b.x + b.w / 2 + is * 0.97, by = iy + 6;
             cv.circle(bx, by, 30, t.bg); cv.circle(bx, by, 26, BLUE);
@@ -271,7 +278,7 @@ listTry.up = (cv, b, o, p) => {
     if (!d || d.moved) return false;
     const it = v.all[v.top + Math.floor((p.y - b.y) / v.rh)];
     if (!it) return false;
-    const rb = rightBoxes(b, it, cv).find((x) => p.x >= x.x && p.x < x.x + x.w && ['toggle', 'trash', 'chip'].indexOf(x.kind) >= 0);
+    const rb = rightBoxes(b, it, cv, o.ctlK).find((x) => p.x >= x.x && p.x < x.x + x.w && ['toggle', 'trash', 'chip'].indexOf(x.kind) >= 0);
     tapped(o, it.id, rb ? rb.kind : 'row');
 };
 const TRY = {
