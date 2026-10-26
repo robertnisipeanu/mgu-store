@@ -93,10 +93,10 @@ function tileState(c, busy) {
     if (notForUnit(c)) {
         return { sub: 'Not for this head unit', subColor: AMBER, badge: c.installed ? 'installed' : '', progress: -1 };
     }
-    if (c.error && !notForUnit(c)) {
+    if (c.error) {
         return { sub: 'Failed', subColor: RED, badge: '', progress: -1 };
     }
-    if (c.status === 'update' && !notForUnit(c)) {
+    if (c.status === 'update') {
         return { sub: `Update ${target(c)}`, subColor: BLUE, badge: 'update', progress: -1 };
     }
     if (c.status === 'available') {
