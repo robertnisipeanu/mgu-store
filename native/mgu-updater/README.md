@@ -342,7 +342,7 @@ iDrive 8; this head unit is iDrive 7`), as a requirement too.
 
 **Capabilities.** A tool may say which capability it provides
 (`mguProvides`; a renderer package provides `renderer`, a tether package
-`tether`). The installed providers of each are in `providers`, from the
+`tether`). The installed providers of each are in `allProviders`, from the
 deploy tool's `status --json`. Providers of one capability install side by
 side, renderers among them (`native/mgu-render/README.md`, "Beside other
 renderers").
@@ -583,7 +583,8 @@ each request, and whenever it changes (at most every 250 ms):
 ```json
 { "type": "state", "updater": { "version": "0.4.0" }, "online": true, "privacy": "patched",
   "unit": { "hmi": "ID7", "firmware": "BMW MGU P18_23w44.2-1-3 mgu-high" },
-  "providers": { "renderer": [ { "id": "mgu-render", "version": "0.2.0" }, { "id": "mgu-renderd", "version": "1.1.2" } ] },
+  "allProviders": { "renderer": [ { "id": "mgu-render", "version": "0.2.0" }, { "id": "mgu-renderd", "version": "1.1.2" } ] },
+  "providers": { "renderer": { "id": "mgu-render", "version": "0.2.0" } },
   "catalog": { "commit": "…", "checkedAt": 1792620000000, "checking": false, "error": null },
   "sources": [ { "id": "idrive7-apps", "type": "github", "label": "someone/idrive7-apps",
     "builtin": false, "usb": false, "channel": "releases", "status": "ok", "error": null,
@@ -613,8 +614,9 @@ each request, and whenever it changes (at most every 250 ms):
   `description` and `author` its source's (`''` when it gives none);
   `icon` the kept icon's path, or null (Sources, "Icons").
 - `unit`: the head unit (`hmi` `ID7`, `ID8` or null, `firmware` its build
-  string), null until the deploy tool says. `providers`: the installed tools
-  providing each capability. A component's `mguHmi`, `compat`, `provides`
+  string), null until the deploy tool says. `allProviders`: the installed tools
+  providing each capability; `providers`: the first of them each, for the
+  Store 0.7. A component's `mguHmi`, `compat`, `provides`
   (its capability) and `service` (`renderer` or `tether` for a service
   package) ("Head units", "Capabilities").
 - `busy.phase`: `download`, `build` (a source package or a repo's build

@@ -209,7 +209,7 @@ function settingsView(m) {
             right: 'chevron', act: { do: 'open', page: { name: 'phone' } } });
     }
     const unit = st && st.unit;
-    const renderers = st && st.providers && Array.isArray(st.providers.renderer) ? st.providers.renderer : [];
+    const renderers = st && st.allProviders && Array.isArray(st.allProviders.renderer) ? st.allProviders.renderer : [];
     return {
         note: { text: m.note || '' },
         repos: srcs ? { items: srcs.map(sourceRow), empty: 'None' } : { items: [], empty: '' },

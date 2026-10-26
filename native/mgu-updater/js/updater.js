@@ -822,8 +822,10 @@ class Updater {
             type: 'state',
             updater: { version: this.version },
             unit: this.unit,
-            // the installed tool providing each capability
-            providers: this.providers,
+            // the installed tools providing each capability
+            allProviders: this.providers,
+            // one of them each, for clients that know a single provider (the Store 0.7)
+            providers: Object.keys(this.providers).reduce((o, cap) => Object.assign(o, { [cap]: this.providers[cap][0] }), {}),
             online: readLease(this.conf).online,
             privacy: this.privacy,
             // one line for clients that know a single catalog (the Store 0.3)

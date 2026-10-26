@@ -2192,9 +2192,10 @@ function testUnitServices(certs, pubDir) {
             ok('service: it installs from the kept package (no longer served) through the deploy tool',
                 err === null && /mgu-renderd@1\.1\.0\.tgz --yes/.test(deployed()[0]), `${err} ${deployed()}`);
             ok('provides: the state names the installed provider',
-                JSON.stringify(st().providers) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"}]}' &&
+                JSON.stringify(st().allProviders) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"}]}' &&
+                JSON.stringify(st().providers) === '{"renderer":{"id":"mgu-renderd","version":"1.1.0"}}' &&
                 comp('my-render').provides === 'renderer' && !('replaces' in comp('my-render')),
-                JSON.stringify([st().providers, comp('my-render')]));
+                JSON.stringify([st().allProviders, st().providers, comp('my-render')]));
             ok('requires: a requirement providing what another installed tool provides counts as met, another one not',
                 u.requirementMet('my-render', '0.1.0') && !u.requirementMet('both_app', '9.0.0'));
             return ask(sock, { op: 'install', id: 'my-render' });
@@ -2203,19 +2204,20 @@ function testUnitServices(certs, pubDir) {
         .then((err) => {
             ok('provides: a second renderer installs beside the first, without --replace', err === null &&
                 /^install --artifact .*my-render@0\.1\.0\.tgz --yes$/.test(deployed()[1]) && comp('mgu-renderd').status === 'installed' &&
-                JSON.stringify(st().providers) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"},{"id":"my-render","version":"0.1.0"}]}' &&
-                u.origins['mgu-renderd'] && u.origins['my-render'].source === 'cat', `${err} ${deployed()} ${JSON.stringify(st().providers)}`);
+                JSON.stringify(st().allProviders) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"},{"id":"my-render","version":"0.1.0"}]}' &&
+                JSON.stringify(st().providers) === '{"renderer":{"id":"mgu-renderd","version":"1.1.0"}}' &&
+                u.origins['mgu-renderd'] && u.origins['my-render'].source === 'cat', `${err} ${deployed()} ${JSON.stringify(st().allProviders)}`);
             return priv({ op: 'uninstall', id: 'my-render' });
         })
         .then(() => until(st, () => !st().busy && comp('my-render').status === 'available', 30000, 'my-render removed'))
         .then(() => {
             ok('provides: after its uninstall the first renderer is the one provider',
-                JSON.stringify(st().providers) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"}]}', JSON.stringify(st().providers));
+                JSON.stringify(st().allProviders) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"}]}', JSON.stringify(st().allProviders));
             return priv({ op: 'uninstall', id: 'mgu-renderd' });
         })
         .then(() => until(st, () => !st().busy && comp('mgu-renderd').status === 'available', 30000, 'mgu-renderd removed'))
         .then(() => {
-            ok('provides: after both uninstalls no tool provides it', JSON.stringify(st().providers) === '{}');
+            ok('provides: after both uninstalls no tool provides it', JSON.stringify(st().allProviders) === '{}' && JSON.stringify(st().providers) === '{}');
             process.env.FAKE_UNIT_HMI = 'ID8';
             return u.refresh();
         })
