@@ -23,6 +23,8 @@ enum {
     M_CLAIM = 9,      /* u32 n, (f32 x y w h)*n logical px: touch there is this app's while it is shown (n 0 = none) */
     M_IMAGE = 10,     /* u32 id, u32 w, u32 h (1..1024), w*h*4 bytes RGBA premultiplied, rows top-down; same id replaces */
     M_DROP_IMAGE = 11,/* u32 id */
+    M_FPS = 12,       /* u32 max frames a second (0 = no cap): faster frames wait, E_TICK comes at that rate (renderd
+                         1.1.2; an older renderer ignores it, like any unknown message) */
 };
 
 /* daemon -> client */

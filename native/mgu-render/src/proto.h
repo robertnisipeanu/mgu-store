@@ -48,6 +48,8 @@ enum {
     MI_CLAIM = 9,     /* u32 n, (f32 x y w h)*n logical px: touch there is this app's while it is shown (n 0 = none) */
     MI_IMAGE = 10,    /* u32 id, u32 w, u32 h (1..1024), w*h*4 bytes RGBA premultiplied, rows top-down; same id replaces */
     MI_DROP_IMAGE = 11,/* u32 id */
+    MI_FPS = 12,      /* u32 max frames a second (0 = no cap, at most 1000): faster frames wait, TICK comes at that rate;
+                         upstream sends none, so it needs no dialect */
 };
 
 /* client -> daemon, native only ("MR" + n: clear of every number the other dialects use) */
