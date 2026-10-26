@@ -56,6 +56,7 @@ IterioDev's reads the version (3: pictures supported) and the touch word.
 | 9 | IMAGE: u32 id, w, h (1..4096), w×h opaque RGBA, rows top-down; the same id is overwritten | CLAIM: u32 n (0..16), n × f32 x, y, w, h logical px: touch there is this app's while it is shown |
 | 10 | GRAB: u32 on: the iDrive controller to this app while it is shown | IMAGE: u32 id, w, h (1..1024), w×h premultiplied RGBA, rows top-down; the same id replaces |
 | 11 | (none) | DROP_IMAGE: u32 id |
+| 12 | (none) | FPS: u32 at most that many frames a second (0 = no cap, at most 1000): a faster frame waits, TICK comes at that rate |
 | 105 | CCU: a FrontCCU `RotaryEncoderStateFront` event the HMI did not get (u8 sequence, u16 BE knob, u8 press, u8 tilt, ...) | TOUCH: u32 phase (1 down, 2 move, 3 up), f32 x, y logical px |
 | 106 | (none) | CLOSED: the HMI was touched outside the claims; the app is hidden (SHOW 0) |
 | op 18 | IMAGE `id ver x y w h`: the image scaled into the rect, nearest pixel | IMAGE `x y w h r id`: the picture over the rect, corner radius r, filtered |
@@ -74,6 +75,7 @@ treats 9, 10, 11, the events and op 18 that way:
 - **10** of 4 bytes is upstream's GRAB; 12 + w×h×4 bytes is IterioDev's IMAGE.
 - **11** is IterioDev's.
 - Anything else in 9-11 fits neither and ends the connection.
+- **12** is IterioDev's (renderd 1.1.2) and decides nothing: upstream sends none.
 
 Until then nothing tells them apart, and nothing needs to: messages 1-8 are the
 same, the daemon sends 105 and 106 only to an app that claimed or grabbed, and
