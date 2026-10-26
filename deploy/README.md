@@ -1137,8 +1137,8 @@ oap-sdk generated, no donor refused), the internet drop-ins, `sdk-donor`,
 the head unit (iDrive 7 and 8 by MainApp's folder, by the running HMI with
 both or neither, unknown), compatibility (rhmiData, a declared `mguHmi`,
 a tool's, a malformed one), service packages (the renderer as a tool with
-its unit, link and recmgr entry, starting at the next boot; refusals; the
-tether on demand; uninstall; on an iDrive 8 without a recmgr list started
+its unit, link and recmgr entry, starting at the next boot; refusals, the
+tether among them; uninstall; on an iDrive 8 without a recmgr list started
 at once with touch routing), capabilities (a second renderer installed
 beside the first, two in one call, one left after the other's uninstall),
 `keepRunning` (a running service and its changed socket left as they are,
@@ -1148,6 +1148,12 @@ renderer package not restarted), iDrive 8 apps against made-up das files (queued
 removal with everything moved to the trash, a flat package repacked, a
 queued install dropped, refusals; with `MGU_TEST_ID8_PROV=<folder>` also
 against real das files, never part of the repository),
+IterioDev's App Manager on a made-up iDrive 8 laid out as its `install.sh`
+and service leave it (its app refused; adopt: its daemon and tether
+stopped, its queue moved, its renderer our tool, the record without its
+token, nothing reinstalled; again; Remove and the next start; a failed
+adopt rolled back; our renderer installed first; under recmgr finished at
+the next boot),
 and `mgu-install.js`: `first-install` and `token` against a fake root
 through a stand-in `ssh` (`fake_ssh_exec.js`) with the release from a
 stand-in GitHub API (`fake_github.js`: a private repository, downloads
