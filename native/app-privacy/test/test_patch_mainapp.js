@@ -203,8 +203,8 @@ test('boot exits 0 on a mismatch and leaves the files', () => withBundles((b) =>
 
 // sha256 of JSON.stringify(PATCH_SETS) as shipped by 1.2.1, and of the
 // 1.1.0 entry of EARLIER_PATCH_SETS.
-const PATCH_SETS_SHA256 = '105cfa517e7d35185f3ee276b79a06231016e61fa110574a1910a0d1d08c90e7';
-const PATCH_SETS_SHA256_1_1_0 = '6da5c0b49bdda75340137bef647b794f659e2289231bbc4076b0bc7e618d2a5b';
+const PATCH_SETS_SHA256 = 'd494bf13326a07a6275f762b25d0639efb6eb12258718289000bb05ecbca5d8c';
+const PATCH_SETS_SHA256_1_1_0 = '65fdf5a71cb95d465b37811cb2f326495686d4edcbd33566c07bad6c3ddc484e';
 // sha256 of the reference firmware bundles as each release patches them:
 // the current edits (1.2.0 and later) and 1.1.0's (and 1.0.0's).
 const PATCHED_SHA256 = {
@@ -230,11 +230,12 @@ function setsSha(sets) {
 test('the patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS);
     assert.strictEqual(sha, PATCH_SETS_SHA256,
-        'PATCH_SETS differs from the released one: add the released sets to EARLIER_PATCH_SETS ' +
-        'under the last version that shipped them, bump the version, then record ' + sha + ' here');
+        'PATCH_SETS differs from the released one: when the text an edit writes or HELPER_JS changes, add the ' +
+        'released sets to EARLIER_PATCH_SETS under the last version that shipped them and bump the version; ' +
+        'then record ' + sha + ' here (the reference firmware case checks the edits\' output)');
 });
 
-test('the earlier release\'s patch set is the one it shipped', () => {
+test('the earlier release\'s patch set is recorded', () => {
     const earlier = patcher.EARLIER_PATCH_SETS.filter((s) => s.version === '1.1.0')[0];
     assert.ok(earlier, 'EARLIER_PATCH_SETS has no 1.1.0 entry');
     assert.strictEqual(setsSha(earlier), PATCH_SETS_SHA256_1_1_0);

@@ -37,7 +37,7 @@ const T = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-deploy-test-'));
 const MGR = 12201;
 const PENDING = 'recmgr entry takes effect after reboot';
 const CLASS_ANCHOR = 'class ProvisioningNotifier ';
-const HOOK_ANCHOR = 'isMainapp&&section===mainAppSection&&(';
+const HOOK_ANCHOR = 'isMainapp&&section===mainAppSection&&(newProvisioning.';
 const INPLACE_ANCHOR = 'mainApp.init()}).then(()=>{';
 
 let n = 0;
@@ -835,7 +835,7 @@ function testFallback() {
 
     const main = stockMain();
     [['a duplicated class anchor', main.replace(CLASS_ANCHOR, `${CLASS_ANCHOR}}${CLASS_ANCHOR}`)],
-        ['a missing hook anchor', main.replace(HOOK_ANCHOR, 'isMainapp&&(')]]
+        ['a missing hook anchor', main.replace(HOOK_ANCHOR, 'isMainapp&&(newProvisioning.')]]
         .forEach(([what, text]) => {
             const bad = fakeRoot({ main: text });
             const before = bad.hash();

@@ -37,7 +37,7 @@ var path = require('path');
 
 var MARK = '/* mgu-deploy provisioning fallback */';
 var CLASS_ANCHOR = 'class ProvisioningNotifier ';
-var HOOK_ANCHOR = 'isMainapp&&section===mainAppSection&&(';
+var HOOK_ANCHOR = 'isMainapp&&section===mainAppSection&&(newProvisioning.';
 var INPLACE_MARK = '/* mgu-deploy in-place install */';
 var INPLACE_ANCHOR = 'mainApp.init()}).then(()=>{';
 

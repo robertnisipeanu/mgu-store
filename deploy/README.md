@@ -799,7 +799,7 @@ copy of the stock `/usr/lib/oap-mainapp/src/main.js` with one change in
 (its flags, which give it its tile and start type). An app provisioning
 lists keeps its own entry. The build needs both anchors (`class
 ProvisioningNotifier ` and the `installable_apps` hook,
-`isMainapp&&section===mainAppSection&&(`) exactly once in the stock file;
+`isMainapp&&section===mainAppSection&&(newProvisioning.`) exactly once in the stock file;
 any other count refuses it and nothing is written. The copy also carries
 the in-place install hook (Apps, above), in main's start-up once MainApp
 has initialized, at the step after `mainApp.init()`:

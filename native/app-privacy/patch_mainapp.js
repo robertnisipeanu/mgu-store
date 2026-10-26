@@ -115,9 +115,10 @@ function helperInjection(anchor) {
 }
 
 /* An edit that inserts `insert` between the stock text `before` and
- * `after`, as [anchor, replacement, expected anchor occurrences]. The
- * anchors are the shortest readable stock text that pins each insertion
- * point in the reference bundles. */
+ * `after`, as [anchor, replacement, expected anchor occurrences]. Each
+ * anchor is the shortest readable stock text that pins its insertion point
+ * in the reference bundles and names the stock bindings the inserted code
+ * assigns or reads beyond the function's appId. */
 function ins(before, insert, after, n) {
     return [before + after, before + insert + after, n];
 }
@@ -151,7 +152,8 @@ const MAIN_PATCHES = [
     ins('getAllAppIds()', KEEP_APP_ID, ';return logger.info(`${logPrefix} Trying', 1),
     // Diagnostic readout (DiagOap StatusOap).
     ins('getAllAppIds())', KEEP_APP_ID, ';', 2),
-    ins('persistCrashedStartingRunning`;', 'if(isLocalOnlyApp(data.name))return Promise.resolve();', '', 1),
+    ins('data){const logPrefix=`${this.CLASS_NAME}::persistCrashedStartingRunning`;',
+        'if(isLocalOnlyApp(data.name))return Promise.resolve();', '', 1),
     ins('for(const entry of entries', '.filter(_e=>!isLocalOnlyApp(_e.name))', ')', 1),
     ins('entryValue=entries', '.filter(_e=>!isLocalOnlyApp(_e.appId))', '.map(', 1)
 ];
@@ -164,7 +166,8 @@ const APPMANAGEMENT_PATCHES = [
         'Promise.reject(new OAPError(`${logPrefix} ${appId} is local-only; ' +
         'the app repository is not queried.`,"LOCAL_ONLY_APP")):', 'this._npmClient.view(appId)', 1),
     // Package download: local-only apps never use the repository.
-    ins('"NpmPackageManager::download";', 'isLocalOnlyApp(appId)&&(ignoreNpmRegistry=!0);', '', 1),
+    ins('ignoreNpmRegistry=!1){const logPrefix="NpmPackageManager::download";',
+        'isLocalOnlyApp(appId)&&(ignoreNpmRegistry=!0);', '', 1),
     // Corrupt-app report on package verification failure.
     ins('vin=>{', 'isLocalOnlyApp(appId)||', 'this._backendTransport.reportCorruptApp(', 1)
 ];
