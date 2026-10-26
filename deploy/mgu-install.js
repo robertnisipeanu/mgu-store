@@ -462,15 +462,14 @@ function ssh(o, remote, { input, capture } = {}) {
 /* ---- first-install ---------------------------------------------------------------------- */
 
 /* On the unit, in the staging folder: the release's deploy tool installs
- * every artifact (itself among them; newer installed ones kept), seeds the
- * updater's sources when it has none, and prints the status. */
+ * every artifact (itself among them; newer installed ones kept) and seeds
+ * the updater's sources when it has none. */
 const RUN_SH = `set -e
 S=$(cd "$(dirname "$0")" && pwd)
 set --
 for f in "$S"/artifacts/*.tgz; do set -- "$@" --artifact "$f"; done
 sh "$S/mgu-deploy.sh" install "$@" --skip-older --yes
 sh "$S/mgu-deploy.sh" updater-sources < "$S/sources.json"
-sh "\${MGU_DEPLOY_VAR_OPT:-/var/opt}/mgu-deploy/mgu-deploy.sh" status
 `;
 
 /* The deploy tool's own files, from its published artifact: component.json
@@ -529,7 +528,9 @@ async function firstInstall(o) {
         }
     }
     const services = ['mgu-updater.service'].concat(o.withUplink ? ['mgu-uplink.service'] : []);
-    const st = ssh(o, services.map((s) => `systemctl is-active ${s} 2>/dev/null || true`).join('; '), { capture: true });
+    // the status on stderr, shown as it comes; which services run on stdout
+    const st = ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) => `systemctl is-active ${s} 2>/dev/null || true`)).join('; '),
+        { capture: true });
     const down = services.filter((s, i) => (st.stdout.split('\n')[i] || '').trim() !== 'active')
         .map((s) => (s === 'mgu-updater.service' ? 'the updater' : 'the uplink'));
     say(down.length ? `Restart the head unit to finish setup (a normal ignition cycle does it): ${down.join(' and ')} ${down.length > 1 ? 'start' : 'starts'} then.` :

@@ -237,9 +237,10 @@ unit. One ssh call sends them as a tar stream to
 `/var/opt/mgu-deploy-kit-<pid>` (0700) and runs there: `mgu-deploy.sh
 install --artifact ... --skip-older --yes` with the release's deploy tool
 (it installs itself as `mgu-deploy`, keeps newer installed tools and apps,
-does not build an installed Store version again), `updater-sources` with
-the mgu-store source (kept when the unit has its own), `status`; then
-removes the folder. With `--token` a token is added (below). Its last line
+does not build an installed Store version again) and `updater-sources`
+with the mgu-store source (kept when the unit has its own); then removes
+the folder. With `--token` a token is added (below), then `status` is
+printed. Its last line
 is `Restart the head unit to finish setup (a normal ignition cycle does
 it): the updater starts then.` while `mgu-updater.service` (or, with
 `--with-uplink`, `mgu-uplink.service`) is not active, else `Setup is
