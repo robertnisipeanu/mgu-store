@@ -602,7 +602,14 @@ source text and dependency tables; root links those strings without
 evaluating the donor. Non-root host builds use the same string form in
 process. The closure of those names is copied with the donor's ids, the app's modules follow from id 10000, and `javascript/app.js`
 and `javascript/build.json` are written, `node --check`ed and packed
-(`tools/oap_pack.js`). The result installs as any app. The same
+(`tools/oap_pack.js`). When the tree ships no file at its `package.json`
+`main` (`javascript/<file>.js`), the build writes there the entry point of
+the donor's own package (the file that package's `main` names: in a
+preinstalled tgz, or beside an installed app's `javascript/`; the other
+donors' packages next), with a `runnerConfig.json` beside it naming the
+app's bundle (`./app.js`) and data folder (`../../data`); when no donor
+package has one, a loader that requires `./app.js`. `build.json` names where
+it came from. The result installs as any app. The same
 inputs give the same bundle on the unit and on the build machine. An app
 already installed at that version is not built. No donor, a module that
 does not compile, or a bad `mgu-app.json` refuses the artifact (exit 2,
@@ -742,14 +749,14 @@ copy of the stock `/usr/lib/oap-mainapp/src/main.js` with one change in
 `installable_apps` (so the manager installs it) and as the app's own section
 (its flags, which give it its tile and start type). An app provisioning
 lists keeps its own entry. The build needs both anchors (`class
-ProvisioningNotifier extends events_1.EventEmitter{` and the
-`installable_apps` hook) exactly once in the stock file; any other count
-refuses it and nothing is written. The copy also carries the in-place
-install hook (Apps, above), in main's start-up once MainApp has
-initialized, at the step after `mainApp.init()`:
+ProvisioningNotifier ` and the `installable_apps` hook,
+`isMainapp&&section===mainAppSection&&(`) exactly once in the stock file;
+any other count refuses it and nothing is written. The copy also carries
+the in-place install hook (Apps, above), in main's start-up once MainApp
+has initialized, at the step after `mainApp.init()`:
 
 ```
-kpiLogger.info("MARKER All components instantiated. Initializing."),mainApp.init()}).then(()=>{
+mainApp.init()}).then(()=>{
 ```
 
 When that anchor does not occur exactly once, the copy is built without
@@ -932,7 +939,7 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
   names first (on a replica of the car's rootfs it is
   `ts_diagnostic_service@4.20.2`, oap-sdk 24.10.2 with module ids of its
   own; x_call's closure is byte-identical to oap-sdk 24.10.2), and the
-  Store built from it starting on the car.
+  Store built from it, with that package's entry point, starting on the car.
 - A package built elsewhere running on the car with the generated
   `node_modules/oap-sdk` under the manager's install (its native modules
   resolved for the app as for a stock app).

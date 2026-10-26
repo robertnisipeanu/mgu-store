@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+The package ships no entry point of its own: the build supplies
+`javascript/runner.js` from the SDK donor's package, so the Store needs
+mgu-deploy 0.2.3 or later to build on the head unit.
+
 ## 0.4.1
 
 With no updater to reach and none run since the Store was installed (no

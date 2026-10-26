@@ -163,6 +163,75 @@ function testBundleMode() {
         });
 }
 
+/* A source package whose tree ships no entry point: package.json main
+ * javascript/runner.js, no file there. */
+function entrylessApp() {
+    const dir = sourceApp();
+    const tree = path.join(dir, 'robertn_demo@1.2.3');
+    fs.unlinkSync(path.join(tree, 'javascript', 'runner.js'));
+    write(path.join(tree, 'package.json'), JSON.stringify({ name: 'robertn_demo', version: '1.2.3', main: 'javascript/runner.js',
+        files: ['javascript', 'package.json'] }));
+    return dir;
+}
+
+function runMain(file) {
+    const dir = extract(file);
+    return cp.spawnSync(process.execPath, [path.join(dir, 'javascript', 'runner.js')], { encoding: 'utf8' });
+}
+
+function testEntryPoint() {
+    const withEntry = donor.tgz(path.join(tmp('donor'), 'donor_app@1.0.0.tgz'), { main: './javascript/entry.js' });
+    const out = path.join(tmp('out'), 'e.tgz');
+    const r = link.build(entrylessApp(), out, { donors: [withEntry], epoch: 1700000000 });
+    let m = members(out);
+    check('entry: the donor package\'s main is copied as the tree\'s main, with runnerConfig.json',
+        r.entry === 'donor_app@1.0.0:javascript/entry.js' && m['javascript/runner.js'].toString() === donor.ENTRY &&
+        JSON.stringify(JSON.parse(m['javascript/runnerConfig.json'])) ===
+            '{"DATA_RELATIVE_PATH":"../../data","JS_RELATIVE_PATH":"./app.js"}', JSON.stringify(r));
+    check('entry: build.json names it', JSON.stringify(JSON.parse(m['javascript/build.json']).main) ===
+        '{"path":"javascript/runner.js","from":"donor_app@1.0.0:javascript/entry.js"}');
+    let run = runMain(out);
+    check('entry: the built app runs through it', run.status === 0 && run.stdout === 'demo function function', run.stdout + run.stderr);
+
+    const plain = donor.tgz(path.join(tmp('donor'), 'plain.tgz'));
+    const r2 = link.build(entrylessApp(), path.join(tmp('out'), 'f.tgz'), { donors: [plain, withEntry], epoch: 1700000000 });
+    check('entry: from the next donor\'s package when the sdk donor\'s has none',
+        r2.donor === 'plain.tgz:javascript/app.js' && r2.entry === 'donor_app@1.0.0:javascript/entry.js', JSON.stringify(r2));
+
+    const loaderOut = path.join(tmp('out'), 'g.tgz');
+    const bundleMain = donor.tgz(path.join(tmp('donor'), 'bundle_main.tgz'), { main: 'javascript/app.js' });
+    const r3 = link.build(entrylessApp(), loaderOut, { donors: [plain, bundleMain], epoch: 1700000000 });
+    m = members(loaderOut);
+    run = runMain(loaderOut);
+    check('entry: no donor entry point (none, or a main that is a bundle): the loader, no runnerConfig.json',
+        r3.entry === 'loader' && m['javascript/runner.js'].toString() === link.LOADER && !m['javascript/runnerConfig.json'],
+        JSON.stringify(r3));
+    check('entry: the built app runs through the loader', run.status === 0 && run.stdout === 'demo function function',
+        run.stdout + run.stderr);
+
+    const home = tmp('home');
+    write(path.join(home, 'package.json'), JSON.stringify({ name: 'stock_app', version: '2.0.0', main: 'javascript/entry.js' }));
+    write(path.join(home, 'javascript', 'app.js'), donor.bundle());
+    write(path.join(home, 'javascript', 'entry.js'), donor.ENTRY);
+    const r4 = link.build(entrylessApp(), path.join(tmp('out'), 'h.tgz'), { donors: [path.join(home, 'javascript', 'app.js')] });
+    check('entry: a .js donor\'s entry point is its package\'s main beside its javascript/',
+        r4.entry === 'stock_app@2.0.0:javascript/entry.js', JSON.stringify(r4));
+
+    const shipped = sourceApp();
+    write(path.join(shipped, 'robertn_demo@1.2.3', 'package.json'), JSON.stringify({ name: 'robertn_demo', version: '1.2.3',
+        main: 'javascript/runner.js', files: ['javascript', 'package.json'] }));
+    const r5 = link.build(shipped, path.join(tmp('out'), 'i.tgz'), { donors: [withEntry] });
+    check('entry: a tree that ships its main keeps it', r5.entry === null &&
+        members(r5.file)['javascript/runner.js'].toString() === '// runner\n', JSON.stringify(r5));
+
+    const odd = entrylessApp();
+    write(path.join(odd, 'robertn_demo@1.2.3', 'package.json'), JSON.stringify({ name: 'robertn_demo', version: '1.2.3',
+        main: 'lib/start.js' }));
+    const e = throws(() => link.build(odd, path.join(tmp('out'), 'j.tgz'), { donors: [withEntry] }));
+    check('entry: a missing main outside javascript/ fails', e && /main lib\/start\.js is not javascript\/<file>\.js/.test(e.message),
+        e && e.message);
+}
+
 function testPackSource() {
     const src = sourceApp();
     const a = path.join(tmp('pkg'), 'a.tgz');
@@ -402,6 +471,7 @@ try {
     testUnitDonors();
     testHostileDonor();
     testBundleMode();
+    testEntryPoint();
     testPackSource();
     testModuleMode();
     testRealDonors();

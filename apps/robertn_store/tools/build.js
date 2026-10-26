@@ -14,7 +14,8 @@
  *     "build": "unit", and the head unit's deploy tool builds it.
  *  4. With a donor, builds the OAP tgz robertn_store@<version>.tgz from it,
  *     as the unit would: the modules linked against the donor's oap-sdk
- *     modules, node --check, javascript/build.json, the flat tgz.
+ *     modules, the donor package's entry point as package.json's main,
+ *     node --check, javascript/build.json, the flat tgz.
  */
 const fs = require('fs');
 const path = require('path');
@@ -54,7 +55,7 @@ function main() {
     if (donor) {
         const r = link.build(HERE, path.join(HERE, `${m.id}@${m.version}.tgz`),
             { donors: [donor], epoch: process.env.SOURCE_DATE_EPOCH });
-        Object.assign(out, { tgz: path.basename(r.file), donor: r.donor, bundleModules: r.moduleCount,
+        Object.assign(out, { tgz: path.basename(r.file), donor: r.donor, main: r.entry, bundleModules: r.moduleCount,
             bundleBytes: r.bytes });
     }
     console.log(JSON.stringify(out, null, 2));

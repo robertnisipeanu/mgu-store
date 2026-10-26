@@ -1,7 +1,7 @@
 {
   "id": "app-privacy",
   "kind": "tool",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "title": "App privacy",
   "description": "Keeps our apps out of the head unit's backend app reporting",
   "versionFiles": ["patch_mainapp.js"],

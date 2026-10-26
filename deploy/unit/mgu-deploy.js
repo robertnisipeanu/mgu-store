@@ -42,7 +42,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.2.2';
+var VERSION = '0.2.3';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -944,7 +944,7 @@ function prepareApp(a, stage) {
         if (a.prepare === 'build') {
             r = linker().build(a.dir, out, { donors: unitDonors(), workDir: stage });
             say('built ' + a.id + ' ' + a.version + ' from its source package (' + r.moduleCount +
-                ' modules, oap-sdk from ' + r.donor + ')');
+                ' modules, oap-sdk from ' + r.donor + (r.entry ? ', main from ' + r.entry : '') + ')');
         } else {
             r = linker().preparePackage(a.pkgDir, out, { donors: unitDonors() });
             say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +

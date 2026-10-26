@@ -1,4 +1,4 @@
-# robertn_store 0.4.1
+# robertn_store 0.5.0
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
@@ -126,15 +126,15 @@ tools/test_qr.js           the QR pictures (decoded back with zbarimg when insta
 tools/test_speller.js      src/speller.js against a fake use case factory
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater and speller
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.4.1/       staged package tree (no javascript/app.js)
+robertn_store@0.5.0/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.4.1.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.4.1.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.5.0.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.5.0.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js &&
     node tools/test_speller.js && node tools/test_store.js
 ```
@@ -147,6 +147,8 @@ so a source following a branch builds it straight from a checkout
 (`mgu-repo.json`). With a donor on the build machine (an OAP app's tgz or
 `javascript/app.js`, never committed) the build writes the same OAP tgz
 the unit builds, for the emulator: the modules linked against the donor's
-oap-sdk modules with its module ids, `node --check`, `javascript/build.json`.
+oap-sdk modules with its module ids, the donor package's own entry point
+as `javascript/runner.js` (the package's `main`) with a `runnerConfig.json`
+naming the bundle and data folder, `node --check`, `javascript/build.json`.
 `lib/client.js` is committed: run the build after
 `native/mgu-updater/js/client.js` changes and commit the copy.

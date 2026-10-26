@@ -16,7 +16,14 @@
  *     "internet": true }                     optional: package.json gets "mguInternet": true
  *
  * The app's modules require each other as './<file name>'; any other name
- * is a Node builtin (resolved by the runner's require) or one of `sdk`.
+ * is a Node builtin (resolved by the entry point's require) or one of `sdk`.
+ *
+ * The package's entry point, the file its package.json "main" names
+ * (javascript/<file>.js), comes from the tree when it ships one. When it
+ * does not, the build copies the entry point of a donor's own package (its
+ * package.json "main"; the donor that supplies the sdk first), with a
+ * runnerConfig.json beside it naming the app's bundle and data folder; with
+ * no donor entry point it writes LOADER.
  *
  * A donor is a browserify bundle that carries the oap-sdk: a .js file, or an
  * OAP .tgz whose javascript/*.js files are tried in name order. The module
@@ -374,7 +381,7 @@ function findDonor(files, mustName, pick, what) {
                 const split = splitBundle(s.text);
                 const ids = pick(split.mods);
                 const closure = closureOf(split.mods, Object.keys(ids).map((k) => ids[k]));
-                return { label: s.label, text: s.text, sdkVersion: s.sdkVersion, prelude: split.prelude,
+                return { file: files[i], label: s.label, text: s.text, sdkVersion: s.sdkVersion, prelude: split.prelude,
                     mods: split.mods, ids, closure };
             } catch (e) {
                 tried.push(`${s.label}: ${e.message}`);
@@ -427,6 +434,57 @@ function unitDonors(mainappDir, oapDir, opts) {
         }
     });
     return out;
+}
+
+/* ---- entry point ------------------------------------------------------------ */
+
+/* The paths a stock entry point reads from the runnerConfig.json beside it:
+ * the bundle beside it and the app home's data folder. */
+const RUNNER_CONFIG = { DATA_RELATIVE_PATH: '../../data', JS_RELATIVE_PATH: './app.js' };
+const LOADER = "'use strict';\n/* Entry point: runs the app bundle beside this file. */\nrequire('./app.js');\n";
+
+/* The entry point of a donor file's package, { label, text }, or null: the
+ * file its package.json "main" names (a .tgz's member, or beside a .js
+ * donor's javascript/ folder), when it is no bundle and reads
+ * runnerConfig.json. */
+function packageEntry(file) {
+    try {
+        let pkg;
+        let read;
+        if (/\.tgz$/.test(file)) {
+            const members = untar(fs.readFileSync(file));
+            const meta = members.filter((m) => /^(?:package\/)?package\.json$/.test(m.name))[0];
+            const root = meta.name.slice(0, -'package.json'.length);
+            pkg = JSON.parse(meta.data.toString('utf8'));
+            read = (rel) => members.filter((m) => m.name === root + rel).map((m) => m.data.toString('utf8'))[0];
+        } else {
+            const root = path.join(path.dirname(file), '..');
+            pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+            read = (rel) => (fs.lstatSync(path.join(root, rel)).isFile() ? fs.readFileSync(path.join(root, rel), 'utf8') : null);
+        }
+        const main = typeof pkg.main === 'string' ? path.posix.normalize(pkg.main) : '';
+        const text = safeRel(main) && /\.js$/.test(main) ? read(main) : null;
+        return text && text.indexOf(PRELUDE_END) < 0 && text.indexOf('runnerConfig.json') >= 0 ?
+            { label: `${pkg.name}@${pkg.version}:${main}`, text } : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/* Writes the entry point at main (javascript/<file>.js) in the scratch tree
+ * work and its runnerConfig.json, from the first of the donor files whose
+ * package has one, else LOADER; returns its label. */
+function supplyEntry(work, main, files) {
+    if (!/^javascript\/[^/]+\.js$/.test(main)) {
+        throw new Error(`package.json main ${main || '(none)'} is not javascript/<file>.js`);
+    }
+    const entry = files.map(packageEntry).filter(Boolean)[0];
+    fs.writeFileSync(path.join(work, main), entry ? entry.text : LOADER);
+    const config = path.join(work, 'javascript', 'runnerConfig.json');
+    if (entry && !fs.existsSync(config)) {
+        fs.writeFileSync(config, JSON.stringify(RUNNER_CONFIG) + '\n');
+    }
+    return entry ? entry.label : 'loader';
 }
 
 /* ---- linking ----------------------------------------------------------------- */
@@ -569,12 +627,18 @@ function build(srcDir, outFile, opts) {
         if (!fs.existsSync(path.join(work, 'javascript'))) {
             fs.mkdirSync(path.join(work, 'javascript'));
         }
-        const appJs = path.join(work, 'javascript', 'app.js');
-        fs.writeFileSync(appJs, bundle);
-        nodeCheck(appJs);
         const pkgFile = path.join(work, 'package.json');
         const raw = fs.readFileSync(pkgFile, 'utf8');
         const pkg = JSON.parse(raw);
+        const main = typeof pkg.main === 'string' ? path.posix.normalize(pkg.main) : '';
+        let entry = null;
+        if (main && main !== 'javascript/app.js' && !(safeRel(main) && fs.existsSync(path.join(work, main)))) {
+            entry = supplyEntry(work, main, [donor.file].concat((opts.donors || []).filter((f) => f !== donor.file)));
+            nodeCheck(path.join(work, main));
+        }
+        const appJs = path.join(work, 'javascript', 'app.js');
+        fs.writeFileSync(appJs, bundle);
+        nodeCheck(appJs);
         if (m.internet === true && pkg.mguInternet !== true) {
             pkg.mguInternet = true;
             fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + (/\n$/.test(raw) ? '\n' : ''));
@@ -584,10 +648,11 @@ function build(srcDir, outFile, opts) {
             name: m.id,
             version: m.version,
             buildTimestamp: opts.epoch ? Number(opts.epoch) * 1000 : Date.now(),
-            bundle: { entryModule: ENTRY_ID, moduleCount, appModules: modules.length, sdkModulesFrom: donor.label }
+            bundle: { entryModule: ENTRY_ID, moduleCount, appModules: modules.length, sdkModulesFrom: donor.label },
+            main: entry ? { path: main, from: entry } : undefined
         }, null, 2) + '\n');
         pack(work, outFile);
-        return { file: outFile, id: m.id, version: m.version, donor: donor.label, moduleCount,
+        return { file: outFile, id: m.id, version: m.version, donor: donor.label, entry, moduleCount,
             bytes: Buffer.byteLength(bundle) };
     } finally {
         rmrf(work);
@@ -725,7 +790,8 @@ function rmrf(p) {
     }
 }
 
-module.exports = { build, packSource, readManifest, preparePackage, needsSdk, needsShrinkwrap, sdkDonor, unitDonors, untar, SDK_API, ENTRY_ID };
+module.exports = { build, packSource, readManifest, preparePackage, needsSdk, needsShrinkwrap, sdkDonor, unitDonors, untar, SDK_API, ENTRY_ID,
+    LOADER };
 
 /* Private worker protocol: no donor code runs here with root privileges. */
 if (require.main === module) {

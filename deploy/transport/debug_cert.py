@@ -1,7 +1,8 @@
 """The leaf certificate that arms the head unit's debug mode (RoutineControl 31 01 A0 FD).
 
 Subject CN = the unit's device id (from the 31 01 A6 71 challenge), public key = the SSH
-enrollment key, issued and signed (SHA256withRSA) by the PMO intermediate CA. The unit checks
+enrollment key, issued and signed (SHA256withRSA) by the PMO intermediate CA, whose subject
+(read from its certificate) is the leaf's issuer and, but for CN, its subject. The unit checks
 the chain to its pinned debug-token CA and CN == its device id. The key and certificate
 material comes from the assets folder; it is never kept in this repository.
 
@@ -9,6 +10,7 @@ Needs the `cryptography` package.
 """
 import base64, hashlib, os
 
+from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
@@ -59,20 +61,31 @@ OID_RSA = "2A 86 48 86 F7 0D 01 01 01"          # rsaEncryption
 OID_SHA256RSA = "2A 86 48 86 F7 0D 01 01 0B"    # sha256WithRSAEncryption
 
 
-def _attr(oid, tag, val): return SET(SEQ(OID(oid), TLV(tag, val.encode("utf-8"))))
+def OID_DOTTED(dotted):
+    n = [int(x) for x in dotted.split(".")]
+    out = bytes([40 * n[0] + n[1]])
+    for v in n[2:]:
+        b = [v & 0x7F]
+        v >>= 7
+        while v:
+            b.append(0x80 | (v & 0x7F))
+            v >>= 7
+        out += bytes(reversed(b))
+    return TLV(0x06, out)
 
 
-def _name_issuer():
-    return SEQ(_attr("55 04 06", 0x13, "DE"), _attr("55 04 08", 0x13, "Bavaria"),
-               _attr("55 04 07", 0x13, "Vehicle"), _attr("55 04 0A", 0x13, "BMW AG"),
-               _attr("55 04 0B", 0x13, "Head Unit"),
-               _attr("55 04 03", 0x13, "PMOIntermediateCA UID=3939fa9a-c199-450a-9d6b-5e2341ad3641"))
+OID_C, OID_CN = "2.5.4.6", "2.5.4.3"
 
 
-def _name_subject(cn):
-    return SEQ(_attr("55 04 06", 0x13, "DE"), _attr("55 04 08", 0x0C, "Bavaria"),
-               _attr("55 04 07", 0x0C, "Vehicle"), _attr("55 04 0A", 0x0C, "BMW AG"),
-               _attr("55 04 0B", 0x0C, "Head Unit"), _attr("55 04 03", 0x0C, cn))
+def _attr(oid, tag, val): return SET(SEQ(OID_DOTTED(oid), TLV(tag, val.encode("utf-8"))))
+
+
+def _name_subject(issuer, cn):
+    """The issuer's attributes but CN, the country a PrintableString and the rest UTF8Strings,
+    then CN = cn."""
+    attrs = [a for rdn in issuer.rdns for a in rdn if a.oid.dotted_string != OID_CN]
+    return SEQ(*([_attr(a.oid.dotted_string, 0x13 if a.oid.dotted_string == OID_C else 0x0C, a.value)
+                  for a in attrs] + [_attr(OID_CN, 0x0C, cn)]))
 
 
 def _ext(oid, critical, value):
@@ -87,7 +100,7 @@ def _rsa_pub_seq(pub):
     return SEQ(INT(nb), INT(eb))
 
 
-def mint_leaf(device_cn, enroll_pub, pmo_priv):
+def mint_leaf(device_cn, enroll_pub, pmo_priv, pmo_cert):
     """The leaf certificate as PEM with CRLF line ends, the form the unit accepts."""
     pub_seq = _rsa_pub_seq(enroll_pub)
     ski = hashlib.sha1(pub_seq).digest()
@@ -102,9 +115,9 @@ def mint_leaf(device_cn, enroll_pub, pmo_priv):
         _ext("55 1D 0E", False, OCT(ski)),                                      # subjectKeyIdentifier
         _ext("55 1D 23", False, SEQ(CTXP(0, aki))),                             # authorityKeyIdentifier
     )
-    tbs = SEQ(CTX(0, INT(b"\x02")), INT(bytes([1, 169])), sigalg, _name_issuer(),
+    tbs = SEQ(CTX(0, INT(b"\x02")), INT(bytes([1, 169])), sigalg, pmo_cert.subject.public_bytes(),
               SEQ(UTCTime("700101000100Z"), UTCTime("380930235900Z")),
-              _name_subject(device_cn), spki, CTX(3, exts))
+              _name_subject(pmo_cert.subject, device_cn), spki, CTX(3, exts))
     sig = pmo_priv.sign(tbs, padding.PKCS1v15(), hashes.SHA256())
     b = base64.b64encode(SEQ(tbs, sigalg, BITSTR(sig))).decode()
     pem = ("-----BEGIN CERTIFICATE-----\r\n" + "\r\n".join(b[i:i + 64] for i in range(0, len(b), 64)) +
@@ -119,4 +132,6 @@ def leaf_for(device_cn, assets):
             return f.read()
     enroll = serialization.load_pem_private_key(read(ENROLL_KEY), None)
     pmo_key = serialization.load_pem_private_key(read(PMO_KEY), None)
-    return mint_leaf(device_cn, enroll.public_key(), pmo_key), read(PMO_CERT)
+    pmo_cert = read(PMO_CERT)
+    return (mint_leaf(device_cn, enroll.public_key(), pmo_key, x509.load_pem_x509_certificate(pmo_cert)),
+            pmo_cert)
