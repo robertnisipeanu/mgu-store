@@ -96,8 +96,10 @@ class Drawn extends EventEmitter {
         this.gpu.connect();
     }
 
+    /* At shutdown: the connection ends without switching to the widget screens. */
     close() {
         clearInterval(this.keepalive);
+        this.gpu.removeAllListeners('close');
         this.gpu.close();
     }
 

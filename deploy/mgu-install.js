@@ -13,7 +13,8 @@
  * first-install downloads the newest published mgu-store release (the
  * deploy tool, app-privacy, the updater, the Store's source package, the
  * renderer the Store draws its screens with and the internet uplink;
- * --no-renderer and --no-uplink leave those two out), checks each file against the
+ * --no-renderer and --no-uplink leave those two out, and one the deploy tool
+ * refuses, such as a second renderer, is left out), checks each file against the
  * catalog's size and sha256, sends them to the unit and installs them with
  * the release's own deploy tool, which builds the Store on the unit. Newer
  * installed components are kept; running it again is safe. --token adds a
@@ -477,7 +478,8 @@ function sayList(names) {
 /* On the unit, in the staging folder: the release's deploy tool installs
  * every artifact (itself among them; newer installed ones kept) and seeds
  * the updater's sources when it has none; then each of WITH on its own, so
- * one it refuses (another renderer is installed) leaves the rest in place. */
+ * one it refuses (exit 2: another renderer is installed) is left out and the
+ * rest stays; one that fails fails the run. */
 const RUN_SH = `set -e
 S=$(cd "$(dirname "$0")" && pwd)
 set --
@@ -486,7 +488,7 @@ sh "$S/mgu-deploy.sh" install "$@" --skip-older --yes
 sh "$S/mgu-deploy.sh" updater-sources < "$S/sources.json"
 for f in "$S"/with/*.tgz; do
     [ -e "$f" ] || continue
-    sh "$S/mgu-deploy.sh" install --artifact "$f" --skip-older --yes || echo "first-install: $(basename "$f") left out" >&2
+    sh "$S/mgu-deploy.sh" install --artifact "$f" --skip-older --yes || { st=$?; [ $st -eq 2 ] || exit $st; echo "first-install: $(basename "$f") left out" >&2; }
 done
 `;
 
