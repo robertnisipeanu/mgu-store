@@ -209,6 +209,7 @@ lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
 tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table
 tools/build.js             RHMI, lib/, the source package, and given a donor the OAP tgz
 tools/bake_fonts.py        the Inter atlases (Pillow, Inter 4.1's TTFs)
+tools/gen_screens.py       src/am_screens.js from App Manager 2's screens.json
 tools/fixture.js           an updater state with one of everything, and the drawn screens over it
 tools/test_view.js         the texts for every row, source, account, sign-in and phone state
 tools/test_rhmi.js         both HMIs' RHMI files, host states and proxies, the names src/store.js binds
