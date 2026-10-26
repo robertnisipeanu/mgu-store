@@ -189,9 +189,9 @@ the folder again every `usb_poll_s` and on each check.
   supervisor goes back to still has them.
 
 **Signing in to GitHub.** `login-start` runs GitHub's device flow for a
-GitHub App (`github_client_id`, shipped as the mgu-store App's public client
-id; set empty, the state's `signin` is false, clients offer no sign-in,
-`login-start` is refused, and a pasted token still works): the state's `login`
+GitHub App (`github_client_id`; set empty, the state's `signin` is false,
+clients offer no sign-in, `login-start` is refused, and a pasted token still
+works): the state's `login`
 shows the address and the code, which the owner enters on a phone; the
 updater polls at the interval GitHub gives (5 s more on `slow_down`) until
 the code expires, and stores the token it gets as a token labelled with
@@ -199,12 +199,12 @@ the account from `/user`, in place of an earlier sign-in's token of that
 account. An expiring token is renewed from its refresh token before a
 source is read. The App: *Enable Device Flow* on,
 repository permission *Contents: Read-only* (Metadata comes with it),
-installable by any account, installed on the repos the car reads; no
-secret or private key exists or is used. Its client id goes in
-`github_client_id`, and its page (`https://github.com/apps/mgu-store`) in
-`github_app_url`: the state's `signinApp.installUrl` is then the App's
-install page, which the Store shows as a QR code for a private source that
-still needs a sign-in. Requests to `github.com` carry the client id with the
+installable by any account, installed by each owner on the repos their car
+reads; the shipped `github_client_id` is the client id of
+https://github.com/apps/mgu-store (public; no client secret or private key),
+and `github_app_url` its page: the state's `signinApp.installUrl` is then the
+App's install page, which the Store shows as a QR code for a private source
+that still needs a sign-in. Requests to `github.com` carry the client id with the
 device code, or with the refresh token on a renewal; never an access
 token.
 
