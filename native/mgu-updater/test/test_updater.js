@@ -2265,6 +2265,8 @@ function testIndexV2(certs, pubDir) {
         item('v2liar@1.0.0.tgz', { name: 'someone-else', version: '1.0.0', productName: 'Liar' }, { id: 'v2liar', mguHmi: ['ID7'] }),
         item('v2big@1.0.0.tgz', { name: 'v2big', version: '1.0.0', productName: 'Big' }, icon('v2big.png', png(200 << 10, 3))),
         item('v2odd@1.0.0.tgz', { name: 'v2odd', version: '1.0.0', productName: 'Odd' }, { kind: 'widget' })] };
+    // another id naming v2both's package
+    index.packages.push(Object.assign({}, index.packages[2], { id: 'v2twin', title: 'Twin', icon: undefined, iconSha256: undefined }));
     fs.writeFileSync(path.join(pubDir, 'v2render.png'), png(40, 4));
     fs.writeFileSync(path.join(pubDir, 'v2-index.json'), JSON.stringify(index));
     // a catalog in a folder, its icon beside it
@@ -2302,12 +2304,14 @@ function testIndexV2(certs, pubDir) {
     const from = seen.length;
     const iconDir = path.join(state, 'icons');
     let iconAsks = 0;
+    // icons are fetched in the background after each source is read
+    const checked = () => u.check().then(() => until(() => Array.from(u.src.values()).map((rt) => !!rt.icons), (l) => l.every((x) => !x), 30000, 'icons fetched'));
     return u.serve()
-        .then(() => u.check())
+        .then(() => checked())
         .then(() => {
             const s = st();
             const src = s.sources.find((x) => x.id === 'car-apps');
-            ok('index v2: listed from the index alone, no package downloaded', src.status === 'ok' && src.components === 5 &&
+            ok('index v2: listed from the index alone, no package downloaded', src.status === 'ok' && src.components === 6 &&
                 !seen.slice(from).some((x) => /^\/v2[a-z]*@/.test(x.url)), JSON.stringify(src));
             ok('index v2: an unknown kind is left out, said why', /v2odd: unknown kind widget/.test(src.error || '') && !comp('v2odd').id, src.error);
             const a = comp('v2app');
@@ -2331,10 +2335,10 @@ function testIndexV2(certs, pubDir) {
                 comp('rel2').title === 'Release Two' && comp('rel2').author === 'Pub', JSON.stringify(comp('rel2')));
             ok('icons: none for a component that names none', comp('v2liar').icon === null && comp('v2liar').author === 'IterioDev');
             iconAsks = asked(/\.png$/);
-            return u.check();
+            return checked();
         })
         .then(() => {
-            ok('icons: kept ones are not fetched again', asked(/\.png$/) === iconAsks + 2, `${asked(/\.png$/)} ${iconAsks}`);
+            ok('icons: kept ones are not fetched again, nor failed ones within a day', asked(/\.png$/) === iconAsks, `${asked(/\.png$/)} ${iconAsks}`);
             return ask(sock, { op: 'install', id: 'v2both' });
         })
         .then((err) => until(st, () => !st().busy && comp('v2both').status !== 'available', 30000, 'v2both installed').then(() => err))
@@ -2349,9 +2353,15 @@ function testIndexV2(certs, pubDir) {
         .then(() => {
             ok('index v2: a package that is not what the index says is not installed', /someone-else@1\.0\.0, not what the index says/.test(comp('v2liar').error || '') &&
                 deployed().length === 1, `${comp('v2liar').error} ${deployed()}`);
+            return ask(sock, { op: 'install', id: 'v2twin' });
+        })
+        .then(() => until(st, () => !st().busy && !comp('v2twin').queued, 30000, 'v2twin refused'))
+        .then(() => {
+            ok('index v2: nor is a kept package another entry names', /v2both@1\.0\.0, not what the index says/.test(comp('v2twin').error || '') &&
+                deployed().length === 1, `${comp('v2twin').error} ${deployed()}`);
             index.packages = index.packages.filter((p) => p.id !== 'v2app');
             fs.writeFileSync(path.join(pubDir, 'v2-index.json'), JSON.stringify(index));
-            return u.check();
+            return checked();
         })
         .then(() => {
             ok('icons: one no component names any more goes', !fs.existsSync(path.join(iconDir, `${sha256(appIcon)}.png`)) && !comp('v2app').id &&

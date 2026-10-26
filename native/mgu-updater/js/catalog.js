@@ -2,7 +2,7 @@
 /**
  * Catalogs (release/README.md) and what they mean for this head unit: parse
  * and check a catalog (schema 1, or 2 with build / requires / optional /
- * uninstallable / mguHmi / mguProvides), and compare the components every source lists with what
+ * uninstallable / mguHmi / mguProvides / author / icon), and compare the components every source lists with what
  * is installed. A `signature` in a catalog is ignored: trust is HTTPS (and
  * a token that reaches it) to the source the owner added, and every
  * download is checked against the size and sha256 it lists. Node 8; no I/O.
@@ -75,8 +75,8 @@ function checkExtras(c) {
     if (c.mguProvides !== undefined && c.mguProvides !== null && !(c.kind === 'tool' && PROVIDES.test(c.mguProvides))) {
         throw new Error(`${where}: mguProvides is one lower-case name, for a tool`);
     }
-    const ref = typeof c.icon === 'string' ? c.icon : c.icon && typeof c.icon.ref === 'string' ? c.icon.ref : null;
-    const isha = c.icon && c.icon.sha256 !== undefined ? c.icon.sha256 : c.iconSha256;
+    const ref = typeof c.icon === 'string' ? c.icon : null;
+    const isha = c.iconSha256;
     delete c.iconSha256;
     return Object.assign(c, {
         icon: ref && ref.length <= 500 && (isha === undefined || isha === null || SHA256.test(isha)) ? { ref, sha256: isha || null } : null,

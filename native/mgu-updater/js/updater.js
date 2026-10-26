@@ -883,7 +883,8 @@ class Updater {
                 console.log(`source ${id}${rt.channel ? ` (${rt.channel})` : ''}${rt.tokenId ? ` with token ${rt.tokenId}` : ''}: ` +
                     `${rt.mode}${rt.commit ? ` ${rt.commit.slice(0, 7)}` : ''}, ` +
                     `${cat.components.map((c) => `${c.id}@${c.version}`).join(' ') || 'nothing'}${rt.error ? `; ${rt.error}` : ''}`);
-                return this.fetchIcons(rt);
+                // in the background: a slow icon host holds up no check
+                this.fetchIcons(rt);
             }, (err) => {
                 rt.status = err.auth ? 'auth-needed' : 'error';
                 rt.error = err.message;
@@ -911,13 +912,19 @@ class Updater {
         return path.join(this.conf.state_dir, 'icons', `${key}.png`);
     }
 
-    /* Fetches the icons a source's components name that are not kept yet:
-     * a PNG of at most ICON_BYTES, matching its sha256 when the source gives
-     * one, kept world-readable for the Store. A missing or bad icon is
-     * logged; the component is listed without it. */
+    /* Fetches the icons a source's components name that are not kept yet,
+     * one source's at a time: a PNG of at most ICON_BYTES, matching its
+     * sha256 when the source gives one, kept world-readable for the Store.
+     * A missing or bad icon is logged and asked for again a day later; the
+     * component is listed without it. */
     fetchIcons(rt) {
+        if (rt.icons) {
+            return rt.icons;
+        }
         const dir = path.join(this.conf.state_dir, 'icons');
-        return rt.components.filter((c) => c.icon && !fs.existsSync(this.iconFile(rt.def.id, c))).reduce((p, c) => p
+        this.iconFailed = this.iconFailed || new Map();
+        const due = (file) => !fs.existsSync(file) && !(this.iconFailed.get(file) > Date.now() - 86400000);
+        rt.icons = rt.components.filter((c) => c.icon && due(this.iconFile(rt.def.id, c))).reduce((p, c) => p
             .then(() => rt.reader.icon(c))
             .then((b) => {
                 if (b.length > sourcesLib.ICON_BYTES || b.slice(0, 8).toString('hex') !== '89504e470d0a1a0a') {
@@ -931,8 +938,15 @@ class Updater {
                 fs.writeFileSync(`${file}.tmp`, b, { mode: 0o644 });
                 fs.chmodSync(`${file}.tmp`, 0o644);
                 fs.renameSync(`${file}.tmp`, file);
+                this.changed();
             })
-            .catch((err) => console.log(`source ${rt.def.id}: icon of ${c.id}: ${err.message}`)), Promise.resolve());
+            .catch((err) => {
+                this.iconFailed.set(this.iconFile(rt.def.id, c), Date.now());
+                console.log(`source ${rt.def.id}: icon of ${c.id}: ${err.message}`);
+            }), Promise.resolve()).then(() => {
+            rt.icons = null;
+        });
+        return rt.icons;
     }
 
     /* Removes the kept icons no source's components name. */

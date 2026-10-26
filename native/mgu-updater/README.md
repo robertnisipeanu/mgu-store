@@ -81,14 +81,15 @@ them:
 catalog; in a GitHub `catalog` release one of its assets), the asset an
 `mgu-store.json` entry's `icon` names, and an index version 2 entry's
 `icon` (absolute or relative to the index), each with an optional
-`iconSha256`, are fetched after the source is read: a PNG of at most
-128 KiB, matching its sha256 when one is given, kept in
-`state/icons/<sha256>.png` (named by the source's sha256, else by source,
-id, version and URL; 0644, the folder 0755, for the Store to read) and
-fetched again only when no kept file has that name. A component's
-`icon` in the state is that file, null without one; an icon that cannot
-be fetched or is not such a PNG is logged and left out. Kept icons no
-component names go after each check. A repo tree's components have none.
+`iconSha256`, are fetched in the background after the source is read
+(no check waits for them): a PNG of at most 128 KiB, matching its sha256
+when one is given, kept in `state/icons/<sha256>.png` (named by the
+source's sha256, else by source, id, version and URL; 0644, the folder
+0755, for the Store to read) and fetched again only when no kept file has
+that name. A component's `icon` in the state is that file, null without
+one; an icon that cannot be fetched or is not such a PNG is logged, left
+out and asked for again a day later. Kept icons no component names go
+after each check. A repo tree's components have none.
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog
 release, else the releases layout), `branch:<name>` (`mgu-repo.json` at
@@ -659,7 +660,7 @@ releases, branches, tags, contents, tarballs, the device flow), with
   as a tool, an install that downloads and keeps the package, one whose
   package is another id refused; icons from it, a folder catalog and a
   repo's `mgu-store.json`, kept by sha256 (0644), one that does not match
-  or is too big left out, not fetched again, removed once unnamed;
+  or is too big left out, kept and failed ones not fetched again, removed once unnamed;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a

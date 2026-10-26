@@ -378,7 +378,7 @@ function missing(err) {
 /* Every reader has: network (it needs the internet); catalog() -> { mode,
  * channel, commit, components, skipped }; artifact(entry, onProgress) -> a
  * catalog or releases entry's bytes; icon(entry) -> its icon's bytes (at most
- * ICON_BYTES); files(commit, onProgress, under) -> the
+ * ICON_BYTES; readers whose entries can name one); files(commit, onProgress, under) -> the
  * repo's files ({ name relative to the repo root, data, mode }) for a
  * repo-tree entry, those under the folder `under` when it is given. */
 
@@ -397,11 +397,7 @@ function folderReader(root, ctx) {
                 return readFile('catalog.json').then((b) => Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8'))));
             }
             if (isFileInside(root, 'mgu-repo.json')) {
-                return repoCatalog(readFile, null, null).then((cat) => {
-                    // a repo tree's icons are not read
-                    cat.components.forEach((c) => { c.icon = null; });
-                    return cat;
-                });
+                return repoCatalog(readFile, null, null);
             }
             throw new Error('no catalog.json or mgu-repo.json');
         }),
@@ -414,7 +410,6 @@ function folderReader(root, ctx) {
         },
         files: (commit, onProgress, under) => Promise.resolve().then(() => walkInside(root, under || '', ctx.maxBuildBytes)
             .map((f) => (under ? Object.assign(f, { name: `${under}/${f.name}` }) : f))),
-        // an https URL, else a path in the folder
         icon: (entry) => (/^https:\/\//.test(entry.icon.ref) ? ctx.net.get(entry.icon.ref, ua(ctx.version), 'icon.png', ICON_BYTES)
             : Promise.resolve().then(() => {
                 if (!safeRel(entry.icon.ref)) {
@@ -458,11 +453,14 @@ function indexEntry(item, url) {
 }
 
 /* An https source: catalog.json at a URL, artifacts absolute or relative
- * to it; or an App Manager index there, {"packages": [{url, sha256}]}
- * (index mode): each package, https, absolute or relative to the index,
- * downloaded once and kept in <cacheDir>/<source id>/<sha256>.tgz (root's,
- * 0600; the ones the index no longer lists go), checked against its
- * sha256 and read for what it is (packageEntry). */
+ * to it; or an App Manager index there (index mode), packages https,
+ * absolute or relative to the index, each kept in
+ * <cacheDir>/<source id>/<sha256>.tgz (root's, 0600; the ones the index no
+ * longer lists go) once downloaded and checked against its sha256. Version
+ * 2 lists its entries as they stand, a package downloaded on install and
+ * checked to be the one its entry names; version 1, {"packages": [{url,
+ * sha256}]}, has each package downloaded and read for what it is
+ * (packageEntry). */
 function httpsReader(s, ctx) {
     const cache = ctx.cacheDir ? path.join(ctx.cacheDir, s.id) : null;
     const cached = (sha) => (cache ? path.join(cache, `${sha}.tgz`) : null);
@@ -561,10 +559,18 @@ function httpsReader(s, ctx) {
         }),
         artifact: (entry, onProgress) => {
             const file = entry.artifact.sha256 && cached(entry.artifact.sha256);
+            // what a version 2 index says of a package is the package's own word
+            const own = (b) => (entry.artifact.index !== 2 ? Promise.resolve(b) : tar.untgz(b, ctx.maxBuildBytes).then((members) => {
+                const p = packageEntry(members, b, {}, 'tgz');
+                if (p.id !== entry.id || p.version !== entry.version || p.service !== entry.service) {
+                    throw new Error(`the package is ${p.id}@${p.version}${p.service ? ` (${p.service})` : ''}, not what the index says`);
+                }
+                return b;
+            }));
             if (file && fs.existsSync(file)) {
                 const b = fs.readFileSync(file);
                 if (sha256(b) === entry.artifact.sha256) {
-                    return Promise.resolve(b);
+                    return own(b);
                 }
             }
             const url = new URL(entry.artifact.url || entry.artifact.name, s.url).toString();
@@ -572,16 +578,11 @@ function httpsReader(s, ctx) {
             if (entry.artifact.index !== 2) {
                 return got;
             }
-            // what a version 2 index says of a package is the package's own word
             return got.then((b) => {
                 if (sha256(b) !== entry.artifact.sha256) {
                     throw new Error('download does not match the catalog (size or sha256)');
                 }
-                return tar.untgz(b, ctx.maxBuildBytes).then((members) => {
-                    const own = packageEntry(members, b, {}, 'tgz');
-                    if (own.id !== entry.id || own.version !== entry.version || own.service !== entry.service) {
-                        throw new Error(`the package is ${own.id}@${own.version}${own.service ? ` (${own.service})` : ''}, not what the index says`);
-                    }
+                return own(b).then(() => {
                     if (file) {
                         mkdirPrivate(cache);
                         writePrivate(file, b);
@@ -705,11 +706,7 @@ function githubReader(s, ctx) {
             .catch((e) => {
                 throw Object.assign(e, { missing: e.status === 404 });
             });
-        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null).then((cat) => {
-            // a repo tree's icons are not read
-            cat.components.forEach((c) => { c.icon = null; });
-            return cat;
-        }, (e) => {
+        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null).catch((e) => {
             throw e.missing ? new Error(`no mgu-repo.json at ${sha.slice(0, 7)}`) : e;
         });
     };
@@ -944,8 +941,7 @@ function looseReader(root, ctx) {
             components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) }));
     };
     const folder = folderReader(root, ctx);
-    return { network: false, catalog: list, artifact: folder.artifact, files: folder.files,
-        icon: () => Promise.reject(new Error('a loose package has no icon')) };
+    return { network: false, catalog: list, artifact: folder.artifact, files: folder.files };
 }
 
 /* ---- one source --------------------------------------------------------------------- */
