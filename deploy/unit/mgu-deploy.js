@@ -17,6 +17,7 @@
  *   mgu-deploy.sh updater-sources            (sources.json on stdin)
  *   mgu-deploy.sh sdk-donor [--json]
  *   mgu-deploy.sh apply-pending              (iDrive 8, at boot: queued app changes)
+ *   mgu-deploy.sh appmanager [--json] | appmanager adopt [--yes]   (IterioDev's App Manager)
  *   mgu-deploy.sh help
  *
  * Exit codes: 0 done, 1 failed (rolled back where applicable),
@@ -43,7 +44,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.4.0';
+var VERSION = '0.5.0';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -974,6 +975,7 @@ function validateApp(file, dir, pkgDir) {
     try { pkg = readJson(path.join(pkgDir, 'package.json')); }
     catch (e) { throw refuse(file + ': package.json does not parse'); }
     if (pkg && pkg.mguService !== undefined) return validateService(file, dir, pkgDir, pkg);
+    if (pkg && pkg.name === AM.app) throw refuse(file + ': ' + AM.app + " is IterioDev's App Manager, which the Store replaces");
     checkPkg(file, pkg);
     var a = { kind: 'app', file: file, dir: dir, pkgDir: pkgDir, pkg: pkg, id: pkg.name, version: pkg.version };
     a.prepare = pkgDir !== dir || pkg.mguLocalOnly !== true || linker().needsSdk(pkgDir) ? 'package' : null;
@@ -1068,9 +1070,9 @@ function d2s(d) { return d.unit + '.d/' + d.name; }
  * mguService } and the program under its name, an x86-64 program.
  *   renderer  mgu-renderd: draws renderer apps' screens over the HMI;
  *             enabled, runs from boot
- *   tether    ipheth-tether: iPhone USB tether, SOCKS5 on 127.0.0.1:1080;
- *             on demand: installed, not enabled, not started
- * Such a package becomes a tool here: the program and package.json in
+ *   tether    ipheth-tether: iPhone USB tether; refused, mgu-uplink drives
+ *             the iPhone
+ * A renderer package becomes a tool here: the program and package.json in
  * /var/opt/<name>/versions/<version>/, the unit his App Manager writes
  * (root, as there) running current/<name>, its recmgr entry, and the
  * tool rules for starting, updating and removing it. */
@@ -1082,16 +1084,9 @@ var SERVICE_MAX = 16 << 20;
 /* The renderer's touch routing takes the HMI's touch PDUs on iDrive 8
  * (UDP 30567 into Hmi8), the app area there being 0,76,2880,764; on any
  * other unit it runs without touch routing. */
-function serviceUnit(kind, bin) {
-    var touch = kind === 'renderer' && unitInfo().hmi === 'ID8' ?
+function serviceUnit(bin) {
+    var touch = unitInfo().hmi === 'ID8' ?
         ' --touch ' + (fs.existsSync(CFG.vminput) ? 'vm' : 'car') + ' --touch-area 0,76,2880,764' : '';
-    if (kind === 'tether') {
-        return ['# iPhone USB tether (ipheth-tether), installed by mgu-deploy; started on demand, not at boot.',
-            '# Opens a SOCKS5 proxy on 127.0.0.1:1080 once the phone\'s uplink is up.',
-            '[Unit]', 'Description=iPhone USB tether: SOCKS5 uplink on 127.0.0.1:1080', 'RequiresMountsFor=/var/opt',
-            'StartLimitIntervalSec=0', '', '[Service]', 'ExecStart=' + bin + ' socks 127.0.0.1:1080', 'Restart=always',
-            'RestartSec=3', '', '[Install]', 'WantedBy=late.target', ''].join('\n');
-    }
     return ['# GPU renderer for custom apps (mgu-renderd), installed by mgu-deploy: draws renderer apps\' screens over the HMI.',
         '[Unit]', 'Description=GPU renderer for custom apps (mgu-renderd)', 'RequiresMountsFor=/var/opt', 'After=winston.service', '',
         '[Service]', 'Environment=XDG_RUNTIME_DIR=/run/wayland WAYLAND_DISPLAY=wayland-0',
@@ -1105,6 +1100,7 @@ function validateService(file, dir, pkgDir, pkg) {
     var s = SERVICES[pkg.mguService], kind = pkg.mguService;
     if (!s) throw refuse(file + ': unknown mguService ' + String(kind).slice(0, 40) + ' (renderer or tether)');
     if (pkg.name !== s.name) throw refuse(file + ': a ' + kind + ' package is named ' + s.name + ', not ' + pkg.name);
+    if (kind === 'tether') throw refuse(file + ': the iPhone tether is replaced by mgu-uplink, which drives the iPhone');
     if (!semverParts(pkg.version)) throw refuse(file + ': version is not x.y.z: ' + pkg.version);
     var bin = path.join(pkgDir, s.name), st = lstatOrNull(bin), head = Buffer.alloc(64), fd;
     if (!st || !st.isFile()) throw refuse(file + ': no ' + s.name + ' program beside its package.json');
@@ -1119,16 +1115,16 @@ function validateService(file, dir, pkgDir, pkg) {
     mkdirp(path.join(kit, 'files')); mkdirp(path.join(kit, 'units'));
     fs.writeFileSync(path.join(kit, 'files', s.name), fs.readFileSync(bin));
     fs.writeFileSync(path.join(kit, 'files', 'package.json'), fs.readFileSync(path.join(pkgDir, 'package.json')));
-    fs.writeFileSync(path.join(kit, 'units', unit), serviceUnit(kind, path.join(CFG.varOpt, s.name, 'current', s.name)));
+    fs.writeFileSync(path.join(kit, 'units', unit), serviceUnit(path.join(CFG.varOpt, s.name, 'current', s.name)));
     var c = { id: s.name, kind: 'tool', version: pkg.version,
         title: typeof pkg.productName === 'string' && pkg.productName ? pkg.productName : s.title,
         description: typeof pkg.description === 'string' ? pkg.description : '', mguService: kind,
         files: [{ path: s.name, mode: '0755', sha256: sha256File(path.join(kit, 'files', s.name)) },
             { path: 'package.json', mode: '0644', sha256: sha256File(path.join(kit, 'files', 'package.json')) }],
-        units: [{ name: unit }], enable: kind === 'tether' ? [] : [{ unit: unit, target: 'late.target' }],
-        recmgr: [s.name], restart: kind === 'tether' ? [] : [unit], mguProvides: kind };
-    /* as his App Manager does: a running renderer is not stopped by an update */
-    if (kind === 'renderer') c.keepRunning = true;
+        units: [{ name: unit }], enable: [{ unit: unit, target: 'late.target' }],
+        recmgr: [s.name], restart: [unit], mguProvides: kind,
+        /* as his App Manager does: a running renderer is not stopped by an update */
+        keepRunning: true };
     if (hmi) c.mguHmi = hmi;
     fs.writeFileSync(path.join(kit, 'component.json'), JSON.stringify(c, null, 2) + '\n');
     var a = validateTool(file, kit, c);
@@ -2463,6 +2459,293 @@ function cmdApplyPending() {
     return results.every(function (r) { return r.ok; }) ? 0 : 1;
 }
 
+/* ---- IterioDev's App Manager: replaced by the Store --------------------------------- */
+/* IterioDev's App Manager (github.com/IterioDev/mgu-app-store,
+ * appmanager-service) is a root service in /var/opt/appmanager (its code in
+ * code/current/, 1.0.x in the folder itself; state.json, config.json,
+ * catalog.json, apply.log, pending.json and staged/ beside it), run by
+ * appmanager.service, with appmanager-apply.service applying its queue at
+ * boot; its HMI app oap-appmanager; and the root services it installs:
+ * the renderer (renderer/mgu-renderd, mgu-renderd.service) and the iPhone
+ * tether (tether/ipheth-tether, ipheth-tether.service). The Store
+ * replaces it:
+ *   appmanager adopt          its daemon disabled and stopped (where recmgr
+ *                             lets it run this boot, the rest waits for the
+ *                             next); its queued
+ *                             app changes moved to ours (iDrive 8) and its
+ *                             boot hook disabled; its tether stopped and
+ *                             disabled (mgu-uplink drives the iPhone); its
+ *                             renderer the tool mgu-renderd, made from the
+ *                             program it runs (a running one keeps running);
+ *                             the apps it installed and its repositories
+ *                             recorded in appmanager.json for the updater.
+ *                             Nothing is reinstalled.
+ *   uninstall oap-appmanager  adopts first; its units and boot hook
+ *                             removed, /var/opt/appmanager kept as
+ *                             appmanager-removed/, its HMI app uninstalled
+ *                             (on iDrive 8 at the next start). The apps and
+ *                             the renderer stay. */
+var AM = { home: path.join(CFG.varOpt, 'appmanager'), app: 'oap-appmanager', daemon: 'appmanager.service',
+    apply: 'appmanager-apply.service', tether: 'ipheth-tether.service' };
+var AM_RECORD = path.join(DEPLOY_DIR, 'appmanager.json');
+var AM_REMOVED = path.join(DEPLOY_DIR, 'appmanager-removed');
+var AM_LOG_MAX = 1 << 20;
+var AM_NEXT_BOOT = 'adopted at the next boot';
+function amFile(rel) { return path.join(AM.home, rel); }
+function amUnits() {
+    return [AM.daemon, AM.apply].filter(function (u) { return !!lstatOrNull(path.join(CFG.systemd, u)); });
+}
+/* Its service version: code/current/version.json; 1.0.x kept its code in
+ * the folder itself. */
+function amVersion() {
+    var v = readJsonOrNull(amFile('code/current/version.json'));
+    if (v && typeof v.version === 'string') return v.version;
+    return fs.existsSync(amFile('appmanager.js')) ? '1.0.x' : null;
+}
+function amPresent() { return amUnits().length > 0 || !!amVersion(); }
+function wantsLinks(unit) {
+    if (!fs.existsSync(CFG.systemd)) return [];
+    return fs.readdirSync(CFG.systemd).filter(function (n) { return /\.wants$/.test(n); })
+        .map(function (n) { return path.join(CFG.systemd, n, unit); })
+        .filter(function (p) { return !!lstatOrNull(p); });
+}
+/* One of his root services: { version, bin } while its program is there. */
+function amService(kind, program) {
+    var v = readJsonOrNull(amFile(kind + '/version.json')), bin = amFile(kind + '/' + program), st = lstatOrNull(bin);
+    return v && typeof v.version === 'string' && st && st.isFile() ? { version: v.version, bin: bin } : null;
+}
+/* An app on the unit: { version } (null while MainApp has not installed
+ * it), or null when it is not there at all. */
+function amAppOnUnit(id) {
+    var app = installedApp(id);
+    if (app) return { version: app.version };
+    var pre = preinstalledFor(id).map(function (p) { var m = /@(\d+\.\d+\.\d+)\.tgz$/.exec(p); return m && m[1]; })
+        .filter(Boolean)[0];
+    if (pre) return { version: pre };
+    return isId8() && dasApps().indexOf(id) >= 0 ? { version: null } : null;
+}
+/* The apps it installed: the ones its store recorded (state.json
+ * installedFrom) and the ones its apply.log last shows installed, that are
+ * on the unit; not itself, its services or a system app. */
+function amApps() {
+    var st = readJsonOrNull(amFile('state.json')) || {}, from = st.installedFrom || {}, last = {}, ids = Object.keys(from), text = '';
+    try {
+        var fd = fs.openSync(amFile('apply.log'), 'r'), size = fs.fstatSync(fd).size, n = Math.min(size, AM_LOG_MAX);
+        var b = Buffer.alloc(n);
+        try { fs.readSync(fd, b, 0, n, size - n); } finally { fs.closeSync(fd); }
+        text = b.toString('utf8');
+    } catch (e) { /* no log */ }
+    text.split('\n').forEach(function (l) {
+        var j = null;
+        try { j = JSON.parse(l); } catch (e) { return; }
+        ((j && Array.isArray(j.results)) ? j.results : []).forEach(function (r) {
+            if (r && r.ok && typeof r.appId === 'string') last[r.appId] = r.action;
+        });
+    });
+    Object.keys(last).forEach(function (id) { if (last[id] === 'install' && ids.indexOf(id) < 0) ids.push(id); });
+    return ids.filter(function (id) {
+        return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(id) && id !== AM.app && ID8_PROTECTED.indexOf(id) < 0 &&
+            Object.keys(SERVICES).every(function (k) { return SERVICES[k].name !== id; });
+    }).sort().map(function (id) {
+        var on = amAppOnUnit(id);
+        return on && { id: id, version: on.version, from: typeof from[id] === 'string' ? from[id] : null };
+    }).filter(Boolean);
+}
+/* Its repositories, without their tokens: { url, index, private, enabled,
+ * isDefault, lists: the ids its last catalog fetch saw there }. */
+function amRepos() {
+    var c = readJsonOrNull(amFile('config.json')) || {}, cat = (readJsonOrNull(amFile('catalog.json')) || {}).repos || {};
+    return (Array.isArray(c.repos) ? c.repos : []).filter(function (r) {
+        return r && typeof r.url === 'string' && typeof r.index === 'string';
+    }).map(function (r) {
+        var entries = (cat[r.url] && Array.isArray(cat[r.url].entries)) ? cat[r.url].entries : [];
+        return { url: r.url, index: r.index, private: !!r.token, enabled: r.enabled !== false, isDefault: !!r.isDefault,
+            lists: entries.map(function (e) { return e && e.id; }).filter(function (id) { return typeof id === 'string'; }) };
+    });
+}
+/* What status --json says of it: null when it was never on this unit. */
+function amStatus() {
+    var record = readJsonOrNull(AM_RECORD), present = amPresent();
+    if (!present && !record) return null;
+    var app = amAppOnUnit(AM.app);
+    return { present: present, version: amVersion(), app: app ? app.version : null,
+        daemon: present ? unitState(AM.daemon, 'is-active') : null, record: record };
+}
+/* A unit of his stopped: a running one unless recmgr does not list it
+ * (stopping it would restart the head unit), one that is not running
+ * always (a start the boot has queued is cancelled). -> stopped */
+function amStop(unit) {
+    var running = ['active', 'activating', 'reloading'].indexOf(unitState(unit, 'is-active')) >= 0;
+    if (running && recmgrPresent() && !recmgrLoaded(recmgrBase(unit))) return false;
+    systemctl(['stop', unit]);
+    if (running) say('stopped ' + unit);
+    return true;
+}
+function amTouched() {
+    var paths = [AM_RECORD, ID8_PENDING, amFile('pending.json'), path.join(CFG.systemd, 'mgu-renderd.service')];
+    [AM.daemon, AM.apply, AM.tether].forEach(function (u) {
+        paths.push(path.join(CFG.systemd, u));
+        wantsLinks(u).forEach(function (l) { paths.push(l); });
+    });
+    wantsLinks('mgu-renderd.service').forEach(function (l) { paths.push(l); });
+    return paths.concat(applyTouched());
+}
+/* His queued app changes, into our queue (iDrive 8, where his apply step
+ * installs): an install with its staged package while that still
+ * matches, a removal as it is; his own app is not carried over.
+ * -> [{ id, version }] of the installs moved */
+function amMoveQueue(state) {
+    var changes = (readJsonOrNull(amFile('pending.json')) || {}).changes, moved = [];
+    if (!isId8() || !Array.isArray(changes) || !changes.length) return moved;
+    changes.forEach(function (c) {
+        if (!c || typeof c.appId !== 'string' || c.appId === AM.app || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(c.appId)) return;
+        if (c.action === 'install') {
+            var staged = amFile('staged/' + c.appId + '@' + c.version + '.tgz');
+            if (!semverParts(c.version) || !fs.existsSync(staged) || sha256File(staged) !== c.sha256) {
+                say('his queued install of ' + c.appId + ' is dropped: its staged package is missing or changed');
+                return;
+            }
+            ensureApplyUnit(state);
+            var file = path.join(ID8_QUEUE, c.appId + '@' + c.version + '.tgz');
+            mkdirp(ID8_QUEUE, 0o700);
+            copyFileMode(staged, file, 0o600);
+            queueId8({ action: 'install', id: c.appId, version: c.version, file: file, sha256: sha256File(file) });
+            moved.push({ id: c.appId, version: c.version });
+            say(c.appId + ' ' + c.version + ' ' + ID8_INSTALLS + ' (queued by the App Manager)');
+        } else if (c.action === 'remove') {
+            ensureApplyUnit(state);
+            queueId8({ action: 'remove', id: c.appId });
+            say(c.appId + ' is ' + ID8_REMOVES + ' (queued by the App Manager)');
+        }
+    });
+    rmrf(amFile('pending.json'));
+    return moved;
+}
+/* His renderer as our tool mgu-renderd, from the program and version it
+ * has; installTool writes our unit over his and keeps a running renderer
+ * running. With our tool installed first, his App Manager has written
+ * its unit over ours: ours goes back, and runs from the next start. */
+function amRenderer(state, stage) {
+    var r = amService('renderer', 'mgu-renderd'), unit = path.join(CFG.systemd, 'mgu-renderd.service');
+    var ours = installedTools().filter(function (t) { return t.id === 'mgu-renderd'; })[0];
+    if (ours) {
+        var text = serviceUnit(path.join(CFG.varOpt, 'mgu-renderd', 'current', 'mgu-renderd'));
+        if (ours.component.mguService === 'renderer' && !bytesEqualFile(Buffer.from(text), unit)) {
+            rootfsWindow([{ type: 'copy', data: text, path: unit, mode: 0o644 }]);
+            runOk(CFG.systemctl, ['daemon-reload']);
+            addPending(state, 'mgu-renderd', PENDING_NEXT_START);
+            say('mgu-renderd.service is ours again; it runs ' + ours.version + ' from its next start');
+        }
+        return null;
+    }
+    if (!r) return null;
+    var dir = path.join(stage, 'am-renderer'), pkgDir = path.join(dir, 'package');
+    mkdirp(pkgDir);
+    fs.writeFileSync(path.join(pkgDir, 'mgu-renderd'), fs.readFileSync(r.bin));
+    fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: 'mgu-renderd', version: r.version,
+        productName: 'GPU renderer', mguService: 'renderer' }, null, 2) + '\n');
+    var a = validateService(r.bin, dir, pkgDir, readJson(path.join(pkgDir, 'package.json'))), tx = {};
+    installTool(a, state, tx);
+    return r.version;
+}
+/* Takes over: see the section's comment. Run under the lock, inside the
+ * caller's snapshot. His daemon rewrites the renderer's unit while it runs,
+ * so with it running past this boot (recmgr) only his units are disabled
+ * and the rest waits for the next boot. -> the record, or null then */
+function amAdopt(state, stage) {
+    var rec = { at: new Date().toISOString(), version: amVersion(), app: (amAppOnUnit(AM.app) || {}).version || null,
+        apps: amApps(), repos: amRepos(), renderer: null, tether: null };
+    say("adopting IterioDev's App Manager " + (rec.version || '') + ': ' +
+        (rec.apps.map(function (x) { return x.id + (x.version ? ' ' + x.version : ''); }).join(', ') || 'no apps'));
+    var ops = [];
+    [AM.daemon, AM.apply, AM.tether].forEach(function (u) {
+        wantsLinks(u).forEach(function (l) { ops.push({ type: 'delete', path: l }); });
+    });
+    if (ops.length) { rootfsWindow(ops); runOk(CFG.systemctl, ['daemon-reload']); say('disabled ' + [AM.daemon, AM.apply, AM.tether].join(', ')); }
+    var held = [AM.daemon, AM.tether].filter(function (u) { return !amStop(u); });
+    if (held.length) {
+        addPending(state, AM.app, AM_NEXT_BOOT);
+        say(held.join(' and ') + ' run until the next boot (recmgr does not list them): the App Manager is adopted then');
+        return null;
+    }
+    var t = amService('tether', 'ipheth-tether');
+    if (t) rec.tether = t.version;
+    var from = (readJsonOrNull(amFile('state.json')) || {}).installedFrom || {};
+    amMoveQueue(state).forEach(function (q) {
+        rec.apps = rec.apps.filter(function (x) { return x.id !== q.id; })
+            .concat([{ id: q.id, version: q.version, from: typeof from[q.id] === 'string' ? from[q.id] : null }]);
+    });
+    rec.renderer = amRenderer(state, stage);
+    if (rec.renderer) say('the GPU renderer ' + rec.renderer + ' is the tool mgu-renderd');
+    var old = readJsonOrNull(AM_RECORD);
+    if (old && old.renderer && !rec.renderer) rec.renderer = old.renderer;
+    if (old && old.tether && !rec.tether) rec.tether = old.tether;
+    mkdirp(DEPLOY_DIR);
+    writeAtomic(AM_RECORD, JSON.stringify(rec, null, 2) + '\n', 0o644);
+    return rec;
+}
+/* Removes it: see the section's comment. */
+function amRemove(state, stage) {
+    var rec = amAdopt(state, stage), ops = [], ourTether = installedTools().some(function (t) { return t.id === 'ipheth-tether'; });
+    if (!rec) throw refuse("IterioDev's App Manager runs until the next boot; it can be removed then");
+    [AM.daemon, AM.apply].concat(ourTether ? [] : [AM.tether]).forEach(function (u) {
+        if (lstatOrNull(path.join(CFG.systemd, u))) ops.push({ type: 'delete', path: path.join(CFG.systemd, u) });
+    });
+    if (ops.length) { rootfsWindow(ops); runOk(CFG.systemctl, ['daemon-reload']); }
+    if (fs.existsSync(AM.home)) {
+        rmrf(AM_REMOVED);
+        fs.renameSync(AM.home, AM_REMOVED);
+        say(AM.home + ' kept as ' + AM_REMOVED);
+    }
+    if (isId8()) {
+        if (amAppOnUnit(AM.app)) uninstallAppId8(AM.app, state);
+    } else if (installedApp(AM.app)) uninstallApp(AM.app, state);
+    rec.removed = new Date().toISOString();
+    writeAtomic(AM_RECORD, JSON.stringify(rec, null, 2) + '\n', 0o644);
+    say("IterioDev's App Manager removed; the apps and services it installed stay");
+}
+/* One changing command around adopt or remove: a snapshot first; on a
+ * failure his folder and the snapshot back, a renderer tool it made gone,
+ * and his daemon running again when it ran. */
+function amCommand(command, fn) {
+    if (!amPresent()) throw refuse("IterioDev's App Manager is not on this head unit");
+    var state = loadState(), stage = stageDir(), ran = unitState(AM.daemon, 'is-active') === 'active';
+    var renderer = path.join(CFG.varOpt, 'mgu-renderd'), hadRenderer = fs.existsSync(renderer);
+    var backup = takeSnapshot(command, amTouched());
+    try {
+        fn(state, stage);
+        saveState(state); selfInstall();
+    } catch (e) {
+        process.stderr.write(command + ' failed, rolling back from ' + backup + '\n');
+        try {
+            if (!fs.existsSync(AM.home) && fs.existsSync(AM_REMOVED)) fs.renameSync(AM_REMOVED, AM.home);
+            restoreSnapshot(backup);
+            if (!hadRenderer) rmrf(renderer);
+            systemctl(['daemon-reload']);
+            if (ran && unitState(AM.daemon, 'is-active') !== 'active') systemctl(['start', AM.daemon]);
+            pruneCreatedDirs(state);
+        } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
+        throw e;
+    } finally { rmrf(stage); }
+    return 0;
+}
+function cmdAppManager(args) {
+    var sub = args.positional[0];
+    if (!sub) {
+        var s = amStatus();
+        if (args.json) { say(JSON.stringify(s)); return 0; }
+        if (!s) { say("IterioDev's App Manager: not on this head unit"); return 0; }
+        say("IterioDev's App Manager: " + (s.present ? 'service ' + (s.version || '?') + ', daemon ' + s.daemon : 'removed') +
+            (s.app ? ', app ' + s.app : ''));
+        if (s.record) say('adopted ' + s.record.at + (s.record.removed ? ', removed ' + s.record.removed : '') + ': ' +
+            (s.record.apps.map(function (x) { return x.id; }).join(', ') || 'no apps'));
+        return 0;
+    }
+    if (sub !== 'adopt') throw refuse('appmanager needs adopt, or nothing');
+    confirmYes(args, "adopt IterioDev's App Manager");
+    return amCommand('adopt', amAdopt);
+}
+
 /* ---- provisioning fallback ---------------------------------------------------- */
 
 function fallbackPresent() {
@@ -2926,6 +3209,7 @@ function collectStatus(state) {
         fallback: fb, backups: backupCount,
         retired_leftovers: retiredBackups().map(function (b) { return b.path; }),
         updater_tokens: storedTokens().length,
+        appmanager: amStatus(),
         stock_backup: fs.existsSync(path.join(BACKUPS_DIR, 'stock')) };
 }
 function cmdStatus(args) {
@@ -2958,6 +3242,10 @@ function cmdStatus(args) {
     say('backups: ' + s.backups + (s.stock_backup ? ' (stock present)' : ' (no stock)'));
     if (s.retired_leftovers.length) say("retired installer's leftovers: " + s.retired_leftovers.join(', '));
     say('updater tokens: ' + s.updater_tokens);
+    if (s.appmanager) {
+        say("IterioDev's App Manager: " + (s.appmanager.present ? 'service ' + (s.appmanager.version || '?') + ', daemon ' +
+            s.appmanager.daemon + (s.appmanager.record ? ', adopted' : '') : 'removed'));
+    }
     s.pending_reboot.forEach(function (p) { say('pending reboot: ' + p.id + ' - ' + p.reason); });
     if (s.last_apply) {
         say('last apply at the start (' + s.last_apply.at + '):');
@@ -3395,6 +3683,7 @@ function cmdUninstall(args) {
         throw refuse('mgu-deploy: the deploy tool does not uninstall itself; restore puts back what it changed, ' +
             'and ' + DEPLOY_DIR + ' (its state and backups) is removed by hand when wanted');
     }
+    if (id === AM.app && amPresent()) return amCommand('uninstall', amRemove);
     var state = loadState();
     var isTool = installedTools().some(function (t) { return t.id === id; });
     if (!isTool && isId8()) return uninstallQueuedId8(id, state);
@@ -3655,6 +3944,8 @@ var HELP = [
     '  updater-sources                  seed the updater\'s sources.json from stdin (kept when present)',
     '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle, and its oap-sdk module',
     '  apply-pending                    iDrive 8: apply the queued app changes (at boot, before MainApp)',
+    '  appmanager [--json]              IterioDev\'s App Manager on this unit: its service and what was adopted',
+    '  appmanager adopt [--yes]         take over what it installed; uninstall oap-appmanager removes it',
     '  help                             this text',
     'exit codes: 0 done, 1 failed (rolled back), 2 preflight refused'
 ].join('\n');
@@ -3683,13 +3974,15 @@ function main() {
 }
 function runCommand() {
     var args = parseArgs(process.argv.slice(2)), locked = false;
-    var rootOnly = ['install', 'uninstall', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending']
+    var rootOnly = ['install', 'uninstall', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending',
+        'appmanager']
         .indexOf(args.command) >= 0;
     try {
         if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0 && rootOnly) {
             throw refuse('run as root');
         }
-        if (rootOnly && !(args.command === 'fallback' && args.positional[0] === 'status')) {
+        if (rootOnly && !(args.command === 'fallback' && args.positional[0] === 'status') &&
+            !(args.command === 'appmanager' && !args.positional[0])) {
             acquireLock(); locked = true;
             try { cleanStale(); } catch (e) { warn('could not remove a killed run\'s files: ' + e.message); }
         }
@@ -3706,6 +3999,7 @@ function runCommand() {
         if (args.command === 'updater-sources') return cmdUpdaterSources();
         if (args.command === 'sdk-donor') return cmdSdkDonor(args);
         if (args.command === 'apply-pending') return cmdApplyPending();
+        if (args.command === 'appmanager') return cmdAppManager(args);
         throw refuse('unknown command ' + args.command + '\n' + HELP);
     } catch (e) {
         process.stderr.write('mgu-deploy: ' + e.message + '\n');

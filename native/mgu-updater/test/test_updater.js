@@ -1929,8 +1929,8 @@ function testSources(certs) {
                 }
                 cp.execFileSync('tar', ['-czf', file, '-C', d, prefix ? 'package' : '.']);
             };
-            pkgTgz(path.join(oapDir, 'App Manager v1.0.9.tgz'), true, { name: 'oap-appmanager', version: '1.0.9', productName: 'App Manager' }, 'Apps');
-            pkgTgz(path.join(oapDir, 'older-manager.tar.gz'), true, { name: 'oap-appmanager', version: '1.0.2' }, null);
+            pkgTgz(path.join(oapDir, 'Gauges v1.0.9.tgz'), true, { name: 'oap-gauges', version: '1.0.9', productName: 'Gauges' }, 'Apps');
+            pkgTgz(path.join(oapDir, 'older-gauges.tar.gz'), true, { name: 'oap-gauges', version: '1.0.2' }, null);
             pkgTgz(path.join(oapDir, 'flat.TGZ'), false, { name: 'flat_app', version: '2.0.0', productName: 'Flat' }, null);
             pkgTgz(path.join(oapDir, 'renderer.tgz'), true, { name: 'mgu-renderd', version: '1.0.0', mguService: 'renderer' }, null);
             pkgTgz(path.join(oapDir, 'odd-service.tgz'), true, { name: 'odd', version: '1.0.0', mguService: { unit: 'x' } }, null);
@@ -1954,8 +1954,8 @@ function testSources(certs) {
                 .then(() => until(st, () => src('usb:STICK/oap').status === 'ok', 20000, 'the oap folder read'))
                 .then(() => {
                     ok('usb oap/: each package by its own package.json, the newest of an id, titles from rhmiData else productName',
-                        comp('oap-appmanager').version === '1.0.9' && comp('oap-appmanager').title === 'Apps' &&
-                        comp('flat_app').title === 'Flat' && comp('loose_mgu').version === '0.2.0' && comp('oap-appmanager').source === 'usb:STICK/oap',
+                        comp('oap-gauges').version === '1.0.9' && comp('oap-gauges').title === 'Apps' &&
+                        comp('flat_app').title === 'Flat' && comp('loose_mgu').version === '0.2.0' && comp('oap-gauges').source === 'usb:STICK/oap',
                         JSON.stringify(st().components.filter((c) => /usb:STICK\/oap/.test(c.source))));
                     ok('usb oap/: every app can be removed', comp('flat_app').uninstallable === true && comp('loose_mgu').uninstallable === true);
                     ok('usb oap/: a root-service package is the tool it installs as; an unknown service, links and files that are not packages are left out',
@@ -1965,11 +1965,11 @@ function testSources(certs) {
                         !/renderer\.tgz|README|linked/.test(src('usb:STICK/oap').error || ''),
                         JSON.stringify(src('usb:STICK/oap')));
                     fs.writeFileSync(deployLog, '');
-                    return ask(sock, { op: 'install', id: 'oap-appmanager' });
+                    return ask(sock, { op: 'install', id: 'oap-gauges' });
                 })
-                .then(() => installed('oap-appmanager'))
+                .then(() => installed('oap-gauges'))
                 .then(() => {
-                    ok('usb oap/: a package installs under its id and version', /oap-appmanager@1\.0\.9\.tgz --yes/.test(deployed()[0]), deployed()[0]);
+                    ok('usb oap/: a package installs under its id and version', /oap-gauges@1\.0\.9\.tgz --yes/.test(deployed()[0]), deployed()[0]);
                     ok('usb: a newer version on a stick is an update of a component installed from a GitHub source',
                         JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'mgu-store' &&
                         comp('base_tool').status === 'update' && comp('base_tool').version === '1.1.0' &&
@@ -2420,6 +2420,157 @@ function testIndexV2(certs, pubDir) {
             ok('icons: one no component names any more goes', !fs.existsSync(path.join(iconDir, `${sha256(appIcon)}.png`)) && !comp('v2app').id &&
                 comp('v2render').icon, fs.readdirSync(iconDir).join());
             u.server.close();
+        });
+}
+
+/* A unit that runs IterioDev's App Manager (the deploy tool's status names
+ * it): adopted once; the apps it installed get the source of its public
+ * repository (added as one) or imported; its app and tether are replaced,
+ * listed but not installed from any source; its app's Remove is the deploy
+ * tool's uninstall. */
+function testAppManager(certs, pubDir) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'am');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const state = path.join(M, 'state');
+    [M, opt, oap, state, path.join(M, 'shm'), path.join(M, 'media'), path.join(M, 'empty')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog, FAKE_UNIT_HMI: 'ID8' });
+    delete process.env.FAKE_LEASE;
+    delete process.env.FAKE_PENDING;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    const calls = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter(Boolean);
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.5.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.5.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.5.0' }));
+    fs.symlinkSync('versions/0.5.0', path.join(opt, 'mgu-deploy', 'current'));
+    // what MainApp-21 installed for the App Manager
+    const installed = (id, version, uid) => {
+        mkdirp(path.join(oap, 'oap_12201', 'data', 'apps'));
+        mkdirp(path.join(oap, `oap_${uid}`, 'source'));
+        fs.writeFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`), JSON.stringify({ userId: uid }));
+        fs.writeFileSync(path.join(oap, `oap_${uid}`, 'source', 'package.json'), JSON.stringify({ name: id, version }));
+    };
+    installed('oap-appmanager', '2.0.3', 13001);
+    installed('oap-cardash', '1.1.4', 13002);
+    installed('oap-usbapp', '1.0.0', 13003);
+    installed('oap-private', '1.0.0', 13004);
+    // his repository's index (index v2), with his app, his tether and a newer Car Data
+    const pkg = (file, pj) => {
+        const d = path.join(T, 'src', `am-${file}`);
+        mkdirp(path.join(d, 'package'));
+        fs.writeFileSync(path.join(d, 'package', 'package.json'), JSON.stringify(pj));
+        const out = path.join(pubDir, file);
+        cp.execFileSync('tar', ['-czf', out, '-C', d, 'package']);
+        const data = fs.readFileSync(out);
+        return { url: file, sha256: sha256(data), size: data.length, id: pj.name, version: pj.version, kind: pj.mguService || 'app',
+            title: pj.productName, author: 'IterioDev' };
+    };
+    const index = `https://updates.test:${HTTPS_PORT}/am-index.json`;
+    fs.writeFileSync(path.join(pubDir, 'am-index.json'), JSON.stringify({ version: 2, name: 'car-apps', packages: [
+        pkg('oap-appmanager@2.0.4.tgz', { name: 'oap-appmanager', version: '2.0.4', productName: 'App Manager' }),
+        pkg('oap-cardash@1.1.5.tgz', { name: 'oap-cardash', version: '1.1.5', productName: 'Car Data' }),
+        pkg('ipheth-tether@1.0.1.tgz', { name: 'ipheth-tether', version: '1.0.1', productName: 'iPhone tether', mguService: 'tether' })] }));
+    fs.writeFileSync(`${deployLog}.appmanager`, JSON.stringify({ present: true, version: '2.0.3', app: '2.0.3', daemon: 'active', record: null }));
+    fs.writeFileSync(`${deployLog}.amrecord`, JSON.stringify({ at: '2026-10-26T10:00:00.000Z', version: '2.0.3', app: '2.0.3', renderer: '1.1.2', tether: '1.0.1',
+        apps: [{ id: 'oap-cardash', version: '1.1.4', from: null }, { id: 'oap-usbapp', version: '1.0.0', from: null },
+            { id: 'oap-private', version: '1.0.0', from: 'github.com/me/priv' }],
+        repos: [{ url: 'github.com/IterioDev/car-apps', index, private: false, enabled: true, isDefault: true, lists: ['oap-appmanager', 'oap-cardash'] },
+            { url: 'github.com/me/priv', index: 'https://api.github.com/repos/me/priv/contents/index.json', private: true, enabled: true, isDefault: false, lists: [] }] }));
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: path.join(M, 'empty'), builtin: true }] }));
+    publish(path.join(M, 'empty'), []);
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
+        github_api: API, github_web: GH_WEB, github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    fs.writeFileSync(conf.mounts, 'proc /proc proc rw 0 0\n');
+    let u = new Updater(conf);
+    const st = () => u.state();
+    const comp = (id) => st().components.find((c) => c.id === id) || {};
+    const adopts = () => calls().filter((l) => l === 'appmanager adopt --yes').length;
+    return u.serve()
+        .then(() => u.refresh())
+        .then(() => until(() => u.adopted.at, (at) => !!at && !u.busy, 30000, 'App Manager adopted'))
+        .then(() => u.check())
+        .then(() => {
+            const src = u.stored.find((d) => d.type === 'https' && d.url === index);
+            ok('appmanager: adopted once through the deploy tool', adopts() === 1, calls().join('; '));
+            ok('appmanager: his public repository becomes a source named after it', src && src.id === 'car-apps' &&
+                JSON.parse(fs.readFileSync(sources, 'utf8')).sources.some((d) => d.id === 'car-apps'), JSON.stringify(u.stored));
+            ok('appmanager: an app his store lists keeps that repository as its origin; a stick\'s and a private repository\'s are imported',
+                u.origins['oap-cardash'] && u.origins['oap-cardash'].source === 'car-apps' && !u.origins['oap-usbapp'] && !u.origins['oap-private'] &&
+                JSON.stringify(JSON.parse(fs.readFileSync(path.join(state, 'appmanager.json'), 'utf8')).imported) === '["oap-usbapp","oap-private"]',
+                JSON.stringify(u.origins));
+            const am = comp('oap-appmanager');
+            ok('appmanager: his app is listed as replaced by the Store, installed, with a Remove', am.blocked === 'Replaced by Store' &&
+                am.installed === '2.0.3' && am.uninstallable === true, JSON.stringify(am));
+            ok('appmanager: his tether is replaced by mgu-uplink', comp('ipheth-tether').blocked === 'Replaced by mgu-uplink', JSON.stringify(comp('ipheth-tether')));
+            ok('appmanager: Car Data updates from his repository', comp('oap-cardash').status === 'update' && comp('oap-cardash').source === 'car-apps' &&
+                !comp('oap-cardash').blocked, JSON.stringify(comp('oap-cardash')));
+            const imp = comp('oap-usbapp');
+            ok('appmanager: an imported app no source lists keeps a row, installed and removable', imp.source === 'imported' &&
+                imp.status === 'installed' && imp.installed === '1.0.0' && imp.uninstallable === true, JSON.stringify(imp));
+            return Promise.all([ask(conf.socket, { op: 'install', id: 'oap-appmanager' }), ask(conf.socket, { op: 'install', id: 'ipheth-tether' }),
+                ask(conf.socket, { op: 'install', id: 'oap-usbapp' })]);
+        })
+        .then(([a, t, i]) => {
+            ok('appmanager: his app and his tether are not installed from any source', a === 'Replaced by Store' && t === 'Replaced by mgu-uplink' &&
+                !calls().some((l) => /^install .*(oap-appmanager|ipheth-tether)/.test(l)), `${a} ${t}`);
+            ok('appmanager: an imported app is not installed from nowhere', /oap-usbapp is in no source/.test(i || ''), i);
+            return ask(conf.socket, { op: 'install', id: 'oap-cardash' });
+        })
+        .then(() => until(st, () => !st().busy && comp('oap-cardash').status === 'installed', 30000, 'oap-cardash updated'))
+        .then(() => {
+            ok('appmanager: his app updates through the Store from his repository', calls().some((l) => /^install --artifact .*oap-cardash@1\.1\.5\.tgz --yes$/.test(l)) &&
+                u.origins['oap-cardash'].source === 'car-apps', calls().join('; '));
+            return ask(conf.socket, { op: 'uninstall', id: 'oap-appmanager', secret: u.secret });
+        })
+        .then(() => until(st, () => !st().busy && !comp('oap-appmanager').installed, 30000, 'App Manager removed'))
+        .then(() => {
+            ok('appmanager: Remove App Manager is the deploy tool\'s uninstall of oap-appmanager', calls().includes('uninstall oap-appmanager --yes') &&
+                u.appmanager.present === false, calls().join('; '));
+            u.server.close();
+            // a restart: the record is taken over once
+            u = new Updater(conf);
+            return u.serve().then(() => u.refresh()).then(() => sleep(300));
+        })
+        .then(() => {
+            ok('appmanager: a later start does not adopt again', adopts() === 1 && u.adopted.at === '2026-10-26T10:00:00.000Z' &&
+                u.origins['oap-cardash'].source === 'car-apps', calls().join('; '));
+            u.server.close();
+            // install.sh run again, without his app: his service alone
+            const am = JSON.parse(fs.readFileSync(`${deployLog}.appmanager`, 'utf8'));
+            fs.writeFileSync(`${deployLog}.appmanager`, JSON.stringify(Object.assign(am, { present: true, app: null, daemon: 'active' })));
+            fs.writeFileSync(`${deployLog}.amrecord`, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(`${deployLog}.amrecord`, 'utf8')),
+                { at: '2026-10-27T10:00:00.000Z' })));
+            u = new Updater(conf);
+            return u.serve().then(() => u.refresh()).then(() => until(() => u.adopted.at, (at) => at === '2026-10-27T10:00:00.000Z' && !u.busy,
+                30000, 'the reinstalled App Manager adopted'));
+        })
+        .then(() => {
+            const am = comp('oap-appmanager');
+            ok('appmanager: one installed again after its removal is adopted again', adopts() === 2, calls().join('; '));
+            ok('appmanager: its service alone keeps a Remove', am.blocked === 'Replaced by Store' && am.installed === '2.0.3' &&
+                am.uninstallable === true, JSON.stringify(am));
+            return ask(conf.socket, { op: 'uninstall', id: 'oap-appmanager', secret: u.secret });
+        })
+        .then((err) => until(st, () => !st().busy && u.appmanager.present === false, 30000, 'the service removed').then(() => err))
+        .then((err) => {
+            ok('appmanager: and that Remove is the deploy tool\'s uninstall of oap-appmanager', err === null &&
+                calls().filter((l) => l === 'uninstall oap-appmanager --yes').length === 2, `${err} ${calls().join('; ')}`);
+            u.server.close();
+            delete process.env.FAKE_UNIT_HMI;
         });
 }
 
@@ -3043,6 +3194,7 @@ function main() {
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
+            .then(() => testAppManager(certs, pubDir).catch((e) => ok('App Manager scenario', false, e.stack)))
             .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
             .then(() => testIdClash().catch((e) => ok('id clash scenario', false, e.stack)))
             .then(() => testDaemon(certs, pubDir))

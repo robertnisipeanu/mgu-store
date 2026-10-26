@@ -3030,12 +3030,8 @@ function testServices() {
     const kind = root.run(['install', '--artifact', serviceArtifact('bogus', '1.0.0', { name: 'bogus' }), '--yes']);
     check('service: an unknown mguService is refused', kind.status === 2 && kind.out.includes('unknown mguService bogus'), kind.out);
     const t = root.run(['install', '--artifact', serviceArtifact('tether', '1.0.1'), '--yes']);
-    const tunit = fs.readFileSync(root.p('etc/systemd/system/ipheth-tether.service'), 'utf8');
-    check('service: a tether package installs on demand: not enabled, not started', t.status === 0 &&
-        tunit.includes(`ExecStart=${root.p('var/opt/ipheth-tether/current/ipheth-tether')} socks 127.0.0.1:1080`) &&
-        !fs.existsSync(root.p('etc/systemd/system/late.target.wants/ipheth-tether.service')) &&
-        !root.systemctlCalls().some((c) => /ipheth-tether/.test(c) && /^(start|restart)/.test(c)) &&
-        root.status().components.some((c) => c.id === 'ipheth-tether' && c.provides === 'tether'), t.out);
+    check('service: a tether package is refused: mgu-uplink drives the iPhone', t.status === 2 &&
+        t.out.includes('the iPhone tether is replaced by mgu-uplink') && !fs.existsSync(root.p('var/opt/ipheth-tether')), t.out);
     const his = fakeRoot();
     write(his.p('etc/systemd/system/mgu-renderd.service'), '[Service]\nExecStart=/var/opt/appmanager/renderer/mgu-renderd\n');
     const h0 = his.hash();
@@ -3315,6 +3311,204 @@ function testId8Apps() {
     check('id8: apply-pending is refused on iDrive 7', seven7.status === 2 && seven7.out.includes('this head unit is iDrive 7'), seven7.out);
 }
 
+/* IterioDev's App Manager as his install.sh and his service leave it on an
+ * iDrive 8 (appmanager-service: install.sh, oap.js, services.js, store.js):
+ * the service in /var/opt/appmanager/code/<v>/ with its links, state.json,
+ * config.json (a token for a private repository), catalog.json, apply.log,
+ * a queued install in pending.json and staged/, his renderer and tether
+ * with their units, his two units enabled for late.target by absolute
+ * links; his app, Car Data and Drag Timer installed for MainApp-21, a Fault
+ * Codes he installed and removed again, an app of our own; no recmgr list. */
+function amRoot(opts) {
+    opts = opts || {};
+    const root = opts.id7 ? fakeRoot(opts) : id8Root(Object.assign({ noRecmgr: true }, opts));
+    const H = (rel) => root.p(`var/opt/appmanager/${rel}`);
+    const sys = (rel) => root.p(`etc/systemd/system/${rel}`);
+    write(H('code/2.0.3/appmanager.js'), '// his daemon\n');
+    write(H('code/2.0.3/version.json'), '{ "version": "2.0.3" }\n');
+    ['current', 'stable', 'previous'].forEach((l) => fs.symlinkSync('2.0.3', H(`code/${l}`)));
+    write(H('selfcheck.js'), '// his selfcheck\n');
+    write(H('state.json'), JSON.stringify({ installedFrom: { 'oap-cardash': 'github.com/IterioDev/car-apps', 'mgu-renderd': 'github.com/IterioDev/car-apps' },
+        lastApply: { at: 1, results: [] } }, null, 1));
+    write(H('config.json'), JSON.stringify({ repos: [
+        { url: 'github.com/IterioDev/car-apps', index: 'https://raw.githubusercontent.com/IterioDev/car-apps/HEAD/index.json', enabled: true, isDefault: true },
+        { url: 'github.com/me/priv', index: 'https://api.github.com/repos/me/priv/contents/index.json', token: 'github_pat_SECRETSECRETSECRET', enabled: true }] }), 0o600);
+    write(H('catalog.json'), JSON.stringify({ repos: { 'github.com/IterioDev/car-apps': { entries: [{ id: 'oap-appmanager' }, { id: 'oap-cardash' },
+        { id: 'oap-draggy' }, { id: 'mgu-renderd' }] } } }));
+    write(H('apply.log'), [
+        { at: '2026-10-25T08:00:00Z', results: [{ appId: 'oap-appmanager', action: 'install', version: '2.0.3', ok: true },
+            { appId: 'oap-draggy', action: 'install', version: '1.1.3', ok: true }, { appId: 'oap-dtcscan', action: 'install', version: '1.1.1', ok: true },
+            { appId: 'oap-broken', action: 'install', version: '1.0.0', ok: false }] },
+        { at: '2026-10-25T09:00:00Z', renderer: { action: 'install', version: '1.1.2', ok: true } },
+        { at: '2026-10-25T10:00:00Z', results: [{ appId: 'oap-cardash', action: 'install', version: '1.1.4', ok: true },
+            { appId: 'oap-dtcscan', action: 'remove', ok: true }] }].map((j) => JSON.stringify(j)).join('\n') + '\n');
+    const staged = H('staged/oap-driverecorder-next@1.0.8.tgz');
+    write(staged, fs.readFileSync(rhmiApp('oap-driverecorder-next', '1.0.8', ['ID8'], { npm: true })));
+    write(H('pending.json'), JSON.stringify({ changes: [{ action: 'install', appId: 'oap-driverecorder-next', version: '1.0.8', title: 'Drive Recorder',
+        staged: '/var/opt/appmanager/staged/oap-driverecorder-next@1.0.8.tgz', sha256: sha256(fs.readFileSync(staged)), at: 1 }] }));
+    write(H('renderer/mgu-renderd'), elf(), 0o755);
+    write(H('renderer/version.json'), JSON.stringify({ version: '1.1.2', at: 1 }));
+    const tbin = Buffer.concat([elf(), Buffer.from('tether')]);
+    write(H('tether/ipheth-tether'), tbin, 0o755);
+    write(H('tether/version.json'), JSON.stringify({ version: '1.0.1', at: 1 }));
+    write(sys('appmanager.service'), '[Service]\nExecStart=/usr/bin/node /var/opt/appmanager/code/current/appmanager.js daemon\n[Install]\nWantedBy=late.target\n');
+    write(sys('appmanager-apply.service'), '[Service]\nType=oneshot\nExecStart=/usr/bin/node /var/opt/appmanager/code/stable/appmanager.js apply\n');
+    write(sys('mgu-renderd.service'), '[Service]\nExecStart=/var/opt/appmanager/renderer/mgu-renderd --socket /run/mgu-renderd/renderd.sock\n');
+    write(sys('ipheth-tether.service'), '[Service]\nExecStart=/var/opt/appmanager/tether/ipheth-tether socks 127.0.0.1:1080\n');
+    ['appmanager.service', 'appmanager-apply.service', 'mgu-renderd.service'].forEach((u) => {
+        fs.mkdirSync(sys('late.target.wants'), { recursive: true });
+        fs.symlinkSync(`/etc/systemd/system/${u}`, sys(`late.target.wants/${u}`));
+    });
+    if (!opts.id7) {
+        // what his apply step put in place for MainApp-21, and what it installed
+        const das = (id) => [0, 1, 2, 3, 4, 5].forEach((i) => {
+            const f = root.p(`usr/share/tm/prov/das_00${i}.xml`);
+            fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('        </installable_apps>',
+                `            <app supportedECUs="HU" initialPreferPreinstalled="true">${id}</app>\n        </installable_apps>`)
+                .replace(/(<x_call [^\n]*\n)/, `$1        <${id} enabled="true" allowed="true" appStartType="autostart" userLoginRequired="false"/>\n`));
+        });
+        [['oap-appmanager', '2.0.3', 13001], ['oap-cardash', '1.1.4', 13002], ['oap-draggy', '1.1.3', 0], ['robertn_ours', '1.0.0', 13003]].forEach(([id, v, uid]) => {
+            write(root.pre21(id, v), fs.readFileSync(rhmiApp(id, v, ['ID8'], { npm: true })));
+            das(id);
+            if (uid) {
+                write(root.entry(id), JSON.stringify({ userId: uid, installationSource: 'PREINSTALLED' }));
+                write(root.p(`var/opt/public/oap/oap_${uid}/source/package.json`), JSON.stringify({ name: id, version: v }));
+                write(root.p(`var/opt/public/oap/oap_${uid}/data/kept`), `${id} data\n`);
+            }
+        });
+    }
+    root.env.FAKE_ACTIVE = 'appmanager.service mgu-renderd.service ipheth-tether.service';
+    root.H = H;
+    root.sys = sys;
+    root.tbin = tbin;
+    return root;
+}
+
+function testAppManager() {
+    const root = amRoot();
+    const st0 = root.status();
+    check('appmanager: status names his service, his app and his running daemon', st0.appmanager && st0.appmanager.present === true &&
+        st0.appmanager.version === '2.0.3' && st0.appmanager.app === '2.0.3' && st0.appmanager.daemon === 'active' &&
+        st0.appmanager.record === null, JSON.stringify(st0.appmanager));
+    const h0 = root.hash();
+    const own = root.run(['install', '--artifact', rhmiApp('oap-appmanager', '2.0.4', ['ID8'], { npm: true }), '--yes']);
+    check('appmanager: his app package is refused, nothing changed', own.status === 2 &&
+        own.out.includes("oap-appmanager is IterioDev's App Manager, which the Store replaces") && root.hash().hash === h0.hash, own.out);
+    const svc = root.run(['install', '--artifact', serviceArtifact('renderer', '1.1.3'), '--yes']);
+    check('appmanager: a renderer package is refused while his renderer unit is his', svc.status === 2 &&
+        svc.out.includes('mgu-renderd.service is installed, but by no tool of ours'), svc.out);
+    const apps = () => ['oap-appmanager', 'oap-cardash', 'robertn_ours'].map((id) => fs.readFileSync(root.entry(id), 'utf8')).join() +
+        ['var/opt/public/oap/oap_13001/data/kept', 'var/opt/public/oap/oap_13002/data/kept', 'var/opt/public/oap/oap_13003/data/kept']
+            .map((f) => fs.readFileSync(root.p(f), 'utf8')).join() +
+        [['oap-appmanager', '2.0.3'], ['oap-cardash', '1.1.4'], ['oap-draggy', '1.1.3']].map(([id, v]) => sha256(fs.readFileSync(root.pre21(id, v)))).join();
+    const dasNow = () => [0, 1, 2, 3, 4, 5].map((i) => fs.readFileSync(root.p(`usr/share/tm/prov/das_00${i}.xml`), 'utf8')).join();
+    const apps0 = apps(), das0 = dasNow();
+
+    const a = root.run(['appmanager', 'adopt', '--yes']);
+    const calls = root.systemctlCalls();
+    const rec = readJsonOrNull(root.p('var/opt/mgu-deploy/appmanager.json')) || {};
+    check('appmanager: adopt stops his daemon and his tether, a start queued for them too (never a restart of the renderer)', a.status === 0 &&
+        calls.includes('stop appmanager.service') && calls.includes('stop ipheth-tether.service') &&
+        !calls.some((c) => /^(stop|restart) mgu-renderd/.test(c)), a.out + calls.join('\n'));
+    check('appmanager: his units stay, disabled', fs.existsSync(root.sys('appmanager.service')) && fs.existsSync(root.sys('appmanager-apply.service')) &&
+        !fs.existsSync(root.sys('late.target.wants/appmanager.service')) && !fs.existsSync(root.sys('late.target.wants/appmanager-apply.service')));
+    const unit = fs.readFileSync(root.sys('mgu-renderd.service'), 'utf8');
+    check('appmanager: his renderer is the tool mgu-renderd, its program as it was, our unit over his, enabled',
+        fs.readFileSync(root.p('var/opt/mgu-renderd/versions/1.1.2/mgu-renderd')).equals(elf()) &&
+        fs.readlinkSync(root.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2' &&
+        unit.includes(`ExecStart=${root.p('var/opt/mgu-renderd/current/mgu-renderd')} --socket /run/mgu-renderd/renderd.sock --touch car`) &&
+        fs.readlinkSync(root.sys('late.target.wants/mgu-renderd.service')) === '../mgu-renderd.service' &&
+        root.status().components.some((c) => c.id === 'mgu-renderd' && c.provides === 'renderer'), unit);
+    check('appmanager: the running renderer keeps running, the tool runs from its next start',
+        root.status().pending_reboot.some((p) => p.id === 'mgu-renderd' && p.reason === 'the new version runs from its next start'),
+        JSON.stringify(root.status().pending_reboot));
+    check('appmanager: his queued install moves to our queue, his pending.json goes', !fs.existsSync(root.H('pending.json')) &&
+        fs.readFileSync(root.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')).equals(fs.readFileSync(root.H('staged/oap-driverecorder-next@1.0.8.tgz'))) &&
+        root.status().pending_reboot.some((p) => p.id === 'oap-driverecorder-next' && p.reason === 'installs at the next start'), a.out);
+    check('appmanager: the record names the apps he installed that are on the unit or in his queue, with the repository he recorded',
+        JSON.stringify(rec.apps) === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', from: 'github.com/IterioDev/car-apps' },
+            { id: 'oap-draggy', version: '1.1.3', from: null }, { id: 'oap-driverecorder-next', version: '1.0.8', from: null }]) &&
+        rec.renderer === '1.1.2' && rec.tether === '1.0.1', JSON.stringify(rec));
+    check('appmanager: and his repositories with what his store saw there, without the token',
+        rec.repos && rec.repos.length === 2 && rec.repos[0].isDefault === true && rec.repos[0].lists.indexOf('oap-draggy') >= 0 &&
+        rec.repos[1].private === true && !fs.readFileSync(root.p('var/opt/mgu-deploy/appmanager.json'), 'utf8').includes('SECRET'), JSON.stringify(rec.repos));
+    check('appmanager: nothing reinstalled: registry, app data, packages and das files as they were', apps() === apps0 && dasNow() === das0);
+    check('appmanager: status says it is adopted', root.status().appmanager.record.at === rec.at && root.status().appmanager.daemon === 'inactive');
+    const again = root.run(['appmanager', 'adopt', '--yes']);
+    check('appmanager: adopting again changes nothing it took over', again.status === 0 && readJsonOrNull(root.p('var/opt/mgu-deploy/appmanager.json')).renderer === '1.1.2' &&
+        fs.readlinkSync(root.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2', again.out);
+
+    const r = root.run(['uninstall', 'oap-appmanager', '--yes']);
+    const st = root.status();
+    check('appmanager: Remove takes his units and boot hook away and keeps his folder aside', r.status === 0 &&
+        !fs.existsSync(root.sys('appmanager.service')) && !fs.existsSync(root.sys('appmanager-apply.service')) &&
+        !fs.existsSync(root.sys('ipheth-tether.service')) && !fs.existsSync(root.H('')) &&
+        fs.readFileSync(root.p('var/opt/mgu-deploy/appmanager-removed/tether/ipheth-tether')).equals(root.tbin), r.out);
+    check('appmanager: his app is removed at the next start; the renderer and his apps stay', st.appmanager.present === false &&
+        st.appmanager.record.removed && st.pending_reboot.some((p) => p.id === 'oap-appmanager' && p.reason === 'removed at the next start') &&
+        fs.existsSync(root.p('var/opt/mgu-renderd/current/mgu-renderd')) && fs.existsSync(root.sys('mgu-renderd.service')) && apps() === apps0, JSON.stringify(st));
+    root.noManager();
+    const boot = root.run(['apply-pending']);
+    const das = dasNow();
+    check('appmanager: at the start his app goes; Car Data, Drag Timer, ours and the queued Drive Recorder are there',
+        boot.status === 0 && !fs.existsSync(root.entry('oap-appmanager')) && !fs.existsSync(root.pre21('oap-appmanager', '2.0.3')) &&
+        !das.includes('>oap-appmanager<') && das.includes('>oap-cardash<') && das.includes('>oap-draggy<') && das.includes('>robertn_ours<') &&
+        das.includes('>oap-driverecorder-next<') && fs.existsSync(root.entry('oap-cardash')) &&
+        fs.readFileSync(root.p('var/opt/public/oap/oap_13002/data/kept'), 'utf8') === 'oap-cardash data\n', boot.out);
+    check('appmanager: once removed it is not on the unit, and adopt is refused',
+        root.run(['appmanager', 'adopt', '--yes']).status === 2 && root.status().appmanager.present === false);
+
+    // a failure rolls the takeover back
+    const bad = amRoot();
+    const hb = bad.hash((rel) => rel.startsWith('var/opt/mgu-deploy'));
+    const f = bad.run(['appmanager', 'adopt', '--yes'], { FAKE_FAIL: 'daemon-reload' });
+    const daemon = bad.unitFile('appmanager.service.active');
+    check('appmanager: a failed adopt puts everything back, his daemon running', f.status === 1 &&
+        bad.hash((rel) => rel.startsWith('var/opt/mgu-deploy')).hash === hb.hash &&
+        (!fs.existsSync(daemon) || fs.readFileSync(daemon, 'utf8').trim() === 'active') &&
+        !fs.existsSync(bad.p('var/opt/mgu-deploy/appmanager.json')),
+        f.out + treeDiff(hb, bad.hash((rel) => rel.startsWith('var/opt/mgu-deploy'))));
+
+    const late = amRoot();
+    write(late.H('renderer/mgu-renderd'), '#!/bin/sh\n', 0o755);
+    const hl = late.hash((rel) => rel.startsWith('var/opt/mgu-deploy'));
+    const fl = late.run(['appmanager', 'adopt', '--yes']);
+    check('appmanager: one failing after his daemon stopped (a renderer that is no program) starts it again, all else back', fl.status !== 0 &&
+        fl.out.includes('is not an x86-64 program') && late.systemctlCalls().includes('start appmanager.service') &&
+        late.hash((rel) => rel.startsWith('var/opt/mgu-deploy')).hash === hl.hash && !fs.existsSync(late.p('var/opt/mgu-renderd')),
+        fl.out + treeDiff(hl, late.hash((rel) => rel.startsWith('var/opt/mgu-deploy'))));
+
+    // our renderer tool first, his App Manager installed after it: his unit over ours
+    const first = amRoot();
+    fs.renameSync(first.sys('mgu-renderd.service'), `${first.R}.his-unit`);
+    fs.unlinkSync(first.sys('late.target.wants/mgu-renderd.service'));
+    const ownTool = first.run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--yes']);
+    fs.copyFileSync(`${first.R}.his-unit`, first.sys('mgu-renderd.service'));
+    const fa = first.run(['appmanager', 'adopt', '--yes']);
+    check('appmanager: over our own renderer tool, adopt puts our unit back; the tool stays as it was', ownTool.status === 0 && fa.status === 0 &&
+        fs.readFileSync(first.sys('mgu-renderd.service'), 'utf8').includes(`ExecStart=${first.p('var/opt/mgu-renderd/current/mgu-renderd')} `) &&
+        fs.readlinkSync(first.p('var/opt/mgu-renderd/current')) === 'versions/1.1.0' &&
+        first.status().appmanager.record.renderer === null, fa.out);
+
+    // a recmgr list without his units: stopping a running one would restart the head unit
+    const seven = amRoot({ id7: true });
+    const unit7 = fs.readFileSync(seven.sys('mgu-renderd.service'), 'utf8');
+    const s7 = seven.run(['appmanager', 'adopt', '--yes']);
+    check('appmanager: with his daemon running and not in recmgr, adopt only disables his units; the rest waits for the next boot', s7.status === 0 &&
+        !seven.systemctlCalls().some((c) => /^stop (appmanager|ipheth)/.test(c)) && !fs.existsSync(seven.sys('late.target.wants/appmanager.service')) &&
+        seven.status().pending_reboot.some((p) => p.id === 'oap-appmanager' && p.reason === 'adopted at the next boot') &&
+        seven.status().appmanager.record === null && fs.readFileSync(seven.sys('mgu-renderd.service'), 'utf8') === unit7 &&
+        !fs.existsSync(seven.p('var/opt/mgu-renderd')), s7.out);
+    const r7 = seven.run(['uninstall', 'oap-appmanager', '--yes']);
+    check('appmanager: and it is not removed before then', r7.status === 2 && r7.out.includes('runs until the next boot') &&
+        fs.existsSync(seven.sys('appmanager.service')), r7.out);
+    seven.reboot(Math.floor(Date.now() / 1000) - 60);
+    const n7 = seven.run(['appmanager', 'adopt', '--yes'], { FAKE_ACTIVE: 'mgu-renderd.service' });
+    check('appmanager: at the next boot, his daemon not started, adopt completes', n7.status === 0 &&
+        seven.status().appmanager.record.renderer === '1.1.2' && fs.readlinkSync(seven.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2' &&
+        !fs.readFileSync(seven.sys('mgu-renderd.service'), 'utf8').includes('--touch'), n7.out);
+}
+
 // MGU_TEST_ONLY=<name>,...: only those test functions
 const SUITES = [
     testArtifact,
@@ -3370,7 +3564,8 @@ const SUITES = [
     testProvides,
     testDropins,
     testKeepRunning,
-    testId8Apps
+    testId8Apps,
+    testAppManager
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;

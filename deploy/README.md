@@ -209,7 +209,8 @@ An **app artifact** is one of:
   unit (below). The Store is published this way.
 
 A **service package** (IterioDev's App Manager format: `package.json` with
-`mguService`) installs as a tool ("Service packages").
+`mguService`) installs as a tool when it is a renderer; a tether is refused
+("Service packages").
 
 ## mgu-install
 
@@ -320,6 +321,7 @@ mgu-deploy.sh updater-token --list [--json] | --remove <id>
 mgu-deploy.sh updater-sources                 # sources.json on stdin
 mgu-deploy.sh sdk-donor [--json]
 mgu-deploy.sh apply-pending                   # iDrive 8, at boot
+mgu-deploy.sh appmanager [--json] | appmanager adopt [--yes]
 ```
 
 `install` without `--artifact` takes every `*.tgz` and `*.mgu` in
@@ -350,6 +352,7 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /run/mgu-deploy/sdk-donor/               the donor bundle's readable copy and its oap-sdk module (sdk-donor)
 /var/opt/mgu-deploy/id8/pending.json     iDrive 8: the queued app changes; queue/<id>@<version>.tgz their packages
 /var/opt/mgu-deploy/id8/last-apply.json  iDrive 8: what the last apply-pending did; trash/<time>/ what it removed
+/var/opt/mgu-deploy/appmanager.json      what was taken over from IterioDev's App Manager; appmanager-removed/ its folder
 /etc/systemd/system/mgu-deploy-apply.service   iDrive 8: applies the queue at boot (late.target.wants)
 /usr/lib/oap-mainapp/preinstalled_apps/<id>@<version>.tgz
 /usr/lib/oap-mainapp21/preinstalled_apps/<id>@<version>.tgz   iDrive 8
@@ -430,13 +433,14 @@ whose das edits and removal steps it follows:
 IterioDev's App Manager installs two root services as packages: an
 npm-format tgz holding `package.json` `{ name, version, mguService }` and
 an x86-64 program under its name (`appmanager-service/services.js`,
-`pkg.js`). The tool installs one as a tool of that name, so the tool rules
-apply (layout, recmgr, start, update, rollback, uninstall):
+`pkg.js`). The tool installs a renderer as a tool of that name, so the
+tool rules apply (layout, recmgr, start, update, rollback, uninstall); a
+tether (`mguService` `tether`, `ipheth-tether`) is refused: mgu-uplink
+drives the iPhone:
 
 | `mguService` | name | unit | runs |
 |---|---|---|---|
 | `renderer` | `mgu-renderd` | `mgu-renderd.service`, enabled for `late.target` | from boot: `current/mgu-renderd --socket /run/mgu-renderd/renderd.sock`, on iDrive 8 with `--touch car --touch-area 0,76,2880,764` (`vm` with `/usr/bin/vminput`) |
-| `tether` | `ipheth-tether` | `ipheth-tether.service`, not enabled | on demand (`systemctl start`): `current/ipheth-tether socks 127.0.0.1:1080` |
 
 The program and its `package.json` go to `versions/<version>/`, the unit
 is the one his App Manager writes (root, `Restart=always`, the renderer
@@ -451,6 +455,59 @@ ELF of at most 16 MiB is refused.
 A unit without `/etc/recmgr-restartlist.conf` (none is known on iDrive 8)
 has no recmgr to restart it: nothing is written there, and units start,
 restart and stop at once.
+
+### IterioDev's App Manager
+
+The Store replaces IterioDev's App Manager
+([IterioDev/mgu-app-store](https://github.com/IterioDev/mgu-app-store),
+`appmanager-service`): its app package `oap-appmanager` is refused from
+any source, as is its tether. On a unit that runs it, it is:
+
+| Its | Where |
+|---|---|
+| service | `/var/opt/appmanager/code/current/` (1.0.x: the folder itself), `appmanager.service` (daemon) and `appmanager-apply.service` (its queue at boot), both enabled for `late.target` |
+| records | `state.json` (`installedFrom`: app → repository), `apply.log` (one JSON line per boot apply), `config.json` (`repos`, a token for a private one), `catalog.json` (what each repository listed), `pending.json` + `staged/` (its queue) |
+| app | `oap-appmanager`, installed for MainApp-21 like ours (iDrive 8) |
+| services | `renderer/mgu-renderd` + `mgu-renderd.service`; `tether/ipheth-tether` + `ipheth-tether.service` (on demand) |
+
+`appmanager adopt [--yes]` takes it over, in one snapshot, nothing
+reinstalled:
+
+- its two units and its tether are disabled (their enablement links
+  removed; the files stay), then stopped: `systemctl stop` also cancels a
+  start the boot has queued for them, since its daemon rewrites the
+  renderer's unit while it runs. A running one recmgr does not list is not
+  stopped (that would restart the head unit): the adoption stops there and
+  completes at the next boot, which starts neither (`oap-appmanager`
+  pending, `adopted at the next boot`; `uninstall oap-appmanager` is
+  refused until then);
+- its queued app changes go into ours (iDrive 8): an install with its
+  staged package while that matches its sha256, a removal as it is; its
+  own app is not carried over; `pending.json` goes;
+- its renderer becomes the tool `mgu-renderd` (`versions/<its version>/`
+  from the program it runs), our unit written over its unit; a running
+  renderer keeps running and runs ours from its next start. With our
+  `mgu-renderd` installed before it, its unit is written over ours: ours
+  goes back, and our tool runs from the renderer's next start;
+- `/var/opt/mgu-deploy/appmanager.json` records the apps it installed that
+  are on the unit (`state.json`'s `installedFrom`, and what `apply.log` last
+  shows installed; not its app, its services or a system app) and the
+  installs moved from its queue, with the
+  repository it recorded for each (`from`), its repositories without their
+  tokens (`url`, `index`, `private`, `enabled`, `isDefault`, and the ids
+  its last catalog fetch saw there as `lists`), and the renderer and tether
+  versions. The updater gives each app its origin from this.
+
+`uninstall oap-appmanager [--yes]` removes it: it adopts first, then
+removes its two units (and the tether's, unless the tool `ipheth-tether` is
+ours), keeps `/var/opt/appmanager` as `/var/opt/mgu-deploy/appmanager-removed/`
+(the one before replaced), and uninstalls its app (on iDrive 8 queued for
+the next start). The apps and services it installed stay. A failure in
+either puts its folder and the snapshot back, removes a renderer tool it
+made, and starts its daemon again when it ran. `status --json` has
+`appmanager`: `null` when it was never on the unit, else `{ present,
+version, app, daemon, record }` (`record`: `appmanager.json`, with
+`removed` once removed). `appmanager [--json]` prints the same.
 
 ### Capabilities
 
@@ -1037,7 +1094,8 @@ stdout, read-only, taking no lock, of this shape:
   "last_apply": { "at", "results": [{ "id", "action", "version", "ok", "error"?, "log" }] } | null,   (iDrive 8)
   "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],   (display-bridge)
   "fallback": { ... }, "backups": 3, "stock_backup": true, "updater_tokens": 1,
-  "retired_leftovers": ["/usr/lib/oap-mainapp/src/main.js.capbak"] }
+  "retired_leftovers": ["/usr/lib/oap-mainapp/src/main.js.capbak"],
+  "appmanager": { "present", "version", "app", "daemon", "record" } | null }
 ```
 
 ## Tests
@@ -1079,8 +1137,8 @@ oap-sdk generated, no donor refused), the internet drop-ins, `sdk-donor`,
 the head unit (iDrive 7 and 8 by MainApp's folder, by the running HMI with
 both or neither, unknown), compatibility (rhmiData, a declared `mguHmi`,
 a tool's, a malformed one), service packages (the renderer as a tool with
-its unit, link and recmgr entry, starting at the next boot; refusals; the
-tether on demand; uninstall; on an iDrive 8 without a recmgr list started
+its unit, link and recmgr entry, starting at the next boot; refusals, the
+tether among them; uninstall; on an iDrive 8 without a recmgr list started
 at once with touch routing), capabilities (a second renderer installed
 beside the first, two in one call, one left after the other's uninstall),
 `keepRunning` (a running service and its changed socket left as they are,
@@ -1090,6 +1148,12 @@ renderer package not restarted), iDrive 8 apps against made-up das files (queued
 removal with everything moved to the trash, a flat package repacked, a
 queued install dropped, refusals; with `MGU_TEST_ID8_PROV=<folder>` also
 against real das files, never part of the repository),
+IterioDev's App Manager on a made-up iDrive 8 laid out as its `install.sh`
+and service leave it (its app refused; adopt: its daemon and tether
+stopped, its queue moved, its renderer our tool, the record without its
+token, nothing reinstalled; again; Remove and the next start; a failed
+adopt rolled back; our renderer installed first; under recmgr finished at
+the next boot),
 and `mgu-install.js`: `first-install` and `token` against a fake root
 through a stand-in `ssh` (`fake_ssh_exec.js`) with the release from a
 stand-in GitHub API (`fake_github.js`: a private repository, downloads

@@ -347,6 +347,33 @@ deploy tool's `status --json`. Providers of one capability install side by
 side, renderers among them (`native/mgu-render/README.md`, "Beside other
 renderers").
 
+**IterioDev's App Manager.** The Store replaces it, and mgu-uplink its
+iPhone tether: whichever source lists them, `oap-appmanager` is
+`blocked` `Replaced by Store` and `ipheth-tether` `Replaced by mgu-uplink`,
+and neither is installed. When the deploy tool's `status --json` says it is
+on the unit and not adopted (`appmanager.present`, no `record`, or one that
+says it was `removed`: installed again since), the
+updater runs `mgu-deploy.sh appmanager adopt --yes` once per start
+(deploy/README.md, "IterioDev's App Manager"; a failure is the row's
+`error`). From the record the deploy tool keeps, each app it installed
+that has no origin yet gets one, once per record (`state/appmanager.json`):
+
+- the repository it recorded for the app, else its default repository
+  when that listed the app (as the App Manager itself did); a public one's
+  index is read by the https source of that URL, added as a source named
+  after the repository (`car-apps`) when none is, and that source is the
+  app's origin;
+- else (a stick's package, a private repository, whose token stays in its
+  folder) `imported`: no origin, so any source updates it. One no source
+  lists keeps a row of source `imported`, installed and removable, that
+  installs from nowhere.
+
+The App Manager's app keeps a row while it or the App Manager's service is
+on the unit, listed or not, installed (the service's version when its app
+is not); its Remove is `mgu-deploy.sh uninstall oap-appmanager`, which
+removes the App Manager and leaves what it installed. The updater requires
+`mgu-deploy` 0.5.0, which does that.
+
 **First start.** The installers seed `sources.json` (the deploy tool's
 `updater-sources`, from `deploy/sources.json`) and never replace
 one that is there. Until it exists the updater reads the built-in source
@@ -759,6 +786,12 @@ releases, branches, tags, contents, tarballs, the device flow), with
   package is another id refused; icons from it, a folder catalog and a
   repo's `mgu-store.json`, kept by sha256 (0644), one that does not match
   or is too big left out, kept and failed ones not fetched again, removed once unnamed; a package's own `icon.png`, `author` and `store.description` from a stick and a version 1 index;
+- IterioDev's App Manager on the unit: adopted once (not again after a
+  restart), its public repository added as a source and the origin of an
+  app it lists, a stick's and a private repository's app imported (a row,
+  not installable from nowhere), its app and tether replaced and refused,
+  an adopted app updated from its repository, Remove as the deploy tool's
+  uninstall of `oap-appmanager`;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a
