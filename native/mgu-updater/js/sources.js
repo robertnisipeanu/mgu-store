@@ -432,14 +432,14 @@ function repoCatalog(readFile, commit, revision, listDir) {
                     if (script && script.python) {
                         needs[PYTHON_TOOL] = PYTHON_MIN;
                     }
-                    if (script && script.sdk) {
+                    if (provides) {
+                        // the deploy tool that installs providers side by side (and all the below)
+                        needs['mgu-deploy'] = DEPLOY_PROVIDES_MIN;
+                    } else if (script && script.sdk) {
                         needs['mgu-deploy'] = DEPLOY_SDK_MIN;
                     } else if (rc.kind === 'tool' && (rc.preload !== undefined || (!service && c.dropins !== undefined))) {
                         // the deploy tool that installs a drop-in
                         needs['mgu-deploy'] = DEPLOY_SDK_MIN;
-                    } else if (provides) {
-                        // the deploy tool that installs providers side by side
-                        needs['mgu-deploy'] = DEPLOY_PROVIDES_MIN;
                     }
                     const requires = Object.assign(needs, pick('requires') || {});
                     return list.concat([catalogLib.checkExtras({

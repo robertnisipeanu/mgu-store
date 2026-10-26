@@ -2448,10 +2448,10 @@ function testPythonRepo() {
     fs.writeFileSync(path.join(sdkDir, 'package.json'), '{"name":"oap-sdk","version":"9.8.7"}\n');
     const deploySh = path.join(M, 'mgu-deploy.sh');
     fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
-    // the deploy tool that hands out the module is installed
-    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.2'));
-    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.2', 'component.json'), JSON.stringify({ id: 'mgu-deploy', version: '0.3.2' }));
-    fs.symlinkSync('versions/0.3.2', path.join(opt, 'mgu-deploy', 'current'));
+    // the deploy tool that hands out the module and installs providers side by side is installed
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.4.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.4.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', version: '0.4.0' }));
+    fs.symlinkSync('versions/0.4.0', path.join(opt, 'mgu-deploy', 'current'));
     const lease = path.join(M, 'lease.json');
     const leaseText = JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] });
     fs.writeFileSync(path.join(T, 'pub', 'py-asset.txt'), 'downloaded data\n');
@@ -2572,7 +2572,7 @@ function testPythonRepo() {
                 entryOf('netapp').script.network === true, JSON.stringify(entryOf('a1')));
             ok('service: listed as an optional, removable tool providing its capability; a unit field with a line break is refused',
                 comp('svc').kind === 'tool' && comp('svc').optional === true && comp('svc').uninstallable === true &&
-                entryOf('svc').mguProvides === 'renderer' && !comp('evil_svc').id && /evil_svc: service must be/.test(src('pyrepo').error || ''),
+                entryOf('svc').mguProvides === 'renderer' && JSON.stringify(entryOf('svc').requires) === '{"mgu-deploy":"0.4.0"}' && !comp('evil_svc').id && /evil_svc: service must be/.test(src('pyrepo').error || ''),
                 JSON.stringify([comp('svc'), src('pyrepo').error]));
             const titled = sourcesLib.serviceUnit(entryOf('title_svc'));
             const gated = sourcesLib.preloadFiles(Object.assign({}, entryOf('gate'), { title: 'G\nExecStartPre=/bin/evil' }));

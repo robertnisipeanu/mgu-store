@@ -143,6 +143,7 @@ static int touch_on;
 static int ccu_fd = -1, ctl_gate_on;
 static uint64_t ctl_gate_t, ccu_retry;
 static void ccu_open(void);
+static int ccu_free(void);
 
 static void c_screen(void *d, struct ivi_controller *c, uint32_t id, struct ivi_controller_screen *s) {
     (void)d, (void)c;
@@ -689,7 +690,7 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         int emb = embed_available(), area[4];
         app_area(area);
         uint32_t caps = CAP_PIXMAP | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
-                        (ctl_gate_loaded() ? CAP_CONTROLLER : 0);
+                        (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0);
         uint32_t x[15] = { MGU_NATIVE_VERSION, (1u << (MODE_LAYER - 1)) | (emb ? 1u << (MODE_EMBED - 1) : 0), caps };
         for (int k = 0; k < 4; k++) { x[3 + k] = emb ? (uint32_t)cfg.embed_area[k] : 0; x[7 + k] = (uint32_t)area[k]; }
         x[11] = GFX_PIXMAP_SIDE; x[12] = (uint32_t)refresh_mhz;
@@ -1039,16 +1040,28 @@ static int open_listener(void) {
 }
 
 /* controller events from the HMI's controller gate (abstract socket: no file, gone with us) */
-static void ccu_open(void) {
-    ccu_fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-    if (ccu_fd < 0) return;
+static int ccu_bind(void) {
+    int fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (fd < 0) return -1;
     struct sockaddr_un ca = { .sun_family = AF_UNIX };
     static const char cn[] = "\0mgu-renderd-ccu";
     memcpy(ca.sun_path, cn, sizeof cn - 1);
-    if (bind(ccu_fd, (struct sockaddr *)&ca, (socklen_t)(offsetof(struct sockaddr_un, sun_path) + sizeof cn - 1)) < 0) {
-        log_warn("controller socket: %s%s", strerror(errno), errno == EADDRINUSE ? " (another renderer has it)" : "");
-        close(ccu_fd); ccu_fd = -1;
-    }
+    if (bind(fd, (struct sockaddr *)&ca, (socklen_t)(offsetof(struct sockaddr_un, sun_path) + sizeof cn - 1)) == 0) return fd;
+    int e = errno;
+    close(fd);
+    errno = e;
+    return -1;
+}
+static void ccu_open(void) {
+    ccu_fd = ccu_bind();
+    if (ccu_fd < 0) log_warn("controller socket: %s%s", strerror(errno), errno == EADDRINUSE ? " (another renderer has it)" : "");
+}
+/* the controller gate can be ours: its event socket is ours already, or free */
+static int ccu_free(void) {
+    if (ccu_fd >= 0) return 1;
+    int fd = ccu_bind();
+    if (fd >= 0) close(fd);
+    return fd >= 0;
 }
 
 static int touch_start(void) {

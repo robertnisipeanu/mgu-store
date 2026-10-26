@@ -153,7 +153,8 @@ renderer: the file `/run/mgu-renderd/inputgate` and the event socket
 `@mgu-renderd-ccu`, which upstream's renderer binds at its start. mgu-render
 binds that socket only while one of its apps holds GRAB, and touches the file
 only while the socket is its own; bound by upstream's renderer, our apps go
-without the gate (they read FrontCCU themselves). A stale file releases the
+without the gate: X_READY offers `controller` only while the socket is ours
+or free, so they read FrontCCU themselves. A stale file releases the
 controller after 0.7 s by the gate's own rule, so a killed renderer holds
 nothing.
 

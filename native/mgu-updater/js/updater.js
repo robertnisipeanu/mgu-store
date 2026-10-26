@@ -1094,7 +1094,7 @@ class Updater {
         }
         const r = this.resolved().get(dep);
         const cap = r && r.entry.mguProvides;
-        return !!cap && (this.providers[cap] || []).some((p) => p.id !== dep);
+        return !!cap && this.providerIds(cap).some((p) => p !== dep);
     }
 
     /* An entry of dep at least min: from source first, else any source in order. */
@@ -1224,11 +1224,9 @@ class Updater {
         return null;
     }
 
-    /* The ids of the installed tools providing cap: the deploy tool names one
-     * ({id, version}), or with providers side by side a list of them. */
+    /* The ids of the installed tools providing cap. */
     providerIds(cap) {
-        const p = this.providers[cap];
-        return (Array.isArray(p) ? p : p ? [p] : []).map((x) => x.id);
+        return (this.providers[cap] || []).map((x) => x.id);
     }
 
     /* Queues a removal of id: one its source marks uninstallable, installed,
