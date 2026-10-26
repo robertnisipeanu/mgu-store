@@ -19,6 +19,7 @@ login-start, login-cancel, web), which carry the secret the updater leaves in th
 | `DOOM` · `42%` / `Verifying` / `Building` / `Installing` / `Removing` | nothing (in progress) |
 | `Extended dashboard` · `Waiting` | nothing (queued) |
 | `Display bridge` · `Restart pending` | nothing (installed; active after the next reboot) |
+| `Car Data` · `Not for this head unit` | nothing (the updater marks that version `compat: "no"`); *Remove?* for an installed, `uninstallable` one |
 | `DOOM` · `Failed, retry` | try again (the status line names the error) |
 
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,

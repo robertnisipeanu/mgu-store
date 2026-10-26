@@ -6,6 +6,9 @@ The package ships no entry point of its own: the build supplies
 `javascript/runner.js` from the SDK donor's package, so the Store needs
 mgu-deploy 0.2.4 or later to build on the head unit.
 
+A version the updater marks as not for this head unit shows `Not for this
+head unit`, is not counted as an update, and a press does not install it.
+
 ## 0.5.0
 
 Accounts are the updater's tokens, not a source's: Sources has an
