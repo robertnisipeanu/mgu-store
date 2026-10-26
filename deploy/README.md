@@ -209,7 +209,8 @@ An **app artifact** is one of:
   unit (below). The Store is published this way.
 
 A **service package** (IterioDev's App Manager format: `package.json` with
-`mguService`) installs as a tool ("Service packages").
+`mguService`) installs as a tool when it is a renderer; a tether is refused
+("Service packages").
 
 ## mgu-install
 

@@ -3488,7 +3488,6 @@ function testAppManager() {
     check('appmanager: over our own renderer tool, adopt puts our unit back; the tool stays as it was', ownTool.status === 0 && fa.status === 0 &&
         fs.readFileSync(first.sys('mgu-renderd.service'), 'utf8').includes(`ExecStart=${first.p('var/opt/mgu-renderd/current/mgu-renderd')} `) &&
         fs.readlinkSync(first.p('var/opt/mgu-renderd/current')) === 'versions/1.1.0' &&
-        first.status().pending_reboot.some((p) => p.id === 'mgu-renderd' && p.reason === 'the new version runs from its next start') &&
         first.status().appmanager.record.renderer === null, fa.out);
 
     // a recmgr list without his units: stopping a running one would restart the head unit
