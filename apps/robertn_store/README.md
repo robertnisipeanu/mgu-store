@@ -179,8 +179,8 @@ source*. The text confirmed with OK, trimmed, is:
 
 The updater's refusal (`… is already a source`) shows on the status line.
 
-Leaving the speller without OK, or OK with nothing typed, sends nothing. A USB stick holding a catalog or a
-repo tree appears in the list by itself
+Leaving the speller without OK, or OK with nothing typed, sends nothing. A
+USB stick holding a catalog or a repo tree appears in the list by itself
 ([mgu-updater](../../native/mgu-updater/README.md)).
 
 ## Phone access

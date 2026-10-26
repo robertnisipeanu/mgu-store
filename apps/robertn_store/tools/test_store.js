@@ -320,6 +320,32 @@ function run() {
     }).then(() => {
         eq(sent, []);
         eq(last(/storeAccountsStatus\.Visible/), 'storeAccountsStatus.Visible=0', 'status cleared');
+        // a token the updater had already: no new account; the timeout clears the line, a visibility change in between or not
+        reset();
+        spellerAnswers.push('ghp_known');
+        app._addToken();
+        return tick();
+    }).then(() => {
+        eq(last(/storeAccountsStatus\.0\.Text/), 'storeAccountsStatus.0.Text=Checking token');
+        app._client.emit('state', ST);
+        app._setVisible(false);
+        app._setVisible(true);
+        eq(app._tokenAdding.timer._destroyed, false, 'the timeout still runs');
+        app._tokenAdding.timer._onTimeout();
+        return tick();
+    }).then(() => {
+        eq([app._tokenAdding, last(/storeAccountsStatus\.Visible/)], [null, 'storeAccountsStatus.Visible=0']);
+        // the updater down: nothing sent, the line says so
+        app._client.emit('down');
+        reset();
+        spellerAnswers.push('ghp_x2');
+        app._addToken();
+        return tick();
+    }).then(() => {
+        eq(sent, []);
+        eq(last(/storeAccountsStatus\.0\.Text/), 'storeAccountsStatus.0.Text=Add token failed: updater not running');
+        eq(app._tokenAdding, null);
+        app._client.emit('state', ST);
 
         // an https address is added as it is
         reset();

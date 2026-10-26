@@ -859,11 +859,12 @@ class Store extends OnlineApp {
                 return;
             }
             logger.info('add token');
-            if (!this._privileged({ op: 'token-add', token })) {
+            // the tokens it had are what a new one is told from: only with the updater's state at hand
+            if (!this._connected || !this._st || !this._privileged({ op: 'token-add', token })) {
                 this._accountNote({ kind: 'refused', error: readSecret() ? 'updater not running' : 'no updater secret' });
                 return;
             }
-            const before = new Set(((this._connected && this._st && this._st.tokens) || []).map((t) => t.id));
+            const before = new Set((this._st.tokens || []).map((t) => t.id));
             this._tokenAdding = { before, timer: setTimeout(() => this._endTokenAdd(null), TOKEN_ADD_MS) };
             this._accountNote({ kind: 'checking' });
         });
@@ -1217,7 +1218,6 @@ class Store extends OnlineApp {
         }
         this._visible = visible;
         clearTimeout(this._hideTimer);
-        clearTimeout(this._tokenAdding && this._tokenAdding.timer);
         this._pollWebUrl(false);
         logger.info(`screen ${visible ? 'visible' : 'hidden'}`);
         if (visible) {
@@ -1244,6 +1244,7 @@ class Store extends OnlineApp {
         }
         logger.info(`store shutting down (${reason})`);
         clearTimeout(this._hideTimer);
+        clearTimeout(this._tokenAdding && this._tokenAdding.timer);
         this._pollWebUrl(false);
         this._client.close();
         this._drawn.close();
