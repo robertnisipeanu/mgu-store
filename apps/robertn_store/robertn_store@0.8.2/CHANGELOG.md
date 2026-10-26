@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.2
+
+Add source adds what is typed at once: `owner/repo`, or a repo's address
+on github.com (`https://` or not, `.git`, a trailing slash; `/tree/<branch>`
+reads that branch), is a GitHub source the updater reads on its releases,
+or its default branch when it has none; any other https address is a
+catalog. The updater's refusal shows on the Sources status line. Accounts
+has Add token: a GitHub token typed in the speller, with `Checking token`,
+the account it added, or the refusal on the page's status line.
+
 ## 0.8.1
 
 On iDrive 7 the drawn screens are laid out for the renderer's box itself

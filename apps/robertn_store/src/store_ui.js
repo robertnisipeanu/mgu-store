@@ -11,8 +11,8 @@
  * updater secret is there), version (this Store's), stack (pages; the first
  * { name: 'main' }), tab (store, installed, usb, settings), filter (all,
  * app, tool), note (the Sources status line), login ({ waiting, refusal }),
- * webText (the web-url file), adding ({ repo } while a new source's channel
- * is asked) }.
+ * webText (the web-url file), accountsNote ({ text, error }: the Accounts
+ * status line) }.
  *
  * What a press does rides on the values as `act`: on a button's opts, on
  * each nav, grid and list item, on each filter cell (acts). The acts:
@@ -20,8 +20,7 @@
  * { do: 'back' }, { do: 'check' }, { do: 'install', id }, { do: 'update-all' },
  * { do: 'remove', id }, { do: 'restart' },
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
- * { do: 'channel', channel }, { do: 'sign-in' }, { do: 'sign-in-cancel' },
- * { do: 'phone' }.
+ * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' }.
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
@@ -350,12 +349,15 @@ function sourceView(m, id) {
 
 function accountsView(m) {
     const toks = tokens(m) || [];
+    const note = m.accountsNote || { text: '', error: false };
     return {
+        status: { text: note.text, color: note.error ? AMBER : DIM },
         list: { items: toks.map((t) => ({ id: t.id, title: tokenLabel(t), sub: tokenState(t), subColor: t.rejected ? RED : DIM,
             letter: tokenLabel(t)[0], colors: colors(t.id), kind: 'service', right: 'chevron',
             act: { do: 'open', page: { name: 'confirm', kind: 'account-remove', id: t.id } } })), empty: 'None' },
         // Sign in with GitHub only with the updater's GitHub App (state.signin)
-        signIn: m.st && m.st.signin === true ? button('Sign in with GitHub', { do: 'sign-in' }, { vicon: 'plus', style: 'primary', color: BLUE }) : hidden
+        signIn: m.st && m.st.signin === true ? button('Sign in with GitHub', { do: 'sign-in' }, { vicon: 'plus', style: 'primary', color: BLUE }) : hidden,
+        addToken: m.connected && m.st ? button('Add token', { do: 'add-token' }, { vicon: 'plus', style: 'outline' }) : hidden
     };
 }
 
@@ -385,15 +387,6 @@ function phoneView(m) {
     };
 }
 
-function channelView(m) {
-    return {
-        repo: { text: m.adding ? m.adding.repo : '' },
-        releases: button('Releases', { do: 'channel', channel: 'releases' }, { style: 'outline' }),
-        tags: button('Tags', { do: 'channel', channel: 'tags' }, { style: 'outline' }),
-        branch: button('Branch', { do: 'channel', channel: 'branch' }, { style: 'outline' })
-    };
-}
-
 /* The screen and its values for the page on top. */
 function view(m) {
     const page = m.stack[m.stack.length - 1] || { name: 'main' };
@@ -411,7 +404,6 @@ function view(m) {
     case 'accounts': values = accountsView(m); break;
     case 'login': values = loginView(m); break;
     case 'phone': values = phoneView(m); break;
-    case 'channel': values = channelView(m); break;
     default: screen = 'store'; values = storeView(m);
     }
     values.nav = nav(m, tabSel);

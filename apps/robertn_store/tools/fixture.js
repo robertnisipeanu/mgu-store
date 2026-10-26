@@ -96,7 +96,8 @@ function screens() {
         ['login', { tab: 'settings', stack: main.concat([{ name: 'accounts' }, { name: 'login' }]) }, signing],
         ['phone', { tab: 'settings', stack: main.concat([{ name: 'phone' }]),
             webText: 'http://172.16.222.97:8470/#t=6f1c0e3d9a2b4c5d8e7f6a5b4c3d2e1f\n' }, webOn],
-        ['channel', { tab: 'settings', stack: main.concat([{ name: 'channel' }]), adding: { repo: 'someone/new-apps' } }],
+        ['accounts-token-refused', { tab: 'settings', stack: main.concat([{ name: 'accounts' }]),
+            accountsNote: { text: 'Add token failed: GitHub does not accept this token', error: true } }],
         ['offline', { tab: 'store', stack: main, connected: false, st: null, secret: false }]
     ];
 }
@@ -105,7 +106,7 @@ function model(over, stOver) {
     const st = state();
     return Object.assign({ st: stOver && stOver.type ? stOver : Object.assign(st, stOver || {}), connected: true, secret: true,
         version: '0.7.0', stack: [{ name: 'main' }], tab: 'store', filter: 'all', focus: -1, scroll: {}, note: '',
-        login: { waiting: false, refusal: null }, webText: '', adding: null }, over);
+        login: { waiting: false, refusal: null }, webText: '', accountsNote: { text: '', error: false } }, over);
 }
 
 module.exports = { state, screens, model };

@@ -251,70 +251,101 @@ function run() {
         return tick();
     }).then(() => {
 
-        // owner/repo, then Releases
+        // owner/repo: added at once (the updater picks the channel)
         reset();
         spellerAnswers.push(' robertnisipeanu/new-repo ');
         app._addSource();
         return tick();
     }).then(() => {
         eq(spellerTitles, ['Add source']);
-        eq(states, ['open ST_OnlineApps_StoreChannel'], 'chooser opened');
-        eq(last(/storeAddRepo\.0\.Text/), 'storeAddRepo.0.Text=robertnisipeanu/new-repo');
+        eq(states, [], 'no page in between');
         eq(last(/storeSourcesStatus\.Visible/), 'storeSourcesStatus.Visible=0', 'status cleared');
-        app._chooseChannel('releases');
+        eq(sent.map(secretless), [{ op: 'source-add', type: 'github', repo: 'robertnisipeanu/new-repo' }]);
+        eq(sent[0].secret, 'deadbeef');
+        // the updater's refusal shows in the status line
+        app._client.emit('reply-error', 'robertnisipeanu/new-repo is already a source', 'source-add');
         return tick();
     }).then(() => {
-        eq(sent.map(secretless), [{ channel: 'releases', op: 'source-add', type: 'github', repo: 'robertnisipeanu/new-repo' }]);
-        eq(sent[0].secret, 'deadbeef');
-        eq(states.slice(1), ['close ST_OnlineApps_StoreChannel']);
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Add source failed: robertnisipeanu/new-repo is already a source');
 
-        // Tags
+        // a github.com address, with a branch
         reset();
-        spellerAnswers.push('o/r');
+        spellerAnswers.push('https://github.com/o/r/tree/dev');
         app._addSource();
         return tick();
     }).then(() => {
-        app._chooseChannel('tags');
+        eq(sent.map(secretless), [{ op: 'source-add', type: 'github', repo: 'o/r', channel: 'branch:dev' }]);
+
+        // what is neither: the status line says so
+        reset();
+        spellerAnswers.push('https://github.com/o');
+        app._addSource();
         return tick();
     }).then(() => {
-        eq(sent.map((r) => r.channel), ['tags']);
-
-        // Branch: a name, empty (default branch), Back, a bad name
-        const branch = (answer) => {
-            reset();
-            spellerAnswers.push('o/r', answer);
-            app._addSource();
-            return tick(40).then(() => {
-                app._chooseChannel('branch');
-                return tick(40);
-            });
-        };
-        return branch(' dev ')
-            .then(() => {
-                eq(spellerTitles, ['Add source', 'Branch']);
-                eq(sent.map((r) => r.channel), ['branch:dev']);
-                eq(states, ['open ST_OnlineApps_StoreChannel', 'close ST_OnlineApps_StoreChannel']);
-                return branch('');
-            })
-            .then(() => {
-                eq(sent.map((r) => r.channel), ['branch'], 'empty: the default branch');
-                return branch(null);
-            })
-            .then(() => {
-                eq(sent, [], 'Back in the branch speller sends nothing');
-                eq(states, ['open ST_OnlineApps_StoreChannel', 'close ST_OnlineApps_StoreChannel'], 'back to Sources');
-                return branch('a..b');
-            })
-            .then(() => {
-                eq(sent, []);
-                eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Not a branch name: a..b');
-                eq(states.slice(-1), ['close ST_OnlineApps_StoreChannel']);
-            });
-    }).then(() => {
-        // a chooser press after the chooser was left does nothing
-        reset();
-        app._chooseChannel('releases');
         eq(sent, []);
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Not owner/repo or https://host/path: https://github.com/o');
+
+        // Add token: the speller, token-add, Checking token, then the account it added
+        reset();
+        spellerAnswers.push(' ghp_x1 ');
+        app._addToken();
+        return tick();
+    }).then(() => {
+        eq(spellerTitles, ['GitHub token']);
+        eq(sent.map(secretless), [{ op: 'token-add', token: 'ghp_x1' }]);
+        eq(last(/storeAccountsStatus\.0\.Text/), 'storeAccountsStatus.0.Text=Checking token');
+        app._client.emit('state', Object.assign({}, ST, { tokens: ST.tokens.concat([{ id: 'aa11bb22', kind: 'github', label: 'octo',
+            login: 'octo', addedAt: 1, rejected: false, usedBy: [] }]) }));
+        return tick();
+    }).then(() => {
+        eq(last(/storeAccountsStatus\.0\.Text/), 'storeAccountsStatus.0.Text=Added octo');
+        eq(app._tokenAdding, null);
+        app._client.emit('state', ST);
+        // one GitHub refuses
+        reset();
+        spellerAnswers.push('bad');
+        app._addToken();
+        return tick();
+    }).then(() => {
+        app._client.emit('reply-error', 'GitHub does not accept this token', 'token-add');
+        return tick();
+    }).then(() => {
+        eq(last(/storeAccountsStatus\.0\.Text/), 'storeAccountsStatus.0.Text=Add token failed: GitHub does not accept this token');
+        eq(app._tokenAdding, null);
+        // left without OK: nothing sent
+        reset();
+        spellerAnswers.push(null);
+        app._addToken();
+        return tick();
+    }).then(() => {
+        eq(sent, []);
+        eq(last(/storeAccountsStatus\.Visible/), 'storeAccountsStatus.Visible=0', 'status cleared');
+        // a token the updater had already: no new account; the timeout clears the line, a visibility change in between or not
+        reset();
+        spellerAnswers.push('ghp_known');
+        app._addToken();
+        return tick();
+    }).then(() => {
+        eq(last(/storeAccountsStatus\.0\.Text/), 'storeAccountsStatus.0.Text=Checking token');
+        app._client.emit('state', ST);
+        app._setVisible(false);
+        app._setVisible(true);
+        eq(app._tokenAdding.timer._destroyed, false, 'the timeout still runs');
+        app._tokenAdding.timer._onTimeout();
+        return tick();
+    }).then(() => {
+        eq([app._tokenAdding, last(/storeAccountsStatus\.Visible/)], [null, 'storeAccountsStatus.Visible=0']);
+        // the updater down: nothing sent, the line says so
+        app._client.emit('down');
+        reset();
+        spellerAnswers.push('ghp_x2');
+        app._addToken();
+        return tick();
+    }).then(() => {
+        eq(sent, []);
+        eq(last(/storeAccountsStatus\.0\.Text/), 'storeAccountsStatus.0.Text=Add token failed: updater not running');
+        eq(app._tokenAdding, null);
+        app._client.emit('state', ST);
 
         // an https address is added as it is
         reset();
@@ -687,6 +718,7 @@ function runDrawn() {
     }).then(() => {
         eq(drawn.top(), { name: 'accounts' });
         eq(drawn.items.some((i) => i.label === 'Sign in with GitHub'), true, 'Sign in with GitHub with state.signin');
+        eq(drawn.items.find((i) => i.label === 'Add token').act, { do: 'add-token' });
         // the speller hides the renderer's picture while it is up (Add source)
         drawn.setTab('settings');
         spellerAnswers.push('o/r');
@@ -695,13 +727,8 @@ function runDrawn() {
         return tick();
     }).then(() => {
         eq(gpu.visible, true, 'back after it');
-        eq(drawn.top(), { name: 'channel' }, 'owner/repo: the channel page');
-        reset();
-        app._act({ do: 'channel', channel: 'tags' });
-        return tick();
-    }).then(() => {
-        eq(sent.map(secretless), [{ channel: 'tags', op: 'source-add', type: 'github', repo: 'o/r' }]);
-        eq(drawn.stack.length, 1);
+        eq(sent.slice(-1).map(secretless), [{ op: 'source-add', type: 'github', repo: 'o/r' }], 'owner/repo: added at once');
+        eq(drawn.stack.length, 1, 'no page opened under the closing speller');
         // embed: FrontCCU's dial moves the focus and its push presses (the template's buttons get neither)
         eq(typeof frontCcu, mode === 'embed' ? 'function' : 'object', 'FrontCCU subscribed for embed only');
         if (mode === 'embed') {

@@ -17,8 +17,8 @@
  * installed, has an update, or failed), "reboot" (Restart head unit, once
  * confirmed), and the privileged ones, which carry the secret the updater
  * leaves in this app's data folder: "uninstall" (a removable installed
- * component, once confirmed), "source-add", "source-remove", "token-remove"
- * (an account, once confirmed), "login-start" / "login-cancel" (GitHub
+ * component, once confirmed), "source-add", "source-remove", "token-add",
+ * "token-remove" (an account, once confirmed), "login-start" / "login-cancel" (GitHub
  * sign-in, which adds an account) and "web" (Phone access on or off).
  *
  * The start screen has the status line, Check for updates, the progress of
@@ -34,13 +34,15 @@
  * Sources has a status line (a source typed wrong, the updater's refusal to
  * add or remove one), lists each source with its status or the account that
  * reads it and opens its page (Channel, Account, Components, Remove). Add
- * source opens the HMI's speller (src/speller.js) for owner/repo or an https
- * address; a GitHub repo then gets its channel (Releases, Tags, or Branch,
- * whose name is typed in the speller too; empty: the default branch). A USB
- * stick's sources the updater lists by itself. Accounts lists the updater's
- * tokens, each with the sources it reads; a press opens its Remove confirm
- * step, and Sign in with GitHub adds one. The updater picks the account for
- * each source itself. Phone access is linked from Sources too.
+ * source opens the HMI's speller (src/speller.js) for owner/repo, a
+ * github.com address of a repo (.../tree/<branch>: that branch) or another
+ * https address (a catalog), and adds it. A USB stick's sources the updater
+ * lists by itself. Accounts has a status line (a token being checked, added
+ * or refused), lists the updater's tokens, each with the sources it reads; a
+ * press opens its Remove confirm step. Sign in with GitHub adds one, and so
+ * does Add token, which takes a token typed in the speller. The updater picks
+ * the account for each source itself. Phone access is linked from Sources
+ * too.
  *
  * An app install runs in place, or else restarts MainApp's app processes,
  * this one included; the updater carries on, and the Store shows the result
@@ -60,7 +62,7 @@ const { spell } = require('./speller.js');
 const { Drawn } = require('./store_drawn.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
-    loginStatus, loginCode, phoneState, phoneAddress, parseSource, channelOf, sourcesMessage, removable } = require('./store_view.js');
+    loginStatus, loginCode, phoneState, phoneAddress, parseSource, sourcesMessage, tokenMessage, removable } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 
@@ -79,6 +81,7 @@ const ROW_KEY = 2;                      // a press's row in a raw userEvent's pa
 const VALUE_KEY = 0;                    // a focus event's value
 const QR_PREFIX = 'qr_';
 const RENDERER_WAIT_MS = 1500;          // at start, how long the renderer may take to answer
+const TOKEN_ADD_MS = 30000;             // how long Add token says "Checking token" without an answer
 const IF_FRONTCCU = 'de.bmw.infotainment.controlelements.FrontCCU';
 
 /* The drawn screens' host states and their proxies (tools/gen_rhmi.js). */
@@ -92,8 +95,8 @@ const ROOTS = { widgets: 'ST_OnlineApps_Store', layer: hostName('layer', 1), emb
 /* iDrive 8's widgets name their cells differently (LT_Button_MediaEntry_1Row). */
 const ID8_CELLS = { Text: 'PrimaryText', Text1stCol: 'PrimaryText', Text2ndCol: 'FrequencyText', TextLeft: 'PrimaryText',
     TextRight: 'FrequencyText' };
-const ID8_LABELS = new Set(['storeStatus', 'storeSourcesStatus', 'storeSrcError', 'storeAccountName', 'storeAccountSources',
-    'storeLoginCode', 'storeLoginUrl', 'storeLoginStatus', 'storeRemoveName', 'storeAddRepo', 'storePhoneUrl',
+const ID8_LABELS = new Set(['storeStatus', 'storeSourcesStatus', 'storeSrcError', 'storeAccountsStatus', 'storeAccountName',
+    'storeAccountSources', 'storeLoginCode', 'storeLoginUrl', 'storeLoginStatus', 'storeRemoveName', 'storePhoneUrl',
     'storePhoneError', 'storeSrcAppLabel', 'storeSrcAppUrl']);
 
 /* tools/gen_rhmi.js */
@@ -107,8 +110,7 @@ const S = {
     login: 'ST_OnlineApps_StoreLogin',
     sourceRemove: 'ST_OnlineApps_StoreSourceRemove',
     remove: 'ST_OnlineApps_StoreRemove',
-    phone: 'ST_OnlineApps_StorePhone',
-    channel: 'ST_OnlineApps_StoreChannel'
+    phone: 'ST_OnlineApps_StorePhone'
 };
 const LISTS = {
     app: { state: 'ST_OnlineApps_StoreApps', nav: 'storeNavApps', list: 'storeAppList' },
@@ -119,11 +121,11 @@ const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress
     navSources: 'storeNavSources', navPhone: 'storeNavPhone',
     restartCancel: 'storeRestartCancel', restartConfirm: 'storeRestartConfirm',
     sourcesStatus: 'storeSourcesStatus', sourceList: 'storeSourceList', sourceAdd: 'storeSourceAdd',
-    sourcePhone: 'storeSourcePhone', sourceAccounts: 'storeSourceAccounts', addRepo: 'storeAddRepo', channelReleases: 'storeChannelReleases',
-    channelTags: 'storeChannelTags', channelBranch: 'storeChannelBranch',
+    sourcePhone: 'storeSourcePhone', sourceAccounts: 'storeSourceAccounts',
     srcStatus: 'storeSrcStatus', srcChannel: 'storeSrcChannel', srcAccount: 'storeSrcAccount', srcComponents: 'storeSrcComponents',
     srcError: 'storeSrcError', srcRemove: 'storeSrcRemove',
-    accountList: 'storeAccountList', accountSignIn: 'storeAccountSignIn', accountName: 'storeAccountName',
+    accountsStatus: 'storeAccountsStatus', accountList: 'storeAccountList', accountSignIn: 'storeAccountSignIn',
+    accountAddToken: 'storeAccountAddToken', accountName: 'storeAccountName',
     accountSources: 'storeAccountSources', accountRemoveCancel: 'storeAccountRemoveCancel', accountRemoveConfirm: 'storeAccountRemoveConfirm',
     loginQr: 'storeLoginQr', loginCode: 'storeLoginCode', loginUrl: 'storeLoginUrl',
     loginStatus: 'storeLoginStatus', loginCancel: 'storeLoginCancel',
@@ -197,9 +199,10 @@ class Store extends OnlineApp {
          * pending, or the updater's refusal. */
         this._login = { waiting: false, refusal: null };
         this._lastOp = null;            // the last request sent, which a reply without its op answers
-        this._adding = null;            // the GitHub source whose channel the chooser asks for
         this._spellSeq = 0;             // only the latest speller's text counts
         this._sourcesNote = '';         // the Sources page's status line
+        this._accountsNote = { text: '', error: false };   // the Accounts page's status line
+        this._tokenAdding = null;       // a token-add sent: { before (the token ids then), timer }
         this._qr = { login: { key: null, file: null, chain: Promise.resolve() },
             phone: { key: null, file: null, chain: Promise.resolve() }, app: { key: null, file: null, chain: Promise.resolve() } };
         this._hmi = 'ID7';
@@ -230,6 +233,7 @@ class Store extends OnlineApp {
         this._client.on('state', (st) => {
             this._connected = true;
             this._st = st;
+            this._tokenAdded(st);
             this._render();
         });
         this._client.on('down', () => {
@@ -247,6 +251,8 @@ class Store extends OnlineApp {
             if (forOp === 'login-start' && this._login.waiting) {
                 this._login = { waiting: false, refusal: String(msg) };
                 this._render();
+            } else if (forOp === 'token-add' && this._tokenAdding) {
+                this._endTokenAdd({ kind: 'refused', error: String(msg) });
             } else if (forOp === 'source-add' || forOp === 'source-remove') {
                 // a refused removal goes back to Sources, which shows why
                 if (forOp === 'source-remove') {
@@ -413,13 +419,11 @@ class Store extends OnlineApp {
         this._bind(C.sourceList, (row) => this._onSource(row));
         this._bind(C.sourceAdd, () => this._addSource());
         this._bind(C.sourcePhone, () => this._openState(S.phone));
-        this._bind(C.channelReleases, () => this._chooseChannel('releases'));
-        this._bind(C.channelTags, () => this._chooseChannel('tags'));
-        this._bind(C.channelBranch, () => this._chooseChannel('branch'));
         this._bind(C.srcRemove, () => this._openState(S.sourceRemove));
         this._bind(C.sourceAccounts, () => this._openState(S.accounts));
         this._bind(C.accountList, (row) => this._onAccount(row));
         this._bind(C.accountSignIn, () => this._signIn());
+        this._bind(C.accountAddToken, () => this._addToken());
         this._bind(C.accountRemoveCancel, () => this._closeState(S.accountRemove));
         this._bind(C.accountRemoveConfirm, () => this._removeAccount());
         this._bind(C.srcRemoveCancel, () => this._closeState(S.sourceRemove));
@@ -552,7 +556,7 @@ class Store extends OnlineApp {
         const web = this._connected && this._st && this._st.web;
         return { st: this._connected ? this._st : null, connected: this._connected && !!this._st, secret: !!readSecret(),
             version: this._packageJson && this._packageJson.version, note: this._sourcesNote, login: this._login,
-            webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', adding: this._adding };
+            webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote };
     }
 
     /* A press on the drawn screens (src/store_ui.js acts). */
@@ -586,7 +590,7 @@ class Store extends OnlineApp {
         case 'source-remove': this._sourceId = act.id; this._removeSource(); break;
         case 'account-remove': this._tokenId = act.id; this._removeAccount(); break;
         case 'add-source': this._addSource(); break;
-        case 'channel': this._chooseChannel(act.channel); break;
+        case 'add-token': this._addToken(); break;
         case 'sign-in': this._signIn(); break;
         case 'sign-in-cancel': this._cancelSignIn(); break;
         case 'phone': this._togglePhone(); break;
@@ -810,7 +814,7 @@ class Store extends OnlineApp {
     /* The speller's text; null when the driver left it without OK or it
      * could not be opened (the status line says so); undefined when a newer
      * speller replaced it. */
-    _spell(title) {
+    _spell(title, note) {
         const seq = ++this._spellSeq;
         // the speller is the HMI's: the renderer's layer is not drawn over it
         this._drawn.suspend(true);
@@ -823,14 +827,13 @@ class Store extends OnlineApp {
         }).catch((err) => {
             logger.warn(`speller: ${err && err.message}`);
             if (seq === this._spellSeq) {
-                this._note({ kind: 'speller', error: err && err.message });
+                (note || ((m) => this._note(m)))({ kind: 'speller', error: err && err.message });
             }
             return null;
         }).then((text) => (seq === this._spellSeq ? text : undefined));
     }
 
     _addSource() {
-        this._adding = null;
         this._note(null);
         this._spell('Add source').then((text) => {
             const typed = (text || '').trim();
@@ -838,43 +841,57 @@ class Store extends OnlineApp {
                 return;
             }
             const source = parseSource(typed);
-            if (!source) {
-                this._note({ kind: 'invalid-source', text: typed });
-            } else if (source.type === 'https') {
+            if (source) {
                 this._sendSource(source);
             } else {
-                this._adding = source;
-                this._openPage('channel', { name: 'channel' });
+                this._note({ kind: 'invalid-source', text: typed });
             }
         });
     }
 
-    _chooseChannel(choice) {
-        const source = this._adding;
-        if (!source) {
-            return;
-        }
-        const done = (channel) => {
-            this._adding = null;
-            this._closePage('channel', isPage('channel'));
-            if (channel) {
-                this._sendSource(Object.assign({ channel }, source));
-            }
-        };
-        if (choice !== 'branch') {
-            done(choice);
-            return;
-        }
-        this._spell('Branch').then((text) => {
-            if (text === undefined || this._adding !== source) {
+    /* Add token: the speller's text goes to the updater, which asks GitHub
+     * whose it is before it stores it; the status line says what came of it. */
+    _addToken() {
+        this._endTokenAdd(null);
+        this._spell('GitHub token', (m) => this._accountNote(m)).then((text) => {
+            const token = (text || '').trim();
+            if (!token) {
                 return;
             }
-            const channel = text === null ? null : channelOf('branch', text);
-            if (text !== null && !channel) {
-                this._note({ kind: 'invalid-branch', text: text.trim() });
+            logger.info('add token');
+            // the tokens it had are what a new one is told from: only with the updater's state at hand
+            if (!this._connected || !this._st || !this._privileged({ op: 'token-add', token })) {
+                this._accountNote({ kind: 'refused', error: readSecret() ? 'updater not running' : 'no updater secret' });
+                return;
             }
-            done(channel);
+            const before = new Set((this._st.tokens || []).map((t) => t.id));
+            this._tokenAdding = { before, timer: setTimeout(() => this._endTokenAdd(null), TOKEN_ADD_MS) };
+            this._accountNote({ kind: 'checking' });
         });
+    }
+
+    /* A state with a token the updater did not have before the token-add
+     * ends it. A token it had already brings none: the timeout clears the
+     * status line then. */
+    _tokenAdded(st) {
+        const pending = this._tokenAdding;
+        const added = pending && (st.tokens || []).find((t) => !pending.before.has(t.id));
+        if (added) {
+            this._endTokenAdd({ kind: 'added', label: tokenLabel(added) });
+        }
+    }
+
+    _endTokenAdd(m) {
+        if (this._tokenAdding) {
+            clearTimeout(this._tokenAdding.timer);
+            this._tokenAdding = null;
+        }
+        this._accountNote(m);
+    }
+
+    _accountNote(m) {
+        this._accountsNote = { text: m ? tokenMessage(m) : '', error: !!m && m.kind !== 'checking' && m.kind !== 'added' };
+        this._render();
     }
 
     _sendSource(source) {
@@ -1028,11 +1045,12 @@ class Store extends OnlineApp {
         this._renderList(C.accountList, (tokens || []).map((t) => [tokenLabel(t), tokenState(t)]));
         // Sign in with GitHub only with the updater's GitHub App (state.signin)
         this._show(C.accountSignIn, connected && st.signin === true);
+        this._show(C.accountAddToken, !!tokens);
+        this._text(C.accountsStatus, this._accountsNote.text);
         this._rows.token = (tokens || []).map((t) => t.id);
         const removing = this._token(this._tokenId);
         this._text(C.accountName, removing ? tokenLabel(removing) : '');
         this._text(C.accountSources, removing ? tokenSources(removing, sources) : '');
-        this._text(C.addRepo, this._adding ? this._adding.repo : '');
         this._renderSource(this._source(this._sourceId));
         this._renderLogin(connected ? st.login : null);
         this._renderPhone(web);
@@ -1226,6 +1244,7 @@ class Store extends OnlineApp {
         }
         logger.info(`store shutting down (${reason})`);
         clearTimeout(this._hideTimer);
+        clearTimeout(this._tokenAdding && this._tokenAdding.timer);
         this._pollWebUrl(false);
         this._client.close();
         this._drawn.close();
