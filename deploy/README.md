@@ -254,7 +254,9 @@ charger connected), and stays awake until the command finishes.
 argument or the environment, never printed. It goes on ssh's stdin to the
 installed deploy tool's `updater-token`; while the updater runs, `updater.js
 check` then has it read its sources again. `--list` and `--remove <id>`
-run `updater-token --list` and `--remove <id>`.
+run `updater-token --list` and `--remove <id>` with nothing on stdin; they
+need a deploy tool that keeps tokens as their own entries (SPEC §8). A
+token added while the updater does not run is used once it runs.
 
 **Downloads** go over https; a token goes to the GitHub API host only and
 never to the host a download redirects to. A repository is read without a

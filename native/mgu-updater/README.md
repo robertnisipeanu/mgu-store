@@ -282,7 +282,8 @@ A version installed from outside (the deploy tool run from the Mac) is
 taken up the same way: the running daemon sees `current` move, writes
 `trial` with its own version, and hands over. That version commits once
 the deploy tool answers, without the sources: the car may have no internet
-while it is set up.
+while it is set up. So does a version installed from a USB stick or a
+folder.
 
 ## Tools the updater runs on
 
@@ -297,7 +298,7 @@ Checking.
 | Tool (`updater.conf`) | Check | On failure |
 |---|---|---|
 | `deploy_tool` (`mgu-deploy`) | the new version (`mgu-deploy.sh`, which runs `current/`) answers `status --json` with JSON within 60 s | the updater switches `/var/opt/mgu-deploy/current` back by rename: a deploy tool that does not run cannot undo itself |
-| `uplink_tool` (`mgu-uplink`) | within `bootstrap_check_s` (90 s) the uplink's lease is back and the first network source answers through it | `mgu-deploy.sh rollback mgu-uplink`, then the internet is waited for again; the previous version cannot be downloaded without it. A rollback the deploy tool reports as failed shows as such |
+| `uplink_tool` (`mgu-uplink`) | within `bootstrap_check_s` (90 s) the uplink's lease is back and the first network source answers through it; not checked when there was no internet before the install | `mgu-deploy.sh rollback mgu-uplink`, then the internet is waited for again; the previous version cannot be downloaded without it. A rollback the deploy tool reports as failed shows as such |
 
 An uplink update the deploy tool leaves for the next boot (`pending_reboot`)
 is not checked: the running version was not restarted. Both tools keep

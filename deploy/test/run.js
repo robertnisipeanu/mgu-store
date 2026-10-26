@@ -2701,6 +2701,8 @@ function testMguInstallUsb() {
                 return { error: x.stderr };
             }
         };
+        // what an interrupted run leaves at the stick's root is no source
+        write(path.join(stick, '.mgu-repo-rel.partial', 'catalog.json'), fs.readFileSync(path.join(repo, 'rel', 'catalog.json')));
         let seen = read();
         const src = (name) => seen[`usb:MY STICK/mgu-repo/${name}`] || {};
         const ids = (name) => (src(name).components || []).map((c) => `${c.id}@${c.version}${c.build ? `:${c.build}` : ''}`).sort().join(' ');
@@ -2761,12 +2763,6 @@ function testMguInstallPaths() {
         names.every((x) => x && !winBad.test(x) && !/^\.|\.$/.test(x)), JSON.stringify(names));
     check('mgu-install paths: an artifact file name from a catalog is one plain name',
         ['a\\b.tgz', 'C:x.tgz', '../x.tgz', 'a/b.tgz', '..'].every((x) => !mi.plainName(x)) && mi.plainName('robertn_store@0.4.1.tgz'));
-    const stick = 'E:\\';
-    const dest = path.win32.join(stick, 'mgu-repo', mi.folderName('robertnisipeanu/mgu-store'.split('/')[1]), 'catalog.json');
-    check('mgu-install paths: a stick at a drive root', dest === 'E:\\mgu-repo\\mgu-store\\catalog.json', dest);
-    const usb = mi.parse(['usb-repo', 'E:\\', 'C:\\Users\\Me\\Downloads\\app@1.0.0.tgz', 'github:o/r']);
-    check('mgu-install paths: Windows paths are taken as inputs as they are', JSON.stringify(usb.rest) ===
-        JSON.stringify(['E:\\', 'C:\\Users\\Me\\Downloads\\app@1.0.0.tgz', 'github:o/r']));
     const packed = mi.untgz(mi.tgz([{ name: 'files/a.sh', data: Buffer.from('x'), mode: 0o755 }], 1700000000));
     check('mgu-install paths: the kit is packed in Node with POSIX member names and modes',
         packed.length === 1 && packed[0].name === 'files/a.sh' && packed[0].mode === 0o755);

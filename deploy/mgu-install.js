@@ -448,7 +448,7 @@ function sshArgs(o, remote) {
 function ssh(o, remote, { input, capture } = {}) {
     const r = cp.spawnSync('ssh', sshArgs(o, remote), {
         input, maxBuffer: 64 << 20, windowsHide: true,
-        stdio: [input ? 'pipe' : 'inherit', capture ? 'pipe' : 'inherit', 'inherit']
+        stdio: [input !== undefined ? 'pipe' : 'inherit', capture ? 'pipe' : 'inherit', 'inherit']
     });
     if (r.error) {
         throw new Error(r.error.code === 'ENOENT' ? 'no ssh command found; install the OpenSSH client' : `ssh: ${r.error.message}`);
@@ -545,20 +545,21 @@ async function firstInstall(o) {
 function addToken(o, token) {
     const r = ssh(o, `sh ${DEPLOY} updater-token && if systemctl is-active mgu-updater.service >/dev/null 2>&1; then ` +
         `{ /usr/bin/node ${UPDATER_JS} check >/dev/null 2>&1 && echo 'the updater read its sources with it' || ` +
-        `echo 'the updater uses it from its next check'; }; fi`,
+        `echo 'the updater uses it from its next check'; }; else echo 'the updater uses it once it runs'; fi`,
     { input: Buffer.from(`${token}\n`) });
     return r.status;
 }
 
 async function tokenCommand(o) {
+    // no stdin: these read no token
     if (o.list) {
-        return ssh(o, `sh ${DEPLOY} updater-token --list`).status;
+        return ssh(o, `sh ${DEPLOY} updater-token --list`, { input: Buffer.alloc(0) }).status;
     }
     if (o.remove !== null) {
         if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(o.remove)) {
             throw new Usage(`not a token id: ${o.remove}`);
         }
-        return ssh(o, `sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`).status;
+        return ssh(o, `sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`, { input: Buffer.alloc(0) }).status;
     }
     return addToken(o, await readToken('GitHub token for the updater (input hidden): '));
 }
@@ -651,11 +652,12 @@ function stickEntry(entry, file, data) {
 }
 
 /* Writes one source folder: files (name -> bytes) and catalog.json last,
- * beside the old folder, then in its place. */
+ * at the stick's root (where the updater looks for no source), then in
+ * the old folder's place. */
 function writeFolder(dest, files, catalog) {
-    const parent = path.dirname(dest);
-    const tmp = path.join(parent, `.${path.basename(dest)}.partial`);
-    const old = path.join(parent, `.${path.basename(dest)}.old`);
+    const stick = path.dirname(path.dirname(dest));
+    const tmp = path.join(stick, `.mgu-repo-${path.basename(dest)}.partial`);
+    const old = path.join(stick, `.mgu-repo-${path.basename(dest)}.old`);
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(old, { recursive: true, force: true });
     fs.mkdirSync(tmp, { recursive: true });
@@ -856,6 +858,10 @@ async function usbRepo(o) {
         const out = localFolder(dest, packages);
         writeFolder(dest, out.files, out.catalog);
     }
+    const folders = fs.readdirSync(repoDir).filter((n) => !n.startsWith('.') && fs.statSync(path.join(repoDir, n)).isDirectory());
+    if (folders.length > 64) {
+        say(`mgu-repo/ holds ${folders.length} folders; the updater reads the first 64 by name`);
+    }
     say(`${stick}: the Store lists these while the stick is in the car`);
     return 0;
 }
@@ -933,4 +939,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { tgz, untgz, sshArgs, shQuote, folderName, plainName, describePackage, parse, RUN_SH, SOURCES };
+module.exports = { tgz, untgz, sshArgs, folderName, plainName, parse, SOURCES };

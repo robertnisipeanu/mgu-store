@@ -57,7 +57,8 @@ node mgu-install.js first-install --identity ~/.ssh/mgu_root_key --token
 ```
 
 Later, `node mgu-install.js token` adds a token, `token --list` lists them
-and `token --remove <id>` removes one. Downloading a private release needs
+and `token --remove <id>` removes one. On Windows, run it in PowerShell or
+cmd: Git Bash's terminal shows no hidden prompt (pipe the token instead). Downloading a private release needs
 a token too: the one given with `--token`, else the GitHub CLI's (`gh auth
 login`), else a hidden prompt. deploy/README.md ("mgu-install") has the
 details; `deploy/hu install` installs components built from a checkout,

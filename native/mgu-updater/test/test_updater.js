@@ -1000,7 +1000,26 @@ function testDaemon(certs, pubDir) {
         .then(() => {
             ok('trial: a version the local installer puts there is kept without internet',
                 current() === 'versions/0.7.0' && !fs.existsSync(path.join(opt, 'mgu-updater', 'trial-local')));
-            fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
+            // still offline: a newer version on a USB stick
+            const stick = path.join('/media', 'SELFSTICK');
+            mkdirp(stick);
+            publish(stick, [entry(updaterKit(stick, '0.8.0'), 'tool', 'Updater')]);
+            fs.writeFileSync(path.join(T, 'no-mounts'), `/dev/sdz1 ${stick} vfat ro 0 0\n`);
+            return waitFor(client, (s) => row(s, 'mgu-updater').version === '0.8.0' && row(s, 'mgu-updater').status === 'update' &&
+                row(s, 'mgu-updater').source === 'usb:SELFSTICK', 20000, 'the stick\'s updater offered offline')
+                .then(() => {
+                    restarting();
+                    client.install('mgu-updater');
+                    return sleep(3000).then(() => waitFor(client, (s) => version(s) === '0.8.0' && !fs.existsSync(trialFile) && settled(s), 60000,
+                        'the stick\'s updater kept offline'));
+                })
+                .then(() => {
+                    ok('trial: a version from a USB stick is kept without internet',
+                        current() === 'versions/0.8.0' && !fs.existsSync(path.join(opt, 'mgu-updater', 'trial-local')));
+                    fs.unlinkSync(path.join(T, 'no-mounts'));
+                    cp.execFileSync('rm', ['-rf', stick]);
+                    fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
+                });
         })
         .then(() => {
             // a download that does not match the catalog
@@ -1128,6 +1147,24 @@ function testDaemon(certs, pubDir) {
                         /0\.2\.3 gives no internet; going back to 0\.2\.2 failed \(exit 1\)/.test(row(st, 'mgu-uplink').error),
                         row(st, 'mgu-uplink').error);
                     fs.unlinkSync(`${log}.rollbackfail`);
+                    // still without internet: an uplink from a USB stick has none to give back, and is kept
+                    const stick = path.join('/media', 'UPLSTICK');
+                    mkdirp(stick);
+                    publish(stick, [entry(toolKit(stick, 'mgu-uplink', '0.2.4', { 'mgu-uplink': ['#!/bin/sh\n', 0o755] }, { test_broken: true }),
+                        'tool', 'Internet uplink')]);
+                    fs.writeFileSync(path.join(T, 'no-mounts'), `/dev/sdz1 ${stick} vfat ro 0 0\n`);
+                    return waitFor(client, (x) => x.online === false && row(x, 'mgu-uplink').source === 'usb:UPLSTICK', 30000, 'the stick\'s uplink offered offline');
+                })
+                .then(() => {
+                    client.install('mgu-uplink');
+                    return sleep(500).then(() => waitFor(client, (x) => row(x, 'mgu-uplink').installed === '0.2.4' && !x.busy, 60000, 'the stick\'s uplink'));
+                })
+                .then((st) => {
+                    ok('bootstrap: an uplink installed from a stick without internet is kept, not checked',
+                        uplinkLink() === 'versions/0.2.4' && !row(st, 'mgu-uplink').error &&
+                        (fs.readFileSync(log, 'utf8').match(/rollback mgu-uplink/g) || []).length === 2, JSON.stringify(row(st, 'mgu-uplink')));
+                    fs.unlinkSync(path.join(T, 'no-mounts'));
+                    cp.execFileSync('rm', ['-rf', '/media/UPLSTICK']);
                     fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
                 });
         })
