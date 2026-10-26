@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Writes robertn_store@0.4.1's application.xml and uiDescription.json from
+ * Writes robertn_store@0.5.0's application.xml and uiDescription.json from
  * the tables below, so container and component ids, names, widgets and cells
  * stay in lockstep. LT_State_Wide states, as in the reference apps:
  *
@@ -14,12 +14,18 @@
  *   4  ST_OnlineApps_StoreRestart      the confirm step of Restart head unit:
  *                                      Cancel (focused first) and Restart
  *   5  ST_OnlineApps_StoreSources      a status line, one list, a row (name |
- *                                      status) per source, Add source (the
- *                                      HMI's speller, src/speller.js) and
- *                                      Phone access
+ *                                      status or account) per source, Add
+ *                                      source (the HMI's speller,
+ *                                      src/speller.js), Accounts and Phone
+ *                                      access
  *   6  ST_OnlineApps_StoreSource       one source: its name and status, Channel,
- *                                      Account, Components, its error, Sign in
- *                                      with GitHub, Remove
+ *                                      Account, Components, its error, Remove
+ *  32  ST_OnlineApps_StoreAccounts     the updater's tokens: one list, a row
+ *                                      (name | sources) per account, Sign in
+ *                                      with GitHub
+ *  33  ST_OnlineApps_StoreAccountRemove the confirm step of an account's
+ *                                      Remove: its name, its sources, Cancel,
+ *                                      Remove
  *   7  ST_OnlineApps_StoreLogin        GitHub sign-in: the QR code of the
  *                                      sign-in page with the code beside it,
  *                                      the code and page as text, the status,
@@ -43,7 +49,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PKG = path.join(__dirname, '..', 'robertn_store@0.4.1');
+const PKG = path.join(__dirname, '..', 'robertn_store@0.5.0');
 const ID7 = path.join(PKG, 'rhmiData', 'uiDescriptions', 'ID7');
 const ROW = 'LT_Button_1Row_2Col7030_2Text';
 const TWO_COLS = [{ Text1stCol: '', Text2ndCol: '' }];
@@ -84,6 +90,7 @@ const SOURCES = state(5, 'ST_OnlineApps_StoreSources', 14, 'Sources', MAIN.id, [
     label(29, 'storeSourcesStatus'),
     { id: 82, type: 'button', widget: ROW, name: 'storeSourceList', focusable: 3, rows: TWO_COLS },
     button(83, 'storeSourceAdd', 'Add source'),
+    row(140, 'storeSourceAccounts', 'Accounts'),
     button(39, 'storeSourcePhone', 'Phone access')
 ]);
 
@@ -93,8 +100,12 @@ const SOURCE = state(6, 'ST_OnlineApps_StoreSource', 15, 'Source', SOURCES.id, [
     row(85, 'storeSrcAccount', 'Account'),
     row(86, 'storeSrcComponents', 'Components'),
     label(89, 'storeSrcError'),
-    button(87, 'storeSrcSignIn', 'Sign in with GitHub'),
     button(88, 'storeSrcRemove', 'Remove')
+]);
+
+const ACCOUNTS = state(32, 'ST_OnlineApps_StoreAccounts', 41, 'Accounts', SOURCES.id, [
+    { id: 134, type: 'button', widget: ROW, name: 'storeAccountList', focusable: 3, rows: TWO_COLS },
+    button(135, 'storeAccountSignIn', 'Sign in with GitHub')
 ]);
 
 const STATES = [
@@ -107,7 +118,14 @@ const STATES = [
     ]),
     SOURCES,
     SOURCE,
-    state(7, 'ST_OnlineApps_StoreLogin', 16, 'Sign in with GitHub', SOURCE.id, [
+    ACCOUNTS,
+    state(33, 'ST_OnlineApps_StoreAccountRemove', 42, 'Remove account?', ACCOUNTS.id, [
+        label(136, 'storeAccountName'),
+        label(137, 'storeAccountSources'),
+        button(138, 'storeAccountRemoveCancel', 'Cancel'),
+        button(139, 'storeAccountRemoveConfirm', 'Remove')
+    ]),
+    state(7, 'ST_OnlineApps_StoreLogin', 16, 'Sign in with GitHub', ACCOUNTS.id, [
         picture(90, 'storeLoginQr'),
         label(94, 'storeLoginCode'),
         label(91, 'storeLoginUrl'),

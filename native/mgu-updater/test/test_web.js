@@ -230,6 +230,15 @@ test('the inline script matches its CSP hash and parses', () => get('/').then((r
     new Function(m[1]); // eslint-disable-line no-new-func
 }));
 
+test('the page: tokens are a section of their own; adding a source asks for none', () => get('/').then((r) => {
+    assert(/<h2>Tokens<\/h2>\s*<div id="tokens"><\/div>/.test(r.text));
+    assert(/<form id="tokenForm"><input id="tokenValue" type="password"[^>]*>/.test(r.text));
+    assert(/id="loginStart"[^>]*>Sign in with GitHub</.test(r.text));
+    const add = /<form id="addForm">[\s\S]*?<\/form>/.exec(r.text)[0];
+    assert(!/token/i.test(add), add);
+    assert(r.text.indexOf('tokenSource') < 0);
+}));
+
 test('api without, or with a wrong, token: 401', () => get('/api/state').then((r) => {
     assert.strictEqual(r.status, 401);
     return get('/api/state', { token: 'ab'.repeat(16) });
@@ -263,11 +272,23 @@ test('ops go to the updater with the web secret and only their own fields', () =
         })
         .then((r) => {
             assert.deepStrictEqual(r.json, { ok: true });
-            return post('/api/op', { token, body: { op: 'token-set', source: 'idrive7-apps', token: ' ghp_x \n' } });
+            return post('/api/op', { token, body: { op: 'token-add', token: ' ghp_x \n', source: 'idrive7-apps' } });
         })
         .then((r) => {
             assert.deepStrictEqual(r.json, { ok: true });
-            assert.strictEqual(received[received.length - 1].token, 'ghp_x');
+            const q = received[received.length - 1];
+            assert.strictEqual(q.token, 'ghp_x');
+            assert(!('source' in q), 'a token belongs to no source');
+            return post('/api/op', { token, body: { op: 'token-remove', id: '3f9a01c2' } });
+        })
+        .then((r) => {
+            assert.deepStrictEqual(r.json, { ok: true });
+            assert.strictEqual(received[received.length - 1].id, '3f9a01c2');
+            return post('/api/op', { token, body: { op: 'login-start', source: 'idrive7-apps' } });
+        })
+        .then((r) => {
+            assert.deepStrictEqual(r.json, { ok: true });
+            assert(!('source' in received[received.length - 1]));
             return post('/api/op', { token, body: { op: 'source-remove', id: 'mgu-store' } });
         })
         .then((r) => {
@@ -283,7 +304,8 @@ test('requests the page cannot make are refused before the updater', () => {
         { op: 'source-add', type: 'github', repo: 'a/b' },
         { op: 'source-add', type: 'github', repo: 'a/b', channel: 3 },
         { op: 'source-add', type: 'https' },
-        { op: 'source-add', type: 'file', path: '/' }, { op: 'token-set', source: 'x' }, { op: 'toString' }, ['x']];
+        { op: 'source-add', type: 'file', path: '/' }, { op: 'token-set', source: 'x', token: 'y' }, { op: 'token-clear', source: 'x' },
+        { op: 'token-add' }, { op: 'token-add', token: 'y', label: 5 }, { op: 'token-remove' }, { op: 'toString' }, ['x']];
     return Promise.all(bad.map((body) => post('/api/op', { token, body }))).then((rs) => {
         rs.forEach((r) => assert.strictEqual(r.status, 400, r.text));
         assert.strictEqual(received.length, 0);
@@ -291,7 +313,7 @@ test('requests the page cannot make are refused before the updater', () => {
     }).then((r) => assert.strictEqual(r.status, 415));
 });
 
-test('a body over 16 KiB: 413', () => post('/api/op', { token, body: { op: 'token-set', source: 'x', token: 'a'.repeat(20000) } })
+test('a body over 16 KiB: 413', () => post('/api/op', { token, body: { op: 'token-add', token: 'a'.repeat(20000) } })
     .then((r) => assert.strictEqual(r.status, 413)).catch((e) => assert(/ECONNRESET|EPIPE/.test(e.code), e.message)));
 
 test('logs: the log file tail and the journals through the updater', () => get('/api/logs?src=updater', { token })

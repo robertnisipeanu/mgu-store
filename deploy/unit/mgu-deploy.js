@@ -13,7 +13,7 @@
  *   mgu-deploy.sh restore [name] [--yes]
  *   mgu-deploy.sh backups
  *   mgu-deploy.sh fallback <on|off|status|migrate> [--yes]
- *   mgu-deploy.sh updater-token [--source <id>] [--remove]   (the token on stdin)
+ *   mgu-deploy.sh updater-token | updater-token --list [--json] | updater-token --remove <id>   (a token on stdin)
  *   mgu-deploy.sh updater-sources            (sources.json on stdin)
  *   mgu-deploy.sh sdk-donor [--json]
  *   mgu-deploy.sh help
@@ -42,7 +42,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.2.2';
+var VERSION = '0.2.3';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -129,9 +129,6 @@ function appHome(uid) { return path.join(CFG.oap, 'oap_' + uid); }
 function updaterDir() { return path.join(CFG.varOpt, 'mgu-updater'); }
 function sourcesFile() { return path.join(updaterDir(), 'sources.json'); }
 function credentialsDir() { return path.join(updaterDir(), 'credentials'); }
-function credentialFile(source) { return path.join(credentialsDir(), source); }
-/* the source the Store's own components come from */
-var STORE_SOURCE = 'mgu-store';
 var SOURCE_ID = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 function uplinkDropIns(id) {
     var root = path.join(CFG.varOpt, 'mgu-uplink');
@@ -2371,7 +2368,7 @@ function collectStatus(state) {
         display_bridge_todo_on_car: bridgeTodoLines(),
         fallback: fb, backups: backupCount,
         retired_leftovers: retiredBackups().map(function (b) { return b.path; }),
-        updater_token: lstatOrNull(credentialFile(STORE_SOURCE)) ? 'present' : 'absent',
+        updater_tokens: storedTokens().length,
         stock_backup: fs.existsSync(path.join(BACKUPS_DIR, 'stock')) };
 }
 function cmdStatus(args) {
@@ -2401,7 +2398,7 @@ function cmdStatus(args) {
         (s.fallback.apps.join(', ') || '-') + ')');
     say('backups: ' + s.backups + (s.stock_backup ? ' (stock present)' : ' (no stock)'));
     if (s.retired_leftovers.length) say("retired installer's leftovers: " + s.retired_leftovers.join(', '));
-    say('updater token: ' + s.updater_token);
+    say('updater tokens: ' + s.updater_tokens);
     s.pending_reboot.forEach(function (p) { say('pending reboot: ' + p.id + ' - ' + p.reason); });
     return 0;
 }
@@ -2498,13 +2495,20 @@ function cmdCheck(args) {
 }
 
 /* ---- the updater's sources and tokens ------------------------------------------------ */
-/* A source's token (default: the Store's own source, mgu-store), written by
- * this tool from stdin (never an argument: arguments show in ps) to
- * /var/opt/mgu-updater/credentials/<source>, root's alone in a 0700
- * folder. It is the updater's config: uninstalling mgu-updater removes it
- * with the rest of /var/opt/mgu-updater. Output names its length, never its
- * value. */
+/* The updater's tokens (native/mgu-updater, "Tokens"), each its own,
+ * not a source's: the token's text in /var/opt/mgu-updater/credentials/
+ * token-<id> and its entry in credentials/tokens.json, root's alone in a
+ * 0700 folder. updater-token reads a token from stdin (never an argument:
+ * arguments show in ps) and stores it unless one with that text is stored
+ * already; the updater notices the files, asks GitHub whose it is and reads
+ * the sources that need it. --list names the tokens (id, label, account),
+ * --remove <id> removes one. Tokens are the updater's config: uninstalling
+ * mgu-updater removes them with the rest of /var/opt/mgu-updater. Output
+ * names a token's length, never its value. */
 var TOKEN_MAX = 512;
+var TOKEN_ID = /^[0-9a-f]{8}$/;
+function tokensFile() { return path.join(credentialsDir(), 'tokens.json'); }
+function tokenFile(id) { return path.join(credentialsDir(), 'token-' + id); }
 function readStdin(max) {
     var chunks = [], total = 0, buf = Buffer.alloc(4096), n, waited = 0;
     for (;;) {
@@ -2521,17 +2525,52 @@ function readStdin(max) {
     }
     return Buffer.concat(chunks);
 }
+/* A root-only file written by rename. */
+function writePrivate(file, text) {
+    var tmp = file + '.tmp-' + process.pid, fd;
+    rmrf(tmp);
+    fd = fs.openSync(tmp, 'wx', 0o600);
+    try { fs.writeSync(fd, text); } finally { fs.closeSync(fd); }
+    fs.chmodSync(tmp, 0o600);
+    chownMaybe(tmp, 0, 0);
+    fs.renameSync(tmp, file);
+}
+/* The stored tokens: tokens.json's entries whose file is there, then the
+ * files it does not name. */
+function storedTokens() {
+    var names = [], doc = readJsonOrNull(tokensFile()), seen = {}, out = [];
+    try { names = fs.readdirSync(credentialsDir()).sort(); } catch (e) { /* none yet */ }
+    var ids = names.map(function (n) { var m = /^token-([0-9a-f]{8})$/.exec(n); return m && m[1]; }).filter(Boolean);
+    (Array.isArray(doc) ? doc : []).forEach(function (t) {
+        if (t && TOKEN_ID.test(t.id) && ids.indexOf(t.id) >= 0 && !seen[t.id]) { seen[t.id] = true; out.push(t); }
+    });
+    ids.filter(function (id) { return !seen[id]; }).forEach(function (id) { out.push({ id: id, kind: 'github' }); });
+    return out;
+}
 function cmdUpdaterToken(args) {
-    var source = args.source || STORE_SOURCE;
-    if (!SOURCE_ID.test(source)) throw refuse('bad source id ' + source);
-    var file = credentialFile(source), state = loadState();
-    if (args.remove) {
-        if (!lstatOrNull(file)) { say('updater token: absent already'); return 0; }
-        takeSnapshot('updater-token', [file]);
-        rmrf(file);
-        pruneCreatedDirs(state);
+    var state = loadState(), list = storedTokens();
+    if (args.positional.length) throw refuse('updater-token takes the token on stdin, --list or --remove <id>; a token is no source\'s');
+    if (args.list) {
+        if (args.json) {
+            say(JSON.stringify(list.map(function (t) {
+                return { id: t.id, label: t.label || null, login: t.login || null, addedAt: t.addedAt || null };
+            })));
+        } else if (!list.length) {
+            say('no updater tokens');
+        } else {
+            list.forEach(function (t) { say(t.id + '  ' + (t.label || '-') + '  ' + (t.login || '-')); });
+        }
+        return 0;
+    }
+    if (args.remove !== null) {
+        if (!TOKEN_ID.test(args.remove)) throw refuse('--remove takes a token id (updater-token --list names them)');
+        if (!list.some(function (t) { return t.id === args.remove; })) { say('updater token ' + args.remove + ': absent already'); return 0; }
+        takeSnapshot('updater-token', [tokenFile(args.remove)]);
+        rmrf(tokenFile(args.remove));
+        // the entries as they are now: the updater may have written since
+        writePrivate(tokensFile(), JSON.stringify(storedTokens(), null, 2) + '\n');
         saveState(state);
-        say('token of source ' + source + ' removed (' + file + ')');
+        say('updater token ' + args.remove + ' removed');
         return 0;
     }
     if (process.stdin.isTTY) throw refuse('updater-token reads the token from stdin: sh mgu-deploy.sh updater-token < <file>');
@@ -2542,20 +2581,24 @@ function cmdUpdaterToken(args) {
     if (!text) throw refuse('no token on stdin; nothing written');
     if (/[\r\n]/.test(text)) throw refuse('token input has more than one line; nothing written');
     if (/[\s\x00-\x1f\x7f]/.test(text)) throw refuse('token has spaces or control characters; nothing written');
-    takeSnapshot('updater-token', [file]);
+    var same = list.filter(function (t) {
+        try { return fs.readFileSync(tokenFile(t.id), 'utf8').trim() === text; } catch (e) { return false; }
+    })[0];
+    if (same) { say('updater token: stored already as ' + same.id); return 0; }
+    var id;
+    do { id = crypto.randomBytes(4).toString('hex'); } while (lstatOrNull(tokenFile(id)));
+    takeSnapshot('updater-token', [tokenFile(id)]);
     var created = [credentialsDir(), updaterDir()].filter(function (d) { return !fs.existsSync(d); });
     mkdirp(credentialsDir(), 0o700);
     fs.chmodSync(credentialsDir(), 0o700);
     created.forEach(function (d) { noteCreatedDir(state, d); });
-    var tmp = file + '.tmp-' + process.pid, fd;
-    rmrf(tmp);
-    fd = fs.openSync(tmp, 'wx', 0o600);
-    try { fs.writeSync(fd, text); } finally { fs.closeSync(fd); }
-    fs.chmodSync(tmp, 0o600);
-    chownMaybe(tmp, 0, 0);
-    fs.renameSync(tmp, file);
+    writePrivate(tokenFile(id), text + '\n');
+    // the entries as they are now: the updater may have written since
+    var now = storedTokens().filter(function (t) { return t.id !== id; });
+    now.push({ id: id, kind: 'github', addedAt: Date.now() });
+    writePrivate(tokensFile(), JSON.stringify(now, null, 2) + '\n');
     saveState(state);
-    say('token of source ' + source + ' written to ' + file + ' (' + Buffer.byteLength(text) + ' bytes, mode 0600)');
+    say('updater token ' + id + ' written (' + Buffer.byteLength(text) + ' bytes, mode 0600); the updater checks it with GitHub');
     return 0;
 }
 /* The updater's sources (native/mgu-updater), seeded from stdin by the
@@ -2997,23 +3040,24 @@ var HELP = [
     '  backups                          list backups (stock marked)',
     '  fallback <on|off|status>         provisioning fallback for our apps',
     '  fallback migrate                 move our apps off the retired installer\'s leftovers onto the fallback',
-    '  updater-token [--source <id>] [--remove]',
-    '                                    write a source\'s token for the updater from stdin (or remove it)',
+    '  updater-token                    store a token for the updater from stdin',
+    '  updater-token --list [--json]    the updater\'s tokens: id, label, account',
+    '  updater-token --remove <id>      remove one',
     '  updater-sources                  seed the updater\'s sources.json from stdin (kept when present)',
     '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle',
     '  help                             this text',
     'exit codes: 0 done, 1 failed (rolled back), 2 preflight refused'
 ].join('\n');
 function parseArgs(argv) {
-    var out = { command: argv[0] || 'help', artifacts: [], positional: [], json: false, yes: false, remove: false,
-        source: null }, i;
+    var out = { command: argv[0] || 'help', artifacts: [], positional: [], json: false, yes: false, remove: null,
+        list: false }, i;
     for (i = 1; i < argv.length; i++) {
         if (argv[i] === '--artifact') { out.artifacts.push(argv[++i]); }
-        else if (argv[i] === '--source') out.source = argv[++i] || '';
         else if (argv[i] === '--json') out.json = true;
         else if (argv[i] === '--skip-older') out.skipOlder = true;
         else if (argv[i] === '--yes') out.yes = true;
-        else if (argv[i] === '--remove') out.remove = true;
+        else if (argv[i] === '--remove') out.remove = argv[++i] || '';
+        else if (argv[i] === '--list') out.list = true;
         else out.positional.push(argv[i]);
     }
     return out;

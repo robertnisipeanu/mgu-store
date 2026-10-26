@@ -526,6 +526,32 @@
               }
             }
           ]
+        },
+        "140": {
+          "type": "button",
+          "name": "storeSourceAccounts",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text1stCol": {
+                "value": "Accounts",
+                "type": "Text"
+              },
+              "Text2ndCol": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
         }
       }
     },
@@ -661,28 +687,6 @@
             }
           ]
         },
-        "87": {
-          "type": "button",
-          "name": "storeSrcSignIn",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "Sign in with GitHub",
-                "type": "Text"
-              }
-            }
-          ]
-        },
         "88": {
           "type": "button",
           "name": "storeSrcRemove",
@@ -734,7 +738,7 @@
       "name": "ST_OnlineApps_StoreLogin",
       "properties": {
         "ParentState": {
-          "value": 6,
+          "value": 32,
           "type": "UInt"
         }
       },
@@ -1262,6 +1266,202 @@
             {
               "Text": {
                 "value": "Branch",
+                "type": "Text"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "32": {
+      "type": "state",
+      "name": "ST_OnlineApps_StoreAccounts",
+      "properties": {
+        "ParentState": {
+          "value": 5,
+          "type": "UInt"
+        }
+      },
+      "components": {
+        "41": {
+          "type": "title",
+          "name": "ST_OnlineApps_StoreAccounts_Title",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Accounts",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "134": {
+          "type": "button",
+          "name": "storeAccountList",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text1stCol": {
+                "value": "",
+                "type": "Text"
+              },
+              "Text2ndCol": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "135": {
+          "type": "button",
+          "name": "storeAccountSignIn",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Sign in with GitHub",
+                "type": "Text"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "33": {
+      "type": "state",
+      "name": "ST_OnlineApps_StoreAccountRemove",
+      "properties": {
+        "ParentState": {
+          "value": 32,
+          "type": "UInt"
+        }
+      },
+      "components": {
+        "42": {
+          "type": "title",
+          "name": "ST_OnlineApps_StoreAccountRemove_Title",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Remove account?",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "136": {
+          "type": "label",
+          "name": "storeAccountName",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 0,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "137": {
+          "type": "label",
+          "name": "storeAccountSources",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 0,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "138": {
+          "type": "button",
+          "name": "storeAccountRemoveCancel",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Cancel",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "139": {
+          "type": "button",
+          "name": "storeAccountRemoveConfirm",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "Remove",
                 "type": "Text"
               }
             }

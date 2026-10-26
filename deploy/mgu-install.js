@@ -7,7 +7,7 @@
  * Windows, macOS or Linux (deploy/README.md, "mgu-install").
  *
  *   node mgu-install.js first-install [--with-uplink] [--token] [<ssh options>]
- *   node mgu-install.js token [--list | --remove <id>] [<ssh options>]
+ *   node mgu-install.js token [--list [--json] | --remove <id>] [<ssh options>]
  *   node mgu-install.js usb-repo <stick folder> [<input>...]
  *
  * first-install downloads the newest published mgu-store release (the
@@ -19,7 +19,8 @@
  * GitHub token for the updater afterwards.
  *
  * token adds a GitHub token for the updater (no option), lists the tokens
- * (--list) or removes one (--remove <id>). A token is read from a hidden
+ * (--list: id, label, account; --json as JSON) or removes one (--remove
+ * <id>, an id --list names). A token is read from a hidden
  * prompt, or from stdin when stdin is not a terminal; it is never an
  * argument, never printed.
  *
@@ -550,16 +551,23 @@ function addToken(o, token) {
     return r.status;
 }
 
+/* --list and --remove need a deploy tool that keeps tokens as their own
+ * entries (0.2.3): an older one lists nothing and removes its single token
+ * whatever id it is given. */
+const TOKENS_DEPLOY = `/usr/bin/node -e "var v=require('/var/opt/mgu-deploy/current/component.json').version.split('.').map(Number);` +
+    `process.exit(v[0]>0||v[1]>2||(v[1]===2&&v[2]>=3)?0:3)" || ` +
+    `{ echo 'the deploy tool on the unit is older than 0.2.3: install its update from the Store first' >&2; exit 2; }; `;
+
 async function tokenCommand(o) {
     // no stdin: these read no token
     if (o.list) {
-        return ssh(o, `sh ${DEPLOY} updater-token --list`, { input: Buffer.alloc(0) }).status;
+        return ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --list${o.json ? ' --json' : ''}`, { input: Buffer.alloc(0) }).status;
     }
     if (o.remove !== null) {
-        if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(o.remove)) {
+        if (!/^[0-9a-f]{8}$/.test(o.remove)) {
             throw new Usage(`not a token id: ${o.remove}`);
         }
-        return ssh(o, `sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`, { input: Buffer.alloc(0) }).status;
+        return ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`, { input: Buffer.alloc(0) }).status;
     }
     return addToken(o, await readToken('GitHub token for the updater (input hidden): '));
 }
@@ -873,7 +881,7 @@ const USAGE = fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').sli
 
 function parse(argv) {
     const o = { command: argv[0], host: HOTSPOT_IP, port: '22', user: 'root', identity: null, sshOpts: [],
-        withUplink: false, token: false, list: false, remove: null, rest: [] };
+        withUplink: false, token: false, list: false, json: false, remove: null, rest: [] };
     const value = (i, flag) => {
         if (i >= argv.length) {
             throw new Usage(`${flag} needs a value`);
@@ -890,6 +898,7 @@ function parse(argv) {
         else if (a === '--with-uplink' && o.command === 'first-install') o.withUplink = true;
         else if (a === '--token' && o.command === 'first-install') o.token = true;
         else if (a === '--list' && o.command === 'token') o.list = true;
+        else if (a === '--json' && o.command === 'token') o.json = true;
         else if (a === '--remove' && o.command === 'token') o.remove = value(++i, a);
         else if (a.startsWith('--')) throw new Usage(`unknown option ${a} for ${o.command}\n${USAGE}`);
         else o.rest.push(a);
@@ -902,6 +911,9 @@ function parse(argv) {
     }
     if (o.list && o.remove !== null) {
         throw new Usage('token takes --list or --remove, not both');
+    }
+    if (o.json && !o.list) {
+        throw new Usage('--json goes with token --list');
     }
     return o;
 }

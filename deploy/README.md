@@ -43,7 +43,7 @@ deploy/hu rollback <id> --yes                       # a tool back to its other k
 deploy/hu backups
 deploy/hu restore [name] --yes                      # default: stock
 deploy/hu fallback on|off|status|migrate
-deploy/hu updater-token [--updater-token-file <file>] [--source <id>] [--remove]
+deploy/hu updater-token [--updater-token-file <file>] | --list [--json] | --remove <id>
 deploy/hu artifact <dir> --out <dir>                # one tool artifact: native/<id>, or deploy
 deploy/hu connect [--hold <seconds>] [--cmd <command>]   # reach root on the unit (below)
 deploy/hu help
@@ -60,7 +60,7 @@ until a changing run a day later removes it).
 locally (`app-privacy`, `robertn_store`, ...); `--artifact` names files
 already built. After a successful `install`, `updater-sources` seeds the
 updater's sources from `deploy/sources.json` (kept when the unit has its
-own), and, with a token file, `updater-token --source mgu-store` writes it.
+own), and, with a token file, `updater-token` stores it.
 
 SSH options: `--user` (`HU_USER`, root), `--identity <key>` (`HU_IDENTITY`),
 and repeatable `--ssh-opt <option>` passed as `ssh -o` (the first value of
@@ -159,17 +159,25 @@ repository's releases), when the updater is installed and has none: `sh
 mgu-deploy.sh updater-sources < sources.json` writes it, root's, mode 0600,
 and keeps an existing one, since the owner adds sources from the Store.
 
-A source's token is `/var/opt/mgu-updater/credentials/<source>`, root's,
-mode 0600, in a 0700 folder. The owner supplies the mgu-store source's
-token (fine-grained, Contents: Read-only on this repository) as a file on
-the Mac; it is never committed. `deploy/hu install --updater-token-file
-<file>` writes it after the install, and `deploy/hu updater-token
---updater-token-file <file> [--source <id>]` writes it alone; both default
-to `HU_UPDATER_TOKEN_FILE`. Over SSH the file's content travels on ssh's
-stdin only: it is never an argument or part of the staging upload, nor
-printed. `mgu-install.js token` sends one typed at a hidden prompt the
-same way (below). On the unit, `sh mgu-deploy.sh updater-token [--source <id>] <
-<file>` writes it (default source `mgu-store`); `--remove` deletes it.
+The updater's tokens are its own, not a source's (native/mgu-updater/
+README.md, "Tokens"): each one's text in `/var/opt/mgu-updater/credentials/
+token-<id>` and its entry (id, label, account) in `credentials/tokens.json`,
+root's, mode 0600, in a 0700 folder; the updater reads each GitHub source
+with whichever token reaches it. The owner supplies a GitHub token (one
+that reads the mgu-store repository, and any other private repository the
+car reads) as a file on the Mac; it is never committed. `deploy/hu install
+--updater-token-file <file>` stores it after the install, and `deploy/hu
+updater-token --updater-token-file <file>` stores it alone; both default to
+`HU_UPDATER_TOKEN_FILE`. `deploy/hu updater-token --list [--json]` names the
+stored tokens (id, label, account; never a token) and `--remove <id>`
+removes one. Over SSH the file's content travels on ssh's stdin only: it is
+never an argument or part of the staging upload, nor printed.
+`mgu-install.js token` sends one typed at a hidden prompt the same way
+(below). On the unit, `sh mgu-deploy.sh updater-token < <file>` stores a
+token, as a new id, unless one with that text is stored already; it writes
+the files only (the running updater notices them within 5 s, asks GitHub
+whose the token is and reads the sources that need it). `--list [--json]`
+and `--remove <id>` as above.
 
 ## Artifacts
 
@@ -216,7 +224,7 @@ relay and `--arm-debug` stay with `deploy/hu`: `deploy/hu connect --hold
 
 ```sh
 node mgu-install.js first-install [--with-uplink] [--token] [ssh options]
-node mgu-install.js token [--list | --remove <id>] [ssh options]
+node mgu-install.js token [--list [--json] | --remove <id>] [ssh options]
 node mgu-install.js usb-repo <stick folder> [<input>...]
 ```
 
@@ -253,10 +261,10 @@ charger connected), and stays awake until the command finishes.
 (not echoed), or from stdin when stdin is not a terminal, never from an
 argument or the environment, never printed. It goes on ssh's stdin to the
 installed deploy tool's `updater-token`; while the updater runs, `updater.js
-check` then has it read its sources again. `--list` and `--remove <id>`
-run `updater-token --list` and `--remove <id>` with nothing on stdin; they
-need a deploy tool that keeps tokens as their own entries (SPEC §8). A
-token added while the updater does not run is used once it runs.
+check` then has it read its sources again. `--list [--json]` (id, label,
+account; never a token) and `--remove <id>` (an id `--list` names) run
+`updater-token --list [--json]` and `--remove <id>` with nothing on stdin.
+A token added while the updater does not run is used once it runs.
 
 **Downloads** go over https; a token goes to the GitHub API host only and
 never to the host a download redirects to. A repository is read without a
@@ -299,7 +307,8 @@ mgu-deploy.sh rollback <id> [--yes]
 mgu-deploy.sh restore [name] [--yes]
 mgu-deploy.sh backups
 mgu-deploy.sh fallback <on|off|status|migrate> [--yes]
-mgu-deploy.sh updater-token [--source <id>] [--remove]   # the token on stdin
+mgu-deploy.sh updater-token                   # a token on stdin
+mgu-deploy.sh updater-token --list [--json] | --remove <id>
 mgu-deploy.sh updater-sources                 # sources.json on stdin
 mgu-deploy.sh sdk-donor [--json]
 ```
@@ -326,7 +335,7 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /var/opt/mgu-deploy/main.js              the fallback copy of the manager's main.js
 /var/opt/mgu-deploy/inplace/request.json an in-place install request, while one is pending
 /var/opt/mgu-updater/sources.json        the updater's sources, seeded (0600)
-/var/opt/mgu-updater/credentials/<id>    a source's token (0600, folder 0700)
+/var/opt/mgu-updater/credentials/        the updater's tokens: token-<id>, tokens.json (0600, folder 0700)
 /var/opt/mgu-uplink/uids.d/<id>          a tool's uids that get internet
 /var/opt/mgu-uplink/apps.d/<id>          an app that gets internet
 /run/mgu-deploy/sdk-donor/               the donor bundle's readable copy (sdk-donor)
@@ -884,7 +893,7 @@ stdout, read-only, taking no lock, of this shape:
                    "tile_provisioned", "tile_fallback", "tile_visible" }],
   "pending_reboot": [{ "id", "reason" }],
   "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],   (display-bridge)
-  "fallback": { ... }, "backups": 3, "stock_backup": true, "updater_token": "present",
+  "fallback": { ... }, "backups": 3, "stock_backup": true, "updater_tokens": 1,
   "retired_leftovers": ["/usr/lib/oap-mainapp/src/main.js.capbak"] }
 ```
 

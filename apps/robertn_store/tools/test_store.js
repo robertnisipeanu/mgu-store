@@ -133,9 +133,11 @@ const ST = Object.assign({}, base, {
     components: [comp({})],
     sources: [
         { id: 'mgu-store', type: 'github', label: 'robertnisipeanu/mgu-store', builtin: true, usb: false, status: 'ok',
-            auth: { kind: 'github', login: 'rn' }, components: 5, channel: 'releases' },
+            auth: { kind: 'github', token: '3f9a01c2', login: 'rn' }, components: 5, channel: 'releases' },
         { id: 'idrive7-apps', type: 'github', label: 'someone/idrive7-apps', builtin: false, usb: false,
             status: 'auth-needed', error: 'sign in', auth: null, components: 0 }],
+    tokens: [{ id: '3f9a01c2', kind: 'github', label: 'rn', login: 'rn', addedAt: 0, rejected: false, usedBy: ['mgu-store'] },
+        { id: '0badc0de', kind: 'github', label: null, login: null, addedAt: 0, rejected: true, usedBy: [] }],
     login: null,
     web: { enabled: false, urls: [], error: null }
 });
@@ -159,12 +161,22 @@ function run() {
     }).then(() => {
         eq(last(/storeNavSources\.Visible/), 'storeNavSources.Visible=0', 'Sources hidden');
         eq(last(/storeNavPhone\.Visible/), 'storeNavPhone.Visible=0', 'Phone access hidden');
+        eq(last(/storeSourceAccounts\.Visible/), 'storeSourceAccounts.Visible=0', 'Accounts hidden');
         app._client.emit('state', ST);
         return tick();
     }).then(() => {
         eq(last(/storeSourceAdd\.Visible/), 'storeSourceAdd.Visible=1', 'Add source shown');
         eq(last(/storeSourcePhone\.Visible/), 'storeSourcePhone.Visible=1', 'Phone access linked from Sources');
         eq(last(/storeSourcesStatus\.Visible/), 'storeSourcesStatus.Visible=0', 'no Sources status');
+        // each source with the account that reads it, or what it needs
+        eq([last(/storeSourceList\.0\.Text2ndCol/), last(/storeSourceList\.1\.Text2ndCol/)],
+            ['storeSourceList.0.Text2ndCol=rn', 'storeSourceList.1.Text2ndCol=Sign in']);
+        // Accounts: one row per token, with the sources it reads
+        eq(last(/storeSourceAccounts\.Visible/), 'storeSourceAccounts.Visible=1');
+        eq(last(/storeSourceAccounts\.0\.Text2ndCol/), 'storeSourceAccounts.0.Text2ndCol=2 accounts');
+        eq(writes.filter((w) => /^storeAccountList\.[01]\./.test(w)).slice(-4), ['storeAccountList.0.Text1stCol=rn',
+            'storeAccountList.0.Text2ndCol=1 source', 'storeAccountList.1.Text1stCol=0badc0de', 'storeAccountList.1.Text2ndCol=Rejected']);
+        eq(writes.filter((w) => /storeSrcSignIn/.test(w)), [], 'no sign-in on a source');
 
         // without the secret nothing is sent
         reset();
@@ -375,27 +387,48 @@ function run() {
     }).then(() => {
         eq(writes.filter((w) => /storeSourcesStatus/.test(w)), []);
 
-        // sign-in: a refusal shows; an earlier done does not close a new page
+        // an account: its row opens the confirm step naming it and its sources; Remove sends token-remove
         reset();
-        app._sourceId = 'idrive7-apps';
+        app._onAccount(0);
+        return tick();
+    }).then(() => {
+        eq(states, ['open ST_OnlineApps_StoreAccountRemove']);
+        eq(last(/storeAccountName\.0\.Text/), 'storeAccountName.0.Text=rn');
+        eq(last(/storeAccountSources\.0\.Text/), 'storeAccountSources.0.Text=robertnisipeanu/mgu-store');
+        app._removeAccount();
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'token-remove', id: '3f9a01c2' }]);
+        eq(states.slice(1), ['close ST_OnlineApps_StoreAccountRemove']);
+        // an unused account names no sources
+        reset();
+        app._onAccount(1);
+        return tick();
+    }).then(() => {
+        eq(last(/storeAccountSources\.Visible/), 'storeAccountSources.Visible=0');
+        app._closeState('ST_OnlineApps_StoreAccountRemove');
+
+        // sign-in (Accounts): a refusal shows; an earlier done does not close a new page
+        reset();
         app._signIn();
         app._client.emit('reply-error', 'forbidden');
         return tick();
     }).then(() => {
+        eq(sent.map(secretless), [{ op: 'login-start' }], 'a sign-in names no source');
         eq(last(/storeLoginStatus/), 'storeLoginStatus.0.Text=Sign-in failed: forbidden');
         reset();
         app._signIn();
         app._visibleStates.add('ST_OnlineApps_StoreLogin');
-        app._client.emit('state', Object.assign({}, ST, { login: { source: 'idrive7-apps', status: 'done' } }));
+        app._client.emit('state', Object.assign({}, ST, { login: { status: 'done' } }));
         return tick();
     }).then(() => {
         eq(states, ['open ST_OnlineApps_StoreLogin'], 'stale done ignored');
-        app._client.emit('state', Object.assign({}, ST, { login: { source: 'idrive7-apps', url: 'https://github.com/login/device',
+        app._client.emit('state', Object.assign({}, ST, { login: { url: 'https://github.com/login/device',
             code: 'WXYZ-0000', status: 'pending' } }));
         return tick();
     }).then(() => {
         eq(last(/storeLoginCode\.0\.Text/), 'storeLoginCode.0.Text=WXYZ-0000');
-        app._client.emit('state', Object.assign({}, ST, { login: { source: 'idrive7-apps', status: 'done' } }));
+        app._client.emit('state', Object.assign({}, ST, { login: { status: 'done' } }));
         return tick();
     }).then(() => {
         eq(states, ['open ST_OnlineApps_StoreLogin', 'close ST_OnlineApps_StoreLogin'], 'closes once done');
