@@ -31,6 +31,36 @@ const cp = require('child_process');
 
 const MAX_LOG_LINES = 2000;
 
+/* node -e COPY_OUTPUT <from> <to> <max bytes>: copies a regular file of at
+ * most that size, opened without following a link and without blocking (a
+ * FIFO is no file). */
+const COPY_OUTPUT = `
+const fs = require('fs');
+const [from, to, max] = process.argv.slice(1);
+let fd;
+try {
+    fd = fs.openSync(from, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+} catch (e) {
+    process.stderr.write(e.code === 'ENOENT' ? 'the build left no such file' : 'not a file the build left (' + e.code + ')');
+    process.exit(1);
+}
+const st = fs.fstatSync(fd);
+if (!st.isFile() || st.size > Number(max)) {
+    process.stderr.write(st.isFile() ? 'more than ' + max + ' bytes' : 'not a regular file');
+    process.exit(1);
+}
+const outFd = fs.openSync(to, 'wx', 0o644);
+const buf = Buffer.alloc(1 << 20);
+let total = 0;
+for (;;) {
+    const n = fs.readSync(fd, buf, 0, buf.length, null);
+    if (!n) break;
+    total += n;
+    if (total > Number(max)) { process.stderr.write('more than ' + max + ' bytes'); process.exit(1); }
+    fs.writeSync(outFd, buf, 0, n);
+}
+`;
+
 function mkdirp(dir, mode) {
     if (!fs.existsSync(dir)) {
         mkdirp(path.dirname(dir), mode);
@@ -265,13 +295,23 @@ function runBuild(opts) {
             if (!entry.script.output) {
                 return null;
             }
-            // the declared package, copied to MGU_OUT as the build uid: it can copy only what it can read
+            // the declared package, copied to MGU_OUT as the build uid (it can copy only what it
+            // can read): a regular file, not reached through a link, bounded in size and time
             return new Promise((resolve, reject) => {
-                const c = cp.spawn('cp', ['--', path.join(repo, entry.script.output), path.join(out, name)],
-                    Object.assign({ stdio: 'ignore' }, asRoot ? { uid, gid } : {}));
+                const c = cp.spawn(process.execPath, ['-e', COPY_OUTPUT, path.join(repo, entry.script.output), path.join(out, name), String(maxBytes)],
+                    Object.assign({ stdio: ['ignore', 'ignore', 'pipe'], env: {} }, asRoot ? { uid, gid } : {}));
+                let why = '';
+                c.stderr.on('data', (d) => { why += d; });
+                const timer = setTimeout(() => c.kill('SIGKILL'), 60000);
                 c.on('error', reject);
-                c.on('close', (code) => (code === 0 ? resolve() :
-                    reject(new Error(`the build left no ${entry.script.output}`))));
+                c.on('close', (code) => {
+                    clearTimeout(timer);
+                    if (code === 0) {
+                        resolve();
+                    } else {
+                        reject(new Error(`${entry.script.output}: ${why.trim() || 'not copied within 60 s'}`));
+                    }
+                });
             });
         })
         .then(() => {

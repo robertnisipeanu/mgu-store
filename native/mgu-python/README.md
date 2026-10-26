@@ -3,7 +3,7 @@
 Python 3.12 for the head unit. Repositories whose apps build with Python
 (`mgu-repo.json` `"build": {"python": ...}`, docs/PUBLISHING.md) require
 it, and the updater installs it before such an app. It is optional:
-nothing else needs it.
+only those apps need it.
 
 | On the unit | |
 |---|---|

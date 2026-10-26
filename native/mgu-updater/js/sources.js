@@ -234,8 +234,8 @@ function safeRel(p) {
 
 /* What a component needs that another one provides: Python for a
  * "python" build, the deploy tool that hands a build the oap-sdk module
- * ("sdk") and installs drop-ins (a preload tool), and the one that keeps a
- * capability's provider single. */
+ * ("sdk") and installs drop-ins (a preload tool, a tool with dropins), and
+ * the one that knows capabilities (mguProvides). */
 const PYTHON_TOOL = 'mgu-python';
 const PYTHON_MIN = '1.0.0';
 const DEPLOY_SDK_MIN = '0.3.1';
@@ -434,11 +434,11 @@ function repoCatalog(readFile, commit, revision, listDir) {
                     }
                     if (script && script.sdk) {
                         needs['mgu-deploy'] = DEPLOY_SDK_MIN;
-                    } else if (rc.kind === 'tool' && rc.preload !== undefined) {
+                    } else if (rc.kind === 'tool' && (rc.preload !== undefined || (!service && c.dropins !== undefined))) {
                         // the deploy tool that installs a drop-in
                         needs['mgu-deploy'] = DEPLOY_SDK_MIN;
                     } else if (provides) {
-                        // the deploy tool that keeps one provider of a capability
+                        // the deploy tool that knows capabilities
                         needs['mgu-deploy'] = DEPLOY_PROVIDES_MIN;
                     }
                     const requires = Object.assign(needs, pick('requires') || {});

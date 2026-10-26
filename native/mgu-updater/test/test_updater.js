@@ -2477,6 +2477,8 @@ function testPythonRepo() {
         "  cp.execFileSync('tar', ['-czf', path.join('dist', `${id}@${app.version}.tgz`), '-C', dir, 'package.json']);",
         "  console.log('built ' + id);",
         '};',
+        "if (id === 'fifoapp') { fs.mkdirSync('dist'); cp.execFileSync('mkfifo', [path.join('dist', `${id}@${app.version}.tgz`)]); process.exit(0); }",
+        "if (id === 'zeroapp') { fs.mkdirSync('dist'); fs.symlinkSync('/dev/zero', path.join('dist', `${id}@${app.version}.tgz`)); process.exit(0); }",
         "if (id !== 'netapp') { done(null); } else {",
         '  const p = new URL(process.env.https_proxy);',
         "  const auth = 'Basic ' + Buffer.from(`${p.username}:${p.password}`).toString('base64');",
@@ -2514,6 +2516,8 @@ function testPythonRepo() {
         'apps/a1/app.json': JSON.stringify({ id: 'a1', version: '1.2.0', title: 'App one', description: 'first' }),
         'apps/netapp/app.json': JSON.stringify({ id: 'netapp', version: '2.0.0', title: 'Downloads' }),
         'apps/skipme/app.json': JSON.stringify({ id: 'skipme', version: '1.0.0' }),
+        'apps/fifoapp/app.json': JSON.stringify({ id: 'fifoapp', version: '1.0.0' }),
+        'apps/zeroapp/app.json': JSON.stringify({ id: 'zeroapp', version: '1.0.0' }),
         'apps/notanapp/readme.txt': 'not an app\n',
         'kit/build.py': buildPy,
         'prebuilt/svc-bin': ['#!/bin/sh\nexec sleep 1000\n', 0o755],
@@ -2610,7 +2614,17 @@ function testPythonRepo() {
             ok('network build: downloads through the proxy the fetch uid runs for it', comp('netapp').status === 'installed' &&
                 pkg.fetched === 'downloaded data\n' && /^http:\/\/mgu:[0-9a-f]{32}@127\.0\.0\.1:\d+$/.test(pkg.proxy || '') &&
                 seen.some((x) => x.url === '/py-asset.txt'), JSON.stringify([comp('netapp'), pkg]));
-            return ask(conf.socket, { op: 'install', id: 'gate' });
+            const t0 = Date.now();
+            return ask(conf.socket, { op: 'install', id: 'fifoapp' }).then(() => settle('fifoapp'))
+                .then(() => ask(conf.socket, { op: 'install', id: 'zeroapp' })).then(() => settle('zeroapp'))
+                .then(() => {
+                    ok('output: a FIFO or a link (to /dev/zero) at the declared output is refused at once, nothing installed',
+                        /fifoapp@1\.0\.0\.tgz: not a regular file/.test(comp('fifoapp').error || '') &&
+                        /zeroapp@1\.0\.0\.tgz: not a file the build left \(ELOOP\)/.test(comp('zeroapp').error || '') &&
+                        comp('fifoapp').status !== 'installed' && comp('zeroapp').status !== 'installed' && Date.now() - t0 < 30000,
+                        JSON.stringify([comp('fifoapp').error, comp('zeroapp').error, Date.now() - t0]));
+                    return ask(conf.socket, { op: 'install', id: 'gate' });
+                });
         })
         .then((why) => {
             ok('preload: listed with what it needs; refused while no installed tool provides it, naming one that does',
