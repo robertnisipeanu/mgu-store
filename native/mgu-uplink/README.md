@@ -159,7 +159,7 @@ after a frame of a whole number of USB packets that the unit sends.
 
 mgu-uplink is a tool component ([`component.json`](component.json)): the
 deploy tool installs it, over SSH from the owner's computer
-(`deploy/mgu-install.js first-install --with-uplink`), or from the updater
+(`deploy/mgu-install.js first-install`, unless `--no-uplink`), or from the updater
 (the Store's "Internet uplink" row, from any source, a USB stick holding a
 local repo included). The version is
 `component.json`'s; `mgu-uplink --version` prints it.
