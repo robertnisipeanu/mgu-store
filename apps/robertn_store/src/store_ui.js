@@ -12,7 +12,8 @@
  * { name: 'main' }), tab (store, installed, usb, settings), filter (all,
  * app, tool), note (the Sources status line), login ({ waiting, refusal }),
  * webText (the web-url file), accountsNote ({ text, error }: the Accounts
- * status line) }.
+ * status line), pick (the GitHub repo being added: { repo, probe (the
+ * updater's answer, null while it looks) }, or null) }.
  *
  * What a press does rides on the values as `act`: on a button's opts, on
  * each nav, grid and list item, on each filter cell (acts). The acts:
@@ -20,11 +21,12 @@
  * { do: 'back' }, { do: 'check' }, { do: 'install', id }, { do: 'update-all' },
  * { do: 'remove', id }, { do: 'restart' },
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
- * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' }.
+ * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
+ * { do: 'pick', channel }, { do: 'pick-retry' }.
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    notForUnit, removable } = require('./store_view.js');
+    notForUnit, removable, pickOptions, probeStatus } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -361,6 +363,27 @@ function accountsView(m) {
     };
 }
 
+/* A GitHub repo being added: what it can be added on; while no token
+ * reaches it, Sign in with GitHub and Add token (whose status shows here). */
+function pickView(m) {
+    const pick = m.pick || { repo: '', probe: null };
+    const probe = pick.probe;
+    const auth = !!probe && probe.status === 'auth-needed';
+    const note = m.accountsNote || { text: '', error: false };
+    const status = auth && note.text ? note.text : probeStatus(probe);
+    const failed = !!probe && probe.status !== 'ok' && !auth;
+    return {
+        title: { text: (probe && probe.name) || pick.repo },
+        status: { text: status, color: !probe ? BLUE : probe.status === 'ok' && !status ? DIM : AMBER },
+        list: { items: pickOptions(probe).map((o) => ({ id: o.channel, title: o.label, sub: o.sub, plain: true,
+            vicon: o.channel === 'releases' ? 'arrowDown' : o.channel === 'tags' ? 'clock' : 'route', iconColor: 'text',
+            right: 'chevron', act: { do: 'pick', channel: o.channel } })), empty: '' },
+        signIn: auth && m.st && m.st.signin === true ? button('Sign in with GitHub', { do: 'sign-in' }, { vicon: 'plus', style: 'primary', color: BLUE }) : hidden,
+        addToken: auth && m.connected ? button('Add token', { do: 'add-token' }, { vicon: 'plus', style: 'outline' }) : hidden,
+        retry: failed ? button('Try again', { do: 'pick-retry' }, { vicon: 'refresh', style: 'outline' }) : hidden
+    };
+}
+
 function loginView(m) {
     const reported = m.connected && m.st ? m.st.login : null;
     const login = m.login && m.login.waiting ? null : reported;
@@ -402,6 +425,7 @@ function view(m) {
     case 'confirm': values = confirmView(m, page); break;
     case 'source': values = sourceView(m, page.id); break;
     case 'accounts': values = accountsView(m); break;
+    case 'pick': values = pickView(m); break;
     case 'login': values = loginView(m); break;
     case 'phone': values = phoneView(m); break;
     default: screen = 'store'; values = storeView(m);

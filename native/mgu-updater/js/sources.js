@@ -1093,6 +1093,18 @@ function httpsReader(s, ctx) {
     };
 }
 
+const PROBE_PAGES = 3;
+
+/* Branch names in the order they are offered: main and master (those there
+ * are), the default branch, then the others as listed. */
+function orderBranches(names, defaultBranch) {
+    const first = ['main', 'master'].filter((n) => names.indexOf(n) >= 0);
+    if (typeof defaultBranch === 'string' && defaultBranch && first.indexOf(defaultBranch) < 0) {
+        first.push(defaultBranch);
+    }
+    return first.concat(names.filter((n) => first.indexOf(n) < 0));
+}
+
 const SEMVER_TAG = /^(?:v|[a-z0-9][a-z0-9_-]{0,63}@)?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/;
 
 /* A GitHub repo through the REST API at conf github_api, on its channel:
@@ -1240,8 +1252,31 @@ function githubReader(s, ctx) {
         });
     };
 
+    // a repo's branches, 100 a page, at most PROBE_PAGES pages
+    const branchList = (page, names) => json(`${repoUrl}/branches?per_page=100&page=${page}`, 'branches.json').then((list) => {
+        const got = Array.isArray(list) ? list : [];
+        const all = names.concat(got.map((b) => b && b.name).filter((n) => typeof n === 'string' && CHANNEL.test(`branch:${n}`)));
+        return got.length === 100 && page < PROBE_PAGES ? branchList(page + 1, all) : { names: all, more: got.length === 100 };
+    });
+
     return {
         network: true,
+        /* What the repo can be added on: its name as GitHub spells it,
+         * whether it has a release and an x.y.z tag, its default branch and
+         * its branches (orderBranches). */
+        probe: () => json(repoUrl, 'repo.json')
+            .catch((err) => {
+                throw err.status === 401 || err.status === 404 ? authError(err.message) : err;
+            })
+            .then((repo) => Promise.all([releasesList(1), json(`${repoUrl}/tags?per_page=100`, 'tags.json'), branchList(1, [])])
+                .then(([releases, tags, branches]) => ({
+                    name: REPO.test(repo.full_name || '') ? repo.full_name : s.repo,
+                    releases: releases.length > 0,
+                    tags: (Array.isArray(tags) ? tags : []).some((t) => t && SEMVER_TAG.test(t.name || '')),
+                    defaultBranch: typeof repo.default_branch === 'string' ? repo.default_branch : null,
+                    branches: orderBranches(branches.names, repo.default_branch),
+                    more: branches.more
+                }))),
         catalog: () => json(repoUrl, 'repo.json')
             .catch((err) => {
                 throw err.status === 401 || err.status === 404 ? authError(err.message) : err;
@@ -1488,5 +1523,5 @@ function label(s) {
 module.exports = {
     load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
     repoCatalog, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
-    renameable, renameApp, packageId, uuid5, REPO, CHANNEL, PACKAGE, ICON_BYTES
+    renameable, renameApp, packageId, uuid5, orderBranches, REPO, CHANNEL, PACKAGE, ICON_BYTES
 };

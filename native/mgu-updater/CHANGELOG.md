@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.0
+
+- `source-probe` (privileged): what a GitHub repo can be added on, read with each token in turn, then without one: its name as GitHub spells it, whether it has a release and an x.y.z tag, its default branch, and its branches (100 a page, at most 300; main, master, the default branch, then the rest). Answers `{"type":"probe", status}`: `ok`, `auth-needed`, `offline`, `rate-limited` or `error`; a repo that is already a source is refused.
+- Phone page: after a GitHub repository is typed, its channel list shows only what the repo has (Releases, Tags, its branches in that order), and it is added under the name GitHub spells it with; the free-text branch box is gone. A `/tree/<branch>` address adds that branch; a repo that could not be listed is added without a channel. `source-add` from the page takes no channel.
 ## 0.7.0
 
 - IterioDev's App Manager on the unit (the deploy tool's `status --json` `appmanager`) is adopted once through `mgu-deploy.sh appmanager adopt`. Each app it installed gets as origin the source that reads its public repository's index (added as an https source named after the repository when none does), the repository it recorded, else its default one when that listed the app; any other is `imported`: listed from no source as `imported`, installed and removable, not installed from nowhere.

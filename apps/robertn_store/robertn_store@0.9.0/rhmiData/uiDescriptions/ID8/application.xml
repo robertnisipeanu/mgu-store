@@ -173,6 +173,37 @@
             </component>
         </layoutGroup>
     </container>
+    <container id="34" type="state" widget="LT_State_Wide_List">
+        <property id="9" value="5"/>
+        <layoutGroup id="168" name="Titlebar">
+            <component id="43" type="title">
+                <property id="2" value="1"/>
+            </component>
+        </layoutGroup>
+        <layoutGroup id="169" name="List">
+            <property id="3" value="1"/>
+            <component id="143" type="label" widget="LT_ScrollLabel">
+                <property id="2" value="1"/>
+                <property id="3" value="0"/>
+            </component>
+            <component id="144" type="button" widget="LT_Button_MediaEntry_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+            <component id="145" type="button" widget="LT_Button_MediaEntry_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+            <component id="146" type="button" widget="LT_Button_MediaEntry_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+            <component id="147" type="button" widget="LT_Button_MediaEntry_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+        </layoutGroup>
+    </container>
     <container id="32" type="state" widget="LT_State_Wide_List">
         <property id="9" value="5"/>
         <layoutGroup id="164" name="Titlebar">

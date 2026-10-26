@@ -534,9 +534,12 @@ which no BMW unit hooks, and it stops the services by their `KillSignal`
 A page the car serves to a phone on its hotspot (`js/web.js`): the
 sources with their channel and status, the components with installed and
 catalog versions (and the short commit of a branch build), what is being
-installed, errors, and the logs. On it the owner adds a GitHub source
-(owner/repo with Releases, a branch, the default branch when none is named, or Tags) or a catalog URL and
-removes one; each source shows the account that reads it, or *Sign-in
+installed, errors, and the logs. On it the owner adds a GitHub source or a
+catalog URL and removes one: once owner/repo (or its github.com address)
+is typed, the page asks `source-probe` and its channel list shows only what
+the repo has, Releases, Tags and its branches in that order (a
+`/tree/<branch>` address names its branch; a repo that could not be listed
+is added without a channel); each source shows the account that reads it, or *Sign-in
 needed*. Its Tokens list each token (label, account, the sources it reads)
 with Remove; a token is added by pasting it, or by Sign in with GitHub (shown
 while the state's `signin` is true; the code and the link show on the page). A component not for this head unit
@@ -570,7 +573,8 @@ on and off (privileged `web` op) and shows its QR code.
   Replies leave through the output chain's established accept.
 - **Requests.** The server talks to the socket with the web secret
   (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
-  `source-add` (`github` or `https` only), `source-remove`, `token-add`,
+  `source-add` (`github` or `https` only), `source-probe` (its answer goes
+  back to the page as it is), `source-remove`, `token-add`,
   `token-remove`, `login-start` and `login-cancel`, each with only its own
   fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
@@ -701,6 +705,7 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 |---|---|
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
+| `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch`, `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there), `offline`, `rate-limited` (GitHub answered 403 or 429), `error` with `error`. A repo that is already a source is refused |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one) and its records in `origins.json`; the ids `aliases.json` keeps for it stay with the apps installed under them |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |

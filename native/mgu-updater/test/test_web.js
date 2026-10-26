@@ -93,6 +93,9 @@ const fake = net.createServer((s) => {
                 msg = { type: 'error', op: req.op, error: 'forbidden' };
             } else if (req.op === 'logs') {
                 msg = { type: 'logs', unit: req.unit, text: `log of ${req.unit}` };
+            } else if (req.op === 'source-probe') {
+                msg = { type: 'probe', repo: req.repo, name: req.repo, status: 'ok', releases: false, tags: true, defaultBranch: 'dev',
+                    branches: ['main', 'dev'], more: false };
             } else if (req.op === 'source-remove' && req.id === 'mgu-store') {
                 msg = { type: 'error', op: req.op, error: 'built in' };
             } else {
@@ -268,6 +271,20 @@ test('ops go to the updater with the web secret and only their own fields', () =
             delete q.rid;
             delete q.secret;
             assert.deepStrictEqual(q, { op: 'source-add', type: 'github', repo: 'a/b', channel: 'branch:main' });
+            return post('/api/op', { token, body: { op: 'source-add', type: 'github', repo: 'a/c' } });
+        })
+        .then((r) => {
+            assert.deepStrictEqual(r.json, { ok: true });
+            const q = received[received.length - 1];
+            assert(!('channel' in q), 'no channel: the updater picks');
+            return post('/api/op', { token, body: { op: 'source-probe', repo: 'a/d', channel: 'x' } });
+        })
+        .then((r) => {
+            // the probe's answer comes back as it is
+            assert.deepStrictEqual(r.json, { repo: 'a/d', name: 'a/d', status: 'ok', releases: false, tags: true, defaultBranch: 'dev',
+                branches: ['main', 'dev'], more: false });
+            const q = received[received.length - 1];
+            assert.deepStrictEqual([q.op, q.repo, 'channel' in q], ['source-probe', 'a/d', false]);
             return post('/api/op', { token, body: { op: 'source-add', type: 'https', url: 'https://x.org/catalog.json' } });
         })
         .then((r) => {
@@ -301,7 +318,7 @@ test('requests the page cannot make are refused before the updater', () => {
     received.length = 0;
     const bad = [
         { op: 'web', enable: false }, { op: 'reboot' }, { op: 'install', id: 'doom' }, { op: 'install', id: 'doom', replace: true },
-        { op: 'source-add', type: 'github', repo: 'a/b' },
+        { op: 'source-probe' },
         { op: 'source-add', type: 'github', repo: 'a/b', channel: 3 },
         { op: 'source-add', type: 'https' },
         { op: 'source-add', type: 'file', path: '/' }, { op: 'token-set', source: 'x', token: 'y' }, { op: 'token-clear', source: 'x' },

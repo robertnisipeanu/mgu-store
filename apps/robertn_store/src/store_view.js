@@ -258,9 +258,8 @@ function branchName(text) {
  * owner/repo or a github.com address of a repo (with or without https://,
  * .git or a trailing slash; .../tree/<branch> gives the channel
  * branch:<branch>), { type: 'https', url } for any other https address with
- * a path (the scheme in lower case), null for anything else. Without a
- * channel the updater reads the repo's releases, or its default branch when
- * it has none. */
+ * a path (the scheme in lower case), null for anything else. A repo
+ * without a channel is offered on what it has (pickOptions). */
 function parseSource(text) {
     const t = String(text || '').trim();
     const gh = GITHUB_REPO.exec(t);
@@ -282,6 +281,34 @@ function parseSource(text) {
     return HTTPS.test(url) && url.length <= 2048 ? { type: 'https', url } : null;
 }
 
+/* What a GitHub repo can be added on, from the updater's source-probe
+ * answer, in the order offered: Releases, Tags (each only when the repo has
+ * them), then its branches as the updater orders them (main, master, the
+ * default branch, the rest). Each: { label, sub, channel }. */
+function pickOptions(probe) {
+    if (!probe || probe.status !== 'ok') {
+        return [];
+    }
+    return (probe.releases ? [{ label: 'Releases', sub: '', channel: 'releases' }] : [])
+        .concat(probe.tags ? [{ label: 'Tags', sub: '', channel: 'tags' }] : [])
+        .concat((Array.isArray(probe.branches) ? probe.branches : []).filter((b) => branchName(b) === b)
+            .map((b) => ({ label: b, sub: b === probe.defaultBranch ? 'Default branch' : 'Branch', channel: `branch:${b}` })));
+}
+
+/* The repo picker's status: '' once there is something to pick. */
+function probeStatus(probe) {
+    if (!probe) {
+        return 'Checking';
+    }
+    switch (probe.status) {
+    case 'ok': return pickOptions(probe).length ? '' : 'Nothing to add';
+    case 'auth-needed': return 'Not found or private';
+    case 'offline': return 'Offline';
+    case 'rate-limited': return 'GitHub rate limit reached';
+    default: return probe.error ? String(probe.error) : 'Failed';
+    }
+}
+
 /* The Accounts page's status line: Add token's progress or refusal. */
 function tokenMessage(m) {
     switch (m.kind) {
@@ -297,12 +324,13 @@ function tokenMessage(m) {
 function sourcesMessage(m) {
     switch (m.kind) {
     case 'invalid-source': return `Not owner/repo or https://host/path: ${m.text}`;
+    case 'checking': return `Checking ${m.repo}`;
     case 'speller': return `Text entry failed: ${m.error}`;
     case 'refused': return `${m.op === 'source-remove' ? 'Remove' : 'Add source'} failed: ${m.error}`;
     default: return '';
     }
 }
 
-module.exports = { removable, hmiNames, notForUnit, parseSource, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { removable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

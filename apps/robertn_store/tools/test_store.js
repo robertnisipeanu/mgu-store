@@ -251,17 +251,39 @@ function run() {
         return tick();
     }).then(() => {
 
-        // owner/repo: added at once (the updater picks the channel)
+        // owner/repo: the updater says what it has; its page opens once the focus is back from the speller
         reset();
         spellerAnswers.push(' robertnisipeanu/new-repo ');
         app._addSource();
         return tick();
     }).then(() => {
         eq(spellerTitles, ['Add source']);
-        eq(states, [], 'no page in between');
-        eq(last(/storeSourcesStatus\.Visible/), 'storeSourcesStatus.Visible=0', 'status cleared');
-        eq(sent.map(secretless), [{ op: 'source-add', type: 'github', repo: 'robertnisipeanu/new-repo' }]);
+        eq(sent.map(secretless), [{ op: 'source-probe', repo: 'robertnisipeanu/new-repo' }]);
         eq(sent[0].secret, 'deadbeef');
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Checking robertnisipeanu/new-repo');
+        app._client.emit('probe', { type: 'probe', repo: 'robertnisipeanu/new-repo', status: 'ok', releases: true, tags: false,
+            defaultBranch: 'dev', branches: ['main', 'dev', 'feature'], more: false });
+        return tick();
+    }).then(() => {
+        eq(states, [], 'no page before the focus is back');
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(states, ['open ST_OnlineApps_StoreSourcePick'], 'then the picker');
+        eq(last(/storeSourcesStatus\.Visible/), 'storeSourcesStatus.Visible=0', 'status cleared');
+        eq(last(/storePickStatus\.0\.Text/), 'storePickStatus.0.Text=robertnisipeanu/new-repo');
+        eq(last(/storePickList\.rows/), 'storePickList.rows=4');
+        eq([0, 1, 2, 3].map((i) => [last(new RegExp(`storePickList\\.${i}\\.Text1stCol`)), last(new RegExp(`storePickList\\.${i}\\.Text2ndCol`))]
+            .map((w) => w.split('=')[1]).join('|')), ['Releases|', 'main|Branch', 'dev|Default branch', 'feature|Branch'],
+            'Releases (no Tags), then main, the default branch, the rest');
+        eq(['storePickSignIn', 'storePickAddToken', 'storePickRetry'].map((n) => app._written[`${n}.visible`]), [false, false, false]);
+        reset();
+        app._components.storePickList.emit('action', { row: 2 });
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'source-add', type: 'github', repo: 'robertnisipeanu/new-repo', channel: 'branch:dev' }]);
+        eq(states, ['close ST_OnlineApps_StoreSourcePick'], 'a pick adds it and closes the page');
+        eq(app._pick, null);
         // the updater's refusal shows in the status line
         app._client.emit('reply-error', 'robertnisipeanu/new-repo is already a source', 'source-add');
         return tick();
@@ -274,7 +296,106 @@ function run() {
         app._addSource();
         return tick();
     }).then(() => {
-        eq(sent.map(secretless), [{ op: 'source-add', type: 'github', repo: 'o/r', channel: 'branch:dev' }]);
+        eq(sent.map(secretless), [{ op: 'source-add', type: 'github', repo: 'o/r', channel: 'branch:dev' }], '.../tree/<branch>: added at once');
+
+        // one thing to add it on: added on it, no page
+        reset();
+        spellerAnswers.push('o/one');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        app._client.emit('probe', { type: 'probe', repo: 'o/one', status: 'ok', releases: false, tags: false, defaultBranch: 'trunk',
+            branches: ['trunk'], more: false });
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless).slice(-1), [{ op: 'source-add', type: 'github', repo: 'o/one', channel: 'branch:trunk' }]);
+        eq(states, [], 'no page for one choice');
+
+        // offline: the status line says so; an answer for another repo is not this one's
+        reset();
+        spellerAnswers.push('o/off');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._client.emit('probe', { type: 'probe', repo: 'o/other', status: 'ok', releases: true, branches: ['main'] });
+        app._client.emit('probe', { type: 'probe', repo: 'o/off', status: 'offline' });
+        // no focus event: the page waits FOCUS_BACK_MS at most
+        app._pick.timer._onTimeout();
+        return tick();
+    }).then(() => {
+        eq(states, []);
+        eq(sent.map(secretless), [{ op: 'source-probe', repo: 'o/off' }]);
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Add source failed: Offline');
+        // an updater without source-probe: added as typed
+        reset();
+        spellerAnswers.push('o/old');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._client.emit('reply-error', 'unknown op source-probe', 'source-probe');
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'source-probe', repo: 'o/old' }, { op: 'source-add', type: 'github', repo: 'o/old' }]);
+        eq([states, app._pick], [[], null]);
+        // already a source: the updater refuses the probe
+        reset();
+        spellerAnswers.push('someone/idrive7-apps');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._client.emit('reply-error', 'someone/idrive7-apps is already a source', 'source-probe');
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Add source failed: someone/idrive7-apps is already a source');
+        eq(states, []);
+
+        // a private repo no account reaches: its page offers Sign in and Add token; a token added asks again
+        reset();
+        spellerAnswers.push('https://github.com/o/priv');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._client.emit('probe', { type: 'probe', repo: 'o/priv', status: 'auth-needed' });
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(states, ['open ST_OnlineApps_StoreSourcePick']);
+        eq(last(/storePickStatus\.0\.Text/), 'storePickStatus.0.Text=o/priv: Not found or private');
+        eq(['storePickAddToken', 'storePickRetry', 'storePickList'].map((n) => app._written[`${n}.visible`]), [true, false, false]);
+        app._states.ST_OnlineApps_StoreSourcePick.emit('visible', { visible: true });
+        app._states.ST_OnlineApps_StoreSourcePick.emit('focus', { focus: true });
+        reset();
+        spellerAnswers.push('ghp_priv');
+        app._components.storePickAddToken.emit('action', {});
+        return tick();
+    }).then(() => {
+        eq(spellerTitles, ['GitHub token']);
+        eq(sent.map(secretless), [{ op: 'token-add', token: 'ghp_priv' }]);
+        eq(last(/storePickStatus\.0\.Text/), 'storePickStatus.0.Text=o/priv: Checking token');
+        // the speller closed: the focus back on the picker, which stays
+        app._states.ST_OnlineApps_StoreSourcePick.emit('focus', { focus: true });
+        app._client.emit('state', Object.assign({}, ST, { tokens: ST.tokens.concat([{ id: 'cc33dd44', kind: 'github', label: 'priv',
+            login: 'priv', addedAt: 1, rejected: false, usedBy: [] }]) }));
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless).slice(-1), [{ op: 'source-probe', repo: 'o/priv' }], 'asked again with the new account');
+        eq(states.filter((x) => /StoreSourcePick/.test(x)), [], 'the picker stays open');
+        app._client.emit('probe', { type: 'probe', repo: 'o/priv', status: 'ok', releases: false, tags: true, defaultBranch: 'main',
+            branches: ['main'], more: false });
+        return tick();
+    }).then(() => {
+        eq(last(/storePickList\.rows/), 'storePickList.rows=2', 'Tags and main');
+        eq(last(/storePickStatus\.0\.Text/), 'storePickStatus.0.Text=o/priv');
+        reset();
+        app._components.storePickList.emit('action', { row: 0 });
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'source-add', type: 'github', repo: 'o/priv', channel: 'tags' }]);
+        eq(states, ['close ST_OnlineApps_StoreSourcePick']);
+        app._client.emit('state', ST);
+        app._endTokenAdd(null);
 
         // what is neither: the status line says so
         reset();
@@ -727,8 +848,58 @@ function runDrawn() {
         return tick();
     }).then(() => {
         eq(gpu.visible, true, 'back after it');
-        eq(sent.slice(-1).map(secretless), [{ op: 'source-add', type: 'github', repo: 'o/r' }], 'owner/repo: added at once');
+        eq(sent.slice(-1).map(secretless), [{ op: 'source-probe', repo: 'o/r' }], 'owner/repo: what it has, asked');
+        // as the HMI reports it: the updater answers while the speller still closes; then the focus comes back to Settings
+        app._client.emit('probe', { type: 'probe', repo: 'o/r', status: 'auth-needed' });
+        return tick();
+    }).then(() => {
         eq(drawn.stack.length, 1, 'no page opened under the closing speller');
+        reset();
+        app._states[host(1)].emit('visible', { visible: true });
+        app._states[host(1)].emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(states, [`open ${host(2)}`], 'the picker once the focus is back');
+        eq(drawn.top(), { name: 'pick' });
+        app._states[host(1)].emit('focus', { focus: false });
+        app._states[host(2)].emit('visible', { visible: true });
+        app._states[host(2)].emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(drawn.items.map((i) => i.label).filter((l) => /Sign in|Add token|Try again/.test(l)), ['Sign in with GitHub', 'Add token'],
+            'a repo no account reaches: Sign in, Add token');
+        // Add token from the picker: the speller, then the focus back on the picker, which stays
+        reset();
+        spellerAnswers.push('ghp_drawn');
+        app._act(drawn.items.find((i) => i.label === 'Add token').act);
+        app._states[host(2)].emit('focus', { focus: false });
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'token-add', token: 'ghp_drawn' }]);
+        app._states[host(2)].emit('visible', { visible: true });
+        app._states[host(2)].emit('focus', { focus: true });
+        app._client.emit('state', Object.assign({}, st, { tokens: st.tokens.concat([{ id: 'ee55ff66', kind: 'github', label: 'drawn',
+            login: 'drawn', addedAt: 1, rejected: false, usedBy: [] }]) }));
+        return tick();
+    }).then(() => {
+        eq(drawn.top(), { name: 'pick' }, 'the picker survives the speller');
+        eq(sent.map(secretless).slice(-1), [{ op: 'source-probe', repo: 'o/r' }], 'asked again with the new account');
+        app._client.emit('probe', { type: 'probe', repo: 'o/r', name: 'Owner/R', status: 'ok', releases: true, tags: true, defaultBranch: 'main',
+            branches: ['main', 'dev'], more: false });
+        return tick();
+    }).then(() => {
+        const labels = drawn.items.map((i) => i.label);
+        eq(['Releases', 'Tags', 'main', 'dev'].every((l) => labels.indexOf(l) >= 0), true, `the choices: ${labels}`);
+        reset();
+        app._components[proxy(2, labels.indexOf('dev'))].emit('action', {});
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'source-add', type: 'github', repo: 'Owner/R', channel: 'branch:dev' }],
+            'the pick adds it, as GitHub spells it');
+        eq(states, [`close ${host(2)}`]);
+        eq(drawn.stack.length, 1);
+        app._client.emit('state', st);
+        app._endTokenAdd(null);
         // embed: FrontCCU's dial moves the focus and its push presses (the template's buttons get neither)
         eq(typeof frontCcu, mode === 'embed' ? 'function' : 'object', 'FrontCCU subscribed for embed only');
         if (mode === 'embed') {

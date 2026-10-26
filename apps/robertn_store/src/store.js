@@ -17,7 +17,7 @@
  * installed, has an update, or failed), "reboot" (Restart head unit, once
  * confirmed), and the privileged ones, which carry the secret the updater
  * leaves in this app's data folder: "uninstall" (a removable installed
- * component, once confirmed), "source-add", "source-remove", "token-add",
+ * component, once confirmed), "source-add", "source-probe", "source-remove", "token-add",
  * "token-remove" (an account, once confirmed), "login-start" / "login-cancel" (GitHub
  * sign-in, which adds an account) and "web" (Phone access on or off).
  *
@@ -36,8 +36,11 @@
  * reads it and opens its page (Channel, Account, Components, Remove). Add
  * source opens the HMI's speller (src/speller.js) for owner/repo, a
  * github.com address of a repo (.../tree/<branch>: that branch) or another
- * https address (a catalog), and adds it. A USB stick's sources the updater
- * lists by itself. Accounts has a status line (a token being checked, added
+ * https address (a catalog), and adds it. A repo without a branch is first
+ * asked about ("source-probe"): it is added on the one thing it has, else
+ * its page lists what it has (Releases, Tags, its branches) to pick from,
+ * or, while no account reaches it, Sign in with GitHub and Add token. A USB
+ * stick's sources the updater lists by itself. Accounts has a status line (a token being checked, added
  * or refused), lists the updater's tokens, each with the sources it reads; a
  * press opens its Remove confirm step. Sign in with GitHub adds one, and so
  * does Add token, which takes a token typed in the speller. The updater picks
@@ -62,7 +65,8 @@ const { spell } = require('./speller.js');
 const { Drawn } = require('./store_drawn.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
-    loginStatus, loginCode, phoneState, phoneAddress, parseSource, sourcesMessage, tokenMessage, removable } = require('./store_view.js');
+    loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage,
+    removable } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 
@@ -82,6 +86,7 @@ const VALUE_KEY = 0;                    // a focus event's value
 const QR_PREFIX = 'qr_';
 const RENDERER_WAIT_MS = 1500;          // at start, how long the renderer may take to answer
 const TOKEN_ADD_MS = 30000;             // how long Add token says "Checking token" without an answer
+const FOCUS_BACK_MS = 2000;             // how long a page waits for the HMI to give the focus back from the speller
 const IF_FRONTCCU = 'de.bmw.infotainment.controlelements.FrontCCU';
 
 /* The drawn screens' host states and their proxies (tools/gen_rhmi.js). */
@@ -97,7 +102,7 @@ const ID8_CELLS = { Text: 'PrimaryText', Text1stCol: 'PrimaryText', Text2ndCol: 
     TextRight: 'FrequencyText' };
 const ID8_LABELS = new Set(['storeStatus', 'storeSourcesStatus', 'storeSrcError', 'storeAccountsStatus', 'storeAccountName',
     'storeAccountSources', 'storeLoginCode', 'storeLoginUrl', 'storeLoginStatus', 'storeRemoveName', 'storePhoneUrl',
-    'storePhoneError', 'storeSrcAppLabel', 'storeSrcAppUrl']);
+    'storePhoneError', 'storeSrcAppLabel', 'storeSrcAppUrl', 'storePickStatus']);
 
 /* tools/gen_rhmi.js */
 const S = {
@@ -105,6 +110,7 @@ const S = {
     restart: 'ST_OnlineApps_StoreRestart',
     sources: 'ST_OnlineApps_StoreSources',
     source: 'ST_OnlineApps_StoreSource',
+    pick: 'ST_OnlineApps_StoreSourcePick',
     accounts: 'ST_OnlineApps_StoreAccounts',
     accountRemove: 'ST_OnlineApps_StoreAccountRemove',
     login: 'ST_OnlineApps_StoreLogin',
@@ -124,6 +130,8 @@ const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress
     sourcePhone: 'storeSourcePhone', sourceAccounts: 'storeSourceAccounts',
     srcStatus: 'storeSrcStatus', srcChannel: 'storeSrcChannel', srcAccount: 'storeSrcAccount', srcComponents: 'storeSrcComponents',
     srcError: 'storeSrcError', srcRemove: 'storeSrcRemove',
+    pickStatus: 'storePickStatus', pickList: 'storePickList', pickSignIn: 'storePickSignIn', pickAddToken: 'storePickAddToken',
+    pickRetry: 'storePickRetry',
     accountsStatus: 'storeAccountsStatus', accountList: 'storeAccountList', accountSignIn: 'storeAccountSignIn',
     accountAddToken: 'storeAccountAddToken', accountName: 'storeAccountName',
     accountSources: 'storeAccountSources', accountRemoveCancel: 'storeAccountRemoveCancel', accountRemoveConfirm: 'storeAccountRemoveConfirm',
@@ -187,7 +195,7 @@ class Store extends OnlineApp {
         this._focusById = {};
         this._lastPress = {};
         this._written = {};
-        this._rows = { app: [], tool: [], source: [], token: [] };
+        this._rows = { app: [], tool: [], source: [], token: [], pick: [] };
         this._sizing = {};              // lists whose row count is being set
         this._sourceId = null;          // the source whose page is open
         this._removingSource = null;    // the source this Store asked the updater to remove
@@ -203,6 +211,11 @@ class Store extends OnlineApp {
         this._sourcesNote = '';         // the Sources page's status line
         this._accountsNote = { text: '', error: false };   // the Accounts page's status line
         this._tokenAdding = null;       // a token-add sent: { before (the token ids then), timer }
+        /* The GitHub repo being added: { repo, probe (the updater's answer,
+         * null while it looks), tokens (the token ids it was asked with),
+         * back (the HMI has given the focus back from the speller), timer,
+         * open (its page was opened) }. */
+        this._pick = null;
         this._qr = { login: { key: null, file: null, chain: Promise.resolve() },
             phone: { key: null, file: null, chain: Promise.resolve() }, app: { key: null, file: null, chain: Promise.resolve() } };
         this._hmi = 'ID7';
@@ -234,8 +247,10 @@ class Store extends OnlineApp {
             this._connected = true;
             this._st = st;
             this._tokenAdded(st);
+            this._reprobe();
             this._render();
         });
+        this._client.on('probe', (answer) => this._probed(answer));
         this._client.on('down', () => {
             if (this._connected) {
                 logger.info('updater unreachable; reconnecting');
@@ -251,6 +266,14 @@ class Store extends OnlineApp {
             if (forOp === 'login-start' && this._login.waiting) {
                 this._login = { waiting: false, refusal: String(msg) };
                 this._render();
+            } else if (forOp === 'source-probe' && this._pick && /^unknown op/.test(String(msg))) {
+                // an updater before 0.8.0: the repo is added as typed, and the updater picks
+                const repo = this._pick.repo;
+                this._endPick();
+                this._note(null);
+                this._sendSource({ type: 'github', repo });
+            } else if (forOp === 'source-probe' && this._pick && !this._pick.probe) {
+                this._probed({ type: 'probe', repo: this._pick.repo, status: 'refused', error: String(msg) });
             } else if (forOp === 'token-add' && this._tokenAdding) {
                 this._endTokenAdd({ kind: 'refused', error: String(msg) });
             } else if (forOp === 'source-add' || forOp === 'source-remove') {
@@ -429,6 +452,10 @@ class Store extends OnlineApp {
         this._bind(C.srcRemoveCancel, () => this._closeState(S.sourceRemove));
         this._bind(C.srcRemoveConfirm, () => this._removeSource());
         this._bind(C.loginCancel, () => this._cancelSignIn());
+        this._bind(C.pickList, (row) => this._pickChannel(this._rows.pick[row]));
+        this._bind(C.pickSignIn, () => this._signIn());
+        this._bind(C.pickAddToken, () => this._addToken());
+        this._bind(C.pickRetry, () => this._probe());
         this._bind(C.navPhone, () => this._openState(S.phone));
         this._bind(C.phoneToggle, () => this._togglePhone());
         // Presses also arrive as the application's raw 'userEvent'; both paths
@@ -556,7 +583,8 @@ class Store extends OnlineApp {
         const web = this._connected && this._st && this._st.web;
         return { st: this._connected ? this._st : null, connected: this._connected && !!this._st, secret: !!readSecret(),
             version: this._packageJson && this._packageJson.version, note: this._sourcesNote, login: this._login,
-            webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote };
+            webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
+            pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe } };
     }
 
     /* A press on the drawn screens (src/store_ui.js acts). */
@@ -594,6 +622,8 @@ class Store extends OnlineApp {
         case 'sign-in': this._signIn(); break;
         case 'sign-in-cancel': this._cancelSignIn(); break;
         case 'phone': this._togglePhone(); break;
+        case 'pick': this._pickChannel(act.channel); break;
+        case 'pick-retry': this._probe(); break;
         default: break;
         }
         this._render();
@@ -816,6 +846,8 @@ class Store extends OnlineApp {
      * speller replaced it. */
     _spell(title, note) {
         const seq = ++this._spellSeq;
+        // the HMI gives the focus back to a page once the speller has closed (_showPick)
+        this._focusedPage = null;
         // the speller is the HMI's: the renderer's layer is not drawn over it
         this._drawn.suspend(true);
         return spell(this, title).then((text) => {
@@ -841,7 +873,9 @@ class Store extends OnlineApp {
                 return;
             }
             const source = parseSource(typed);
-            if (source) {
+            if (source && source.type === 'github' && !source.channel) {
+                this._startPick(source.repo);
+            } else if (source) {
                 this._sendSource(source);
             } else {
                 this._note({ kind: 'invalid-source', text: typed });
@@ -901,6 +935,104 @@ class Store extends OnlineApp {
             const error = readSecret() ? 'updater not running' : 'no updater secret';
             this._note({ kind: 'refused', op: 'source-add', error });
         }
+    }
+
+    /* A repo typed without a branch: the updater says what it has. Its page
+     * opens only once the HMI has given the focus back from the speller (or
+     * FOCUS_BACK_MS after it closed): a page opened while the speller is
+     * still closing is closed again by the focus coming back below it. */
+    _startPick(repo) {
+        this._endPick();
+        const pick = { repo, probe: null, tokens: '', back: false, open: false };
+        pick.timer = setTimeout(() => {
+            pick.back = true;
+            this._render();
+        }, FOCUS_BACK_MS);
+        this._pick = pick;
+        if (this._probe()) {
+            this._note({ kind: 'checking', repo });
+        }
+    }
+
+    _endPick() {
+        if (this._pick) {
+            clearTimeout(this._pick.timer);
+            this._pick = null;
+        }
+    }
+
+    /* Asks the updater what the repo being added has. */
+    _probe() {
+        const pick = this._pick;
+        if (!pick) {
+            return false;
+        }
+        pick.probe = null;
+        pick.tokens = this._tokenIds();
+        logger.info(`probe ${pick.repo}`);
+        if (!this._privileged({ op: 'source-probe', repo: pick.repo })) {
+            pick.probe = { status: 'refused', error: readSecret() ? 'updater not running' : 'no updater secret' };
+        }
+        this._render();
+        return !pick.probe;
+    }
+
+    _tokenIds() {
+        return (this._connected && this._st && Array.isArray(this._st.tokens) ? this._st.tokens : []).map((t) => t.id).join(',');
+    }
+
+    _probed(answer) {
+        const pick = this._pick;
+        if (pick && !pick.probe && answer && answer.repo === pick.repo) {
+            pick.probe = answer;
+            logger.info(`probe ${pick.repo}: ${answer.status}`);
+            this._render();
+        }
+    }
+
+    /* A repo no account reached is asked about again once the accounts change. */
+    _reprobe() {
+        const pick = this._pick;
+        if (pick && pick.open && pick.probe && pick.probe.status === 'auth-needed' && this._tokenIds() !== pick.tokens) {
+            this._probe();
+        }
+    }
+
+    /* Once the updater has answered and the focus is back: a repo with one
+     * thing to add it on is added on it; one no account reaches, or with
+     * more to pick from, gets its page; anything else goes on the status
+     * line. */
+    _showPick() {
+        const pick = this._pick;
+        if (!pick || pick.open || !pick.probe || !(pick.back || this._focusedPage !== null)) {
+            return;
+        }
+        const options = pickOptions(pick.probe);
+        if (options.length === 1) {
+            this._pickChannel(options[0].channel);
+        } else if (options.length > 1 || pick.probe.status === 'auth-needed') {
+            pick.open = true;
+            clearTimeout(pick.timer);
+            this._sourcesNote = '';
+            this._openPage('pick', { name: 'pick' });
+        } else {
+            this._endPick();
+            this._note({ kind: 'refused', op: 'source-add', error: probeStatus(pick.probe) });
+        }
+    }
+
+    _pickChannel(channel) {
+        const pick = this._pick;
+        if (!pick || !channel) {
+            return;
+        }
+        this._endPick();
+        this._note(null);
+        if (pick.open) {
+            this._closePage('pick', isPage('pick'));
+        }
+        // the repo as GitHub spells it (the speller types capitals first)
+        this._sendSource({ type: 'github', repo: (pick.probe && pick.probe.name) || pick.repo, channel });
     }
 
     _togglePhone() {
@@ -1052,6 +1184,7 @@ class Store extends OnlineApp {
         this._text(C.accountName, removing ? tokenLabel(removing) : '');
         this._text(C.accountSources, removing ? tokenSources(removing, sources) : '');
         this._renderSource(this._source(this._sourceId));
+        this._renderPick();
         this._renderLogin(connected ? st.login : null);
         this._renderPhone(web);
         if (this._drawnUi()) {
@@ -1085,6 +1218,21 @@ class Store extends OnlineApp {
         this._show(C.srcAppLabel, !!installUrl);
         this._text(C.srcAppUrl, installUrl);
         this._showQr('app', C.srcAppQr, installUrl, '');
+    }
+
+    _renderPick() {
+        const pick = this._pick;
+        const probe = pick ? pick.probe : null;
+        const options = pickOptions(probe);
+        const auth = !!probe && probe.status === 'auth-needed';
+        const status = auth && this._accountsNote.text ? this._accountsNote.text : probeStatus(probe);
+        this._text(C.pickStatus, pick ? [(probe && probe.name) || pick.repo, status].filter(Boolean).join(': ') : '');
+        this._renderList(C.pickList, options.map((o) => [o.label, o.sub]));
+        this._rows.pick = options.map((o) => o.channel);
+        this._show(C.pickSignIn, auth && this._connected && !!this._st && this._st.signin === true);
+        this._show(C.pickAddToken, auth && this._connected);
+        this._show(C.pickRetry, !!probe && probe.status !== 'ok' && !auth);
+        this._showPick();
     }
 
     /* The sign-in page; it closes itself once the sign-in it started is
@@ -1245,6 +1393,7 @@ class Store extends OnlineApp {
         logger.info(`store shutting down (${reason})`);
         clearTimeout(this._hideTimer);
         clearTimeout(this._tokenAdding && this._tokenAdding.timer);
+        this._endPick();
         this._pollWebUrl(false);
         this._client.close();
         this._drawn.close();

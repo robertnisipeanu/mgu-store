@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.0
+
+Add source offers what a GitHub repository has. After `owner/repo` (or a
+repo's github.com address) is typed, the updater is asked what the repo
+has (`source-probe`), and a page lists only that: Releases if it has a
+release, Tags if it has an x.y.z tag, and its branches, main and master
+first, then the default branch, then the rest. A press adds the repo on
+it, under the name as GitHub spells it. A repo with only one of these is added on it with no page; a
+`/tree/<branch>` address adds that branch at once. A repo no account
+reaches gets Sign in with GitHub and Add token on its page, and is asked
+about again once an account is added. Offline, a spent GitHub rate limit or
+another failure shows on the Sources status line, or on the page with Try
+again. The page opens only once the HMI has given the focus back from the
+speller. Requires mgu-updater 0.8.0; with an older updater the repo is
+added as typed.
+
 ## 0.8.2
 
 Add source adds what is typed at once: `owner/repo`, or a repo's address

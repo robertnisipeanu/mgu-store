@@ -6,6 +6,7 @@
  *   const c = new UpdaterClient('/dev/shm/mgu-updater/updater.sock', { reconnectMs: 2000, secret });
  *   c.on('state', (st) => render(st));        // on connect and on every change
  *   c.on('reply-error', (msg, op) => ...);    // a request the updater refused
+ *   c.on('probe', (answer) => ...);           // what a GitHub repo offers (sourceProbe)
  *   c.connect();
  *   c.check();  c.install('doom');  c.reboot();
  *
@@ -14,6 +15,7 @@
  * from /run/mgu-updater/web-secret; without the right one the updater
  * answers "forbidden" (README.md, "The socket").
  *   c.uninstall(id);  c.sourceAdd({ type: 'github', repo, channel });  c.sourceAdd({ type: 'https', url });
+ *   c.sourceProbe(repo);
  *   c.sourceRemove(id);  c.loginStart();  c.loginCancel();
  *   c.tokenAdd(token, label?);  c.tokenRemove(tokenId);  c.web(true | false);
  *
@@ -57,6 +59,8 @@ class UpdaterClient extends EventEmitter {
                 }
                 if (msg.type === 'state') {
                     this.emit('state', msg);
+                } else if (msg.type === 'probe') {
+                    this.emit('probe', msg);
                 } else if (msg.type === 'error') {
                     this.emit('reply-error', msg.error, msg.op);
                 }
@@ -119,6 +123,10 @@ class UpdaterClient extends EventEmitter {
     /* { type: 'github', repo: 'owner/repo', channel? } or { type: 'https', url } */
     sourceAdd(source) {
         return this.privileged(Object.assign({}, source, { op: 'source-add' }));
+    }
+
+    sourceProbe(repo) {
+        return this.privileged({ op: 'source-probe', repo });
     }
 
     sourceRemove(id) {

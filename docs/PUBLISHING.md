@@ -10,14 +10,13 @@ A repository offers its apps in one of three layouts:
 | [Catalog](#2-catalog) | a `catalog.json` (release `catalog`, an HTTPS URL or a folder) | source packages (`build: "unit"`) |
 | [Repo tree](#3-repo-tree) | `mgu-repo.json` at its root | every app, from source |
 
-**Which layout a GitHub source reads.** A source added as `owner/repo`
-reads releases when the repository has any release: the `catalog`
-release's `catalog.json` when there is one, else the packages attached to
-the releases. A repository without releases is read as a repo tree on its
-default branch. A source added with a branch (`…/tree/<branch>` in the
-Store, or a branch or Tags on the phone page) is always read as a repo
-tree. So a repository that has releases and `mgu-repo.json` is read from
-its releases unless the owner adds it with a branch.
+**Which layout a GitHub source reads.** The owner adds a repository on
+one of what it has: **Releases** (shown when it has a release), **Tags**
+(when it has an `x.y.z` tag) or one of its branches. On Releases the
+source reads the `catalog` release's `catalog.json` when there is one,
+else the packages attached to the releases. On a branch or Tags it is
+read as a repo tree. So a repository that has both releases and
+`mgu-repo.json` is read the way the owner picks.
 
 ## Rules for every layout
 
