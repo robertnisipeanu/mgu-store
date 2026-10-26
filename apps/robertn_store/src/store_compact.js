@@ -42,7 +42,7 @@ function compact(W, H) {
     const status = (name, x, w, color) => text(name, x, M + 24, w, 30, '', 23, 'label', color || DIM);
     const back = () => el('back', 'vbutton', X, M, 64, 64, { text: '', vicon: 'back', style: 'round', color: '#f4f7fb' }, 'event:back');
     const BTN_H = 76;
-    const GRID_Y = HEAD + 6;
+    const GRID_Y = HEAD + 10;
     const grid = () => el('grid', 'appGrid', X - 8, GRID_Y, CW + 8, B - GRID_Y, { items: '', cols: 5, tileH: Math.floor((B - GRID_Y) / 3),
         iconK: 0.46, titleSize: 28, subSize: 22, empty: '' });
     const LIST = { rowH: 92, titleSize: 28, subSize: 22, ctlK: 0.85 };
@@ -66,7 +66,7 @@ function compact(W, H) {
     const installed = screen('installed', 1, [
         title('Installed'),
         status('subtitle', X + 240, CW - 240 - 380),
-        button('updateAll', R - 360, M, 360, 64, '', 'primary', 25, { vicon: 'arrowDown', color: BLUE }),
+        button('updateAll', R - 360, M, 360, 66, '', 'primary', 25, { vicon: 'arrowDown', color: BLUE }),
         label('appsLabel', X, HEAD + 8, 'APPS'),
         list('apps', X, LIST_Y, colW, B - LIST_Y, { empty: 'No apps installed' }),
         label('svcLabel', X + colW + 24, HEAD + 8, 'HEAD-UNIT TOOLS'),
@@ -103,15 +103,15 @@ function compact(W, H) {
     const app = screen('app', 0, [
         back(),
         el('icon', 'appIcon', X + 84, M, 120, 120, { vicon: '', colors: '#3a4352,#232a35' }),
-        text('name', ix, M, lw - 224, 70, '', 62, 'bold'),
-        text('author', ix, M + 74, lw - 224, 32, '', 26, 'label', DIM),
-        el('facts', 'chips', ix, M + 112, lw - 224, 44, { items: '' }),
-        text('desc', X, M + 174, lw, B - M - 174, '', 27, 'label', TEXT, { wrap: true }),
+        text('name', ix, M, lw - 224, 72, '', 63, 'bold'),
+        text('author', ix, M + 76, lw - 224, 32, '', 27, 'label', DIM),
+        el('facts', 'chips', ix, M + 114, lw - 224, 44, { items: '' }),
+        text('desc', X, M + 176, lw, B - M - 176, '', 27, 'label', TEXT, { wrap: true }),
         el('panel', 'rect', px, M, PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
-        text('instLabel', px + 20, M + 16, 210, 28, '', 22, 'label', DIM),
-        text('instValue', px + 20, M + 46, 210, 58, '', 50, 'num'),
-        text('availLabel', px + 240, M + 16, 210, 28, '', 22, 'label', DIM),
-        text('availValue', px + 240, M + 46, 210, 58, '', 50, 'num', BLUE),
+        text('instLabel', px + 20, M + 16, 200, 28, '', 22, 'label', DIM),
+        text('instValue', px + 20, M + 46, 200, 58, '', 46, 'num'),
+        text('availLabel', px + 230, M + 16, 220, 28, '', 22, 'label', DIM),
+        text('availValue', px + 230, M + 46, 220, 58, '', 46, 'num', BLUE),
         text('note1', px + 20, M + 118, PW - 40, 32, '', 25, 'label', DIM),
         text('note2', px + 20, M + 154, PW - 40, 32, '', 25, 'label', DIM),
         text('note3', px + 20, M + 190, PW - 40, 32, '', 25, 'label', AMBER),
@@ -143,8 +143,8 @@ function compact(W, H) {
     const source = screen('source', 3, [
         back(),
         el('icon', 'appIcon', X + 84, M, 120, 120, { vicon: 'lock', kind: 'service', colors: '#3a4352,#232a35' }),
-        text('name', ix, M, sw, 62, '', 52, 'bold'),
-        text('state', ix, M + 66, sw, 32, '', 26, 'label', DIM),
+        text('name', ix, M, sw, 62, '', 53, 'bold'),
+        text('state', ix, M + 66, sw, 32, '', 27, 'label', DIM),
         el('facts', 'chips', ix, M + 104, sw, 44, { items: [] }),
         text('desc', X, M + 166, qx - X - 24, B - BTN_H - 24 - M - 166, '', 26, 'label', AMBER, { wrap: true }),
         button('remove', X, B - BTN_H, 420, BTN_H, 'Remove', 'outline', 29, { vicon: 'trash' }),
@@ -166,7 +166,7 @@ function compact(W, H) {
         back(),
         title('Sign in with GitHub', titleX),
         el('qr', 'qr', X, HEAD + 10, QR, QR, { text: '' }),
-        text('code', X + QR + 40, HEAD + 40, CW - QR - 40, 90, '', 77, 'bold'),
+        text('code', X + QR + 40, HEAD + 36, CW - QR - 40, 94, '', 80, 'bold'),
         text('url', X + QR + 40, HEAD + 150, CW - QR - 40, 34, '', 27, 'label', DIM),
         text('status', X + QR + 40, HEAD + 200, CW - QR - 40, 34, '', 27, 'label', DIM),
         button('cancel', X + QR + 40, HEAD + 270, 360, BTN_H, 'Cancel', 'outline', 29)
