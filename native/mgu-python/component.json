@@ -1,11 +1,9 @@
 {
   "id": "mgu-python",
   "kind": "tool",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "title": "Python",
   "description": "Python 3.12 for apps that build on the head unit with Python",
-  "optional": true,
-  "uninstallable": true,
   "mguHmi": ["ID7", "ID8"],
   "build": ["node", "build.js"],
   "files": [

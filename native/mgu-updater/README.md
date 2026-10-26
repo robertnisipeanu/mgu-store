@@ -60,6 +60,14 @@ them:
   folder (tests, the emulator).
 - `builtin`: the Store's own source (`builtin_repo`, id `mgu-store`),
   always there and not removable.
+- **Default sources** (`default_sources`: `<owner>/<repo>[:<channel>]`
+  separated by spaces; `cauliflowermossgrape/idrive7-apps:branch`): each is
+  added once, at the first start of an updater that names it, unless a
+  source of that repo is there already (the installers seed it too,
+  `deploy/sources.json`). `state/default-sources.json` (`{"added":
+  ["<owner>/<repo>", ...]}`) records each repo either way, so a default
+  source the owner removes is not added again. It is removable like any
+  other.
 - Nothing is signed: trust is HTTPS (and a token, "Tokens") to a source
   the owner added; every download is checked against the size and
   sha256 its source lists, or, where the source names none (release
@@ -119,7 +127,9 @@ commit). Without one: `releases` when the repo has a release, else
   script (below); its version and title come from its `manifest`, else
   `app.json`, else `package.json`, in its folder. A Python build requires
   `mgu-python` (1.0.0), one with `sdk` `mgu-deploy` 0.3.2, which are
-  installed first.
+  installed first. The updater itself requires `mgu-python`, so it is on
+  every unit with the updater: an updater update installs it first, and it
+  cannot be removed.
 - `apps` (`{ "path": "<folder>/*", "manifest", "exclude", ...the entry's
   other fields }`, or a list of them) lists every subfolder of that folder
   holding the manifest as an app with a build script, its id the
@@ -377,7 +387,8 @@ removes the App Manager and leaves what it installed. The updater requires
 **First start.** The installers seed `sources.json` (the deploy tool's
 `updater-sources`, from `deploy/sources.json`) and never replace
 one that is there. Until it exists the updater reads the built-in source
-alone and writes nothing; the first change to the sources writes it.
+and the default sources not yet added; adding a default source, or the
+first change to the sources, writes it.
 
 ## What it does
 
@@ -570,7 +581,7 @@ container's address as the hotspot's.
 
 `updater.conf` (in the version folder) holds the defaults;
 `/var/opt/mgu-updater/updater.local.conf` overrides any key and survives
-updates. Keys: `sources`, `credentials_dir`, `builtin_repo`,
+updates. Keys: `sources`, `credentials_dir`, `builtin_repo`, `default_sources`,
 `github_client_id`, `github_app_url`, `github_api`, `github_web`, `ca_file`,
 `check_interval_s`, `first_check_s`, `mounts`, `usb_roots`, `usb_poll_s`,
 `repo_max_bytes`, `build_uid`, `build_gid`, `build_timeout_s`,
@@ -763,7 +774,8 @@ releases, branches, tags, contents, tarballs, the device flow), with
   requirements installed first, uninstall and its refusals, USB media
   (a stick's root and `mgu-repo/<name>`, a stick's `oap/` with a renderer
   package, links not followed, nothing written), the privileged requests and their secret files, `web-url`
-  (with a stand-in page), `rid`, a first start without `sources.json`, and
+  (with a stand-in page), `rid`, a first start without `sources.json`, default
+  sources (added once, kept out after a removal, not doubled), and
   the Store 0.3's texts from the state;
 - ids two origins share: a repo laid out as idrive7-apps building its doom
   as doom2 beside a catalog's installed doom (from a copy made over to

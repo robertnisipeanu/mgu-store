@@ -9,7 +9,7 @@ An app store for BMW iDrive 7 (MGU) head units, made of:
 - the **renderer** (mgu-render), which draws the Store's screens and other apps' graphics;
 - the optional **internet uplink** (mgu-uplink), which gives apps internet through a USB network adapter, an LTE stick or a USB-tethered phone.
 
-It also ships **mgu-python** (Python 3.12), which the updater installs when an app has to be built with Python.
+It also ships **mgu-python** (Python 3.12), which the head unit builds Python apps with; it is installed with the updater.
 
 The Store is built and used on iDrive 7. iDrive 8 support is in the code
 but has not been tested on a real iDrive 8 head unit. On iDrive 8, app
@@ -58,8 +58,10 @@ installs and removals take effect at the next head-unit restart.
 
    It downloads the newest release of this repository, checks every file
    against the release's size and sha256, and installs the deploy tool, app
-   privacy, the updater, the renderer, the internet uplink and the Store.
-   The Store is built on the head unit.
+   privacy, the updater, Python, the renderer, the internet uplink and the
+   Store. The Store is built on the head unit. The updater starts with two
+   sources: this repository and
+   [idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps).
 
 4. Restart the head unit when the installer says
    `Restart the head unit to finish setup`. A normal ignition cycle does it.
@@ -113,14 +115,22 @@ and description, and the button for what can be done: **Install**,
 - Installing an app can restart the other running apps.
 - A tool that shows `Restart pending` takes effect after the head unit
   restarts. Settings → **Restart head unit** does it.
-- **Remove** appears only for components that can be removed. The updater
-  and the deploy tool cannot be removed.
+- **Remove** appears only for components that can be removed. The updater,
+  the deploy tool and Python cannot be removed.
 
 The updater checks its sources at start, at regular intervals, when the
 internet comes up, when a USB stick is plugged in, and on **Check now**.
 
 Without the renderer, the Store shows the same information as plain
 lists: Apps, Head-unit tools, Sources, Phone access and Restart head unit.
+
+### Sources
+
+The Store starts with two sources: its own, and
+[idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps), read
+on its default branch, whose apps the head unit builds with Python. An
+updater update adds idrive7-apps once to a car without it. It can be
+removed like any added source, and stays removed.
 
 ### Adding a repository
 

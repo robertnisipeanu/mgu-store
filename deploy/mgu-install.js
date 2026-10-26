@@ -52,7 +52,8 @@ const STORE_REPO = 'robertnisipeanu/mgu-store';
 const GITHUB_API = process.env.MGU_INSTALL_GITHUB_API || 'https://api.github.com';
 const HOTSPOT_IP = '172.16.222.97';
 /* the updater's sources first-install seeds when it has none (deploy/sources.json) */
-const SOURCES = { schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: STORE_REPO, builtin: true }] };
+const SOURCES = { schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: STORE_REPO, builtin: true },
+    { id: 'idrive7-apps', type: 'github', repo: 'cauliflowermossgrape/idrive7-apps', channel: 'branch' }] };
 /* the installed deploy tool */
 const DEPLOY = '/var/opt/mgu-deploy/mgu-deploy.sh';
 const UPDATER_JS = '/var/opt/mgu-updater/current/updater.js';

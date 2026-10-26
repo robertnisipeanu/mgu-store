@@ -23,5 +23,6 @@
   "units": [{ "name": "mgu-updater.service", "from": "systemd/mgu-updater.service" }],
   "enable": [{ "unit": "mgu-updater.service", "target": "multi-user.target" }],
   "recmgr": ["mgu-updater"],
-  "restart": []
+  "restart": [],
+  "requires": { "mgu-python": "1.0.0" }
 }
