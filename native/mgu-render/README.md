@@ -115,7 +115,8 @@ and serves those apps, unchanged.
 - **Protocol.** A connection whose first four bytes are DBR1's magic speaks
   display-bridge's protocol (`src/dbr.h`, the same as mgu-apps'
   `native/display-bridge/src/wire.h`, version 2). HELLO's frame (INDEX8 with
-  PALETTE, XRGB8888, premultiplied ARGB8888, RGBA8888; up to 2048 a side)
+  PALETTE, XRGB8888, premultiplied ARGB8888, RGBA8888; up to 1920×720, as
+  display-bridge)
   is kept as FRAME and RECTS write it, and shown in the HMI page's box,
   fitted and centred with black around it as display-bridge places it, with
   READY's `hmi` flag and that rectangle: written straight into the
@@ -129,8 +130,8 @@ and serves those apps, unchanged.
   newer frame replaces the one waiting, or is drawn over the one not yet
   committed (DROPPED either way). The committed one is PRESENTED on the
   frame callback, or DROPPED when the picture goes first. In the emulator,
-  whose HMI repaints its embedded surfaces about 20 times a second, DOOM
-  shows as many frames as under display-bridge.
+  whose HMI repaints its embedded surfaces about 20 times a second, 10 s of
+  DOOM play showed 16.9 frames a second (3 dropped), display-bridge 17.9.
 - **Touch.** The picture is the app's claim: a touch that starts there comes
   as TOUCH (down, motion, up) in frame pixels, source `evdev`, and the HMI does
   not get it.

@@ -239,6 +239,8 @@ int embed_can_commit(void) { return E.surface && E.ready >= 0 && !E.frame_cb; }
 
 void embed_discard(void) { E.ready = -1; }
 
+int embed_waiting(void) { return E.frame_cb != NULL; }
+
 static void frame_done(void *d, struct wl_callback *cb, uint32_t t)
 {
     (void)d, (void)t;

@@ -26,6 +26,7 @@ void embed_filled(void);
 int embed_can_commit(void);
 void embed_commit(void);
 void embed_discard(void);            /* the drawn frame is not to be shown (another app has the box) */
+int embed_waiting(void);             /* a frame callback is outstanding */
 /* event loop: prepare fills one pollfd (fd -1 when not connected); dispatch returns -1 when lost */
 void embed_prepare(struct pollfd *pfd);
 int embed_dispatch(const struct pollfd *pfd);

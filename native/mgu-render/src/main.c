@@ -135,8 +135,8 @@ typedef struct client {
     int on_screen;          /* shown at the last update: the watchdog counts silence from the moment it shows */
     FILE *rec;
     int started;            /* a message has come: a DBR1 session is told by its first four bytes */
-    /* a display-bridge app (DIALECT_DBR): its picture px (and lut for INDEX8), shown in img (logical px): in the
-       HMI's box written straight into the compositor's buffer, on a layer as pixmap 1. Of its frames one waits to
+    /* a display-bridge app (DIALECT_DBR): shown in img (logical px); in the HMI's box its picture px (and lut for
+       INDEX8) is written straight into the compositor's buffer, on a layer it is pixmap 1. Of its frames one waits to
        be drawn (pending), one drawn waits to be committed (embed: prepared), one committed waits for the
        compositor (committed); each is answered PRESENTED or DROPPED */
     struct {
@@ -532,13 +532,15 @@ static void readback(uint8_t *dst, int w, int h) {
     }
 }
 
-/* a frame is drawn as soon as it comes (into the frame drawn but not committed yet, if there is one) and
-   committed at the compositor's next frame callback, so it is ready the moment the compositor is */
+/* a display-bridge app's frame is drawn as soon as it comes (over the one drawn but not committed yet, if there is
+   one) and committed at the compositor's next frame callback, so it is ready the moment the compositor is; other
+   apps' frames, a GL draw and a readback each, are drawn once that callback has come (they send a frame per TICK) */
 static void render_embed(void) {
     client *c = embed_owner;
     if (!c) return;
     uint64_t t0 = now_us();
-    uint8_t *buf = c->dirty && !cap_wait(c, t0) ? embed_buffer() : NULL;
+    int draw = c->dirty && !cap_wait(c, t0) && (c->dialect == DIALECT_DBR || !embed_waiting());
+    uint8_t *buf = draw ? embed_buffer() : NULL;
     if (buf) {
         c->last_draw = t0;
         int w = cfg.embed_area[2], h = cfg.embed_area[3];
@@ -991,10 +993,10 @@ static int dbr_hello(client *c, const uint8_t *p) {
     struct dbr_hello h;
     dbr_hello_decode(p, &h);
     size_t bpp = dbr_bpp(h.format);
-    if (h.version > DBR_VERSION || !bpp || h.width < 1 || h.height < 1 || h.width > GFX_PIXMAP_SIDE || h.height > GFX_PIXMAP_SIDE)
+    if (h.version > DBR_VERSION || !bpp || h.width < 1 || h.height < 1 || h.width > DBR_MAX_WIDTH || h.height > DBR_MAX_HEIGHT)
         return dbr_fail(c, DBR_ERR_UNSUPPORTED, "unsupported version, format or size");
     int emb = embed_available(), area[4], r[4];
-    if (!(c->dbr.px = calloc((size_t)h.width * h.height, bpp))) return dbr_fail(c, DBR_ERR_DISPLAY, "out of memory");
+    if (emb && !(c->dbr.px = calloc((size_t)h.width * h.height, bpp))) return dbr_fail(c, DBR_ERR_DISPLAY, "out of memory");
     uint8_t gray[DBR_PALETTE_SIZE];                      /* until a PALETTE: index i is grey i, as display-bridge's */
     for (int i = 0; i < 256; i++) gray[3 * i] = gray[3 * i + 1] = gray[3 * i + 2] = (uint8_t)i;
     dbr_palette_lut(gray, c->dbr.lut);
@@ -1045,8 +1047,11 @@ static int dbr_frame(client *c, uint32_t seq, int n, int rects[][4], const uint8
     for (int k = 0; k < n; k++) {
         int x = rects[k][0], y = rects[k][1], w = rects[k][2], h = rects[k][3];
         size_t row = (size_t)w * c->dbr.bpp, sz = row * h, pitch = (size_t)c->dbr.w * c->dbr.bpp;
-        for (int j = 0; j < h; j++) memcpy(c->dbr.px + (size_t)(y + j) * pitch + (size_t)x * c->dbr.bpp, px + j * row, row);
-        if (c->mode == MODE_EMBED) { px += sz; continue; }
+        if (c->mode == MODE_EMBED) {
+            for (int j = 0; j < h; j++) memcpy(c->dbr.px + (size_t)(y + j) * pitch + (size_t)x * c->dbr.bpp, px + j * row, row);
+            px += sz;
+            continue;
+        }
         int r;
         if (c->dbr.format == DBR_FMT_XRGB8888 || c->dbr.format == DBR_FMT_ARGB8888) {
             uint8_t *rgba = malloc(sz);

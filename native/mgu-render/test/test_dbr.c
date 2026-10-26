@@ -11,7 +11,7 @@ static int fails, checks;
 static void put16(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 
 /* a RECTS payload: n regions of a frame whose pixel at (x, y) is (x + 7 * y) & 255, bpp 1 */
-static size_t rects_payload(uint8_t *out, int fw, const int (*r)[4], int n)
+static size_t rects_payload(uint8_t *out, const int (*r)[4], int n)
 {
     put16(out, (unsigned)n);
     put16(out + 2, 0);
@@ -23,7 +23,6 @@ static size_t rects_payload(uint8_t *out, int fw, const int (*r)[4], int n)
     for (int i = 0; i < n; i++)
         for (int y = r[i][1]; y < r[i][1] + r[i][3]; y++)
             for (int x = r[i][0]; x < r[i][0] + r[i][2]; x++) out[at++] = (uint8_t)((x + 7 * y) & 255);
-    (void)fw;
     return at;
 }
 
@@ -41,7 +40,7 @@ int main(void)
     uint8_t native[8] = { 1, 0, 0, 0, 5, 0, 0, 0 };
     CHECK(!dbr_is_magic(native) && dbr_header(native, &type, &len, &seq) < 0, "native HELLO is not DBR1");
 
-    /* HELLO as display_bridge_client.js writes it: version 1, INDEX8, 561x200, no destination */
+    /* HELLO as display_bridge_client.js writes it: version 1, INDEX8, 561x200, destination x -5 (signed), w 0 */
     uint8_t hello[16] = { 0 };
     put16(hello, 1); put16(hello + 2, DBR_FMT_INDEX8); put16(hello + 4, 561); put16(hello + 6, 200);
     put16(hello + 8, (unsigned)-5);
@@ -83,16 +82,16 @@ int main(void)
     int rects[DBR_MAX_RECTS][4];
     const uint8_t *px;
     const int two[2][4] = { { 0, 0, 10, 2 }, { 300, 190, 20, 10 } };
-    size_t n = rects_payload(buf, 320, two, 2);
+    size_t n = rects_payload(buf, two, 2);
     CHECK(dbr_rects(buf, n, 320, 200, 1, rects, &px) == 2 && rects[1][0] == 300 && rects[1][3] == 10 && px == buf + 4 + 16 &&
           px[10] == 7 && px[11] == 8 && px[20] == (uint8_t)(300 + 7 * 190), "two regions");
     CHECK(dbr_rects(buf, n - 1, 320, 200, 1, rects, &px) < 0, "short of pixels");
     CHECK(dbr_rects(buf, n + 1, 320, 200, 1, rects, &px) < 0, "pixels left over");
     const int out[1][4] = { { 310, 0, 11, 1 } };
-    n = rects_payload(buf, 320, out, 1);
+    n = rects_payload(buf, out, 1);
     CHECK(dbr_rects(buf, n, 320, 200, 1, rects, &px) < 0, "region outside the frame");
     const int empty[1][4] = { { 0, 0, 0, 5 } };
-    n = rects_payload(buf, 320, empty, 1);
+    n = rects_payload(buf, empty, 1);
     CHECK(dbr_rects(buf, n, 320, 200, 1, rects, &px) < 0, "empty region");
     put16(buf, 0);
     CHECK(dbr_rects(buf, 4, 320, 200, 1, rects, &px) < 0, "no region");
@@ -100,7 +99,7 @@ int main(void)
     CHECK(dbr_rects(buf, sizeof buf, 320, 200, 1, rects, &px) < 0, "too many regions");
     /* overlapping regions adding up to more than a frame */
     const int over[2][4] = { { 0, 0, 4, 4 }, { 0, 0, 4, 4 } };
-    n = rects_payload(buf, 4, over, 2);
+    n = rects_payload(buf, over, 2);
     CHECK(dbr_rects(buf, n, 4, 4, 1, rects, &px) < 0, "more than a frame of pixels");
 
     /* XRGB8888 (b, g, r, x) shows opaque; ARGB8888 keeps its alpha */

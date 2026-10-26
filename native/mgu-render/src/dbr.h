@@ -33,6 +33,8 @@
 #define DBR_PALETTE_SIZE 768
 #define DBR_READY_SIZE 32
 #define DBR_MAX_RECTS 64
+#define DBR_MAX_WIDTH 1920      /* display-bridge's own limits on a frame */
+#define DBR_MAX_HEIGHT 720
 
 enum {
     DBR_HELLO = 0x01, DBR_PALETTE = 0x02, DBR_FRAME = 0x03, DBR_SHOW = 0x04, DBR_HIDE = 0x05, DBR_PING = 0x06,
