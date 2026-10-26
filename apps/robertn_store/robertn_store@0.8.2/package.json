@@ -24,7 +24,8 @@
     "permissions.json",
     "javascript",
     "manifest.json",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "LICENSES.txt"
   ],
   "dependencies": {
     "oap-sdk": "24.10.2"
@@ -33,7 +34,7 @@
     "node": ">=8.7.0"
   },
   "author": "owner",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "mguLocalOnly": true,
   "mguHmi": [
     "ID7",
