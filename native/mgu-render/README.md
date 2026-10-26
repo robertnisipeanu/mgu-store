@@ -75,8 +75,10 @@ from the installed HmiMain3D.
 - Logs: `journalctl -u mgu-render -u mgu-render-hmi`.
 
 Only one renderer may own the socket: the Store installs one provider of
-`renderer` at a time. display-bridge (mgu-apps) uses the same page template
-and ivi id `0x500` for its own embed; the two are not run together.
+`renderer` at a time. `mgu-deploy.sh install --replace` swaps mgu-render with
+IterioDev's mgu-renderd or upstream's renderer packaged as a `mguService:
+renderer` package, either way. display-bridge (mgu-apps) uses the same page
+template and ivi id `0x500` for its own embed; the two are not run together.
 
 ## Settings
 
