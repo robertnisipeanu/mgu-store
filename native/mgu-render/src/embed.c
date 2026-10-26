@@ -24,7 +24,7 @@
 #include "ivi-application-client-protocol.h"
 #include "log.h"
 
-#define NBUF 3
+#define NBUF 4                    /* one shown, one the compositor has not released yet, one committed, one drawn */
 #define SETUP_MS 5000
 
 enum { OFF, CONNECTING, READY };
@@ -46,10 +46,10 @@ static struct {
     int reclaiming;               /* the surface is gone; buffers are ours once the compositor confirms */
     uint8_t *map;
     size_t map_size;
-    int w, h, cur, reading;
+    int w, h, cur, ready, reading;   /* cur: being drawn; ready: drawn, not committed yet (-1: none) */
     int failed;                   /* set inside a callback: disconnect once dispatch has returned */
     uint32_t id;
-} E = { .cur = -1 };
+} E = { .cur = -1, .ready = -1 };
 
 static void reg_global(void *d, struct wl_registry *r, uint32_t name, const char *iface, uint32_t ver)
 {
@@ -190,6 +190,7 @@ void embed_disconnect(void)
     wl_display_disconnect(E.dpy);
     E.dpy = NULL;
     E.cur = -1;
+    E.ready = -1;
     E.reclaiming = 0;
     E.failed = 0;
     E.state = OFF;
@@ -209,6 +210,7 @@ void embed_show(int on)
         E.isurf = ivi_application_surface_create(E.iapp, E.id, E.surface);
     } else {
         destroy_surface();
+        E.ready = -1;
         E.reclaiming = 1;
         sync_start();
     }
@@ -218,15 +220,24 @@ void embed_show(int on)
 
 uint8_t *embed_buffer(void)
 {
-    if (!E.surface || E.frame_cb || E.reclaiming)
+    if (!E.surface || E.reclaiming)
         return NULL;
-    for (int i = 0; i < NBUF; i++)
-        if (!E.held[i]) {
+    E.cur = E.ready;                                   /* a frame not committed yet is drawn over */
+    for (int i = 0; E.cur < 0 && i < NBUF; i++)
+        if (!E.held[i])
             E.cur = i;
-            return E.map + (size_t)E.w * E.h * 4 * i;
-        }
-    return NULL;
+    return E.cur < 0 ? NULL : E.map + (size_t)E.w * E.h * 4 * E.cur;
 }
+
+void embed_filled(void)
+{
+    E.ready = E.cur;
+    E.cur = -1;
+}
+
+int embed_can_commit(void) { return E.surface && E.ready >= 0 && !E.frame_cb; }
+
+void embed_discard(void) { E.ready = -1; }
 
 static void frame_done(void *d, struct wl_callback *cb, uint32_t t)
 {
@@ -240,9 +251,9 @@ static const struct wl_callback_listener frame_listener = { frame_done };
 
 void embed_commit(void)
 {
-    if (!E.surface || E.cur < 0)
+    if (!embed_can_commit())
         return;
-    wl_surface_attach(E.surface, E.buf[E.cur], 0, 0);
+    wl_surface_attach(E.surface, E.buf[E.ready], 0, 0);
     if (wl_proxy_get_version((struct wl_proxy *)E.surface) >= 4)
         wl_surface_damage_buffer(E.surface, 0, 0, E.w, E.h);
     else
@@ -250,8 +261,8 @@ void embed_commit(void)
     E.frame_cb = wl_surface_frame(E.surface);
     wl_callback_add_listener(E.frame_cb, &frame_listener, NULL);
     wl_surface_commit(E.surface);
-    E.held[E.cur] = 1;
-    E.cur = -1;
+    E.held[E.ready] = 1;
+    E.ready = -1;
 }
 
 void embed_prepare(struct pollfd *pfd)

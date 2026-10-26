@@ -16,10 +16,16 @@ int embed_connecting(void);          /* waiting for the compositor's first answe
 void embed_disconnect(void);
 void embed_show(int on);             /* create / destroy the surface */
 int embed_visible(void);
-/* a buffer to write the next frame into (XRGB8888, stride w*4), or NULL while the compositor
-   holds them all or a frame callback is outstanding */
+/* A frame is drawn as soon as it comes and committed at the compositor's next frame callback:
+   embed_buffer gives a buffer to write it into (XRGB8888, stride w*4) - the drawn one not committed
+   yet, drawn over, else a free one; NULL while the compositor holds them all - and embed_filled marks
+   it drawn. embed_commit shows the drawn one once no frame callback is outstanding
+   (embed_can_commit); embed_frame_done follows. */
 uint8_t *embed_buffer(void);
-void embed_commit(void);             /* show the buffer embed_buffer gave; embed_frame_done follows */
+void embed_filled(void);
+int embed_can_commit(void);
+void embed_commit(void);
+void embed_discard(void);            /* the drawn frame is not to be shown (another app has the box) */
 /* event loop: prepare fills one pollfd (fd -1 when not connected); dispatch returns -1 when lost */
 void embed_prepare(struct pollfd *pfd);
 int embed_dispatch(const struct pollfd *pfd);

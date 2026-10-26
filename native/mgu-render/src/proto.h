@@ -23,7 +23,8 @@
 #define MGU_NATIVE_VERSION 1
 #define MGU_NATIVE_TOKEN "proto=mgu-render/"
 
-enum { DIALECT_UNKNOWN = 0, DIALECT_UPSTREAM = 1, DIALECT_ITERIO = 2, DIALECT_NATIVE = 3 };
+/* DBR: display-bridge's protocol (dbr.h), its own framing, told by its magic in a connection's first bytes */
+enum { DIALECT_UNKNOWN = 0, DIALECT_UPSTREAM = 1, DIALECT_ITERIO = 2, DIALECT_NATIVE = 3, DIALECT_DBR = 4 };
 
 /* client -> daemon, all dialects */
 enum {
