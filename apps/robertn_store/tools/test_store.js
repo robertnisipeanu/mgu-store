@@ -530,10 +530,10 @@ function run() {
     });
 }
 
-/* The widget screens: compatibility, Replace, Sign in with GitHub, the GitHub App's install page. */
+/* The widget screens: compatibility, a second renderer, Sign in with GitHub, the GitHub App's install page. */
 function runWidgetsExtra() {
     const renderer = comp({ id: 'mgu-render', kind: 'tool', title: 'Renderer', version: '0.1.0', installed: null, status: 'available',
-        provides: 'renderer', replaces: 'mgu-renderd' });
+        provides: 'renderer' });
     const held = comp({ id: 'mgu-renderd', kind: 'tool', title: 'GPU renderer', version: '1.1.0', installed: '1.1.0', provides: 'renderer' });
     const id8only = comp({ id: 'cardash', title: 'Car Data', version: '1.1.4', installed: null, status: 'available', mguHmi: ['ID8'],
         compat: 'no' });
@@ -550,14 +550,7 @@ function runWidgetsExtra() {
         app._onRow('tool', 0);
         return tick();
     }).then(() => {
-        eq(states, ['open ST_OnlineApps_StoreReplace'], 'a second renderer asks Replace?');
-        eq(last(/storeReplaceName\.0\.Text/), 'storeReplaceName.0.Text=GPU renderer with Renderer 0.1.0');
-        app._replace();
-        return tick();
-    }).then(() => {
-        eq(sent.map(secretless), [{ op: 'install', id: 'mgu-render', replace: true }], 'Replace installs it with replace');
-        eq(sent[0].secret, 'deadbeef');
-        eq(states.slice(1), ['close ST_OnlineApps_StoreReplace']);
+        eq([states, sent], [[], [{ op: 'install', id: 'mgu-render' }]], 'a second renderer installs beside the first, no confirm step');
         reset();
         app._client.emit('state', Object.assign({}, st, { signin: true }));
         return tick();
@@ -598,7 +591,7 @@ function runDrawn() {
         components: [comp({ id: 'doom', title: 'DOOM', version: '1.0.1', installed: '1.0.0', status: 'update' }),
             comp({ id: 'raluca', title: 'Raluca', version: '1.2.0', installed: null, status: 'available' }),
             comp({ id: 'mgu-render', kind: 'tool', title: 'Renderer', version: '0.1.0', installed: null, status: 'available',
-                provides: 'renderer', replaces: 'mgu-renderd' }),
+                provides: 'renderer' }),
             comp({ id: 'mgu-renderd', kind: 'tool', title: 'GPU renderer', version: '1.1.0', installed: '1.1.0', provides: 'renderer' })] });
     app._entryUuid = 'entry';
     reset();
@@ -669,7 +662,7 @@ function runDrawn() {
         eq(drawn.stack.length, 1, 'BACK leaves the page');
         eq(gpu.visible, true, 'and the tabs show');
         eq(drawn.focus, 7, 'the focus back on the tile the page opened from');
-        // touch: a tap on Renderer's tile opens it; Replace asks, then installs with replace
+        // touch: a tap on Renderer's tile opens it; Install installs it beside the other renderer
         reset();
         const tile = drawn.items.find((i) => i.label === 'Renderer');
         gpu.emit('touch', 'down', tile.x + 10, tile.y + 10);
@@ -677,18 +670,13 @@ function runDrawn() {
         return tick();
     }).then(() => {
         eq(drawn.top(), { name: 'app', id: 'mgu-render' }, 'a tap opens the tile');
-        const replace = drawn.items.find((i) => i.label === 'Replace GPU renderer');
-        eq(!!replace, true, 'Replace on a second renderer\'s page');
-        app._act(replace.act);
-        return tick();
-    }).then(() => {
-        eq(drawn.top(), { name: 'confirm', kind: 'replace', id: 'mgu-render' });
+        const install = drawn.items.find((i) => i.label === 'Install');
+        eq(!!install && !drawn.items.some((i) => /Replace/.test(i.label || '')), true, 'Install on a second renderer\'s page, no Replace');
         reset();
-        app._act(drawn.items[1].act);
+        app._act(install.act);
         return tick();
     }).then(() => {
-        eq(sent.map(secretless), [{ op: 'install', id: 'mgu-render', replace: true }]);
-        drawn.pop();
+        eq(sent, [{ op: 'install', id: 'mgu-render' }]);
         // a drag scrolls without pressing
         reset();
         app._act({ do: 'tab', tab: 'settings' });

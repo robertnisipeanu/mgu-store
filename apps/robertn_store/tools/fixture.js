@@ -10,13 +10,13 @@
 
 const comp = (o) => Object.assign({ kind: 'app', installed: null, size: null, status: 'available', source: 'mgu-store',
     build: null, optional: false, uninstallable: true, revision: null, mguHmi: ['ID7', 'ID8'], compat: 'yes', provides: null,
-    service: null, replaces: null, pendingReboot: false, queued: false, error: null }, o);
+    service: null, pendingReboot: false, queued: false, error: null }, o);
 
 function state() {
     return {
         type: 'state', updater: { version: '0.4.0' }, online: true, privacy: 'patched',
         unit: { hmi: 'ID7', firmware: 'BMW MGU P18_23w44.2-1-3 mgu-high' },
-        providers: { renderer: { id: 'mgu-renderd', version: '1.1.0' } },
+        providers: { renderer: [{ id: 'mgu-renderd', version: '1.1.0' }] },
         catalog: { commit: 'x', checkedAt: Date.UTC(2026, 9, 26, 12, 2), checking: false, error: null },
         sources: [
             { id: 'mgu-store', type: 'github', label: 'robertnisipeanu/mgu-store', builtin: true, usb: false, channel: 'releases',
@@ -58,7 +58,7 @@ function state() {
             comp({ id: 'mgu-uplink', kind: 'tool', title: 'Network driver', version: '0.4.0', installed: '0.4.0', status: 'installed',
                 optional: true }),
             comp({ id: 'mgu-render', kind: 'tool', title: 'Renderer', version: '0.1.0', status: 'available', optional: true,
-                provides: 'renderer', replaces: 'mgu-renderd', size: 140000 }),
+                provides: 'renderer', size: 140000 }),
             comp({ id: 'mgu-renderd', kind: 'tool', title: 'GPU renderer', version: '1.1.0', installed: '1.1.0', status: 'installed',
                 provides: 'renderer', source: 'usb:STICK' }),
             comp({ id: 'display-bridge', kind: 'tool', title: 'Display bridge', version: '0.2.3', installed: '0.2.3', status: 'installed',
@@ -80,9 +80,7 @@ function screens() {
         ['app-update', { stack: main.concat([{ name: 'app', id: 'raluca' }]) }],
         ['app-downloading', { stack: main.concat([{ name: 'app', id: 'doom' }]) }],
         ['app-incompatible', { stack: main.concat([{ name: 'app', id: 'oap-cardash' }]) }],
-        ['app-replace', { stack: main.concat([{ name: 'app', id: 'mgu-render' }]) }],
-        ['confirm-replace', { stack: main.concat([{ name: 'app', id: 'mgu-render' }, { name: 'confirm', kind: 'replace', id: 'mgu-render' }]),
-            focus: 0 }],
+        ['app-renderer', { stack: main.concat([{ name: 'app', id: 'mgu-render' }]) }],
         ['confirm-remove', { stack: main.concat([{ name: 'app', id: 'raluca' }, { name: 'confirm', kind: 'remove', id: 'raluca' }]),
             focus: 0 }],
         ['installed', { tab: 'installed', stack: main }],

@@ -288,29 +288,6 @@
             </component>
         </layoutGroup>
     </container>
-    <container id="46" type="state" widget="LT_State_Wide">
-        <property id="9" value="1"/>
-        <layoutGroup id="192" name="Titlebar">
-            <component id="47" type="title">
-                <property id="2" value="1"/>
-            </component>
-        </layoutGroup>
-        <layoutGroup id="193" name="List">
-            <property id="3" value="1"/>
-            <component id="48" type="label" widget="LT_Label_1Row">
-                <property id="2" value="1"/>
-                <property id="3" value="0"/>
-            </component>
-            <component id="49" type="button" widget="LT_Button_1Row">
-                <property id="2" value="1"/>
-                <property id="3" value="3"/>
-            </component>
-            <component id="50" type="button" widget="LT_Button_1Row">
-                <property id="2" value="1"/>
-                <property id="3" value="3"/>
-            </component>
-        </layoutGroup>
-    </container>
     <container id="31" type="state" widget="LT_State_Wide">
         <property id="9" value="5"/>
         <layoutGroup id="162" name="Titlebar">

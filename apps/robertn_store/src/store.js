@@ -60,7 +60,7 @@ const { spell } = require('./speller.js');
 const { Drawn } = require('./store_drawn.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
-    loginStatus, loginCode, phoneState, phoneAddress, parseSource, channelOf, sourcesMessage, replacedTitle, removable } = require('./store_view.js');
+    loginStatus, loginCode, phoneState, phoneAddress, parseSource, channelOf, sourcesMessage, removable } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 
@@ -93,7 +93,7 @@ const ROOTS = { widgets: 'ST_OnlineApps_Store', layer: hostName('layer', 1), emb
 const ID8_CELLS = { Text: 'PrimaryText', Text1stCol: 'PrimaryText', Text2ndCol: 'FrequencyText', TextLeft: 'PrimaryText',
     TextRight: 'FrequencyText' };
 const ID8_LABELS = new Set(['storeStatus', 'storeSourcesStatus', 'storeSrcError', 'storeAccountName', 'storeAccountSources',
-    'storeLoginCode', 'storeLoginUrl', 'storeLoginStatus', 'storeRemoveName', 'storeReplaceName', 'storeAddRepo', 'storePhoneUrl',
+    'storeLoginCode', 'storeLoginUrl', 'storeLoginStatus', 'storeRemoveName', 'storeAddRepo', 'storePhoneUrl',
     'storePhoneError', 'storeSrcAppLabel', 'storeSrcAppUrl']);
 
 /* tools/gen_rhmi.js */
@@ -107,7 +107,6 @@ const S = {
     login: 'ST_OnlineApps_StoreLogin',
     sourceRemove: 'ST_OnlineApps_StoreSourceRemove',
     remove: 'ST_OnlineApps_StoreRemove',
-    replace: 'ST_OnlineApps_StoreReplace',
     phone: 'ST_OnlineApps_StorePhone',
     channel: 'ST_OnlineApps_StoreChannel'
 };
@@ -130,7 +129,6 @@ const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress
     loginStatus: 'storeLoginStatus', loginCancel: 'storeLoginCancel',
     srcRemoveCancel: 'storeSrcRemoveCancel', srcRemoveConfirm: 'storeSrcRemoveConfirm',
     removeName: 'storeRemoveName', removeCancel: 'storeRemoveCancel', removeConfirm: 'storeRemoveConfirm',
-    replaceName: 'storeReplaceName', replaceCancel: 'storeReplaceCancel', replaceConfirm: 'storeReplaceConfirm',
     srcAppLabel: 'storeSrcAppLabel', srcAppQr: 'storeSrcAppQr', srcAppUrl: 'storeSrcAppUrl',
     phoneToggle: 'storePhoneToggle', phoneQr: 'storePhoneQr', phoneUrl: 'storePhoneUrl',
     phoneError: 'storePhoneError' };
@@ -194,7 +192,6 @@ class Store extends OnlineApp {
         this._removalRefused = false;
         this._focusedPage = null;       // the page the HMI last gave its focus: a widget state, or 'drawn:<page>'
         this._removeId = null;          // the component the Remove confirm step names
-        this._replaceId = null;         // the component the Replace confirm step names
         this._tokenId = null;           // the account the Remove account confirm step names
         /* The sign-in this app started: waiting until the updater reports it
          * pending, or the updater's refusal. */
@@ -412,8 +409,6 @@ class Store extends OnlineApp {
         });
         this._bind(C.removeCancel, () => this._closeState(S.remove));
         this._bind(C.removeConfirm, () => this._remove());
-        this._bind(C.replaceCancel, () => this._closeState(S.replace));
-        this._bind(C.replaceConfirm, () => this._replace());
         this._bind(C.navSources, () => this._openState(S.sources));
         this._bind(C.sourceList, (row) => this._onSource(row));
         this._bind(C.sourceAdd, () => this._addSource());
@@ -577,8 +572,6 @@ class Store extends OnlineApp {
                 this._tokenId = act.page.id;
             } else if (act.page.name === 'confirm' && act.page.kind === 'remove') {
                 this._removeId = act.page.id;
-            } else if (act.page.name === 'confirm' && act.page.kind === 'replace') {
-                this._replaceId = act.page.id;
             }
             this._drawn.push(act.page);
             break;
@@ -589,7 +582,6 @@ class Store extends OnlineApp {
                 .forEach((c) => this._install(c.id));
             break;
         case 'remove': this._removeId = act.id; this._remove(); break;
-        case 'replace': this._replaceId = act.id; this._replace(); break;
         case 'restart': this._restart(); break;
         case 'source-remove': this._sourceId = act.id; this._removeSource(); break;
         case 'account-remove': this._tokenId = act.id; this._removeAccount(); break;
@@ -711,9 +703,6 @@ class Store extends OnlineApp {
         } else if (action === 'remove') {
             this._removeId = row.id;
             this._openPage('remove', { name: 'confirm', kind: 'remove', id: row.id });
-        } else if (action === 'replace') {
-            this._replaceId = row.id;
-            this._openPage('replace', { name: 'confirm', kind: 'replace', id: row.id });
         }
     }
 
@@ -731,17 +720,6 @@ class Store extends OnlineApp {
         if (row && removable(row, this._st.busy)) {
             logger.info(`uninstall ${row.id}`);
             this._privileged({ op: 'uninstall', id: row.id });
-        }
-    }
-
-    /* The Replace confirm step's Replace: installs the component in place
-     * of the installed tool providing the same capability (privileged). */
-    _replace() {
-        this._closePage('replace', isConfirm('replace'));
-        const row = this._component(this._replaceId);
-        if (row && rowAction(row, this._st.busy) === 'replace') {
-            logger.info(`install ${row.id} ${row.version} replacing ${row.replaces}`);
-            this._privileged({ op: 'install', id: row.id, replace: true });
         }
     }
 
@@ -1024,8 +1002,6 @@ class Store extends OnlineApp {
         });
         const removingComponent = this._component(this._removeId);
         this._text(C.removeName, removingComponent ? `${removingComponent.title} ${removingComponent.installed}` : '');
-        const replacing = this._component(this._replaceId);
-        this._text(C.replaceName, replacing ? `${replacedTitle(replacing, st.components)} with ${replacing.title} ${replacing.version}` : '');
 
         // an updater that reports no sources or web hides Sources and Phone access
         const sources = connected && Array.isArray(st.sources) ? st.sources : null;

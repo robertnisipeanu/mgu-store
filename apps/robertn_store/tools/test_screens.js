@@ -66,7 +66,7 @@ eq(hit(f.items, f.items[47].x + 5, f.items[47].y + 5), 47);
 ok(f.items[7].reveal, 'the first tiles out of view now');
 eq(hit(f.items, f.items[7].x + 5, f.items[7].y + 5), -1, 'and not hit');
 
-// a component's page: its install, update, replace, or nothing; Remove
+// a component's page: its install, update, or nothing; Remove
 f = screen('app-update');
 eq(own(f), ['Update to a1b2c3d', 'Remove', 'Back'], 'a page: its buttons, Back, the side menu');
 eq(text(f, 'author'), 'by robertn · from cauliflower/idrive7-apps');
@@ -101,18 +101,15 @@ eq([own(f), text(f, 'note1')], [['Back'], 'doom is already installed from robert
 ok(!f.values.facts.items.some((c) => /^Id /.test(c.text)), 'blocked: no id of its own');
 f = frame(fixture.model({}, two), { textScale: 1, focus: 0, scroll: {} });
 eq(f.values.grid.items[1].sub, 'Not installable');
-f = screen('app-replace');
-eq(own(f), ['Replace GPU renderer', 'Back']);
-eq(f.items[0].act, { do: 'open', page: { name: 'confirm', kind: 'replace', id: 'mgu-render' } });
-eq(text(f, 'note1'), 'Replaces GPU renderer');
+f = screen('app-renderer');
+eq(own(f), ['Install', 'Back'], 'a second renderer installs beside the first');
+eq(f.items[0].act, { do: 'install', id: 'mgu-render' });
+eq([text(f, 'note1'), f.values.facts.items.map((c) => c.text).pop()], ['', 'renderer']);
 f = screen('app-downloading');
 eq(own(f), ['Back'], 'nothing to press while it downloads');
 eq([f.values.progress.label, f.values.progress.right, f.values.icon.progress], ['Downloading', '42 %', 0.42]);
 
 // confirm steps: Cancel first
-f = screen('confirm-replace');
-eq(f.items.map((i) => [i.label, i.act]), [['Cancel', { do: 'back' }], ['Replace', { do: 'replace', id: 'mgu-render' }]]);
-eq(text(f, 'title'), 'Replace GPU renderer with Renderer 0.1.0?');
 f = screen('confirm-remove');
 eq(f.labels, ['Cancel', 'Remove']);
 eq(text(f, 'title'), 'Remove Raluca 1.2.0?');
@@ -138,6 +135,8 @@ eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 
     'Accounts', 'Phone access', 'Check now']);
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
 eq(text(f, 'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-renderd 1.1.0');
+eq(text(screen('settings', {}, { providers: { renderer: [{ id: 'mgu-render', version: '0.2.0' }, { id: 'mgu-renderd', version: '1.1.2' }] } }),
+    'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-render 0.2.0, mgu-renderd 1.1.2', 'every installed renderer');
 const idle = { busy: null, components: fixture.state().components.map((c) => Object.assign({}, c, { queued: false })) };
 ok(screen('settings', {}, idle).labels.indexOf('Restart head unit') >= 0, 'Restart head unit with nothing installing');
 
