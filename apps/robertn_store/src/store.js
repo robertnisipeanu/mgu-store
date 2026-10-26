@@ -778,6 +778,8 @@ class Store extends OnlineApp {
     _removeSource() {
         const src = this._source(this._sourceId);
         this._note(null);
+        // the page closes once the HMI gives it the focus back (_leaveRemovedSource)
+        this._focusedPage = null;
         this._closePage('sourceRemove', isConfirm('source-remove'));
         if (src && sourceActions(src).remove) {
             logger.info(`remove source ${src.id}`);

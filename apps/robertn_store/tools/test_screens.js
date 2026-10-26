@@ -82,7 +82,8 @@ st.components = [Object.assign({}, st.components[1], { compat: 'no', mguHmi: ['I
 f = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }, st), { textScale: 1, focus: 0, scroll: {} });
 eq([f.items.map((i) => i.label).slice(0, -4), text(f, 'note1')], [['Remove', 'Back'], 'Not for this head unit']);
 f = frame(fixture.model({}, st), { textScale: 1, focus: 0, scroll: {} });
-eq([f.values.grid.items[0].sub, f.values.nav.items[1].badge], ['Installed', ''], 'not counted as an update');
+eq([f.values.grid.items[0].sub, f.values.grid.items[0].badge, f.values.nav.items[1].badge], ['Not for this head unit', 'installed', ''],
+    'says so, installed, not counted as an update');
 f = screen('app-replace');
 eq(own(f), ['Replace GPU renderer', 'Back']);
 eq(f.items[0].act, { do: 'open', page: { name: 'confirm', kind: 'replace', id: 'mgu-render' } });

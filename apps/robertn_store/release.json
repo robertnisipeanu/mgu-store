@@ -3,6 +3,6 @@
   "requires": {
     "mgu-deploy": "0.3.0",
     "mgu-updater": "0.4.0",
-    "mgu-render": "0.1.0"
+    "mgu-render": "0.1.1"
   }
 }

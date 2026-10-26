@@ -135,6 +135,7 @@ class Client extends EventEmitter {
 const quiet = { info() {}, warn() {}, error() {} };
 /* mgu-render's client: what the Store asks of it. */
 const gpuLog = [];
+let fpsAsked = null;
 const frames = [];
 class RenderClient extends EventEmitter {
     constructor() {
@@ -151,7 +152,7 @@ class RenderClient extends EventEmitter {
     place(p) { gpuLog.push(`place ${p.x},${p.y} ${p.w}x${p.h} ${p.scale.toFixed(3)}`); this.placement = p; }
     show(on) { this.visible = on; gpuLog.push(`show ${on}`); }
     claim(r) { this.claims = r; }
-    fps(n) { gpuLog.push(`fps ${n}`); }
+    fps(n) { fpsAsked = n; }
     grab(on) { this.grabbing = on; }
     frame(rec) { frames.push(rec); return true; }
 }
@@ -597,6 +598,7 @@ function runDrawn() {
         appArea: { x: 108, y: 82, w: 1790, h: 638 }, controller: false, touch: true, pixmap: true });
     return tick().then(() => {
         eq(app._ui, mode, `the renderer offering embed: ${mode} (the host states this HMI has)`);
+        eq(fpsAsked, 30, 'at most 30 frames a second');
         eq(gpuLog.slice(0, 2), [`mode ${mode}`, mode === 'embed' ? 'place 104,88 1796x632 0.652' : 'place 108,82 1790x638 0.650']);
         eq(states.slice(0, 2), [`map ${host(1)}`, `open ${host(1)}`], 'the tile maps to the drawn screens; the Store on screen moves there');
         app._states[host(1)].emit('visible', { visible: true });

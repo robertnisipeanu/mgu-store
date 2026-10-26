@@ -16,7 +16,7 @@ offers it, and a private source a sign-in does not reach shows the GitHub
 App's install page as a QR code. The sign-in page has Cancel first, so the
 QR code stays in view; a removed source's page closes once the confirm
 step has given it back the focus. An iDrive 8 widget layout. Needs
-mgu-updater 0.4.0, mgu-deploy 0.3.0 and mgu-render.
+mgu-updater 0.4.0, mgu-deploy 0.3.0 and mgu-render 0.1.1.
 
 ## 0.6.0
 

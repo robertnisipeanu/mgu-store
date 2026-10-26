@@ -139,10 +139,11 @@ Pressing an account opens *Remove account?*: its name, the sources it
 reads, **Cancel** and **Remove** (`token-remove`).
 
 **Sign in with GitHub** starts the updater's GitHub device sign-in, which
-adds an account, and opens its page: the QR code of the sign-in page with
-the code drawn large beside it, the code and the page's address as text,
-the status (`Waiting for sign-in`, `Code expired`, `Sign-in failed: …`) and
-**Cancel**. The page closes itself once signed in.
+adds an account, and opens its page: **Cancel** (first, so its focus
+scrolls nothing away), the QR code of the sign-in page with the code drawn
+large beside it, the code and the page's address as text, and the status
+(`Waiting for sign-in`, `Code expired`, `Sign-in failed: …`). The page
+closes itself once signed in.
 
 **Add source** opens the HMI's own full-screen speller (`src/speller.js`,
 the free-text speller use case `02076b22-…` that x_call uses; the

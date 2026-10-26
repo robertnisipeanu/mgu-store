@@ -90,8 +90,8 @@ function tileState(c, busy) {
     if (c.queued) {
         return { sub: 'Waiting', subColor: AMBER, badge: 'queued', progress: -1 };
     }
-    if (notForUnit(c) && !c.installed) {
-        return { sub: 'Not for this head unit', subColor: AMBER, badge: '', progress: -1 };
+    if (notForUnit(c)) {
+        return { sub: 'Not for this head unit', subColor: AMBER, badge: c.installed ? 'installed' : '', progress: -1 };
     }
     if (c.error && !notForUnit(c)) {
         return { sub: 'Failed', subColor: RED, badge: '', progress: -1 };
@@ -259,7 +259,7 @@ function appView(m, id) {
     if (c.error && !mine) {
         notes.push([`Failed: ${c.error}`, RED]);
     }
-    if (c.replaces && avail) {
+    if (c.replaces && avail && !notForUnit(c)) {
         notes.push([`Replaces ${replacedTitle(c, comps(m))}`, DIM]);
     }
     if (c.pendingReboot) {
