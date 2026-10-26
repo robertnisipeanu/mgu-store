@@ -8,7 +8,7 @@
  * (kit/runtime/canvas.js) closely. Output is premultiplied alpha.
  *
  * From mgu-renderd src/gfx.c (idrive7-apps kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape),
- * with both forks' images: upstream's pixel images and IterioDev's pictures (ported with permission),
+ * with both forks' images: upstream's pixel images and IterioDev's pictures,
  * and mgu-render's pixmaps (images written in regions, INDEX8 with a palette).
  */
 #include <GLES2/gl2.h>

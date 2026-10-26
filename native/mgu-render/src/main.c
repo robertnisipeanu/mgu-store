@@ -22,7 +22,7 @@
  *   mgu-render --replay FILE --out FILE.pam [--raw FILE.rgba]   render a recorded client stream offscreen
  *
  * From mgu-renderd src/main.c (idrive7-apps kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape;
- * touch routing and pictures by IterioDev, ported with permission) and display-bridge (embed placement,
+ * touch routing and pictures by IterioDev) and display-bridge (embed placement,
  * foreground gate).
  */
 #define _GNU_SOURCE

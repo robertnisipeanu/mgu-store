@@ -1,5 +1,5 @@
 /*
- * Touch routing (touch.h), from IterioDev's mgu-renderd src/touch.c (ported with permission; the renderer it
+ * Touch routing (touch.h), from IterioDev's mgu-renderd src/touch.c (the renderer it
  * extends is idrive7-apps kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape). The rule's interface and
  * source address come from the configuration (touch_iface, touch_saddr), per unit.
  *

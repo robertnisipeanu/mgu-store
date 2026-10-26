@@ -1,6 +1,6 @@
 /*
  * GPU executor for draw command lists (gfx.c). Derived from mgu-renderd src/gfx.h (idrive7-apps
- * kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape; pictures by IterioDev, with permission).
+ * kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape; pictures by IterioDev).
  */
 #ifndef MGU_GFX_H
 #define MGU_GFX_H

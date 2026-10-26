@@ -12,7 +12,7 @@
  * A legacy connection's dialect is read from the first message only one of them sends (dialect.c).
  *
  * Derived from mgu-renderd src/proto.h (idrive7-apps kit/renderd, MIT, Copyright (c) 2026
- * cauliflowermossgrape; touch routing and pictures by IterioDev, ported with permission).
+ * cauliflowermossgrape; touch routing and pictures by IterioDev).
  */
 #ifndef MGU_PROTO_H
 #define MGU_PROTO_H
