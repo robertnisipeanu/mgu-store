@@ -16,7 +16,7 @@ function state() {
     return {
         type: 'state', updater: { version: '0.4.0' }, online: true, privacy: 'patched',
         unit: { hmi: 'ID7', firmware: 'BMW MGU P18_23w44.2-1-3 mgu-high' },
-        providers: { renderer: [{ id: 'mgu-renderd', version: '1.1.0' }] },
+        allProviders: { renderer: [{ id: 'mgu-renderd', version: '1.1.0' }] },
         catalog: { commit: 'x', checkedAt: Date.UTC(2026, 9, 26, 12, 2), checking: false, error: null },
         sources: [
             { id: 'mgu-store', type: 'github', label: 'robertnisipeanu/mgu-store', builtin: true, usb: false, channel: 'releases',
