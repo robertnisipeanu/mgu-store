@@ -9,7 +9,8 @@
   "build": ["make", "target"],
   "files": [
     { "path": "mgu-uplink", "from": "build/target/mgu-uplink", "mode": "0755" },
-    { "path": "mgu-uplink.conf", "from": "mgu-uplink.conf", "mode": "0644" }
+    { "path": "mgu-uplink.conf", "from": "mgu-uplink.conf", "mode": "0644" },
+    { "path": "LICENSES.txt", "from": "LICENSES.txt", "mode": "0644" }
   ],
   "units": [{ "name": "mgu-uplink.service", "from": "mgu-uplink.service" }],
   "enable": [{ "unit": "mgu-uplink.service", "target": "multi-user.target" }],

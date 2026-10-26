@@ -33,7 +33,7 @@
     "node": ">=8.7.0"
   },
   "author": "owner",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "mguLocalOnly": true,
   "mguHmi": [
     "ID7",
