@@ -159,5 +159,5 @@ the car can show:
 
 **iDrive 8**
 - [ ] Layer with IterioDev's apps unchanged (their packages are iDrive 8 only), screen 2880×960, the touch divert as with IterioDev's renderer.
-- [ ] The foreground gate: `RemoteHmiApplication` and the uid → uuid path under `oap-mainapp21` (until then `gate_legacy = 0` keeps legacy apps ungated there).
-- [ ] Embed: whether Hmi8 has an embedded compositor, an embedded-surface widget and loadable widget files (`embed = 0` until then).
+- [ ] The foreground gate: `RemoteHmiApplication` and the uid → uuid path under `oap-mainapp21` (a gate that reads nothing there leaves legacy apps as they are without it).
+- [ ] Embed: whether Hmi8 has an embedded compositor, an embedded-surface widget and loadable widget files (until then embed is not offered: no HmiMain3D).

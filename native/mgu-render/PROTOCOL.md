@@ -93,8 +93,8 @@ A client asks for it in HELLO: the app id, a NUL, then NUL-separated
 "my_app" 00 "proto=mgu-render/1"
 ```
 
-An older renderer reads that as an odd app id (the NUL and the rest become
-`?`) and answers with READY alone, so the client knows to fall back. mgu-render
+An older renderer takes the app id up to the NUL and answers with READY
+alone, so the client knows to fall back. mgu-render
 answers with X_READY first, then READY. Native clients use IterioDev's numbers
 for 9, 10, 11, 105, 106 and op 18, and the extensions below, whose types start
 with "MR" (0x4d52…) so they never meet a number another dialect uses. A
@@ -118,8 +118,9 @@ Daemon to client:
 | 0x4d520102 | X_STATE | u32 mode, on screen, in front (the HMI shows the app's screen); sent whenever one changes |
 | 0x4d520103 | X_CCU | as upstream's CCU |
 
-Pixmaps share the id space of IMAGE pictures and count towards the same
-limits (64 per app; 96 MiB for all apps).
+Pixmaps share the id space of IMAGE pictures. Pictures, upstream images and
+pixmaps count towards 64 per app and 96 MiB for all apps; pictures also
+towards 32 MiB per app. An upload past them gets an ERROR and draws nothing.
 
 ## Placement
 
@@ -140,8 +141,9 @@ limits (64 per app; 96 MiB for all apps).
 
 **In front**: with a foreground gate configured, an app (any uid but root,
 from `SO_PEERCRED`) shows only while the HMI's `RemoteHmiApplication` for its
-uid holds `ROOT_APP`. Legacy apps hide themselves when their screen goes;
-until the gate has reported they show as they would without it.
+uid holds `ROOT_APP`. Legacy apps hide themselves when their screen goes; the
+gate hides them only while it names another app in front, so a gate that reads
+nothing leaves them as they would be without it.
 
 ## Touch and controller
 

@@ -12,6 +12,7 @@ int gate_fd(void);                     /* its reports (poll it), -1 when none */
 int gate_read(void);
 int gate_reported(void);               /* a report has come (until then no app is in front) */
 int gate_front(uint32_t uid);          /* uid is in front */
+int gate_any_front(void);              /* some app is in front */
 void gate_stop(void);
 
 #endif

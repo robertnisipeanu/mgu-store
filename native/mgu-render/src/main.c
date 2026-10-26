@@ -121,6 +121,7 @@ typedef struct client {
     uint64_t grab_t;
     /* native: the last X_STATE sent */
     int st_mode, st_on, st_front, st_sent;
+    int on_screen;          /* shown at the last update: the watchdog counts silence from the moment it shows */
     FILE *rec;
     /* stats */
     uint64_t stat_t0; uint32_t stat_frames; uint64_t stat_sum, stat_max;
@@ -257,13 +258,13 @@ static int gate_applies(const client *c) {
     if (!cfg.foreground_gate[0] || c->uid == 0) return 0;     /* root: bring-up tools */
     return c->dialect == DIALECT_NATIVE || c->mode == MODE_EMBED || cfg.gate_legacy;
 }
-/* Native and embed apps show only once the gate has reported them in front. Legacy apps hide themselves when
- * their screen goes; for them the gate only adds hiding, and a gate that has not reported (yet, or ever, on a
- * unit it cannot read) leaves them as they were without it. */
+/* Native and embed apps show only while the gate reports them in front. Legacy apps hide themselves when their
+ * screen goes; for them the gate only hides while it names another app in front, so a gate that reads nothing
+ * (on a unit it cannot read) leaves them as they were without it. */
 static int in_front(const client *c) {
     if (!gate_applies(c)) return 1;
-    if (!gate_reported()) return c->dialect != DIALECT_NATIVE && c->mode == MODE_LAYER;
-    return gate_front(c->uid);
+    if (c->dialect != DIALECT_NATIVE && c->mode == MODE_LAYER) return !gate_any_front() || gate_front(c->uid);
+    return gate_reported() && gate_front(c->uid);
 }
 
 static int shown(const client *c) {
@@ -317,7 +318,15 @@ static void embed_update(void) {
 
 static void update_all(void) {
     embed_update();
-    for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) { apply_visibility(clients[i]); send_state(clients[i]); }
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        client *c = clients[i];
+        if (!c) continue;
+        int on = shown(c);
+        if (on && !c->on_screen) c->last_msg = now_us();
+        c->on_screen = on;
+        apply_visibility(c);
+        send_state(c);
+    }
 }
 
 /* ---------------- layer surfaces ---------------- */
@@ -509,6 +518,9 @@ static int template_loaded(void) {
     long hz = sysconf(_SC_CLK_TCK);
     return btime && hz > 0 && btime + start / hz + 1 >= (long long)ms.st_mtime;
 }
+
+static uint64_t t_listen;
+static int embed_settling(uint64_t t) { return cfg.embed && embed_connecting() && t - t_listen < 3000000; }
 
 static int embed_available(void) { return cfg.embed && embed_connected() && template_loaded(); }
 
@@ -850,7 +862,8 @@ static void record(client *c, uint32_t type, const uint8_t *msg, uint32_t len) {
         hello_parse(msg + 8, len, app, sizeof app);
         for (char *s = app; *s; s++) if (*s == '/' || *s == '?' || *s == ' ') *s = '_';
         snprintf(path, sizeof path, "%s/%s-%d.bin", cfg.record_dir, app, ++n);
-        c->rec = fopen(path, "wb");
+        int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+        c->rec = fd >= 0 ? fdopen(fd, "wb") : NULL;
         if (c->rec) log_info("recording to %s", path);
     }
     if (c->rec) fwrite(msg, 1, 8 + (size_t)len, c->rec);
@@ -1062,6 +1075,8 @@ int main(int argc, char **argv) {
 
     if (cfg.foreground_gate[0] && gate_start(cfg.foreground_gate) < 0) return 1;
     if ((listen_fd = open_listener()) < 0) return 1;
+    t_listen = now_us();
+    if (cfg.embed) embed_connect(cfg.hmi_display, cfg.embed_surface_id, cfg.embed_area[2], cfg.embed_area[3]);
     if (cfg.controller_gate[0]) { unlink(cfg.controller_gate); ccu_open(); }
 
     uint64_t gate_retry = 0, embed_retry = 0;
@@ -1092,7 +1107,8 @@ int main(int argc, char **argv) {
         struct pollfd pf[6 + MAX_CLIENTS];
         int np = 0, map[6 + MAX_CLIENTS];
         pf[np].fd = wl_display_get_fd(dpy); pf[np].events = POLLIN; map[np++] = -1;
-        pf[np].fd = listen_fd; pf[np].events = POLLIN; map[np++] = -2;
+        /* until embed has settled (at most its setup time), apps wait: READY must say whether it is offered */
+        pf[np].fd = embed_settling(tnow) ? -1 : listen_fd; pf[np].events = POLLIN; map[np++] = -2;
         pf[np].fd = touch_on ? touch_fd() : -1; pf[np].events = POLLIN; map[np++] = -3;   /* fd -1: poll skips it */
         pf[np].fd = gate_fd(); pf[np].events = POLLIN; map[np++] = -4;
         pf[np].fd = ccu_fd; pf[np].events = POLLIN; map[np++] = -5;

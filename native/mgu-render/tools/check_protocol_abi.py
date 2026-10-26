@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare a Wayland protocol XML with the wl_interface tables in an ELF library.
 
-The bridge compiles its own protocol glue from protocol/*.xml. The head unit
+mgu-render compiles its own protocol glue from protocol/*.xml. The head unit
 ships the same protocols as libivi-application.so.1.11.0 and
 libivi-controller.so.1.11.0. This checks, for every interface exported by the
 library, that the XML declares the same version and the same requests and

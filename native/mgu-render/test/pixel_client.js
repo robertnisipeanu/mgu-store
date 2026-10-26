@@ -23,8 +23,8 @@ let box = null, ticks = 0, frame = 0, scale = 1;
 gpu.on('ready', (screen, info) => {
     console.log('ready ' + JSON.stringify({ screen, info }));
     if (!info) { console.log('not mgu-render: stopping'); process.exit(1); }
-    if (mode === 'embed' && info.modes.indexOf('embed') < 0) console.log('embed not offered: the renderer says why with an error');
-    box = mode === 'embed' ? info.embedBox : info.appArea;
+    if (gpu.mode() === 'embed' && info.modes.indexOf('embed') < 0) { console.log('embed not offered: layer'); gpu.mode('layer'); }
+    box = gpu.mode() === 'embed' ? info.embedBox : info.appArea;
     scale = Math.min(box.w / W, box.h / H);
     gpu.place({ x: box.x, y: box.y, w: box.w, h: box.h, scale: 1, ox: 0, oy: 0 });
     gpu.pixmap(1, W, H, 'index8', 'nearest');

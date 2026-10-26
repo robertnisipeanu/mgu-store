@@ -43,7 +43,7 @@ compare() {  # dialect stream
     if [ $rref != 0 ] || [ $rour != 0 ]; then
         echo "FAIL $1/$name: original exit $rref, mgu-render exit $rour"; sed 's/^/     /' "$o.ref.log" "$o.our.log"; fail=1; return
     fi
-    case $name in over-*)
+    case $name in *over-*)
         grep -q 'at most\|use .* MB already' "$o.our.log" || { echo "FAIL $1/$name: no refusal logged"; fail=1; return; } ;;
     esac
     if cmp -s "$o.ref.rgba" "$o.our.rgba" && cmp -s "$o.ref.pam" "$o.our.pam"; then

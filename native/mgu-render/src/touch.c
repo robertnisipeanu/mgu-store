@@ -38,8 +38,8 @@ enum { NONE = -1, HMI = -2, GONE = -3 };       /* gesture owner, else a client s
 
 /* On the car the release firewall (ip filter input, ends in logblocked = drop) only accepts the display's touch
  * on 30567, so the diverted 30568 needs its own accept in that chain - inserted (once, idempotent) every time
- * the divert goes in, as the firewall may have been reloaded meanwhile. Found on an iDrive 8 car 2026-10-25:
- * diverted touches never arrived. lo (VM, emulator) is accepted anyway. */
+ * the divert goes in, as the firewall may have been reloaded meanwhile; without it diverted touches never arrive
+ * (iDrive 8 car). lo (VM, emulator) is accepted anyway. */
 static char rule[256], open_fw[512];
 static int in = -1, out = -1, beat = -1, loaded, owner = NONE;
 static int ax, ay, aw, ah;                     /* area apps may claim; aw 0 = whole screen */

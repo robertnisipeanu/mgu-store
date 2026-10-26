@@ -12,6 +12,7 @@
 /* starts connecting (0), or -1 when the compositor is not there; embed_changed follows when it is ready */
 int embed_connect(const char *display, uint32_t id, int w, int h);
 int embed_connected(void);           /* set up and usable */
+int embed_connecting(void);          /* waiting for the compositor's first answer */
 void embed_disconnect(void);
 void embed_show(int on);             /* create / destroy the surface */
 int embed_visible(void);

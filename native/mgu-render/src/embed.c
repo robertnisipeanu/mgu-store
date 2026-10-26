@@ -46,6 +46,7 @@ static struct {
     uint8_t *map;
     size_t map_size;
     int w, h, cur, reading;
+    int failed;                   /* set inside a callback: disconnect once dispatch has returned */
     uint32_t id;
 } E = { .cur = -1 };
 
@@ -115,10 +116,10 @@ static void synced(void *d, struct wl_callback *cb, uint32_t t)
     if (E.state == CONNECTING) {
         if (!E.comp || !E.shm || !E.iapp) {
             log_warn("embed: the HMI's compositor lacks wl_compositor / wl_shm / ivi_application");
-            embed_disconnect();
+            E.failed = 1;
             return;
         }
-        if (buffers() < 0) { embed_disconnect(); return; }
+        if (buffers() < 0) { E.failed = 1; return; }
         E.state = READY;
         log_info("embed: ready, surface %#x %dx%d while shown", E.id, E.w, E.h);
         embed_changed();
@@ -142,6 +143,8 @@ int embed_connect(const char *display, uint32_t id, int w, int h)
 {
     if (E.dpy)
         return 0;
+    if (w < 1 || h < 1)
+        return -1;
     E.dpy = wl_display_connect(display);
     if (!E.dpy) {
         log_debug("embed: cannot connect to %s: %s", display, strerror(errno));
@@ -159,6 +162,7 @@ int embed_connect(const char *display, uint32_t id, int w, int h)
 }
 
 int embed_connected(void) { return E.state == READY; }
+int embed_connecting(void) { return E.state == CONNECTING; }
 int embed_visible(void) { return E.surface != NULL; }
 
 static void destroy_surface(void)
@@ -188,6 +192,7 @@ void embed_disconnect(void)
     E.dpy = NULL;
     E.cur = -1;
     E.reclaiming = 0;
+    E.failed = 0;
     E.state = OFF;
     if (was) embed_changed();
 }
@@ -263,8 +268,8 @@ void embed_prepare(struct pollfd *pfd)
         return;
     }
     while (wl_display_prepare_read(E.dpy) != 0)
-        if (wl_display_dispatch_pending(E.dpy) < 0) {
-            lost("dispatch");
+        if (wl_display_dispatch_pending(E.dpy) < 0 || E.failed) {
+            if (E.failed) embed_disconnect(); else lost("dispatch");
             return;
         }
     E.reading = 1;
@@ -287,5 +292,6 @@ int embed_dispatch(const struct pollfd *pfd)
     }
     if (pfd->revents & (POLLERR | POLLHUP)) { lost("connection closed"); return -1; }
     if (wl_display_dispatch_pending(E.dpy) < 0) { lost("dispatch"); return -1; }
+    if (E.failed) { embed_disconnect(); return -1; }
     return 0;
 }

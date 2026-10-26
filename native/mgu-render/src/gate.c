@@ -62,6 +62,8 @@ int gate_start(const char *command)
 int gate_fd(void) { return out; }
 int gate_reported(void) { return reported; }
 
+int gate_any_front(void) { return nfront > 0; }
+
 int gate_front(uint32_t uid)
 {
     for (int i = 0; i < nfront; i++)

@@ -17,7 +17,7 @@
  * page on the page template LT_State_A4A_WelcomeApp; placement x, y are the box's, w, h its size).
  * The app picks one; info.modes lists what the renderer offers now.
  *
- * Pixel apps (a game, a software-drawn canvas): pixmap(id, w, h, 'index8' | 'rgba' | 'rgbx', 'nearest' |
+ * Pixel apps (a game, a software-drawn canvas; kept and sent again after a reconnect or a new size): pixmap(id, w, h, 'index8' | 'rgba' | 'rgbx', 'nearest' |
  * 'linear'), then pixels(id, rects, data) for the regions that changed, palette(id, rgb768) for INDEX8,
  * and draw it with an IMAGE op (x y w h r id) in each frame - imageOp() builds one.
  *
@@ -95,7 +95,7 @@ class RenderClient extends EventEmitter {
         this.sent = { atlas: new Set(), ramp: new Set(), layer: new Set(), image: new Map() };
         this.imageBytes = 0;
         this.useSeq = 0;
-        this.pixmaps = new Map();     // id -> { w, h, format, filter, palette }: re-created after a reconnect
+        this.pixmaps = new Map();     // id -> { w, h, format, filter, palette, last }
         this.waiting = false;
         this.retry = null;
         this.closed = false;
@@ -178,8 +178,8 @@ class RenderClient extends EventEmitter {
                 this.info = null;
             } else {
                 this._write(u32msg(X.MODE, [MODES[this.wantMode]]));
-                this.pixmaps.forEach((pm, id) => this._sendPixmap(id, pm));
                 if (this.placement) this._sendPlace();
+                this._sendPixmaps();
                 if (this.claims.length) this._sendClaim();
                 if (this.visible) this._write(u32msg(M.SHOW, [1]));
                 if (this.grabbing) this._write(u32msg(X.GRAB, [1]));
@@ -222,7 +222,9 @@ class RenderClient extends EventEmitter {
         const scaleChanged = this.placement && this.placement.scale !== pl.scale;
         this.placement = Object.assign({}, pl);
         if (resize || scaleChanged) this._reset();
-        if (this.ready && this.native) this._sendPlace();
+        if (!this.ready || !this.native) return;
+        this._sendPlace();
+        if (resize || scaleChanged) this._sendPixmaps();       // the renderer dropped them with the old size
     }
     _sendPlace() {
         const p = this.placement, b = Buffer.alloc(28);
@@ -264,6 +266,7 @@ class RenderClient extends EventEmitter {
         this.pixmaps.set(id, pm);
         if (this.ready && this.native) this._sendPixmap(id, pm);
     }
+    _sendPixmaps() { this.pixmaps.forEach((pm, id) => this._sendPixmap(id, pm)); }
     _sendPixmap(id, pm) {
         this._write(u32msg(X.PIXMAP, [id, pm.w, pm.h, pm.format, pm.filter]));
         if (pm.palette) this._write(msg(X.PALETTE, Buffer.concat([words(new Uint32Array([id])), pm.palette])));
