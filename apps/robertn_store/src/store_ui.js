@@ -94,7 +94,8 @@ function tileState(c, busy) {
         return { sub: 'Not for this head unit', subColor: AMBER, badge: c.installed ? 'installed' : '', progress: -1 };
     }
     if (c.blocked) {
-        return { sub: 'Not installable', subColor: AMBER, badge: '', progress: -1 };
+        return c.installed ? { sub: 'Installed', subColor: GREEN, badge: 'installed', progress: -1 }
+            : { sub: 'Not installable', subColor: AMBER, badge: '', progress: -1 };
     }
     if (c.error) {
         return { sub: 'Failed', subColor: RED, badge: '', progress: -1 };
@@ -116,7 +117,7 @@ function tile(c, busy) {
 }
 
 function nav(m, sel) {
-    const updates = comps(m).filter((c) => c.status === 'update' && !notForUnit(c)).length;
+    const updates = comps(m).filter((c) => c.status === 'update' && !notForUnit(c) && !c.blocked).length;
     const usbIds = (sources(m) || []).filter((s) => s.usb).map((s) => s.id);
     const usbNew = comps(m).filter((c) => usbIds.indexOf(c.source) >= 0 && (c.status === 'available' || c.status === 'update') &&
         !notForUnit(c) && !c.blocked).length;

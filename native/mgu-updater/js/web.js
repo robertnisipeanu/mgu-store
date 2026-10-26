@@ -785,7 +785,9 @@ function renderComponents(list) {
     if (c.pendingReboot) { meta.push('Restart pending'); }
     if (c.provides) { meta.push(c.provides + (c.installed && !c.replaces ? ' (active)' : '')); }
     if (c.compat === 'no') { meta.push('Not for this head unit'); }
+    if (c.blocked) { meta.push('Not installable'); }
     main.appendChild(el('div', 'mut', meta.join(' · ')));
+    if (c.blocked) { main.appendChild(el('div', 'bad', c.blocked)); }
     if (c.error) { main.appendChild(el('div', 'bad', c.error)); }
     row.appendChild(main);
     if (c.replaces && c.compat !== 'no') {

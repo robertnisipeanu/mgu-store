@@ -2843,8 +2843,8 @@ function testIdClash() {
         app.uuid === sourcesLib.uuid5('shared2:3dadae8f-1b43-46d8-be8a-f1f99ad601e9') && app.stringBundleUuid !== '3f03953a-a173-4653-94ec-e1f97cae5c76' &&
         at('src/main.js').indexOf(entryUuid) >= 0 && !made.files.some((f) => /^shared@/.test(f.name)),
         JSON.stringify(made.files.map((f) => [f.name, f.data.toString('utf8')])));
-    ok('uuid5: the name-based UUID form', /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entryUuid) &&
-        entryUuid === sourcesLib.uuid5('shared2:8fe6023a-c19a-498a-8f2a-818806578b4f') && entryUuid !== sourcesLib.uuid5('shared3:8fe6023a-c19a-498a-8f2a-818806578b4f'));
+    ok('uuid5: the name-based UUID form, one per name', /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entryUuid) &&
+        entryUuid !== sourcesLib.uuid5('shared3:8fe6023a-c19a-498a-8f2a-818806578b4f'));
     return u.serve()
         .then(() => u.check())
         .then(() => Promise.all(['doom', 'stubborn', 'shared'].map((id) => ask(conf.socket, { op: 'install', id }))))
@@ -2921,8 +2921,25 @@ function testIdClash() {
                 comp('doom').source === 'iterio' && comp('doom').status === 'update' && comp('doom').version === '9.0.0' &&
                 comp('doom@mgu-apps').blocked === `doom is already installed from ${iterio}` && comp('doom2').listedId === 'doom',
                 JSON.stringify(st().components.map((c) => [c.id, c.source, c.blocked])));
+            // a stick that installed doom is gone: the packages of that id show it, blocked, still removable
+            u.origins.doom.source = 'usb:GONE';
+            const held = comp('doom');
+            ok('clash: an installed app whose origin lists it no more keeps its row, installed and removable, its update blocked',
+                held.installed === '1.1.2' && held.blocked === 'doom is already installed from usb:GONE' && held.uninstallable === true &&
+                u.request('doom') === held.blocked && !st().components.some((c) => /^doom@/.test(c.id)), JSON.stringify(held));
             u.origins.doom.source = 'mgu-apps';
-            return priv({ op: 'uninstall', id: 'doom2' }).then(() => until(st, () => !u.busy && comp('doom2').status === 'available', 30000, 'doom2 removed'));
+            const tar = require('../js/tar');
+            const pj = (name) => Buffer.from(JSON.stringify({ name, version: '1.0.0' }));
+            return Promise.all([
+                sourcesLib.packageId(tar.tgz([{ name: 'package.json', data: pj('doom'), mode: 0o644 },
+                    { name: 'package/package.json', data: pj('doom2'), mode: 0o644 }], 0), 1 << 20),
+                sourcesLib.packageId(tar.tgz([{ name: 'component.json', data: pj('doom2'), mode: 0o644 },
+                    { name: 'package/package.json', data: pj('doom2'), mode: 0o644 }], 0), 1 << 20)
+            ]).then((ids) => {
+                ok('package id: read in the deploy tool\'s order (a flat package.json first; a tool kit is no app)',
+                    ids[0] === 'doom' && ids[1] === null, JSON.stringify(ids));
+                return priv({ op: 'uninstall', id: 'doom2' });
+            }).then(() => until(st, () => !u.busy && comp('doom2').status === 'available', 30000, 'doom2 removed'));
         })
         .then(() => {
             ok('clash: removing doom2 removes it alone, and the id kept for it',

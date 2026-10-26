@@ -699,8 +699,10 @@ class Updater {
      * it was installed under before (aliases.json), else, when the updater
      * builds it, under the first free <id>2, <id>3, ...: the entry as that
      * id, its own id as listedId. A package built elsewhere keeps its id
-     * and is blocked, keyed <id>@<source> beside the installed one. taken:
-     * ids no new alias may have (every listed id, every alias). */
+     * and is blocked, keyed <id>@<source> beside the installed one's row;
+     * when the installed one's origin lists that id no more, it is that row
+     * (the installed app stays shown and removable). taken: ids no new
+     * alias may have (every listed id, every alias). */
     place(source, entry, taken) {
         if (entry.kind !== 'app') {
             return entry;
@@ -720,7 +722,9 @@ class Updater {
                 return under(entry, id);
             }
         }
-        return Object.assign({}, entry, { id: `${entry.id}@${source}`, listedId: entry.id,
+        const listed = this.defs().some((d) => originOf(d.id) === originOf(holder) &&
+            (this.src.get(d.id) || { components: [] }).components.some((c) => c.id === entry.id));
+        return Object.assign({}, entry, { id: listed ? `${entry.id}@${source}` : entry.id, listedId: entry.id,
             blocked: `${entry.id} is already installed from ${this.sourceLabel(holder)}` });
     }
 
@@ -984,7 +988,7 @@ class Updater {
     /* Where an entry's icon is kept: <state_dir>/icons/<sha256>.png, named by
      * the sha256 its source gives, else by source, id, version and URL. */
     iconFile(source, entry) {
-        const key = entry.icon.sha256 || sha256(`${source}\0${entry.id}\0${entry.version}\0${entry.icon.ref}`);
+        const key = entry.icon.sha256 || sha256(`${source}\0${entry.listedId || entry.id}\0${entry.version}\0${entry.icon.ref}`);
         return path.join(this.conf.state_dir, 'icons', `${key}.png`);
     }
 
@@ -1399,9 +1403,9 @@ class Updater {
                 .then((donor) => runBuild({ conf: this.conf, entry: made.entry, files: made.files, donor: donor.path, sdk: donor.module,
                     lease: readLease(this.conf), log: (l) => console.log(l) }))
                 .then((bytes) => (own.id === entry.id ? bytes : sourcesLib.packageId(bytes, Number(this.conf.build_max_bytes) || 200 << 20)
-                    .then((made) => {
-                        if (made !== entry.id) {
-                            throw new Error(`the build of ${own.id} as ${entry.id} made ${made}: it cannot install beside ${own.id}`);
+                    .then((out) => {
+                        if (out !== entry.id) {
+                            throw new Error(`the build of ${own.id} as ${entry.id} made ${out}: it cannot install beside ${own.id}`);
                         }
                         return bytes;
                     })));

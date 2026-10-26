@@ -43,7 +43,7 @@ function rowState(row, busy) {
         return 'Not for this head unit';
     }
     if (row.blocked) {
-        return 'Not installable';
+        return row.installed ? `Installed ${row.installed}` : 'Not installable';
     }
     if (row.error) {
         return 'Failed, retry';
@@ -59,10 +59,10 @@ function rowState(row, busy) {
  * provides the same capability, after a confirm step), remove (after a
  * confirm step), or nothing. */
 function rowAction(row, busy) {
-    if ((busy && busy.id === row.id) || row.queued || row.blocked) {
+    if ((busy && busy.id === row.id) || row.queued) {
         return null;
     }
-    if (!notForUnit(row) && (row.status === 'update' || row.status === 'available' || row.error)) {
+    if (!notForUnit(row) && !row.blocked && (row.status === 'update' || row.status === 'available' || row.error)) {
         return row.replaces ? 'replace' : 'install';
     }
     return row.uninstallable === true && row.installed ? 'remove' : null;
@@ -90,7 +90,7 @@ function groupState(rows, busy) {
     if (rows.some((r) => r.error)) {
         return 'Failed';
     }
-    const updates = rows.filter((r) => r.status === 'update' && !notForUnit(r)).length;
+    const updates = rows.filter((r) => r.status === 'update' && !notForUnit(r) && !r.blocked).length;
     return updates ? `${updates} update${updates > 1 ? 's' : ''}` : '';
 }
 

@@ -811,12 +811,21 @@ function renameApp(entry, files, unitId) {
     return { entry: Object.assign({}, entry, { id: unitId, artifact }), files: out };
 }
 
-/* The id inside a built package: an OAP package's or an .mgu's
- * package.json name, a source package's mgu-app.json id. */
+/* The id a built package installs as, read in the deploy tool's order
+ * (mgu-deploy.js validateArtifact): a source package's mgu-app.json id, an
+ * OAP package's package.json name (flat, under package/, an .mgu's
+ * source/); null for a tool kit or anything else. */
 function packageId(bytes, maxBytes) {
     return tar.untgz(bytes, maxBytes).then((members) => {
-        const own = members.find((x) => x.name.replace(/^\.\//, '') === 'mgu-app.json');
-        return own ? parseJson(own.data, 'mgu-app.json').id : packageInfo(members).pkg.name;
+        const byName = new Map(members.map((m) => [m.name.replace(/^\.\//, ''), m.data]));
+        if (byName.has('component.json')) {
+            return null;
+        }
+        if (byName.has('mgu-app.json')) {
+            return parseJson(byName.get('mgu-app.json'), 'mgu-app.json').id;
+        }
+        const pkg = ['package.json', 'package/package.json', 'source/package.json'].find((n) => byName.has(n));
+        return pkg ? parseJson(byName.get(pkg), pkg).name : null;
     });
 }
 
