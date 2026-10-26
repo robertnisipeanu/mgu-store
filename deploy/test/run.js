@@ -2660,16 +2660,23 @@ function testMguInstall() {
             r.calls[0][r.calls[0].length - 1].includes('updater.js check') && r.calls.every((a) => !a.join(' ').includes(other)), r.out);
         r = mguInstall(['token', '--host', '10.0.0.9', '--list'], opts);
         check('mgu-install token --list: updater-token --list on the unit', r.calls.length === 1 &&
-            r.calls[0][r.calls[0].length - 1] === 'sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --list', JSON.stringify(r.calls));
+            r.calls[0][r.calls[0].length - 1].endsWith('sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --list'), JSON.stringify(r.calls));
         r = mguInstall(['token', '--host', '10.0.0.9', '--list', '--json'], opts);
         const listed = JSON.parse(r.stdout);
         const otherId = Object.keys(tokenTexts(root)).find((id) => tokenTexts(root)[id] === other);
         check('mgu-install token --list --json: the tokens as JSON, no token text', r.status === 0 &&
-            r.calls[0][r.calls[0].length - 1] === 'sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --list --json' &&
+            r.calls[0][r.calls[0].length - 1].endsWith('sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --list --json') &&
             listed.length === 2 && listed.some((t) => t.id === otherId) && !r.out.includes(TOKEN), r.out);
+        const deployComponent = root.p('var/opt/mgu-deploy/current/component.json');
+        const deployOwn = fs.readFileSync(deployComponent, 'utf8');
+        fs.writeFileSync(deployComponent, JSON.stringify(Object.assign(JSON.parse(deployOwn), { version: '0.2.2' })));
+        r = mguInstall(['token', '--host', '10.0.0.9', '--remove', otherId], opts);
+        check('mgu-install token --remove: a deploy tool older than 0.2.3 is refused, every token kept', r.status === 2 &&
+            r.stderr.includes('older than 0.2.3') && Object.keys(tokenTexts(root)).length === 2, r.out);
+        fs.writeFileSync(deployComponent, deployOwn);
         r = mguInstall(['token', '--host', '10.0.0.9', '--remove', otherId], opts);
         check('mgu-install token --remove <id>: updater-token --remove <id> on the unit', r.status === 0 && r.calls.length === 1 &&
-            r.calls[0][r.calls[0].length - 1] === `sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --remove '${otherId}'` &&
+            r.calls[0][r.calls[0].length - 1].endsWith(`sh /var/opt/mgu-deploy/mgu-deploy.sh updater-token --remove '${otherId}'`) &&
             !tokenTexts(root)[otherId] && Object.keys(tokenTexts(root)).length === 1, JSON.stringify(r.calls));
         const jsonAlone = mguInstall(['token', '--json'], opts);
         const notHex = mguInstall(['token', '--remove', 't-1a2b'], opts);

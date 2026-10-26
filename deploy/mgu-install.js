@@ -551,16 +551,23 @@ function addToken(o, token) {
     return r.status;
 }
 
+/* --list and --remove need a deploy tool that keeps tokens as their own
+ * entries (0.2.3): an older one lists nothing and removes its single token
+ * whatever id it is given. */
+const TOKENS_DEPLOY = `/usr/bin/node -e "var v=require('/var/opt/mgu-deploy/current/component.json').version.split('.').map(Number);` +
+    `process.exit(v[0]>0||v[1]>2||(v[1]===2&&v[2]>=3)?0:3)" || ` +
+    `{ echo 'the deploy tool on the unit is older than 0.2.3: install its update from the Store first' >&2; exit 2; }; `;
+
 async function tokenCommand(o) {
     // no stdin: these read no token
     if (o.list) {
-        return ssh(o, `sh ${DEPLOY} updater-token --list${o.json ? ' --json' : ''}`, { input: Buffer.alloc(0) }).status;
+        return ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --list${o.json ? ' --json' : ''}`, { input: Buffer.alloc(0) }).status;
     }
     if (o.remove !== null) {
         if (!/^[0-9a-f]{8}$/.test(o.remove)) {
             throw new Usage(`not a token id: ${o.remove}`);
         }
-        return ssh(o, `sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`, { input: Buffer.alloc(0) }).status;
+        return ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`, { input: Buffer.alloc(0) }).status;
     }
     return addToken(o, await readToken('GitHub token for the updater (input hidden): '));
 }
