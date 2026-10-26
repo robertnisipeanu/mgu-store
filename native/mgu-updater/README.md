@@ -50,7 +50,6 @@ them:
 ```json
 { "schema": 1, "sources": [
   { "id": "mgu-store", "type": "github", "repo": "robertnisipeanu/mgu-store", "builtin": true },
-  { "id": "mgu-apps",  "type": "github", "repo": "robertnisipeanu/mgu-apps" },
   { "id": "idrive7-apps", "type": "github", "repo": "someone/idrive7-apps", "channel": "branch:main" },
   { "id": "s-3f9a",    "type": "https",  "url": "https://example.org/repo/catalog.json" }
 ] }
@@ -185,14 +184,10 @@ is left out, and its sha256 is taken as it is listed. Each can be removed
 are only read: no link is followed (a folder or file reached through one is
 not there), only regular files, every size bounded.
 
-**First start.** Without `sources.json` the updater writes one
-(`js/migrate.js`): the built-in source, and on a unit the mgu-apps updater
-set up (`updater.local.conf` or `/var/opt/mgu-updater/github-token`
-there) also that updater's catalog (`catalog =`, by default
-`github:robertnisipeanu/mgu-apps`, as source `mgu-apps`), both GitHub
-sources with the old token as credential. The credentials are written
-first, `sources.json` last; the old files stay as they are, for a version
-the supervisor may return to.
+**First start.** The installers seed `sources.json` (the deploy tool's
+`updater-sources`, from `deploy/sources.json`) and never replace
+one that is there. Until it exists the updater reads the built-in source
+alone and writes nothing; the first change to the sources writes it.
 
 ## What it does
 
@@ -421,16 +416,16 @@ each request, and whenever it changes (at most every 250 ms):
 ```json
 { "type": "state", "updater": { "version": "0.2.0" }, "online": true, "privacy": "patched",
   "catalog": { "commit": "…", "checkedAt": 1792620000000, "checking": false, "error": null },
-  "sources": [ { "id": "mgu-apps", "type": "github", "label": "robertnisipeanu/mgu-apps",
+  "sources": [ { "id": "idrive7-apps", "type": "github", "label": "someone/idrive7-apps",
     "builtin": false, "usb": false, "channel": "releases", "status": "ok", "error": null,
-    "auth": { "kind": "github", "login": "robertnisipeanu" }, "checkedAt": 1792620000000, "components": 7 } ],
-  "login": { "source": "mgu-apps", "url": "https://github.com/login/device", "code": "ABCD-1234",
+    "auth": { "kind": "github", "login": "someone" }, "checkedAt": 1792620000000, "components": 7 } ],
+  "login": { "source": "idrive7-apps", "url": "https://github.com/login/device", "code": "ABCD-1234",
     "expiresAt": 1792620900000, "status": "pending", "error": null },
   "web": { "enabled": false, "urls": [], "error": null },
   "busy": { "id": "doom", "phase": "download", "progress": 524288, "total": 2080457 },
   "rebooting": false, "rebootError": null,
   "components": [ { "id": "doom", "kind": "app", "title": "DOOM", "version": "1.0.1",
-    "installed": "1.0.0", "size": 2080457, "status": "update", "source": "mgu-apps",
+    "installed": "1.0.0", "size": 2080457, "status": "update", "source": "idrive7-apps",
     "build": null, "optional": false, "uninstallable": true, "revision": null,
     "pendingReboot": false, "queued": false, "error": null } ] }
 ```
@@ -513,7 +508,6 @@ js/catalog.js            catalog parsing (schema 1 and 2), installed-vs-source p
 js/tar.js                .tar.gz in memory: reading a repo tarball, packing a component
 js/build.js              a repo's build script, as the build uid
 js/login.js              GitHub device-flow sign-in
-js/migrate.js            the first sources.json of a unit the mgu-apps updater set up
 js/fetch.js              one download, as the fetch uid
 js/client.js             socket client (Store app, command line)
 js/web.js                the phone page
@@ -545,8 +539,8 @@ releases, branches, tags, contents, tarballs, the device flow), with
   requirements installed first, uninstall and its refusals, USB media
   (a stick's root and `mgu-repo/<name>`, links not followed, nothing
   written), the privileged requests and their secret files, `web-url`
-  (with a stand-in page), `rid`, the first start of a unit the mgu-apps
-  updater set up, and the Store 0.3's texts from the state;
+  (with a stand-in page), `rid`, a first start without `sources.json`, and
+  the Store 0.3's texts from the state;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a

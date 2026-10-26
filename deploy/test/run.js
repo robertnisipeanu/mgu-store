@@ -1651,7 +1651,7 @@ function testTransactions() {
 
 function testTodoLines() {
     const root = fakeRoot();
-    // display-bridge (mgu-apps) installs through this tool; status lists its notes
+    // display-bridge installs through this tool; status lists its notes
     write(root.p('var/opt/display-bridge/current/display-bridge.conf'), [
         '# "TODO(on-car)" marks values the bring-up (BRINGUP.md) must confirm.',
         '# The group apps connect with. TODO(on-car): confirm',
@@ -1687,14 +1687,14 @@ function testToken() {
     check('token: the mgu-store source\'s, written from stdin, trailing newline dropped, 0600 in a 0700 folder', r.status === 0 &&
         fs.readFileSync(file, 'utf8') === TOKEN && mode(file) === 0o600 && mode(path.dirname(file)) === 0o700 &&
         r.out.includes(`${TOKEN.length} bytes`), r.out);
-    r = runIn(['updater-token', '--source', 'mgu-apps'], TOKEN);
+    r = runIn(['updater-token', '--source', 'idrive7-apps'], TOKEN);
     outputs.push(r.out);
     check('token: --source names another source\'s credential', r.status === 0 &&
-        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/mgu-apps'), 'utf8') === TOKEN, r.out);
+        fs.readFileSync(root.p('var/opt/mgu-updater/credentials/idrive7-apps'), 'utf8') === TOKEN, r.out);
     r = runIn(['updater-token', '--source', '../x'], TOKEN);
     check('token: a bad source id is refused, exit 2', r.status === 2 && r.out.includes('bad source id') &&
         !fs.existsSync(root.p('var/opt/mgu-updater/x')), r.out);
-    runIn(['updater-token', '--source', 'mgu-apps', '--remove'], '');
+    runIn(['updater-token', '--source', 'idrive7-apps', '--remove'], '');
     const st = root.status();
     const human = root.run(['status']);
     outputs.push(JSON.stringify(st), human.out);

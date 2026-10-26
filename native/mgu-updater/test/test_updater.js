@@ -17,8 +17,8 @@
  *    layouts on the releases, branch and tags channels, a branch commit
  *    that moves, repo build scripts (built, failing, too slow, writing
  *    outside), requirements installed first, uninstall, USB media, the
- *    privileged requests and their secret files, the first start of a unit
- *    the mgu-apps updater set up, and the Store 0.3's view of the state.
+ *    privileged requests and their secret files, a first start without
+ *    sources.json, and the Store 0.3's view of the state.
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -1883,49 +1883,29 @@ function testSources(certs) {
         .then(() => settled())
         .then(() => {
             u.server.close();
-            return testMigration(state);
+            return testFirstStart(state);
         });
 }
 
-/* The first start of a unit the mgu-apps updater set up. */
-function testMigration() {
+/* A first start without sources.json, and one this version cannot read. */
+function testFirstStart() {
     const { Updater } = require('../js/updater');
-    const D = path.join(T, 'migrate');
+    const D = path.join(T, 'first');
     mkdirp(D);
-    const conf = (extra) => Object.assign({ state_dir: path.join(D, 'state'), sources: path.join(D, 'sources.json'),
-        credentials_dir: path.join(D, 'cred'), local_conf: path.join(D, 'updater.local.conf'), token_file: path.join(D, 'github-token') }, extra);
-    // a fresh unit: the built-in source alone
-    let u = new Updater(conf({}));
-    ok('migrate: a fresh unit gets the built-in source alone', u.stored.length === 1 && u.stored[0].builtin &&
-        u.stored[0].repo === 'robertnisipeanu/mgu-store' && fs.existsSync(path.join(D, 'sources.json')));
-    fs.unlinkSync(path.join(D, 'sources.json'));
-    fs.writeFileSync(path.join(D, 'updater.local.conf'), 'catalog = github:robertnisipeanu/mgu-apps\ncheck_interval_s = 600\n');
-    fs.writeFileSync(path.join(D, 'github-token'), 'ghp_old\n', { mode: 0o600 });
-    const before = fs.readFileSync(path.join(D, 'updater.local.conf'), 'utf8');
-    // the keys as loadConf reads them from updater.local.conf
-    u = new Updater(conf({ catalog: 'github:robertnisipeanu/mgu-apps' }));
+    const conf = () => ({ state_dir: path.join(D, 'state'), sources: path.join(D, 'sources.json'), credentials_dir: path.join(D, 'cred') });
+    // no sources.json: the built-in source alone, and the file is left for the installers to seed
+    let u = new Updater(conf());
+    ok('sources: without sources.json, the built-in source alone and nothing written', u.stored.length === 1 && u.stored[0].builtin &&
+        u.stored[0].repo === 'robertnisipeanu/mgu-store' && !fs.existsSync(path.join(D, 'sources.json')));
+    u.saveSources(u.stored.concat([{ id: 'idrive7-apps', type: 'github', repo: 'someone/idrive7-apps' }]));
     const saved = JSON.parse(fs.readFileSync(path.join(D, 'sources.json'), 'utf8'));
-    ok('migrate: mgu-store (built-in) and mgu-apps, in that order', saved.sources.map((x) => `${x.id}:${x.repo}:${!!x.builtin}`).join() ===
-        'mgu-store:robertnisipeanu/mgu-store:true,mgu-apps:robertnisipeanu/mgu-apps:false', JSON.stringify(saved));
-    ok('migrate: both credentialed with the old token, root-only', ['mgu-store', 'mgu-apps'].every((id) =>
-        fs.readFileSync(path.join(D, 'cred', id), 'utf8').trim() === 'ghp_old' && (fs.statSync(path.join(D, 'cred', id)).mode & 0o777) === 0o600) &&
-        (fs.statSync(path.join(D, 'sources.json')).mode & 0o777) === 0o600);
-    ok('migrate: the old files stay as they were', fs.readFileSync(path.join(D, 'updater.local.conf'), 'utf8') === before &&
-        fs.readFileSync(path.join(D, 'github-token'), 'utf8') === 'ghp_old\n');
-    fs.writeFileSync(path.join(D, 'github-token'), 'ghp_changed\n');
-    u = new Updater(conf({ catalog: 'github:robertnisipeanu/mgu-apps' }));
-    ok('migrate: runs once (sources.json there: nothing is converted again)', u.stored.length === 2 &&
-        fs.readFileSync(path.join(D, 'cred', 'mgu-apps'), 'utf8').trim() === 'ghp_old');
-    // a unit without a catalog line: the old default, mgu-apps
-    fs.unlinkSync(path.join(D, 'sources.json'));
-    fs.writeFileSync(path.join(D, 'updater.local.conf'), 'first_check_s = 30\n');
-    u = new Updater(conf({}));
-    ok('migrate: without a catalog line the old default (mgu-apps) is the second source', u.stored.map((x) => x.id).join() === 'mgu-store,mgu-apps');
+    ok('sources: a change writes sources.json, root-only, the built-in source first', saved.sources.map((x) => `${x.id}:${!!x.builtin}`).join() ===
+        'mgu-store:true,idrive7-apps:false' && (fs.statSync(path.join(D, 'sources.json')).mode & 0o777) === 0o600, JSON.stringify(saved));
     // a sources.json this version cannot read (a newer one's) is not overwritten
     const newer = JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: 'robertnisipeanu/mgu-store', builtin: true },
         { id: 'future', type: 'ipfs', cid: 'x' }] });
     fs.writeFileSync(path.join(D, 'sources.json'), newer);
-    u = new Updater(conf({}));
+    u = new Updater(conf());
     let refused = null;
     try {
         refused = u.handle({ op: 'source-add', type: 'github', repo: 'a/b', secret: u.secret });
