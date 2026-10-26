@@ -19,6 +19,12 @@ function percent(busy) {
     return busy.total ? Math.min(100, Math.floor((100 * busy.progress) / busy.total)) : 0;
 }
 
+/* A version the updater says is not for this head unit (compat "no"): it
+ * would refuse to install it. */
+function notForUnit(row) {
+    return row.compat === 'no' && (row.status === 'update' || row.status === 'available');
+}
+
 /* The second column of a component's row. */
 function rowState(row, busy) {
     if (busy && busy.id === row.id) {
@@ -26,6 +32,9 @@ function rowState(row, busy) {
     }
     if (row.queued) {
         return 'Waiting';
+    }
+    if (notForUnit(row)) {
+        return 'Not for this head unit';
     }
     if (row.error) {
         return 'Failed, retry';
@@ -43,7 +52,7 @@ function rowAction(row, busy) {
     if ((busy && busy.id === row.id) || row.queued) {
         return null;
     }
-    if (row.status === 'update' || row.status === 'available' || row.error) {
+    if (!notForUnit(row) && (row.status === 'update' || row.status === 'available' || row.error)) {
         return 'install';
     }
     return row.uninstallable === true && row.installed ? 'remove' : null;
@@ -60,7 +69,7 @@ function groupState(rows, busy) {
     if (rows.some((r) => r.error)) {
         return 'Failed';
     }
-    const updates = rows.filter((r) => r.status === 'update').length;
+    const updates = rows.filter((r) => r.status === 'update' && !notForUnit(r)).length;
     return updates ? `${updates} update${updates > 1 ? 's' : ''}` : '';
 }
 
@@ -94,7 +103,7 @@ function statusLine(st, connected, secret) {
     if (st.catalog.error) {
         return `Check failed: ${st.catalog.error}`;
     }
-    const updates = st.components.filter((c) => c.status === 'update').length;
+    const updates = st.components.filter((c) => c.status === 'update' && !notForUnit(c)).length;
     return `${updates ? `${updates} update${updates > 1 ? 's' : ''}` : 'Up to date'}, ${checked}`;
 }
 
