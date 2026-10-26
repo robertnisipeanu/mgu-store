@@ -9,7 +9,7 @@ client asks for explicitly.
 | Dialect | Who sends it | Reference |
 |---|---|---|
 | **upstream** | idrive7-apps `kit/runtime/renderd.js` (car_vitals, gforce, doom, ...) | idrive7-apps `kit/renderd/src/proto.h`, protocol 1 |
-| **iterio** | IterioDev's kit `renderd.js` (oap-cardash, oap-draggy, oap-dtcscan, ...) | IterioDev mgu-renderd 1.1.0 `src/proto.h`, protocol 3 |
+| **iterio** | IterioDev's kit `renderd.js` (oap-cardash, oap-draggy, oap-dtcscan, ...) | IterioDev mgu-renderd 1.1.2 `src/proto.h`, protocol 3 |
 | **native** | `js/mgu_render_client.js` | this file, `mgu-render/1` |
 
 `src/proto.h` has every number below.
@@ -98,7 +98,7 @@ A client asks for it in HELLO: the app id, a NUL, then NUL-separated
 An older renderer takes the app id up to the NUL and answers with READY
 alone, so the client knows to fall back. mgu-render
 answers with X_READY first, then READY. Native clients use IterioDev's numbers
-for 9, 10, 11, 105, 106 and op 18, and the extensions below, whose types start
+for 9, 10, 11, 12, 105, 106 and op 18, and the extensions below, whose types start
 with "MR" (0x4d52…) so they never meet a number another dialect uses. A
 dialect added later takes its own HELLO field and its own type prefix.
 
