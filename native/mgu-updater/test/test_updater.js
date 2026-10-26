@@ -26,7 +26,7 @@
  *    capability (refused, replaced with the secret, uninstalled);
  *  - an App Manager index version 2 listed without downloads, its packages
  *    checked on install, and the icons it, a folder catalog and a repo's
- *    mgu-store.json name.
+ *    mgu-store.json name, and those a package carries (a stick, a version 1 index).
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -2278,10 +2278,34 @@ function testIndexV2(certs, pubDir) {
         { name: 'rel2.png', data: relIcon },
         { name: 'mgu-store.json', data: Buffer.from(JSON.stringify({ apps: { rel2: { title: 'Release Two', author: 'Pub', icon: 'rel2.png', iconSha256: sha256(relIcon) } } })) }] }] });
     publish(path.join(M, 'empty'), []);
+    // packages carrying the store's data: icon.png, author, store.description (on a stick's oap/, in a version 1 index)
+    const storePkg = (out, pj, iconData) => {
+        const d = path.join(T, 'src', `store-${path.basename(out)}`);
+        mkdirp(path.join(d, 'package'));
+        fs.writeFileSync(path.join(d, 'package', 'package.json'), JSON.stringify(pj));
+        if (iconData) {
+            fs.writeFileSync(path.join(d, 'package', 'icon.png'), iconData);
+        }
+        cp.execFileSync('tar', ['-czf', out, '-C', d, 'package']);
+        return out;
+    };
+    const stickIcon = png(50, 7);
+    const v1Icon = png(60, 8);
+    const stick = path.join(M, 'media', 'STICK');
+    mkdirp(path.join(stick, 'oap'));
+    storePkg(path.join(stick, 'oap', 'usb store app.tgz'), { name: 'usb_store', version: '1.0.0', productName: 'USB Store App',
+        author: { name: 'IterioDev' }, description: 'npm text', store: { description: 'Store text' } }, stickIcon);
+    storePkg(path.join(stick, 'oap', 'plain.tgz'), { name: 'usb_plain', version: '1.0.0', author: 'Someone', description: 'Plain text' },
+        png(20 + (130 << 10), 9));
+    fs.writeFileSync(path.join(M, 'mounts'), `/dev/sda1 ${stick} vfat rw 0 0\n`);
+    const v1 = fs.readFileSync(storePkg(path.join(pubDir, 'v1store@1.0.0.tgz'), { name: 'v1store', version: '1.0.0', author: 'V1',
+        store: { description: 'From a v1 index' } }, v1Icon));
+    fs.writeFileSync(path.join(pubDir, 'v1-index.json'), JSON.stringify({ packages: [{ url: 'v1store@1.0.0.tgz', sha256: sha256(v1) }] }));
     const sources = path.join(M, 'sources.json');
     fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [
         { id: 'mgu-store', type: 'file', path: path.join(M, 'empty'), builtin: true },
         { id: 'car-apps', type: 'https', url: `https://updates.test:${HTTPS_PORT}/v2-index.json` },
+        { id: 'v1', type: 'https', url: `https://updates.test:${HTTPS_PORT}/v1-index.json` },
         { id: 'cat', type: 'file', path: cat },
         { id: 'rel', type: 'github', repo: 'pub/v2rel', channel: 'releases' }
     ] }));
@@ -2295,7 +2319,6 @@ function testIndexV2(certs, pubDir) {
         socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
         bootstrap_check_s: '6', privacy_tool: '', reboot: ''
     };
-    fs.writeFileSync(conf.mounts, '');
     const u = new Updater(conf);
     const st = () => u.state();
     const comp = (id) => st().components.find((c) => c.id === id) || {};
@@ -2328,12 +2351,21 @@ function testIndexV2(certs, pubDir) {
                 (fs.statSync(a.icon).mode & 0o777) === 0o644 && (fs.statSync(iconDir).mode & 0o777) === 0o755, a.icon);
             ok('icons: one without a sha256 is kept too', r.icon && fs.readFileSync(r.icon).equals(png(40, 4)), r.icon);
             ok('icons: one that does not match its sha256, or is too big, is not kept', comp('v2both').icon === null && comp('v2big').icon === null &&
-                fs.readdirSync(iconDir).length === 4, fs.readdirSync(iconDir).join());
+                fs.readdirSync(iconDir).length === 6, fs.readdirSync(iconDir).join());
             ok('icons: a folder catalog\'s icon beside it, with its author', comp('cat_app').icon && fs.readFileSync(comp('cat_app').icon).equals(png(20, 5)) &&
                 comp('cat_app').author === 'Me', JSON.stringify(comp('cat_app')));
             ok('icons: a release asset mgu-store.json names', comp('rel2').icon && fs.readFileSync(comp('rel2').icon).equals(relIcon) &&
                 comp('rel2').title === 'Release Two' && comp('rel2').author === 'Pub', JSON.stringify(comp('rel2')));
             ok('icons: none for a component that names none', comp('v2liar').icon === null && comp('v2liar').author === 'IterioDev');
+            const us = comp('usb_store');
+            ok('package: a stick\'s package gives its icon.png, author.name and store.description', us.source === 'usb:STICK/oap' &&
+                us.icon === path.join(iconDir, `${sha256(stickIcon)}.png`) && fs.readFileSync(us.icon).equals(stickIcon) &&
+                us.author === 'IterioDev' && us.description === 'Store text', JSON.stringify(us));
+            ok('package: author as a string, description without store, an icon.png over 128 KiB left out',
+                comp('usb_plain').author === 'Someone' && comp('usb_plain').description === 'Plain text' && comp('usb_plain').icon === null,
+                JSON.stringify(comp('usb_plain')));
+            ok('package: a version 1 index\'s package gives them too', comp('v1store').icon && fs.readFileSync(comp('v1store').icon).equals(v1Icon) &&
+                comp('v1store').author === 'V1' && comp('v1store').description === 'From a v1 index', JSON.stringify(comp('v1store')));
             iconAsks = asked(/\.png$/);
             return checked();
         })

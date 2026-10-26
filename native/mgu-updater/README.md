@@ -89,7 +89,10 @@ source's sha256, else by source, id, version and URL; 0644, the folder
 that name. A component's `icon` in the state is that file, null without
 one; an icon that cannot be fetched or is not such a PNG is logged, left
 out and asked for again a day later. Kept icons no component names go
-after each check. A repo tree's components have none.
+after each check. A repo tree's components have none. A package read for
+what it is (a stick's `oap/`, a version 1 index) gives its own
+`icon.png` (beside `package.json`, the same limits), `author` (a string
+or `author.name`) and `store.description` over `description`.
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog
 release, else the releases layout), `branch:<name>` (`mgu-repo.json` at
@@ -661,7 +664,7 @@ releases, branches, tags, contents, tarballs, the device flow), with
   as a tool, an install that downloads and keeps the package, one whose
   package is another id refused; icons from it, a folder catalog and a
   repo's `mgu-store.json`, kept by sha256 (0644), one that does not match
-  or is too big left out, kept and failed ones not fetched again, removed once unnamed;
+  or is too big left out, kept and failed ones not fetched again, removed once unnamed; a package's own `icon.png`, `author` and `store.description` from a stick and a version 1 index;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a

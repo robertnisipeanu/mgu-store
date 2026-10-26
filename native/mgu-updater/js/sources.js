@@ -592,6 +592,12 @@ function httpsReader(s, ctx) {
             });
         },
         icon: (entry) => {
+            if (entry.icon.packaged) {
+                // a version 1 index's package, kept by its sha256
+                const file = cached(entry.artifact.sha256);
+                return file && fs.existsSync(file) ? packagedIcon(fs.readFileSync(file), entry, ctx.maxBuildBytes)
+                    : Promise.reject(new Error('the package is not kept'));
+            }
             const url = new URL(entry.icon.ref, s.url).toString();
             if (!/^https:\/\//.test(url)) {
                 return Promise.reject(new Error('an icon needs an https url'));
@@ -879,7 +885,11 @@ function packageInfo(members) {
             return !!title;
         });
     } catch (e) { /* no entry-point text */ }
-    return { pkg, title, hmi: hmi.length ? hmi.sort() : null };
+    // the store's picture (App Manager 2): icon.png beside package.json, a PNG of at most ICON_BYTES
+    const ib = byName.get(`${base}icon.png`);
+    const icon = ib && ib.length <= ICON_BYTES && ib.slice(0, 8).toString('hex') === '89504e470d0a1a0a'
+        ? { ref: `${base}icon.png`, sha256: crypto.createHash('sha256').update(ib).digest('hex'), packaged: true } : null;
+    return { pkg, title, hmi: hmi.length ? hmi.sort() : null, icon };
 }
 
 
@@ -889,7 +899,7 @@ function packageInfo(members) {
  * newer to install. An app that names no mguHmi is
  * for the HMIs its rhmiData has a UI for. */
 function packageEntry(members, data, artifact, ext) {
-    const { pkg, title, hmi } = packageInfo(members);
+    const { pkg, title, hmi, icon } = packageInfo(members);
     if (!ID.test(pkg.name || '') || !catalogLib.SEMVER.test(pkg.version || '')) {
         throw new Error('package.json needs a lower-case name and an x.y.z version');
     }
@@ -897,10 +907,13 @@ function packageEntry(members, data, artifact, ext) {
     if (service !== null && SERVICE_KINDS.indexOf(service) < 0) {
         throw new Error(`unknown mguService ${String(service).slice(0, 40)}`);
     }
-    return catalogLib.checkExtras({
+    return Object.assign(catalogLib.checkExtras({
         id: pkg.name, kind: service ? 'tool' : 'app', version: pkg.version,
         title: title || (typeof pkg.productName === 'string' && pkg.productName) || pkg.name,
-        description: typeof pkg.description === 'string' ? pkg.description : '',
+        // App Manager 2's store fields: store.description over description, author or author.name
+        description: pkg.store && typeof pkg.store.description === 'string' ? pkg.store.description
+            : typeof pkg.description === 'string' ? pkg.description : '',
+        author: pkg.author && typeof pkg.author === 'object' ? pkg.author.name : pkg.author,
         mguHmi: pkg.mguHmi !== undefined ? pkg.mguHmi : service ? undefined : hmi,
         mguProvides: service || undefined, service,
         // the deploy tool that installs a service package as a tool
@@ -908,6 +921,17 @@ function packageEntry(members, data, artifact, ext) {
         artifact: Object.assign({ name: `${pkg.name}@${pkg.version}.${ext}`, size: data.length,
             sha256: crypto.createHash('sha256').update(data).digest('hex') }, artifact),
         uninstallable: true
+    }), { icon });
+}
+
+/* A package's own icon (packageInfo: a member of it, packaged), from its bytes. */
+function packagedIcon(data, entry, max) {
+    return tar.untgz(data, max).then((members) => {
+        const m = members.find((x) => x.name.replace(/^\.\//, '') === entry.icon.ref);
+        if (!m) {
+            throw new Error(`no ${entry.icon.ref} in the package`);
+        }
+        return m.data;
     });
 }
 
@@ -941,7 +965,8 @@ function looseReader(root, ctx) {
             components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) }));
     };
     const folder = folderReader(root, ctx);
-    return { network: false, catalog: list, artifact: folder.artifact, files: folder.files };
+    return { network: false, catalog: list, artifact: folder.artifact, files: folder.files,
+        icon: (entry) => Promise.resolve().then(() => packagedIcon(readInside(root, entry.artifact.url, ctx.maxRepoBytes), entry, ctx.maxBuildBytes)) };
 }
 
 /* ---- one source --------------------------------------------------------------------- */

@@ -101,7 +101,10 @@ Packages made for IterioDev's App Manager install as they are:
   `mguHmi`; `url` and `icon` absolute or relative to the index; a package
   is downloaded on install and must be the id and version its entry names.
   Version 1, `{"packages": [{"url", "sha256"}]}`, has each package
-  downloaded and read for what it is;
+  downloaded and read for what it is. A package read that way (or from a
+  stick) shows its `icon.png` beside `package.json` (a PNG of at most
+  128 KiB), `author` (or `author.name`) and `store.description` (else
+  `description`);
 - a **service package** (`package.json` `{name, version, mguService}` and
   the x86-64 program under its name): `renderer` (`mgu-renderd`) or
   `tether` (`ipheth-tether`). It installs as a root tool of that name, with
