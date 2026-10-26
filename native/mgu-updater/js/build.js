@@ -49,15 +49,21 @@ if (!st.isFile() || st.size > Number(max)) {
     process.stderr.write(st.isFile() ? 'more than ' + max + ' bytes' : 'not a regular file');
     process.exit(1);
 }
-const outFd = fs.openSync(to, 'wx', 0o644);
-const buf = Buffer.alloc(1 << 20);
-let total = 0;
-for (;;) {
-    const n = fs.readSync(fd, buf, 0, buf.length, null);
-    if (!n) break;
-    total += n;
-    if (total > Number(max)) { process.stderr.write('more than ' + max + ' bytes'); process.exit(1); }
-    fs.writeSync(outFd, buf, 0, n);
+try {
+    const outFd = fs.openSync(to, 'wx', 0o644);
+    const buf = Buffer.alloc(1 << 20);
+    let total = 0;
+    for (;;) {
+        const n = fs.readSync(fd, buf, 0, buf.length, null);
+        if (!n) break;
+        total += n;
+        if (total > Number(max)) { process.stderr.write('more than ' + max + ' bytes'); process.exit(1); }
+        for (let off = 0; off < n;) off += fs.writeSync(outFd, buf, off, n - off);
+    }
+    fs.closeSync(outFd);
+} catch (e) {
+    process.stderr.write('cannot copy it (' + (e.code || e.message) + ')');
+    process.exit(1);
 }
 `;
 
