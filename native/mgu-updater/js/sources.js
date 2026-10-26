@@ -12,9 +12,13 @@
  *              (an app as a source package, a tool as a tool kit);
  *  - releases  a GitHub repo with neither: its releases' assets named
  *              <id>@<x.y.z>.tgz or .mgu, the newest version of each id.
- *  - loose     a USB stick's oap/ folder of app packages under any name
+ *  - loose     a USB stick's oap/ folder of packages under any name
  *              (the community App Manager's), each read for its own
- *              package.json.
+ *              package.json: apps, and root-service packages (mguService)
+ *              as the tools the deploy tool makes of them;
+ *  - index     an https URL serving IterioDev's App Manager index,
+ *              {"packages": [{url, sha256}]}: each package downloaded once
+ *              (kept by its sha256) and read like a loose one.
  *
  * Network reads go through `net` (the updater's Fetcher: fetch.js as the
  * fetch uid). A GitHub source is read with the token the updater picked for
@@ -282,6 +286,7 @@ function repoCatalog(readFile, commit, revision) {
                         id: rc.id, kind: rc.kind, version: c.version, title: pick('title'), description: pick('description'),
                         build: rc.kind === 'app' ? 'unit' : null, requires: pick('requires'),
                         optional: pick('optional'), uninstallable: pick('uninstallable'),
+                        mguHmi: pick('mguHmi'), mguProvides: rc.kind === 'tool' ? pick('mguProvides') : undefined,
                         artifact: { name: `${rc.id}@${c.version}.tgz`, size: null, sha256: null },
                         path: rc.path, script: scripted ? checkScript(rc.build) : null,
                         commit: commit || null, revision: revision || null
@@ -401,13 +406,92 @@ function folderReader(root, ctx) {
     };
 }
 
-/* An https source: catalog.json at a URL, artifacts absolute or relative to it. */
+const INDEX_PACKAGES = 50;
+const INDEX_PACKAGE_BYTES = 32 << 20;
+
+/* An https source: catalog.json at a URL, artifacts absolute or relative
+ * to it; or an App Manager index there, {"packages": [{url, sha256}]}
+ * (index mode): each package, https, absolute or relative to the index,
+ * downloaded once and kept in <cacheDir>/<source id>/<sha256>.tgz (root's,
+ * 0600; the ones the index no longer lists go), checked against its
+ * sha256 and read for what it is (packageEntry). */
 function httpsReader(s, ctx) {
+    const cache = ctx.cacheDir ? path.join(ctx.cacheDir, s.id) : null;
+    const cached = (sha) => (cache ? path.join(cache, `${sha}.tgz`) : null);
+    const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+    const fromIndex = (doc) => {
+        const skipped = [];
+        const newest = new Map();
+        const keep = [];
+        return doc.packages.slice(0, INDEX_PACKAGES).reduce((p, item) => p.then(() => {
+            const sha = String((item && item.sha256) || '').toLowerCase();
+            let url = null;
+            try {
+                url = new URL(String((item && item.url) || ''), s.url).toString();
+            } catch (e) { /* refused below */ }
+            const name = url ? decodeURIComponent(url.split('?')[0].split('/').pop() || '').slice(0, 100) : '?';
+            return Promise.resolve()
+                .then(() => {
+                    if (!/^[0-9a-f]{64}$/.test(sha) || !url || !/^https:\/\//.test(url)) {
+                        throw new Error('needs an https url and a sha256');
+                    }
+                    const file = cached(sha);
+                    if (file && fs.existsSync(file)) {
+                        return fs.readFileSync(file);
+                    }
+                    return ctx.net.get(url, ua(ctx.version), name, INDEX_PACKAGE_BYTES).then((b) => {
+                        if (sha256(b) !== sha) {
+                            throw new Error('does not match the sha256 in the index');
+                        }
+                        if (file) {
+                            mkdirPrivate(cache);
+                            writePrivate(file, b);
+                        }
+                        return b;
+                    });
+                })
+                .then((data) => {
+                    keep.push(`${sha}.tgz`);
+                    return tar.untgz(data, ctx.maxBuildBytes).then((members) => {
+                        const pkg = packageInfo(members).pkg;
+                        const entry = packageEntry(members, data, { name: `${pkg.name}@${pkg.version}.tgz`, url });
+                        const have = newest.get(entry.id);
+                        if (!have || catalogLib.compareVersions(entry.version, have.version) > 0) {
+                            newest.set(entry.id, entry);
+                        }
+                    });
+                })
+                .catch((err) => {
+                    skipped.push(`${name}: ${err.message}`);
+                });
+        }), Promise.resolve()).then(() => {
+            if (cache && fs.existsSync(cache)) {
+                fs.readdirSync(cache).filter((n) => keep.indexOf(n) < 0).forEach((n) => fs.unlinkSync(path.join(cache, n)));
+            }
+            return { mode: 'index', commit: null, skipped, components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) };
+        });
+    };
     return {
         network: true,
-        catalog: () => ctx.net.get(s.url, ua(ctx.version), 'catalog.json', 4 << 20)
-            .then((b) => Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8')))),
+        catalog: () => ctx.net.get(s.url, ua(ctx.version), 'catalog.json', 4 << 20).then((b) => {
+            const text = b.toString('utf8');
+            let doc = null;
+            try {
+                doc = JSON.parse(text);
+            } catch (e) { /* parse says so */ }
+            if (doc && doc.schema === undefined && Array.isArray(doc.packages)) {
+                return fromIndex(doc);
+            }
+            return Object.assign({ mode: 'catalog' }, catalogLib.parse(text));
+        }),
         artifact: (entry, onProgress) => {
+            const file = entry.artifact.sha256 && cached(entry.artifact.sha256);
+            if (file && fs.existsSync(file)) {
+                const b = fs.readFileSync(file);
+                if (sha256(b) === entry.artifact.sha256) {
+                    return Promise.resolve(b);
+                }
+            }
             const url = new URL(entry.artifact.url || entry.artifact.name, s.url).toString();
             return ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress);
         },
@@ -645,8 +729,26 @@ function packageInfo(members) {
     }
     const pkg = parseJson(byName.get(`${base}package.json`), 'package.json');
     let title = null;
+    const rhmi = base === 'source/' ? 'rhmiData/' : `${base}rhmiData/`;
+    // the HMIs its rhmiData has a UI for: application.json's uiDescriptions[].hmi, else its uiDescriptions/<hmi>/ folders
+    const hmi = [];
     try {
-        const rhmi = base === 'source/' ? 'rhmiData/' : `${base}rhmiData/`;
+        const uis = parseJson(byName.get(`${rhmi}application.json`), 'application.json').application.uiDescriptions || [];
+        uis.forEach((u) => (u && Array.isArray(u.hmi) ? u.hmi : []).forEach((h) => {
+            if (catalogLib.HMIS.indexOf(h) >= 0 && hmi.indexOf(h) < 0) {
+                hmi.push(h);
+            }
+        }));
+    } catch (e) { /* no application.json */ }
+    if (!hmi.length) {
+        byName.forEach((data, name) => {
+            const m = name.slice(0, rhmi.length) === rhmi && /^uiDescriptions\/([^/]+)\//.exec(name.slice(rhmi.length));
+            if (m && catalogLib.HMIS.indexOf(m[1]) >= 0 && hmi.indexOf(m[1]) < 0) {
+                hmi.push(m[1]);
+            }
+        });
+    }
+    try {
         const app = parseJson(byName.get(`${rhmi}application.json`), 'application.json').application;
         const textId = app.entryPoints && app.entryPoints[0] && app.entryPoints[0].textId;
         const groups = (app.variantGroups || []).map((g) => String(g.stringsPath || '').replace(/^\.\//, ''));
@@ -657,13 +759,42 @@ function packageInfo(members) {
             return !!title;
         });
     } catch (e) { /* no entry-point text */ }
-    return { pkg, title };
+    return { pkg, title, hmi: hmi.length ? hmi.sort() : null };
+}
+
+const SERVICE_KINDS = ['renderer', 'tether'];
+
+/* A package's catalog entry from its own members: an app, or a root-service
+ * package (mguService: renderer or tether) as the tool the deploy tool
+ * makes of it, which provides its kind and needs mgu-deploy 0.3.0 or
+ * newer to install. An app that names no mguHmi is
+ * for the HMIs its rhmiData has a UI for. */
+function packageEntry(members, data, artifact) {
+    const { pkg, title, hmi } = packageInfo(members);
+    if (!ID.test(pkg.name || '') || !catalogLib.SEMVER.test(pkg.version || '')) {
+        throw new Error('package.json needs a lower-case name and an x.y.z version');
+    }
+    const service = pkg.mguService === undefined ? null : pkg.mguService;
+    if (service !== null && SERVICE_KINDS.indexOf(service) < 0) {
+        throw new Error(`unknown mguService ${String(service).slice(0, 40)}`);
+    }
+    return catalogLib.checkExtras({
+        id: pkg.name, kind: service ? 'tool' : 'app', version: pkg.version,
+        title: title || (typeof pkg.productName === 'string' && pkg.productName) || pkg.name,
+        description: typeof pkg.description === 'string' ? pkg.description : '',
+        mguHmi: pkg.mguHmi !== undefined ? pkg.mguHmi : service ? undefined : hmi,
+        mguProvides: service || undefined, service,
+        // the deploy tool that installs a service package as a tool
+        requires: service ? { 'mgu-deploy': '0.3.0' } : undefined,
+        artifact: Object.assign({ size: data.length, sha256: crypto.createHash('sha256').update(data).digest('hex') }, artifact),
+        uninstallable: true
+    });
 }
 
 /* A stick's oap/ folder: each package file (any name, .tgz, .tar.gz or
- * .mgu) one app, its id, version and title from the package itself; the
- * newest of an id wins; root-service packages (mguService) are left out.
- * sha256 is taken as the listing reads the file. */
+ * .mgu) one component, its id, version and title from the package itself
+ * (packageEntry); the newest of an id wins. sha256 is taken as the
+ * listing reads the file. */
 function looseReader(root, ctx) {
     const list = () => {
         const skipped = [];
@@ -677,26 +808,13 @@ function looseReader(root, ctx) {
                     return tar.untgz(data, ctx.maxBuildBytes);
                 })
                 .then((members) => {
-                    const { pkg, title } = packageInfo(members);
-                    if (pkg.mguService !== undefined) {
-                        return;
+                    const pkg = packageInfo(members).pkg;
+                    const entry = packageEntry(members, data, {
+                        name: `${pkg.name}@${pkg.version}.${/\.mgu$/i.test(name) ? 'mgu' : 'tgz'}`, url: name });
+                    const have = newest.get(entry.id);
+                    if (!have || catalogLib.compareVersions(entry.version, have.version) > 0) {
+                        newest.set(entry.id, entry);
                     }
-                    if (!ID.test(pkg.name || '') || !catalogLib.SEMVER.test(pkg.version || '')) {
-                        throw new Error('package.json needs a lower-case name and an x.y.z version');
-                    }
-                    const have = newest.get(pkg.name);
-                    if (have && catalogLib.compareVersions(pkg.version, have.version) <= 0) {
-                        return;
-                    }
-                    const ext = /\.mgu$/i.test(name) ? 'mgu' : 'tgz';
-                    newest.set(pkg.name, catalogLib.checkExtras({
-                        id: pkg.name, kind: 'app', version: pkg.version,
-                        title: title || (typeof pkg.productName === 'string' && pkg.productName) || pkg.name,
-                        description: typeof pkg.description === 'string' ? pkg.description : '',
-                        artifact: { name: `${pkg.name}@${pkg.version}.${ext}`, url: name, size: data.length,
-                            sha256: crypto.createHash('sha256').update(data).digest('hex') },
-                        uninstallable: true
-                    }));
                 })
                 .catch((err) => {
                     skipped.push(`${name}: ${err.message}`);
@@ -732,5 +850,5 @@ function label(s) {
 
 module.exports = {
     load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
-    repoCatalog, packComponent, subtree, packageInfo, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE
+    repoCatalog, packComponent, subtree, packageInfo, packageEntry, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE
 };

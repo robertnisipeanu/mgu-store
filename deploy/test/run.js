@@ -309,6 +309,9 @@ function fakeRoot(opts) {
         MGU_DEPLOY_SYSTEMD: p('etc/systemd/system'),
         MGU_DEPLOY_RECMGR: p('etc/recmgr-restartlist.conf'),
         MGU_DEPLOY_MAINAPP: p('usr/lib/oap-mainapp'),
+        MGU_DEPLOY_MAINAPP21: p('usr/lib/oap-mainapp21'),
+        MGU_DEPLOY_PROV: p('usr/share/tm/prov'),
+        MGU_DEPLOY_VMINPUT: p('usr/bin/vminput'),
         MGU_DEPLOY_OAP: p('var/opt/public/oap'),
         MGU_DEPLOY_ETC: p('etc'),
         MGU_DEPLOY_PROC: p('proc'),
@@ -1219,8 +1222,9 @@ function testSelf() {
     check('self: deploy/hu artifact deploy builds mgu-deploy@<version>.tgz', builds.every((b) => b.r.status === 0 && fs.existsSync(b.file)),
         builds.map((b) => b.r.stderr).join('\n'));
     check('self: two builds are byte-identical', sha256(fs.readFileSync(builds[0].file)) === sha256(fs.readFileSync(builds[1].file)));
-    check('self: the artifact holds its six files and its manifest', JSON.stringify(tarList(builds[0].file)) === JSON.stringify([
-        'component.json', 'files/fallback_build.js', 'files/mgu-app-fallback.service', 'files/mgu-deploy.js', 'files/mgu-deploy.sh',
+    check('self: the artifact holds its seven files and its manifest', JSON.stringify(tarList(builds[0].file)) === JSON.stringify([
+        'component.json', 'files/fallback_build.js', 'files/mgu-app-fallback.service', 'files/mgu-deploy-apply.service',
+        'files/mgu-deploy.js', 'files/mgu-deploy.sh',
         'files/oap_link.js', 'files/oap_pack.js']),
     tarList(builds[0].file).join(' '));
     const built = untar(builds[0].file)['component.json'].data;
@@ -1244,7 +1248,7 @@ function testSelf() {
 
     // the kit layout: component.json beside the script
     const kit = fs.mkdtempSync(path.join(T, 'kit-'));
-    ['mgu-deploy.js', 'mgu-deploy.sh', 'fallback_build.js', 'mgu-app-fallback.service'].forEach((n) =>
+    ['mgu-deploy.js', 'mgu-deploy.sh', 'fallback_build.js', 'mgu-app-fallback.service', 'mgu-deploy-apply.service'].forEach((n) =>
         fs.copyFileSync(path.join(DEPLOY, 'unit', n), path.join(kit, n)));
     LINK_FILES.forEach((n) => fs.copyFileSync(path.join(TOOLS, n), path.join(kit, n)));
     fs.copyFileSync(path.join(DEPLOY, 'component.json'), path.join(kit, 'component.json'));
@@ -2791,6 +2795,15 @@ function testMguInstallUsb() {
         const service = path.join(fs.mkdtempSync(path.join(T, 'svc-')), 'renderer.tgz');
         fs.writeFileSync(service, tgz([{ name: 'package/package.json', data: Buffer.from(JSON.stringify({ name: 'mgu-renderd', version: '1.0.0', mguService: {} })), mode: 0o644 }], 1700000000));
         r = mguInstall(['usb-repo', stick, service], opts);
+        const goodSvc = path.join(fs.mkdtempSync(path.join(T, 'usbsvc-')), 'usbsvc');
+        fs.mkdirSync(goodSvc);
+        const svcStick = path.join(goodSvc, 'stick');
+        fs.mkdirSync(svcStick);
+        const rs = mguInstall(['usb-repo', svcStick, serviceArtifact('renderer', '1.1.0')], opts);
+        const svcEntry = (readJson(path.join(svcStick, 'mgu-repo', 'local', 'catalog.json')).components || [])[0] || {};
+        check('mgu-install usb-repo: a renderer package is listed as the tool it installs as, providing renderer', rs.status === 0 &&
+            svcEntry.id === 'mgu-renderd' && svcEntry.kind === 'tool' && svcEntry.mguProvides === 'renderer' && svcEntry.uninstallable === true,
+            `${rs.out}\n${JSON.stringify(svcEntry)}`);
         const badPub = path.join(fs.mkdtempSync(path.join(T, 'badpub-')), 'dir-publish');
         cp.execFileSync('cp', ['-R', pub + '/.', badPub]);
         fs.appendFileSync(path.join(badPub, 'dir_app@1.0.0.tgz'), 'x');
@@ -2827,6 +2840,313 @@ function testMguInstallPaths() {
 }
 
 /* ---- run ------------------------------------------------------------------------------------- */
+
+/* ---- head units, compatibility, iDrive 8, service packages, capabilities ---------- */
+
+/* An ELF64 x86-64 header and some bytes: the program a service package carries. */
+function elf() {
+    const b = Buffer.alloc(256);
+    b.writeUInt32BE(0x7f454c46, 0);
+    b[4] = 2;
+    b.writeUInt16LE(0x3e, 18);
+    return b;
+}
+
+/* IterioDev's service package format: npm-format, package/<name> and package.json. */
+function serviceArtifact(kind, version, opts) {
+    opts = opts || {};
+    const name = opts.name || (kind === 'tether' ? 'ipheth-tether' : 'mgu-renderd');
+    const pkg = Object.assign({ name, version, productName: kind === 'tether' ? 'iPhone tether' : 'GPU renderer',
+        description: `test ${kind}`, mguService: kind }, opts.pkg || {});
+    const file = path.join(fs.mkdtempSync(path.join(T, 'svc-')), `${name}@${version}.tgz`);
+    fs.writeFileSync(file, tgz([
+        { name: `package/${opts.binName || name}`, data: opts.bin || elf(), mode: 0o755 },
+        { name: 'package/package.json', data: Buffer.from(JSON.stringify(pkg, null, 2) + '\n'), mode: 0o644 }
+    ], 1700000000));
+    return file;
+}
+
+/* An app with rhmiData naming hmis; npm: files under package/. */
+function rhmiApp(name, version, hmis, opts) {
+    opts = opts || {};
+    const pre = opts.npm ? 'package/' : '';
+    const pkg = Object.assign({ name, version, description: 'rhmi test app', main: './javascript/app.js' }, opts.pkg || {});
+    if (opts.marked) {
+        pkg.mguLocalOnly = true;
+    }
+    const entries = [
+        { name: `${pre}javascript/app.js`, data: Buffer.from(`console.log(${JSON.stringify(name)});\n`), mode: 0o644 },
+        { name: `${pre}package.json`, data: Buffer.from(JSON.stringify(pkg, null, 2) + '\n'), mode: 0o644 }
+    ];
+    if (hmis) {
+        entries.push({ name: `${pre}rhmiData/application.json`, mode: 0o644, data: Buffer.from(JSON.stringify({ application: {
+            name, uiDescriptions: hmis.map((h) => ({ applicationFilePath: `./uiDescriptions/${h}/application.xml`, hmi: [h] })) } })) });
+        hmis.forEach((h) => entries.push({ name: `${pre}rhmiData/uiDescriptions/${h}/application.xml`, data: Buffer.from('<x/>\n'), mode: 0o644 }));
+    }
+    const file = path.join(fs.mkdtempSync(path.join(T, 'rapp-')), `${name}@${version}.tgz`);
+    fs.writeFileSync(file, tgz(entries, 1700000000));
+    return file;
+}
+
+/* A das file the way MainApp-21's provisioning holds one (made up here:
+ * the anchors IterioDev's App Manager edits around). */
+function dasText(n) {
+    return ['<?xml version="1.0" encoding="UTF-8"?>', `<das id="${n}">`, '    <section name="oap">',
+        '        <installable_apps>', '            <app supportedECUs="HU">x_call</app>', '        </installable_apps>',
+        '        <x_call enabled="true" allowed="true" appStartType="autostart" userLoginRequired="false"/>',
+        '    </section>', '</das>', ''].join('\n');
+}
+
+/* A fake iDrive 8: MainApp-21's folder instead of MainApp's, the six das
+ * files (opts.prov: a folder of real ones), no recmgr list with opts.noRecmgr. */
+function id8Root(opts) {
+    opts = opts || {};
+    const root = fakeRoot(opts);
+    fs.renameSync(root.p('usr/lib/oap-mainapp'), root.p('usr/lib/oap-mainapp21'));
+    for (let i = 0; i < 6; i += 1) {
+        const n = `das_00${i}`;
+        write(root.p(`usr/share/tm/prov/${n}.xml`), opts.prov ? fs.readFileSync(path.join(opts.prov, `${n}.xml`)) : dasText(n));
+    }
+    if (opts.noRecmgr) {
+        fs.unlinkSync(root.p('etc/recmgr-restartlist.conf'));
+    }
+    root.env.FAKE_MGR_DIR = 'oap-mainapp21';
+    root.noManager = () => fs.writeFileSync(`${root.R}.mgr.pid`, '');
+    root.pre21 = (id, v) => root.p(`usr/lib/oap-mainapp21/preinstalled_apps/${id}@${v}.tgz`);
+    return root;
+}
+
+function testUnitDetect() {
+    const r7 = fakeRoot();
+    write(r7.p('etc/os-release-id-dlt'), 'BMW MGU P18_23w44.2-1-3 mgu-high\n');
+    const st = r7.status();
+    check('unit: MainApp in /usr/lib/oap-mainapp is iDrive 7, firmware from os-release-id-dlt',
+        JSON.stringify(st.unit) === JSON.stringify({ hmi: 'ID7', firmware: 'BMW MGU P18_23w44.2-1-3 mgu-high' }), JSON.stringify(st.unit));
+    const text = r7.run(['status']).stdout;
+    check('unit: status says which and why', text.includes('head unit: iDrive 7 (') && text.includes('oap-mainapp)'), text);
+    const r8 = id8Root();
+    write(r8.p('etc/os-release'), 'NAME="MGU"\nPRETTY_NAME="BMW MGU 23w50"\n');
+    check('unit: MainApp-21 in /usr/lib/oap-mainapp21 is iDrive 8, firmware from os-release', JSON.stringify(r8.status().unit) ===
+        JSON.stringify({ hmi: 'ID8', firmware: 'BMW MGU 23w50' }), JSON.stringify(r8.status().unit));
+    const both = fakeRoot();
+    fs.mkdirSync(both.p('usr/lib/oap-mainapp21'), { recursive: true });
+    write(both.p('proc/77/comm'), 'Hmi8\n');
+    check('unit: with both folders the running HMI decides', both.status().unit.hmi === 'ID8', JSON.stringify(both.status().unit));
+    fs.unlinkSync(both.p('proc/77/comm'));
+    write(both.p('proc/78/comm'), 'HmiMain3D\n');
+    check('unit: HmiMain3D is iDrive 7', both.status().unit.hmi === 'ID7');
+    fs.unlinkSync(both.p('proc/78/comm'));
+    const r = both.run(['install', '--artifact', rhmiApp('x8', '1.0.0', ['ID8']), '--yes']);
+    check('unit: unknown, the install says mguHmi is not checked', both.status().unit.hmi === null &&
+        r.out.includes('which head unit this is is unknown (both MainApp folders, no HMI running): mguHmi is not checked'), r.out);
+}
+
+function testCompat() {
+    const root = fakeRoot();
+    const h0 = root.hash();
+    const r = root.run(['install', '--artifact', rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true }), '--yes']);
+    check('compat: an app whose rhmiData is iDrive 8 only is refused on iDrive 7, nothing changed', r.status === 2 &&
+        r.out.includes('oap-cardash 1.1.4 is for iDrive 8 (its rhmiData); this head unit is iDrive 7') && root.hash().hash === h0.hash, r.out);
+    const r2 = root.run(['install', '--artifact', rhmiApp('decl8', '1.0.0', ['ID7'], { pkg: { mguHmi: ['ID8'] } }), '--yes']);
+    check('compat: a declared mguHmi wins over the rhmiData', r2.status === 2 &&
+        r2.out.includes('decl8 1.0.0 is for iDrive 8; this head unit is iDrive 7'), r2.out);
+    const r3 = root.run(['install', '--artifact', rhmiApp('bad', '1.0.0', null, { pkg: { mguHmi: 'ID7' } }), '--yes']);
+    check('compat: mguHmi that is not a list of ID7/ID8 is refused', r3.status === 2 && r3.out.includes('mguHmi must list "ID7" and/or "ID8"'), r3.out);
+    const c = root.run(['check', '--artifact', rhmiApp('both', '1.0.0', ['ID7', 'ID8'], { marked: true })]);
+    check('compat: check names the HMIs an artifact is for', c.out.includes('app both 1.0.0 ok (for iDrive 7 and iDrive 8)'), c.out);
+    const out = fs.mkdtempSync(path.join(T, 'art-'));
+    const b = hu(['artifact', fixtureCopy('0.2.0', (x) => { x.mguHmi = ['ID8']; }), '--out', out]);
+    const r4 = root.run(['install', '--artifact', path.join(out, 'fixture-tool@0.2.0.tgz'), '--yes']);
+    check('compat: a tool for iDrive 8 only is refused on iDrive 7 (mguHmi kept by deploy/hu artifact)', b.status === 0 && r4.status === 2 &&
+        r4.out.includes('fixture-tool 0.2.0 is for iDrive 8; this head unit is iDrive 7'), b.stderr + r4.out);
+}
+
+function testServices() {
+    const root = fakeRoot();
+    const art = serviceArtifact('renderer', '1.1.0');
+    const r = root.run(['install', '--artifact', art, '--yes']);
+    const dir = root.p('var/opt/mgu-renderd/versions/1.1.0');
+    const unit = fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) ?
+        fs.readFileSync(root.p('etc/systemd/system/mgu-renderd.service'), 'utf8') : '';
+    check('service: a renderer package installs as the tool mgu-renderd', r.status === 0 &&
+        fs.readFileSync(path.join(dir, 'mgu-renderd')).equals(elf()) && mode(path.join(dir, 'mgu-renderd')) === 0o755 &&
+        readJson(path.join(dir, 'package.json')).mguService === 'renderer' &&
+        fs.readlinkSync(root.p('var/opt/mgu-renderd/current')) === 'versions/1.1.0', r.out);
+    check('service: its unit runs current/mgu-renderd as root on its socket, no touch routing on iDrive 7',
+        unit.includes(`ExecStart=${root.p('var/opt/mgu-renderd/current/mgu-renderd')} --socket /run/mgu-renderd/renderd.sock\n`) &&
+        !unit.includes('User=') && unit.includes('RuntimeDirectory=mgu-renderd') && !unit.includes('--touch'), unit);
+    check('service: enabled for late.target and listed in recmgr',
+        fs.readlinkSync(root.p('etc/systemd/system/late.target.wants/mgu-renderd.service')) === '../mgu-renderd.service' &&
+        /\[Whitelist\][^[]*mgu-renderd/.test(fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8')));
+    const st = root.status();
+    check('service: recmgr has not loaded it: it starts at the next boot', !root.systemctlCalls().includes('start mgu-renderd.service') &&
+        st.pending_reboot.some((p) => p.id === 'mgu-renderd' && p.reason === 'starts at the next boot'), JSON.stringify(st.pending_reboot));
+    check('service: status lists it as a tool providing renderer',
+        st.components.some((c) => c.id === 'mgu-renderd' && c.kind === 'tool' && c.provides === 'renderer'), JSON.stringify(st.components));
+    const notElf = root.run(['install', '--artifact', serviceArtifact('renderer', '1.1.1', { bin: Buffer.from('#!/bin/sh\n') }), '--yes']);
+    check('service: a program that is not x86-64 is refused', notElf.status === 2 && notElf.out.includes('mgu-renderd is not an x86-64 program'), notElf.out);
+    const named = root.run(['install', '--artifact', serviceArtifact('renderer', '1.1.1', { name: 'other-renderd' }), '--yes']);
+    check('service: a renderer package must be called mgu-renderd', named.status === 2 &&
+        named.out.includes('a renderer package is named mgu-renderd, not other-renderd'), named.out);
+    const kind = root.run(['install', '--artifact', serviceArtifact('bogus', '1.0.0', { name: 'bogus' }), '--yes']);
+    check('service: an unknown mguService is refused', kind.status === 2 && kind.out.includes('unknown mguService bogus'), kind.out);
+    const t = root.run(['install', '--artifact', serviceArtifact('tether', '1.0.1'), '--yes']);
+    const tunit = fs.readFileSync(root.p('etc/systemd/system/ipheth-tether.service'), 'utf8');
+    check('service: a tether package installs on demand: not enabled, not started', t.status === 0 &&
+        tunit.includes(`ExecStart=${root.p('var/opt/ipheth-tether/current/ipheth-tether')} socks 127.0.0.1:1080`) &&
+        !fs.existsSync(root.p('etc/systemd/system/late.target.wants/ipheth-tether.service')) &&
+        !root.systemctlCalls().some((c) => /ipheth-tether/.test(c) && /^(start|restart)/.test(c)) &&
+        root.status().components.some((c) => c.id === 'ipheth-tether' && c.provides === 'tether'), t.out);
+    const u = root.run(['uninstall', 'mgu-renderd', '--yes']);
+    check('service: uninstall removes the tool, its unit, link and recmgr entry', u.status === 0 &&
+        !fs.existsSync(root.p('var/opt/mgu-renderd')) && !fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
+        !fs.existsSync(root.p('etc/systemd/system/late.target.wants/mgu-renderd.service')) &&
+        !/mgu-renderd/.test(fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8')), u.out);
+
+    const r8 = id8Root({ noRecmgr: true });
+    const i8 = r8.run(['install', '--artifact', art, '--yes']);
+    const unit8 = fs.readFileSync(r8.p('etc/systemd/system/mgu-renderd.service'), 'utf8');
+    check('service: on iDrive 8 without a recmgr list it starts at once, with touch routing over the iDrive 8 app area',
+        i8.status === 0 && r8.systemctlCalls().includes('start mgu-renderd.service') &&
+        unit8.includes('--socket /run/mgu-renderd/renderd.sock --touch car --touch-area 0,76,2880,764') &&
+        unit8.includes('nft delete table ip touchroute') && !fs.existsSync(r8.p('etc/recmgr-restartlist.conf')) &&
+        r8.status().pending_reboot.length === 0, i8.out);
+    const vm = id8Root({ noRecmgr: true });
+    write(vm.p('usr/bin/vminput'), '');
+    vm.run(['install', '--artifact', art, '--yes']);
+    check('service: in the MGU VM (vminput) its touch comes from the VM',
+        fs.readFileSync(vm.p('etc/systemd/system/mgu-renderd.service'), 'utf8').includes('--touch vm --touch-area'));
+}
+
+function providerArtifact(version, edit) {
+    const out = fs.mkdtempSync(path.join(T, 'art-'));
+    const r = hu(['artifact', fixtureCopy(version, (c) => { c.mguProvides = 'renderer'; c.enable = []; if (edit) edit(c); }), '--out', out]);
+    if (r.status !== 0) {
+        throw new Error(`deploy/hu artifact failed: ${r.stderr}`);
+    }
+    return path.join(out, `fixture-tool@${version}.tgz`);
+}
+
+function testProvides() {
+    const opts = { recmgr: ['mgu-renderd', 'fixture-tool'], active: 'mgu-renderd.service' };
+    const root = fakeRoot(opts);
+    const ren = root.run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--yes']);
+    const prov = providerArtifact('0.2.0');
+    const h0 = root.hash((rel) => rel.startsWith('var/opt/mgu-deploy/backups'));
+    const r = root.run(['install', '--artifact', prov, '--yes']);
+    check('provides: a second renderer is refused while one is installed, nothing changed', ren.status === 0 && r.status === 2 &&
+        r.out.includes('fixture-tool 0.2.0 provides renderer, which mgu-renderd 1.1.0 provides; only one can be installed: ' +
+        'install with --replace to replace mgu-renderd') && root.hash((rel) => rel.startsWith('var/opt/mgu-deploy/backups')).hash === h0.hash, r.out);
+    const two = fakeRoot().run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--artifact', prov, '--yes']);
+    check('provides: two providers in one install are refused', two.status === 2 && two.out.includes('both provide renderer'), two.out);
+
+    // the replacement crash-loops: the renderer comes back
+    write(root.unitFile('fixture-tool.service.crash'), `${root.p('var/opt/fixture-tool/current')} versions/0.2.0`);
+    const n = root.systemctlCalls().length;
+    const bad = root.run(['install', '--artifact', prov, '--replace', '--yes']);
+    const calls = root.systemctlCalls().slice(n);
+    check('provides: a failed replace rolls back: the renderer is back and running, the new tool gone', bad.status === 1 &&
+        fs.existsSync(root.p('var/opt/mgu-renderd/current/mgu-renderd')) && fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
+        fs.existsSync(root.p('etc/systemd/system/late.target.wants/mgu-renderd.service')) &&
+        /mgu-renderd/.test(fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8')) &&
+        !fs.existsSync(root.p('var/opt/fixture-tool')) && !fs.readdirSync(root.p('var/opt')).some((x) => x.includes('.replaced-')) &&
+        calls.indexOf('stop mgu-renderd.service') >= 0 && calls.lastIndexOf('start mgu-renderd.service') > calls.indexOf('stop mgu-renderd.service') &&
+        root.status().components.some((c) => c.id === 'mgu-renderd' && c.provides === 'renderer'), `${bad.out}\n${calls.join('; ')}`);
+    fs.unlinkSync(root.unitFile('fixture-tool.service.crash'));
+    const ok = root.run(['install', '--artifact', prov, '--replace', '--yes']);
+    const st = root.status();
+    check('provides: --replace uninstalls the installed provider and installs the new one', ok.status === 0 &&
+        ok.out.includes('mgu-renderd replaced by fixture-tool') && !fs.existsSync(root.p('var/opt/mgu-renderd')) &&
+        !fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
+        !fs.readdirSync(root.p('var/opt')).some((x) => x.includes('.replaced-')) &&
+        st.components.filter((c) => c.provides === 'renderer').map((c) => c.id).join() === 'fixture-tool', `${ok.out}\n${JSON.stringify(st.components)}`);
+    const up = root.run(['install', '--artifact', providerArtifact('0.3.0'), '--yes']);
+    check('provides: the provider itself updates without --replace', up.status === 0, up.out);
+    const un = root.run(['uninstall', 'fixture-tool', '--yes']);
+    check('provides: uninstall leaves no provider', un.status === 0 && !root.status().components.some((c) => c.provides), un.out);
+    const again = root.run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--yes']);
+    check('provides: with none installed, a renderer installs without --replace', again.status === 0, again.out);
+}
+
+function testId8Apps() {
+    const prov = process.env.MGU_TEST_ID8_PROV;
+    [null].concat(prov ? [prov] : []).forEach((provDir) => {
+        const tag = provDir ? 'id8 (real das files)' : 'id8';
+        const root = id8Root({ prov: provDir });
+        const das = () => [0, 1, 2, 3, 4, 5].map((i) => fs.readFileSync(root.p(`usr/share/tm/prov/das_00${i}.xml`), 'utf8'));
+        const dasBefore = das();
+        const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true });
+        const r = root.run(['install', '--artifact', art, '--yes']);
+        const queued = root.p('var/opt/mgu-deploy/id8/queue/oap-cardash@1.1.4.tgz');
+        const st = root.status();
+        check(`${tag}: an install is queued for the next start, the npm package as published`, r.status === 0 &&
+            r.out.includes('oap-cardash 1.1.4 installs at the next start of the head unit') &&
+            fs.readFileSync(queued).equals(fs.readFileSync(art)) && !fs.existsSync(root.pre21('oap-cardash', '1.1.4')) &&
+            st.pending_reboot.some((p) => p.id === 'oap-cardash' && p.reason === 'installs at the next start') &&
+            JSON.stringify(das()) === JSON.stringify(dasBefore), r.out);
+        check(`${tag}: the boot unit that applies it is installed, enabled and in recmgr`,
+            fs.readFileSync(root.p('etc/systemd/system/mgu-deploy-apply.service'), 'utf8') ===
+            fs.readFileSync(path.join(HERE, '..', 'unit', 'mgu-deploy-apply.service'), 'utf8') &&
+            fs.readlinkSync(root.p('etc/systemd/system/late.target.wants/mgu-deploy-apply.service')) === '../mgu-deploy-apply.service' &&
+            /mgu-deploy-apply/.test(fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8')));
+        const busy = root.run(['apply-pending']);
+        check(`${tag}: apply-pending is refused while MainApp runs`, busy.status === 2 && busy.out.includes('the app manager is running'), busy.out);
+        root.noManager();
+        const a = root.run(['apply-pending']);
+        const lines = (t, s) => t.split('\n').filter((l) => l.trim() === s).length;
+        const app = '<app supportedECUs="HU" initialPreferPreinstalled="true">oap-cardash</app>';
+        const en = '<oap-cardash enabled="true" allowed="true" appStartType="autostart" userLoginRequired="false"/>';
+        check(`${tag}: at boot the package goes to MainApp-21's preinstalled_apps and both lines into every das file`, a.status === 0 &&
+            fs.readFileSync(root.pre21('oap-cardash', '1.1.4')).equals(fs.readFileSync(art)) &&
+            das().every((t) => lines(t, app) === 1 && lines(t, en) === 1) && !fs.existsSync(queued) &&
+            root.status().pending_reboot.length === 0 && root.status().last_apply.results[0].ok === true, a.out);
+        // MainApp installs it at its start
+        write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED' }));
+        write(root.p('var/opt/public/oap/oap_13001/source/package.json'), JSON.stringify({ name: 'oap-cardash', version: '1.1.4' }));
+        write(root.p('var/opt/public/oap/oap_13001/data/x'), 'data\n');
+        write(root.p(`var/opt/public/oap/oap_${MGR}/security/uids.txt`), '13000=stock_app\n13001=oap-cardash\n');
+        write(root.p(`var/opt/public/oap/oap_${MGR}/data/diagOapInstallationStatus.json`), JSON.stringify({ 'oap-cardash': { installationStatus: 'installed' }, other: {} }));
+        write(root.p('var/opt/personal/p1/oap/oap_13001/x'), 'p\n');
+        write(root.p('etc/vsomeip/13001_13001/policy.json'), '{}\n');
+        check(`${tag}: MainApp's install shows as installed`, root.status().components.some((c) => c.id === 'oap-cardash' && c.version === '1.1.4'));
+        const up = root.run(['install', '--artifact', rhmiApp('oap-cardash', '1.1.5', ['ID8'], { npm: true }), '--yes']);
+        check(`${tag}: an update says the installed version and its data go first`, up.status === 0 &&
+            up.out.includes('1.1.4 is uninstalled first, and its data with it'), up.out);
+        const u = root.run(['uninstall', 'oap-cardash', '--yes']);
+        check(`${tag}: uninstall replaces the queued update with a removal`, u.status === 0 &&
+            JSON.stringify(root.status().pending_reboot) === JSON.stringify([{ id: 'oap-cardash', reason: 'removed at the next start' }]) &&
+            !fs.existsSync(root.p('var/opt/mgu-deploy/id8/queue/oap-cardash@1.1.5.tgz')), u.out);
+        const rm = root.run(['apply-pending']);
+        const trash = root.p('var/opt/mgu-deploy/id8/trash');
+        const bin = fs.readdirSync(trash)[fs.readdirSync(trash).length - 1];
+        const inTrash = (p) => fs.existsSync(path.join(trash, bin, root.p(p)));
+        check(`${tag}: at boot the removal moves registry entry, home, personal copy, vsomeip policy and package to the trash`, rm.status === 0 &&
+            !fs.existsSync(root.entry('oap-cardash')) && inTrash(`var/opt/public/oap/oap_${MGR}/data/apps/oap-cardash.json`) &&
+            inTrash('var/opt/public/oap/oap_13001/data/x') && inTrash('var/opt/personal/p1/oap/oap_13001/x') &&
+            inTrash('etc/vsomeip/13001_13001/policy.json') && inTrash('usr/lib/oap-mainapp21/preinstalled_apps/oap-cardash@1.1.4.tgz') &&
+            !fs.existsSync(root.pre21('oap-cardash', '1.1.4')), rm.out);
+        check(`${tag}: and takes its uids.txt line, diag entry and das lines out`,
+            fs.readFileSync(root.p(`var/opt/public/oap/oap_${MGR}/security/uids.txt`), 'utf8') === '13000=stock_app\n' &&
+            JSON.stringify(readJson(root.p(`var/opt/public/oap/oap_${MGR}/data/diagOapInstallationStatus.json`))) === '{"other":{}}' &&
+            JSON.stringify(das()) === JSON.stringify(dasBefore));
+    });
+    const root = id8Root();
+    const flat = root.run(['install', '--artifact', rhmiApp('plainapp', '1.0.0', null), '--yes']);
+    const q = root.p('var/opt/mgu-deploy/id8/queue/plainapp@1.0.0.tgz');
+    check('id8: a flat package is repacked in npm format', flat.status === 0 && fs.existsSync(q) &&
+        tarList(q).every((n) => n.indexOf('package/') === 0), flat.out);
+    const drop = root.run(['uninstall', 'plainapp', '--yes']);
+    check('id8: uninstalling an app only queued drops its install', drop.status === 0 && drop.out.includes('the queued install of plainapp is dropped') &&
+        root.status().pending_reboot.length === 0 && !fs.existsSync(q), drop.out);
+    const seven = root.run(['install', '--artifact', rhmiApp('robertn_x', '1.0.0', ['ID7'], { marked: true }), '--yes']);
+    check('id8: an iDrive 7 app is refused', seven.status === 2 && seven.out.includes('is for iDrive 7 (its rhmiData); this head unit is iDrive 8'), seven.out);
+    const fb = root.run(['fallback', 'on', '--yes']);
+    check('id8: the provisioning fallback is refused', fb.status === 2 && fb.out.includes('the provisioning fallback is for iDrive 7'), fb.out);
+    const sys = root.run(['uninstall', 'x_call', '--yes']);
+    check('id8: a system app is not removed', sys.status === 2, sys.out);
+    const seven7 = fakeRoot().run(['apply-pending']);
+    check('id8: apply-pending is refused on iDrive 7', seven7.status === 2 && seven7.out.includes('this head unit is iDrive 7'), seven7.out);
+}
 
 // MGU_TEST_ONLY=<name>,...: only those test functions
 const SUITES = [
@@ -2876,7 +3196,12 @@ const SUITES = [
     testRetiredDrop,
     testRetiredRestoreGuard,
     testRetiredRollbackFails,
-    testRetiredAppManagementOnly
+    testRetiredAppManagementOnly,
+    testUnitDetect,
+    testCompat,
+    testServices,
+    testProvides,
+    testId8Apps
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;

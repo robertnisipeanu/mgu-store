@@ -166,6 +166,11 @@ function buildArtifact(compDir, outDir) {
         manifest.internet = c.internet;
         manifest.uids = c.uids;
     }
+    ['mguHmi', 'mguProvides'].forEach((k) => {
+        if (c[k] !== undefined) {
+            manifest[k] = c[k];
+        }
+    });
     entries.push({ name: 'component.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), mode: 0o644 });
     entries.sort(byName);
     const data = tgz(entries, mtime());

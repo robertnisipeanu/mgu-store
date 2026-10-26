@@ -85,7 +85,33 @@ function catalogFields(from, where) {
             out[k] = true;
         }
     });
+    if (from.mguHmi !== undefined) {
+        if (!Array.isArray(from.mguHmi) || !from.mguHmi.length ||
+            from.mguHmi.some((h, i) => ['ID7', 'ID8'].indexOf(h) < 0 || from.mguHmi.indexOf(h) !== i)) {
+            throw new Error(`${where}: "mguHmi" lists "ID7" and/or "ID8"`);
+        }
+        out.mguHmi = from.mguHmi.slice().sort();
+    }
+    if (from.mguProvides !== undefined) {
+        if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(from.mguProvides)) {
+            throw new Error(`${where}: "mguProvides" is one lower-case name`);
+        }
+        out.mguProvides = from.mguProvides;
+    }
     return out;
+}
+
+/* The HMIs an app's staged rhmiData has a UI for (application.json's
+ * uiDescriptions[].hmi), or undefined. */
+function rhmiHmi(stagedDir) {
+    const app = readJson(path.join(stagedDir, 'rhmiData', 'application.json')).application;
+    const out = [];
+    (app.uiDescriptions || []).forEach((u) => (u.hmi || []).forEach((h) => {
+        if (['ID7', 'ID8'].indexOf(h) >= 0 && out.indexOf(h) < 0) {
+            out.push(h);
+        }
+    }));
+    return out.length ? out.sort() : undefined;
 }
 
 /* Every releasable component in a repo tree (the working tree or an export). */
@@ -134,7 +160,7 @@ function components(root = REPO) {
             shipped: [`apps/${id}/${id}@${version}`].concat(manifest ?
                 [`apps/${id}/mgu-app.json`].concat(manifest.modules.map((m) => `apps/${id}/${m}`)) : []),
             artifact: `apps/${id}/${id}@${version}${manifest ? '.src' : ''}.tgz`
-        }, catalogFields(release, `apps/${id}/release.json`)));
+        }, catalogFields(Object.assign({ mguHmi: rhmiHmi(stagedDir) }, release), `apps/${id}/release.json`)));
     });
     const tool = (dir, id, shipped) => {
         const file = path.join(root, dir, 'component.json');
@@ -259,7 +285,7 @@ function catalogEntry(c, file) {
     if (c.build) {
         entry.build = c.build;
     }
-    ['requires', 'optional', 'uninstallable'].forEach((k) => {
+    ['requires', 'optional', 'uninstallable', 'mguHmi', 'mguProvides'].forEach((k) => {
         if (c[k] !== undefined) {
             entry[k] = c[k];
         }

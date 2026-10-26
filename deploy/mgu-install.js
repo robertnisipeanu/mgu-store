@@ -625,7 +625,8 @@ function describePackage(file, data) {
         if (tool.kind !== 'tool' || !/^[a-z0-9][a-z0-9-]*$/.test(tool.id || '') || !SEMVER.test(tool.version || '')) {
             throw new Usage(`${file}: component.json is not a tool kit's`);
         }
-        return { id: tool.id, kind: 'tool', version: tool.version, title: tool.title || tool.id, description: tool.description || '' };
+        return { id: tool.id, kind: 'tool', version: tool.version, title: tool.title || tool.id, description: tool.description || '',
+            mguHmi: tool.mguHmi, mguProvides: tool.mguProvides };
     }
     const src = json('mgu-app.json');
     if (src) {
@@ -634,21 +635,24 @@ function describePackage(file, data) {
         }
         const pkg = json(`${src.tree}/package.json`) || {};
         return { id: src.id, kind: 'app', version: src.version, title: title(members, `${src.tree}/`) || pkg.productName || src.id,
-            description: typeof pkg.description === 'string' ? pkg.description : '', build: 'unit' };
+            description: typeof pkg.description === 'string' ? pkg.description : '', build: 'unit', mguHmi: src.mguHmi || pkg.mguHmi };
     }
     const base = ['package/', '', 'source/'].find((b) => members.some((m) => m.name === `${b}package.json`));
     if (base === undefined) {
         throw new Usage(`${file}: no component.json, mgu-app.json or package.json`);
     }
     const pkg = json(`${base}package.json`);
-    if (pkg.mguService !== undefined) {
-        throw new Usage(`${file}: a root-service package, not an app or a tool kit`);
+    // a root-service package (renderer, tether) installs as the tool of its name, providing its kind
+    if (pkg.mguService !== undefined && ['renderer', 'tether'].indexOf(pkg.mguService) < 0) {
+        throw new Usage(`${file}: a root-service package of an unknown kind (mguService renderer or tether)`);
     }
     if (!ID.test(pkg.name || '') || !SEMVER.test(pkg.version || '')) {
         throw new Usage(`${file}: package.json needs a lower-case name and an x.y.z version`);
     }
-    return { id: pkg.name, kind: 'app', version: pkg.version, title: title(members, base) || pkg.productName || pkg.name,
-        description: typeof pkg.description === 'string' ? pkg.description : '', mgu: base === 'source/' };
+    return { id: pkg.name, kind: pkg.mguService ? 'tool' : 'app', version: pkg.version,
+        title: title(members, base) || pkg.productName || pkg.name,
+        description: typeof pkg.description === 'string' ? pkg.description : '', mgu: base === 'source/',
+        mguHmi: pkg.mguHmi, mguProvides: pkg.mguService };
 }
 
 /* A catalog entry as the stick lists it: the source's fields, the artifact
@@ -794,7 +798,7 @@ function localFolder(dest, inputs) {
             return;
         }
         const entry = { id: d.id, kind: d.kind, title: d.title, description: d.description, version: d.version,
-            build: d.build, uninstallable: d.kind === 'app' ? true : undefined };
+            build: d.build, uninstallable: d.kind === 'app' || d.mguProvides ? true : undefined, mguHmi: d.mguHmi, mguProvides: d.mguProvides };
         byId.set(d.id, { entry, file: `${d.id}@${d.version}.${d.mgu ? 'mgu' : 'tgz'}`, data });
         say(`  ${d.id} ${d.version}  ${path.basename(file)}`);
     });

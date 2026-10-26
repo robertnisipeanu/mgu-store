@@ -206,6 +206,9 @@ An **app artifact** is one of:
 - a **source package**: a tgz with `mgu-app.json` at its root, built on the
   unit (below). The Store is published this way.
 
+A **service package** (IterioDev's App Manager format: `package.json` with
+`mguService`) installs as a tool ("Service packages").
+
 ## mgu-install
 
 `deploy/mgu-install.js` is the owner's side: one file, no dependencies,
@@ -281,24 +284,25 @@ FAT, exFAT and NTFS), which the updater reads as source
 | `https://.../catalog.json` | `<host>-<folder>` | as a catalog release |
 | a folder with `catalog.json` (a `dir:` publish) | its name | as a catalog release |
 | a folder with `mgu-repo.json` (a checkout) | its name | the repository's files (git's tracked files, else all but `.git` and `node_modules`), which the unit builds |
-| package files `*.tgz`, `*.mgu` | `local` | added to `local/`'s catalog by their content: an app (`package.json` flat, under `package/`, or a `.mgu`), a source package (`mgu-app.json`, `build: "unit"`), a tool kit (`component.json`); of an id the higher version stays |
+| package files `*.tgz`, `*.mgu` | `local` | added to `local/`'s catalog by their content: an app (`package.json` flat, under `package/`, or a `.mgu`), a source package (`mgu-app.json`, `build: "unit"`), a tool kit (`component.json`), a renderer or tether package (`mguService`) as a tool providing its kind; of an id the higher version stays |
 
 No input: `github:robertnisipeanu/mgu-store`. A written catalog is schema
 2 with the source's fields (`build`, `requires`, `optional`,
-`uninstallable`; apps from releases or package files are `uninstallable`)
+`uninstallable`, `mguHmi`, `mguProvides`; apps and service packages from
+releases or package files are `uninstallable`)
 and each artifact beside it under a relative URL; an `.mgu` keeps its file
 name and is listed as `<id>@<version>.tgz`, which the deploy tool installs
 by its content. A folder is written next to the old one and replaces it
 once complete, so the stick holds the newer versions only; other folders
-and the stick's other files stay. A root-service package (`mguService`), a
-folder over the updater's limits (catalog.json over 1 MiB, a checkout over
+and the stick's other files stay. A root-service package of another
+`mguService`, a folder over the updater's limits (catalog.json over 1 MiB, a checkout over
 200 MB or 20000 files) or an artifact that does not match is refused.
 
 ## On the unit
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--replace] [--yes]
 mgu-deploy.sh status [--json]
 mgu-deploy.sh uninstall <id> [--yes]
 mgu-deploy.sh rollback <id> [--yes]
@@ -309,6 +313,7 @@ mgu-deploy.sh updater-token                   # a token on stdin
 mgu-deploy.sh updater-token --list [--json] | --remove <id>
 mgu-deploy.sh updater-sources                 # sources.json on stdin
 mgu-deploy.sh sdk-donor [--json]
+mgu-deploy.sh apply-pending                   # iDrive 8, at boot
 ```
 
 `install` without `--artifact` takes every `*.tgz` and `*.mgu` in
@@ -337,7 +342,12 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /var/opt/mgu-uplink/uids.d/<id>          a tool's uids that get internet
 /var/opt/mgu-uplink/apps.d/<id>          an app that gets internet
 /run/mgu-deploy/sdk-donor/               the donor bundle's readable copy (sdk-donor)
+/var/opt/mgu-deploy/id8/pending.json     iDrive 8: the queued app changes; queue/<id>@<version>.tgz their packages
+/var/opt/mgu-deploy/id8/last-apply.json  iDrive 8: what the last apply-pending did; trash/<time>/ what it removed
+/etc/systemd/system/mgu-deploy-apply.service   iDrive 8: applies the queue at boot (late.target.wants)
 /usr/lib/oap-mainapp/preinstalled_apps/<id>@<version>.tgz
+/usr/lib/oap-mainapp21/preinstalled_apps/<id>@<version>.tgz   iDrive 8
+/usr/share/tm/prov/das_000.xml ... das_005.xml                 iDrive 8: provisioning, our apps' lines
 /var/opt/public/oap/oap_12201/data/apps/<id>.json   an app's registry entry
 /var/opt/public/oap/oap_12201/data/custom_apps.json the apps the fallback lists
 /var/opt/public/oap/oap_12201/data/mgu-deploy-inplace.json the manager's in-place hook and its last answer
@@ -348,6 +358,109 @@ Writes under `/` (units, the recmgr list, preinstalled packages) go through
 one shell script per operation that remounts `/` read-write and remounts it
 read-only on any exit; a `/` found read-write stays read-write.
 
+### Head units
+
+The tool tells the head unit by MainApp's folder: `/usr/lib/oap-mainapp`
+is iDrive 7 (`ID7`), `/usr/lib/oap-mainapp21` iDrive 8 (`ID8`, IterioDev's
+App Manager installs there). With both or neither, the running HMI decides
+(`/proc/<pid>/comm`: `HmiMain3D` on iDrive 7, `Hmi8` on iDrive 8); else
+the unit is unknown. The firmware is the first line of
+`/etc/os-release-id-dlt` (`BMW MGU P18_23w44.2-1-3 mgu-high` on the
+owner's car), else `/etc/os-release`'s `PRETTY_NAME`. `status` and `check`
+print both and what decided; `status --json` has `unit: {hmi, firmware}`.
+
+**Compatibility.** A component may name the head units it is for,
+`"mguHmi": ["ID7"]`, `["ID8"]` or both: an app in its `package.json` (or
+`mgu-app.json`), a tool in its `component.json` (`deploy/hu artifact`
+keeps it). An app that does not is taken to be for the HMIs its rhmiData
+has a UI for (`application.json`'s `uiDescriptions[].hmi`, else the folders
+under `uiDescriptions/`). An install of one that is not for this unit is
+refused before anything changes (exit 2: `oap-cardash 1.1.4 is for iDrive 8
+(its rhmiData); this head unit is iDrive 7`); one that names none either way
+installs. On a unit not known the install says mguHmi is not checked.
+
+### iDrive 8 apps
+
+MainApp-21 installs an app it finds in its `preinstalled_apps` when
+provisioning, the six das files under `/usr/share/tm/prov`, lists it, at
+its start; it does not update a preinstalled app in place, and an app is
+not taken apart while it runs. So an app install or uninstall on iDrive 8
+is queued and applied at the next start of the head unit, the way
+IterioDev's App Manager does (`appmanager-service/oap.js` in
+[IterioDev/mgu-app-store](https://github.com/IterioDev/mgu-app-store)),
+whose das edits and removal steps it follows:
+
+- `install` queues the package (`id8/queue/<id>@<version>.tgz`, in npm
+  format: one published so as it is, a source package built from the
+  unit's own donor (MainApp-21's `preinstalled_apps`, then the installed
+  stock apps; the apps provisioning lists as preinstalled custom apps
+  excluded), any other one repacked with its files under `package/`), and
+  reports the app `pending_reboot` with `installs at the next start`.
+  Neither app-privacy nor the provisioning fallback is used there (`fallback
+  on|off|migrate` is refused).
+- `uninstall` queues the removal (`removed at the next start`); for an app
+  only queued, it drops the queued install.
+- The first change queued installs `mgu-deploy-apply.service` (enabled for
+  `late.target`, ordered before `telematics-platform` and `oapcontroller`,
+  run only while `id8/pending.json` exists; listed in recmgr where the unit
+  has the list), which runs `apply-pending` at boot. `apply-pending` is
+  refused while MainApp runs. Each change: an install uninstalls the
+  installed version first (its data goes with it, as the update says), puts
+  the package as `preinstalled_apps/<id>@<version>.tgz` and the app's two
+  lines into every das file (`<app supportedECUs="HU"
+  initialPreferPreinstalled="true">` before `</installable_apps>`, its
+  enable line after `x_call`'s); a removal moves its registry entry, home,
+  personal copies and `/etc/vsomeip/<uid>_<uid>` to `id8/trash/<time>/` (the
+  3 newest kept), takes its `uids.txt` line and diag status entries out,
+  and its packages and das lines. A das file without those anchors fails
+  that change before anything moves. The result is in `last-apply.json`
+  and `status`.
+
+### Service packages
+
+IterioDev's App Manager installs two root services as packages: an
+npm-format tgz holding `package.json` `{ name, version, mguService }` and
+an x86-64 program under its name (`appmanager-service/services.js`,
+`pkg.js`). The tool installs one as a tool of that name, so the tool rules
+apply (layout, recmgr, start, update, rollback, uninstall):
+
+| `mguService` | name | unit | runs |
+|---|---|---|---|
+| `renderer` | `mgu-renderd` | `mgu-renderd.service`, enabled for `late.target` | from boot: `current/mgu-renderd --socket /run/mgu-renderd/renderd.sock`, on iDrive 8 with `--touch car --touch-area 0,76,2880,764` (`vm` with `/usr/bin/vminput`) |
+| `tether` | `ipheth-tether` | `ipheth-tether.service`, not enabled | on demand (`systemctl start`): `current/ipheth-tether socks 127.0.0.1:1080` |
+
+The program and its `package.json` go to `versions/<version>/`, the unit
+is the one his App Manager writes (root, `Restart=always`, the renderer
+waiting for `/run/wayland/wayland-0`), and the name goes into recmgr's
+lists. A fresh renderer starts once recmgr has loaded its entry, so at the
+next boot on a unit with the list. The tool provides its kind
+("Capabilities"). Any other `mguService`, a name that does not match its
+kind, a version that is not x.y.z, or a program that is not a 64-bit x86-64
+ELF of at most 16 MiB is refused.
+
+A unit without `/etc/recmgr-restartlist.conf` (none is known on iDrive 8)
+has no recmgr to restart it: nothing is written there, and units start,
+restart and stop at once.
+
+### Capabilities
+
+A tool may provide a capability only one installed tool can hold,
+`"mguProvides": "<name>"` in its `component.json` (`deploy/hu artifact`
+keeps it): every renderer binds `/run/mgu-renderd/renderd.sock` and the
+same ivi layer and surface ids, so `renderer` is one. A service package
+provides its kind. Installing a second provider is refused (exit 2:
+`... provides renderer, which mgu-renderd 1.1.0 provides; only one can be
+installed: install with --replace to replace mgu-renderd`), as are two in
+one install. With `--replace`, in one transaction with one snapshot of
+both: the installed provider is uninstalled (its running units stopped
+when recmgr has them, its units, links and recmgr names removed, its
+folder moved aside as `/var/opt/<id>.replaced-<pid>`), then the new one
+installs; once it is up the old folder goes. When the new one fails
+(refused, a failed health check), its units stop, its files go, the old
+folder comes back, the snapshot puts both tools' units, links and the
+recmgr list back, and the units the replace stopped start again (exit 1).
+`status --json` gives each tool's `provides`.
+
 ### The deploy tool as a tool
 
 `mgu-deploy` is a tool component like the others (`deploy/component.json`;
@@ -355,7 +468,7 @@ read-only on any exit; a `/` found read-write stays read-write.
 folder, every successful install or uninstall, and turning the
 fallback on, installs the files it runs from into
 `/var/opt/mgu-deploy/versions/<VERSION>/`, under the `component.json` beside
-the script (synthesized from `VERSION` and its six files when there is
+the script (synthesized from `VERSION` and its seven files when there is
 none; run from `deploy/unit/`, the linker and packer come from `tools/`), switches `current` to it and keeps that version and the one `current`
 pointed to before; a newer version already current stays. Run from
 `versions/`, it is installed already. `state.json`, `backups/` and the
@@ -893,10 +1006,12 @@ stdout, read-only, taking no lock, of this shape:
 
 ```
 { "version": "<x.y.z>",
-  "components": [{ "id", "kind": "tool", "version", "units": [{ "name", "enabled", "active", "journal" }] },
+  "unit": { "hmi": "ID7"|"ID8"|null, "firmware" },
+  "components": [{ "id", "kind": "tool", "version", "units": [{ "name", "enabled", "active", "journal" }], "provides" },
                  { "id", "kind": "app", "version", "uid", "installationSource", "running",
                    "tile_provisioned", "tile_fallback", "tile_visible" }],
   "pending_reboot": [{ "id", "reason" }],
+  "last_apply": { "at", "results": [{ "id", "action", "version", "ok", "error"?, "log" }] } | null,   (iDrive 8)
   "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],   (display-bridge)
   "fallback": { ... }, "backups": 3, "stock_backup": true, "updater_tokens": 1,
   "retired_leftovers": ["/usr/lib/oap-mainapp/src/main.js.capbak"] }
@@ -938,6 +1053,19 @@ unit and through `deploy/hu`), source packages built against the made-up
 donor in `tools/test/synthetic_donor.js` (installed, not built again, no
 donor refused), packages built elsewhere (npm format, `.mgu`, unmarked,
 oap-sdk generated, no donor refused), the internet drop-ins, `sdk-donor`,
+the head unit (iDrive 7 and 8 by MainApp's folder, by the running HMI with
+both or neither, unknown), compatibility (rhmiData, a declared `mguHmi`,
+a tool's, a malformed one), service packages (the renderer as a tool with
+its unit, link and recmgr entry, starting at the next boot; refusals; the
+tether on demand; uninstall; on an iDrive 8 without a recmgr list started
+at once with touch routing), capabilities (a second renderer refused, a
+replace that fails its health check rolled back with the renderer started
+again, a replace, an update of the provider itself, none left after an
+uninstall), iDrive 8 apps against made-up das files (queued, the boot unit,
+`apply-pending` refused while MainApp runs, applied, an update and a
+removal with everything moved to the trash, a flat package repacked, a
+queued install dropped, refusals; with `MGU_TEST_ID8_PROV=<folder>` also
+against real das files, never part of the repository),
 and `mgu-install.js`: `first-install` and `token` against a fake root
 through a stand-in `ssh` (`fake_ssh_exec.js`) with the release from a
 stand-in GitHub API (`fake_github.js`: a private repository, downloads
@@ -995,3 +1123,21 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
   `node_modules/oap-sdk` under the manager's install (its native modules
   resolved for the app as for a stock app).
 - `/run/mgu-deploy` writable and readable by other uids on the car.
+
+On an iDrive 8 head unit (IterioDev's car; none in the emulator), the
+whole iDrive 8 path:
+
+- the detection (`/usr/lib/oap-mainapp21` present and
+  `/usr/lib/oap-mainapp` absent; the `Hmi8` process name; the firmware line
+  from `/etc/os-release-id-dlt` or `/etc/os-release`);
+- whether `/etc/recmgr-restartlist.conf` exists there (without it units
+  start at once; with it, the iDrive 7 rules hold);
+- `mgu-deploy-apply.service` running at boot before oapcontroller with
+  `late.target`, and `apply-pending`'s das edits, package placement and
+  removal steps giving the same result as the App Manager's;
+- MainApp-21 installing an npm-format package from `preinstalled_apps`
+  repacked by this tool (a flat or `.mgu` one), and a source package built
+  from an iDrive 8 donor;
+- the renderer and tether units as written here, and running this tool
+  and the App Manager side by side (both write `mgu-renderd.service`; one
+  of them should own each service).
