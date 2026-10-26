@@ -159,7 +159,9 @@ counts only for ids no other source lists. `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
 same source if it has one at least that version, else from any (a
 newer updater installs alone: it restarts into its new version, which ends
-the queue, and the component is asked for again after);
+the queue, and the component is asked for again after; a requirement that
+provides a capability another installed tool provides counts as met, so a
+component requiring the renderer installs beside another renderer);
 `optional` components are listed but never counted as updates unless
 installed; `uninstallable` ones can be removed (Store, phone page), through
 `mgu-deploy.sh uninstall <id> --yes`, unless something installed requires
@@ -206,9 +208,9 @@ the folder again every `usb_poll_s` and on each check.
   supervisor goes back to still has them.
 
 **Signing in to GitHub.** `login-start` runs GitHub's device flow for a
-GitHub App (`github_client_id`; while it is empty the state's `signin` is
-false, clients offer no sign-in, `login-start` is refused, and a pasted token
-still works): the state's `login`
+GitHub App (`github_client_id`; set empty, the state's `signin` is false,
+clients offer no sign-in, `login-start` is refused, and a pasted token still
+works): the state's `login`
 shows the address and the code, which the owner enters on a phone; the
 updater polls at the interval GitHub gives (5 s more on `slow_down`) until
 the code expires, and stores the token it gets as a token labelled with
@@ -218,7 +220,10 @@ source is read. The App: *Enable Device Flow* on,
 repository permission *Contents: Read-only* (Metadata comes with it),
 installable by any account, installed by each owner on the repos their car
 reads; the shipped `github_client_id` is the client id of
-https://github.com/apps/mgu-store (public; no client secret or private key). Requests to `github.com` carry the client id with the
+https://github.com/apps/mgu-store (public; no client secret or private key),
+and `github_app_url` its page: the state's `signinApp.installUrl` is then the
+App's install page, which the Store shows as a QR code for a private source
+that still needs a sign-in. Requests to `github.com` carry the client id with the
 device code, or with the refresh token on a renewal; never an access
 token.
 
@@ -462,7 +467,7 @@ container's address as the hotspot's.
 `updater.conf` (in the version folder) holds the defaults;
 `/var/opt/mgu-updater/updater.local.conf` overrides any key and survives
 updates. Keys: `sources`, `credentials_dir`, `builtin_repo`,
-`github_client_id`, `github_api`, `github_web`, `ca_file`,
+`github_client_id`, `github_app_url`, `github_api`, `github_web`, `ca_file`,
 `check_interval_s`, `first_check_s`, `mounts`, `usb_roots`, `usb_poll_s`,
 `repo_max_bytes`, `build_uid`, `build_gid`, `build_timeout_s`,
 `build_max_bytes`, `fetch_uid`, `fetch_gid`, `lease`, `deploy`,
@@ -508,7 +513,7 @@ each request, and whenever it changes (at most every 250 ms):
     "auth": { "kind": "github", "token": "3f9a01c2", "login": "someone" }, "checkedAt": 1792620000000, "components": 7 } ],
   "tokens": [ { "id": "3f9a01c2", "kind": "github", "label": "someone", "login": "someone",
     "addedAt": 1792610000000, "rejected": false, "usedBy": ["mgu-store", "idrive7-apps"] } ],
-  "signin": true,
+  "signin": true, "signinApp": { "installUrl": "https://github.com/apps/mgu-store/installations/new" },
   "login": { "url": "https://github.com/login/device", "code": "ABCD-1234",
     "expiresAt": 1792620900000, "status": "pending", "error": null },
   "web": { "enabled": false, "urls": [], "error": null },
@@ -544,7 +549,8 @@ each request, and whenever it changes (at most every 250 ms):
 - `tokens`: the stored tokens ("Tokens"), never their text; `usedBy` the
   sources each one reads, `rejected` when GitHub refuses it.
 - `signin`: true when a GitHub App client id is configured; only then do
-  clients offer Sign in with GitHub.
+  clients offer Sign in with GitHub. `signinApp`: the App's install page
+  (`github_app_url`), or null.
 - `login`: the GitHub sign-in in progress (`pending`, `done`, `error`,
   `expired`), or null.
 - `web`: the phone page's state (`js/web.js`), present when the updater has it.

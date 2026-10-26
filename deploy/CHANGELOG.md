@@ -1,5 +1,9 @@
 # Deploy tool changelog
 
+## 0.3.1
+
+- `mgu-install.js first-install` puts on the renderer (`mgu-render`) and the internet uplink (`mgu-uplink`) too; `--no-renderer` and `--no-uplink` leave them out; one the catalog does not list, or the deploy tool refuses (another renderer is installed), is left out, saying so, and the rest installs.
+
 ## 0.3.0
 
 - The head unit: iDrive 7 or iDrive 8 by MainApp's folder (`oap-mainapp` / `oap-mainapp21`), else by the running HMI (`HmiMain3D` / `Hmi8`); the firmware from `/etc/os-release-id-dlt` (else `os-release`). `status` and `check` print them; `status --json` has `unit: {hmi, firmware}`.

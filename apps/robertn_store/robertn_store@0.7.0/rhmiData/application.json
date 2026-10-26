@@ -5,7 +5,7 @@
     "type": "OnlineApp",
     "name": "robertn_store",
     "vendor": "owner",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "defaultLanguage": "en_GB",
     "uiDescriptions": [
       {
@@ -13,6 +13,13 @@
         "uiDescriptionFilePath": "./uiDescriptions/ID7/uiDescription.json",
         "hmi": [
           "ID7"
+        ]
+      },
+      {
+        "applicationFilePath": "./uiDescriptions/ID8/application.xml",
+        "uiDescriptionFilePath": "./uiDescriptions/ID8/uiDescription.json",
+        "hmi": [
+          "ID8"
         ]
       }
     ],
@@ -23,7 +30,8 @@
         "stringsPath": "./variantGroups/Common/texts",
         "resourcesPath": "./variantGroups/Common/images",
         "hmi": [
-          "ID7"
+          "ID7",
+          "ID8"
         ],
         "brands": [
           "BMW"

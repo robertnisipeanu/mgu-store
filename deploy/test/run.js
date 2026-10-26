@@ -2562,10 +2562,11 @@ function fakeRelease(api) {
     hu(['artifact', path.join(DEPLOY, '..', 'native', 'app-privacy'), '--out', art]);
     const privacy = fs.readdirSync(art).find((n) => n.startsWith('app-privacy@'));
     const files = [path.join(art, `mgu-deploy@${VERSION}.tgz`), path.join(art, privacy), namedTool('mgu-updater', '0.2.0'),
-        namedTool('mgu-uplink', '0.4.0'), storeArtifact()];
+        namedTool('mgu-uplink', '0.4.0'), storeArtifact(), namedTool('mgu-render', '0.1.0', (c) => { c.mguProvides = 'renderer'; })];
     const entries = [publishedEntry(api, files[0], 0, 'tool'), publishedEntry(api, files[1], 1, 'tool'), publishedEntry(api, files[2], 2, 'tool'),
         publishedEntry(api, files[3], 3, 'tool', { optional: true, uninstallable: true }),
-        publishedEntry(api, files[4], 4, 'app', { build: 'unit', requires: { 'mgu-deploy': '0.2.0' } })];
+        publishedEntry(api, files[4], 4, 'app', { build: 'unit', requires: { 'mgu-deploy': '0.2.0' } }),
+        publishedEntry(api, files[5], 5, 'tool', { optional: true, uninstallable: true })];
     const catalog = path.join(art, 'catalog.json');
     fs.writeFileSync(catalog, JSON.stringify({ schema: 2, commit: 'c0ffee', components: entries }, null, 2));
     files.push(catalog);
@@ -2606,12 +2607,13 @@ function testMguInstall() {
         const root = donorRoot();
         const bin = installBin(root);
         const opts = { bin, api: gh.api };
-        let r = mguInstall(['first-install', '--host', '10.0.0.9', '--token'], Object.assign({ input: `${TOKEN}\n` }, opts));
+        let r = mguInstall(['first-install', '--host', '10.0.0.9', '--token', '--no-uplink', '--no-renderer'],
+            Object.assign({ input: `${TOKEN}\n` }, opts));
         const st = r.status === 0 ? root.status() : { components: [] };
         const has = (id) => st.components.some((x) => x.id === id);
-        check('mgu-install first-install: the release\'s tools and the Store, built on the unit, without the optional uplink', r.status === 0 &&
-            ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every(has) && !has('mgu-uplink') &&
-            r.out.includes('built robertn_store'), r.out.slice(-3000));
+        check('mgu-install first-install --no-uplink --no-renderer: the release\'s tools and the Store, built on the unit, without the two',
+            r.status === 0 && ['app-privacy', 'mgu-updater', 'mgu-deploy', 'robertn_store'].every(has) && !has('mgu-uplink') &&
+            !has('mgu-render') && r.out.includes('built robertn_store'), r.out.slice(-3000));
         check('mgu-install first-install: the deploy tool is the release\'s, installed from its own files',
             fs.readlinkSync(root.p('var/opt/mgu-deploy/current')) === `versions/${VERSION}` &&
             fs.readFileSync(root.p(`var/opt/mgu-deploy/versions/${VERSION}/mgu-deploy.js`)).equals(fs.readFileSync(UNIT_JS)));
@@ -2638,15 +2640,35 @@ function testMguInstall() {
         // again, the updater running since the next start, the token from the GitHub CLI
         fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'active\n');
         gh.reset();
-        r = mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
+        r = mguInstall(['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
         check('mgu-install first-install again: changes nothing installed, and says setup is done', r.status === 0 &&
             r.out.includes('already installed') && !r.out.includes('built robertn_store') && r.out.includes('updater sources kept') &&
             r.stdout.endsWith('Setup is done: the Store installs and updates everything from here on.\n') &&
             gh.requests()[1].auth === `Bearer ${TOKEN}` && !r.calls.some((a) => / updater-token/.test(a[a.length - 1])), r.out.slice(-2000));
-        r = mguInstall(['first-install', '--host', '10.0.0.9', '--with-uplink'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
-        check('mgu-install first-install --with-uplink: installs the optional uplink, which starts at the next start', r.status === 0 &&
-            root.status().components.some((x) => x.id === 'mgu-uplink') &&
-            r.stdout.endsWith('Restart the head unit to finish setup (a normal ignition cycle does it): the uplink starts then.\n'), r.out.slice(-2000));
+        r = mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
+        check('mgu-install first-install: installs the renderer and the uplink by default, which start at the next start', r.status === 0 &&
+            ['mgu-uplink', 'mgu-render'].every((id) => root.status().components.some((x) => x.id === id)) &&
+            r.stdout.endsWith('Restart the head unit to finish setup (a normal ignition cycle does it): the renderer and the uplink start then.\n'),
+            r.out.slice(-2000));
+        // another renderer on a second unit: the renderer is left out, the rest installs
+        const unit2 = donorRoot();
+        const otherOpts = { bin: installBin(unit2), api: gh.api };
+        r = unit2.run(['install', '--artifact', namedTool('other-render', '1.0.0', (c) => { c.mguProvides = 'renderer'; }), '--yes']);
+        r = r.status === 0 ? mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, otherOpts)) : r;
+        const os2 = unit2.status();
+        check('mgu-install first-install: beside another renderer the renderer is left out, the rest installs', r.status === 0 &&
+            ['robertn_store', 'mgu-uplink', 'other-render'].every((id) => os2.components.some((x) => x.id === id)) &&
+            !os2.components.some((x) => x.id === 'mgu-render') && r.out.includes('mgu-render@0.1.0.tgz left out') &&
+            !/the renderer/.test(r.stdout), r.out.slice(-3000));
+        const noRender = JSON.parse(fs.readFileSync(rel.files[rel.catalogIndex], 'utf8'));
+        noRender.components = noRender.components.filter((c) => c.id !== 'mgu-render');
+        const noRenderFile = path.join(rel.dir, 'no-render-catalog.json');
+        fs.writeFileSync(noRenderFile, JSON.stringify(noRender));
+        gh.set(Object.assign({}, config, { files: rel.files.concat([noRenderFile]), repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.files.length } } }));
+        r = mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
+        check('mgu-install first-install: a catalog without the renderer installs the rest, saying so', r.status === 0 &&
+            r.out.includes('the catalog has no mgu-render; installing without it'), r.out.slice(-2000));
+        gh.set(config);
         r = mguInstall(['first-install', '--host', '10.0.0.9'], opts);
         check('mgu-install first-install: a private release without a token is refused before connecting', r.status === 1 &&
             r.stderr.includes('no access') && !r.calls.length, r.out);

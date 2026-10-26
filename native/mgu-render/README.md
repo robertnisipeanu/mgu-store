@@ -107,6 +107,7 @@ gpu.on('ready', (screen, info) => {
     gpu.place({ x: box.x, y: box.y, w: box.w, h: box.h, scale: 1, ox: 0, oy: 0 });
     gpu.show(true);
 });
+gpu.fps(30);                                        // optional: at most 30 frames a second
 gpu.on('tick', () => gpu.frame(recorder));          // kit Recorder, or gpu.frameWords(ops)
 gpu.on('state', (s) => { /* { mode, onScreen, front } */ });
 gpu.on('touch', (phase, x, y) => { /* in claimed areas: gpu.claim([...]) */ });

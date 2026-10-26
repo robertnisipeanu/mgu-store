@@ -59,6 +59,12 @@ function readConf(file, into) {
     return into;
 }
 
+/* The install page of the GitHub App at url (https://github.com/apps/<slug>), or null. */
+function appInstall(url) {
+    const m = /^(https:\/\/[^/\s?#]+\/apps\/[A-Za-z0-9-]+)\/?$/.exec(String(url || '').trim());
+    return m ? { installUrl: `${m[1]}/installations/new` } : null;
+}
+
 /* updater.conf next to this file (in the repo: one folder up), then the
  * unit's own overrides. */
 function loadConf() {
@@ -763,6 +769,8 @@ class Updater {
             tokens,
             // GitHub sign-in is offered only with a GitHub App client id configured
             signin: !!this.conf.github_client_id,
+            // the App's install page, for a repo its sign-in does not reach yet
+            signinApp: appInstall(this.conf.github_app_url),
             login: this.login.state(),
             busy: this.busy,
             rebooting: this.rebooting,
@@ -1007,6 +1015,21 @@ class Updater {
         return i ? i.version : null;
     }
 
+    /* dep at least min is installed, or dep provides a capability that
+     * another installed tool provides: the owner's choice of that provider
+     * stands (a component that needs the renderer installs beside another
+     * renderer). */
+    requirementMet(dep, min) {
+        const have = this.installedVersion(dep);
+        if (have && catalogLib.compareVersions(have, min) >= 0) {
+            return true;
+        }
+        const r = this.resolved().get(dep);
+        const cap = r && r.entry.mguProvides;
+        const holder = cap && this.providers[cap];
+        return !!(holder && holder.id !== dep);
+    }
+
     /* An entry of dep at least min: from source first, else any source in order. */
     findRequirement(dep, min, source) {
         const order = [source].concat(this.defs().map((d) => d.id).filter((id) => id !== source));
@@ -1028,8 +1051,7 @@ class Updater {
             if (chain.indexOf(dep) >= 0) {
                 throw new Error(`${r.entry.id} and ${dep} require each other`);
             }
-            const have = this.installedVersion(dep);
-            if (have && catalogLib.compareVersions(have, min) >= 0) {
+            if (this.requirementMet(dep, min)) {
                 return;
             }
             const found = this.findRequirement(dep, min, r.source);
@@ -1295,8 +1317,7 @@ class Updater {
         return Promise.resolve()
             .then(() => {
                 Object.keys(entry.requires).forEach((dep) => {
-                    const have = this.installedVersion(dep);
-                    if (!have || catalogLib.compareVersions(have, entry.requires[dep]) < 0) {
+                    if (!this.requirementMet(dep, entry.requires[dep])) {
                         throw new Error(`needs ${dep} ${entry.requires[dep]} or newer${dep === SELF ? ': update the updater first' : ''}`);
                     }
                 });

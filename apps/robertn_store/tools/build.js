@@ -6,8 +6,9 @@
  *
  *  1. Writes the RHMI files from tools/gen_rhmi.js.
  *  2. Copies mgu-updater's socket client (native/mgu-updater/js/client.js)
- *     to lib/client.js, a module of the app (mgu-app.json), so this folder
- *     holds every file of the source package.
+ *     to lib/client.js and mgu-render's (native/mgu-render/js/
+ *     mgu_render_client.js) to lib/mgu_render_client.js, modules of the app
+ *     (mgu-app.json), so this folder holds every file of the source package.
  *  3. Packs the source package robertn_store@<version>.src.tgz:
  *     mgu-app.json, the modules and the staged tree (tools/oap_link.js). The
  *     catalog publishes it as robertn_store@<version>.tgz with
@@ -35,20 +36,21 @@ function donorArg(argv) {
     return process.env.MGU_SDK_DONOR ? path.resolve(process.env.MGU_SDK_DONOR) : null;
 }
 
-function syncClient() {
-    const from = path.join(REPO, 'native', 'mgu-updater', 'js', 'client.js');
-    const to = path.join(HERE, 'lib', 'client.js');
+function sync(fromRel, toRel) {
+    const from = path.join(REPO, fromRel);
+    const to = path.join(HERE, toRel);
     const data = fs.readFileSync(from);
     if (!fs.existsSync(to) || !fs.readFileSync(to).equals(data)) {
         fs.writeFileSync(to, data);
-        console.error('lib/client.js written from native/mgu-updater/js/client.js: commit it');
+        console.error(`${toRel} written from ${fromRel}: commit it`);
     }
 }
 
 function main() {
     const donor = donorArg(process.argv.slice(2));
     require('./gen_rhmi.js').write();
-    syncClient();
+    sync('native/mgu-updater/js/client.js', 'lib/client.js');
+    sync('native/mgu-render/js/mgu_render_client.js', 'lib/mgu_render_client.js');
     const m = link.readManifest(HERE);
     const src = path.join(HERE, `${m.id}@${m.version}.src.tgz`);
     const out = { source: path.basename(src), sourceMembers: link.packSource(HERE, src).length };

@@ -3,8 +3,9 @@
  * mgu_render_client.js - an app's connection to mgu-render (PROTOCOL.md), the native dialect
  * (mgu-render/1). Node 8; needs only net, fs and events.
  *
- *   const { RenderClient } = require('./mgu_render_client');
- *   const gpu = new RenderClient('my_app', log, { kit: require('./record') });   // kit: optional
+ *   // RenderClient: this module's; kit (optional): a kit's record.js. No literal require
+ *   // names here: the OAP linker (tools/oap_link.js) reads them as the module's own.
+ *   const gpu = new RenderClient('my_app', log, { kit });
  *   gpu.on('ready', (screen, info) => {
  *       gpu.mode(info.modes.indexOf('embed') >= 0 ? 'embed' : 'layer');
  *       const box = gpu.mode() === 'embed' ? info.embedBox : info.appArea;
@@ -34,7 +35,7 @@ const fs = require('fs');
 const EventEmitter = require('events');
 
 const SOCKET = process.env.MGU_RENDERD_SOCKET || '/run/mgu-renderd/renderd.sock';
-const M = { HELLO: 1, PLACE: 2, SHOW: 3, ATLAS: 4, RAMP: 5, LAYER: 6, FRAME: 7, DROP_LAYER: 8, CLAIM: 9, IMAGE: 10, DROP_IMAGE: 11 };
+const M = { HELLO: 1, PLACE: 2, SHOW: 3, ATLAS: 4, RAMP: 5, LAYER: 6, FRAME: 7, DROP_LAYER: 8, CLAIM: 9, IMAGE: 10, DROP_IMAGE: 11, FPS: 12 };
 const X = { MODE: 0x4d520001, GRAB: 0x4d520002, PIXMAP: 0x4d520003, PIXELS: 0x4d520004, PALETTE: 0x4d520005,
     READY: 0x4d520101, STATE: 0x4d520102, CCU: 0x4d520103 };
 const E = { READY: 101, TICK: 102, ERROR: 103, STATS: 104, TOUCH: 105, CLOSED: 106 };
@@ -91,6 +92,7 @@ class RenderClient extends EventEmitter {
         this.wantMode = this.opts.mode || 'layer';
         this.claims = [];
         this.grabbing = false;
+        this.maxFps = null;           // fps(): the frame cap, sent again after a reconnect
         this.inbuf = Buffer.alloc(0);
         this.sent = { atlas: new Set(), ramp: new Set(), layer: new Set(), image: new Map() };
         this.imageBytes = 0;
@@ -183,6 +185,7 @@ class RenderClient extends EventEmitter {
                 if (this.claims.length) this._sendClaim();
                 if (this.visible) this._write(u32msg(M.SHOW, [1]));
                 if (this.grabbing) this._write(u32msg(X.GRAB, [1]));
+                if (this.maxFps !== null) this._write(u32msg(M.FPS, [this.maxFps]));
             }
             this.emit('ready', this.screen, this.info);
         } else if (type === E.TOUCH) {
@@ -237,6 +240,11 @@ class RenderClient extends EventEmitter {
         if (on === this.visible) return;
         this.visible = on;
         if (this.ready && this.native) this._write(u32msg(M.SHOW, [on ? 1 : 0]));
+    }
+    /** At most n frames a second (0 = no cap): a faster frame waits, TICK comes at that rate. */
+    fps(n) {
+        this.maxFps = Math.max(0, Math.min(1000, n | 0));
+        if (this.ready && this.native) this._write(u32msg(M.FPS, [this.maxFps]));
     }
     /** Touch areas, logical px ([] = none): while shown, touch there is this app's. */
     claim(rects) {

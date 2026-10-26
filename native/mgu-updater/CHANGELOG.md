@@ -1,5 +1,10 @@
 # Updater changelog
 
+## 0.5.1
+
+- `github_app_url`, shipped as the mgu-store GitHub App's page: the state's `signinApp.installUrl` is the App's install page (null without it), which the Store shows for a private source a sign-in does not reach.
+- A requirement that provides a capability another installed tool provides counts as met: a component requiring the renderer installs beside another renderer.
+
 ## 0.5.0
 
 - An https source answering IterioDev's App Manager index version 2 (`{"version": 2, "packages": [{url, sha256, size, id, kind, version, title, author, description, icon, iconSha256, …}]}`) is listed from the index alone, without downloading a package. `kind` `app` is an app (for iDrive 8 unless the entry names `mguHmi`); `renderer` and `tether` are tools providing that kind, installed by `mgu-deploy` 0.3.0 or newer; another kind is left out. An install downloads the package and refuses one whose `package.json` is not the id, version and service the index names. Version 1 indexes are read as before.
