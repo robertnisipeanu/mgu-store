@@ -74,9 +74,11 @@ The simplest: build as you do, and upload the packages to a GitHub Release.
   newest version of each id wins.
 - The owner can remove every app of this layout from the Store.
 - Titles: an optional release asset **`mgu-store.json`**,
-  `{"apps": {"<id>": {"title": "…", "description": "…"}}}`; without it
-  the Store shows the id until the app is installed, then its en_GB
-  entry-point text.
+  `{"apps": {"<id>": {"title": "…", "description": "…", "author": "…",
+  "icon": "<asset name>", "iconSha256": "<hex>"}}}`; without it the Store
+  shows the id until the app is installed, then its en_GB entry-point text.
+  `icon` names a PNG asset of any release (at most 128 KiB; `iconSha256`
+  optional).
 
 idrive7-apps works as published: its `kit/tools/build.py` writes both
 `dist/<id>@<ver>.tgz` and `.mgu`; upload either, after removing
@@ -91,8 +93,18 @@ Packages made for IterioDev's App Manager install as they are:
 
 - on a USB stick in a folder `oap/` (any file name, `.tgz`, `.tar.gz` or
   `.mgu`), or listed by an **index** at an https URL the owner adds as a
-  source, `{"packages": [{"url": "<file, absolute or relative to the
-  index>", "sha256": "<hex>"}]}` (his `make_index.py` writes one);
+  source (his `make_index.py` writes one). Version 2, `{"version": 2,
+  "name", "packages": [{"url", "sha256", "size", "id", "kind", "version",
+  "title", "author", "description", "updated", "renderer", "icon",
+  "iconSha256"}]}`, is listed as it stands: `kind` `app`, or a service
+  package's kind (below); an app is for iDrive 8 unless its entry has
+  `mguHmi`; `url` and `icon` absolute or relative to the index; a package
+  is downloaded on install and must be the id and version its entry names.
+  Version 1, `{"packages": [{"url", "sha256"}]}`, has each package
+  downloaded and read for what it is. A package read that way (or from a
+  stick) shows its `icon.png` beside `package.json` (a PNG of at most
+  128 KiB), `author` (or `author.name`) and `store.description` (else
+  `description`);
 - a **service package** (`package.json` `{name, version, mguService}` and
   the x86-64 program under its name): `renderer` (`mgu-renderd`) or
   `tether` (`ipheth-tether`). It installs as a root tool of that name, with
@@ -133,7 +145,9 @@ the releases layout gets a catalog there.
   `optional`: listed, never offered as an update until installed.
   `uninstallable`: the Store offers Remove. `mguHmi`: the head units it is
   for. `mguProvides`: a tool's capability (above); the tool kit's
-  `component.json` names it too.
+  `component.json` names it too. `author`, and `icon`: a PNG of at most
+  128 KiB, absolute (https) or relative to the catalog (a GitHub catalog
+  release: one of its assets), with an optional `iconSha256`.
 - Schema 1 (without those fields) is read too.
 
 `node release/release.js` builds and publishes this layout for this

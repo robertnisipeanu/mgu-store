@@ -2,7 +2,7 @@
 /**
  * Catalogs (release/README.md) and what they mean for this head unit: parse
  * and check a catalog (schema 1, or 2 with build / requires / optional /
- * uninstallable / mguHmi / mguProvides), and compare the components every source lists with what
+ * uninstallable / mguHmi / mguProvides / author / icon), and compare the components every source lists with what
  * is installed. A `signature` in a catalog is ignored: trust is HTTPS (and
  * a token that reaches it) to the source the owner added, and every
  * download is checked against the size and sha256 it lists. Node 8; no I/O.
@@ -48,7 +48,9 @@ function compareVersions(a, b) {
 }
 
 /* Checks one entry's schema-2 fields (requires, build, optional,
- * uninstallable) and gives them their defaults; throws with a reason. */
+ * uninstallable) and gives them their defaults; throws with a reason. An
+ * icon (a PNG: a URL or path its source resolves, with an optional
+ * iconSha256) becomes { ref, sha256 }, or null when it is not usable. */
 function checkExtras(c) {
     const where = `catalog entry ${c.id}`;
     if (c.build !== undefined && c.build !== null && !(c.build === 'unit' && c.kind === 'app')) {
@@ -73,7 +75,12 @@ function checkExtras(c) {
     if (c.mguProvides !== undefined && c.mguProvides !== null && !(c.kind === 'tool' && PROVIDES.test(c.mguProvides))) {
         throw new Error(`${where}: mguProvides is one lower-case name, for a tool`);
     }
+    const ref = typeof c.icon === 'string' ? c.icon : null;
+    const isha = c.iconSha256;
+    delete c.iconSha256;
     return Object.assign(c, {
+        icon: ref && ref.length <= 500 && (isha === undefined || isha === null || SHA256.test(isha)) ? { ref, sha256: isha || null } : null,
+        author: typeof c.author === 'string' ? c.author.slice(0, 80) : '',
         mguHmi: hmi,
         mguProvides: c.mguProvides || null,
         service: c.service || null,
@@ -141,6 +148,8 @@ function plan(entries, installed) {
             build: c.build,
             optional: c.optional,
             uninstallable: c.uninstallable,
+            description: c.description || '',
+            author: c.author || '',
             mguHmi: c.mguHmi,
             provides: c.mguProvides,
             service: c.service

@@ -727,7 +727,10 @@ class Updater {
             }
             const cap = row.provides;
             const holder = cap && this.providers[cap];
+            const icon = entry.icon ? this.iconFile(resolved[i].source, entry) : null;
             return Object.assign(row, {
+                // the kept icon (a PNG anyone may read), null without one
+                icon: icon && fs.existsSync(icon) ? icon : null,
                 compat: catalogLib.compat(row.mguHmi, this.unit && this.unit.hmi),
                 // the installed tool this one would replace (they provide the same capability)
                 replaces: holder && holder.id !== row.id ? holder.id : null,
@@ -880,6 +883,8 @@ class Updater {
                 console.log(`source ${id}${rt.channel ? ` (${rt.channel})` : ''}${rt.tokenId ? ` with token ${rt.tokenId}` : ''}: ` +
                     `${rt.mode}${rt.commit ? ` ${rt.commit.slice(0, 7)}` : ''}, ` +
                     `${cat.components.map((c) => `${c.id}@${c.version}`).join(' ') || 'nothing'}${rt.error ? `; ${rt.error}` : ''}`);
+                // in the background: a slow icon host holds up no check
+                this.fetchIcons(rt);
             }, (err) => {
                 rt.status = err.auth ? 'auth-needed' : 'error';
                 rt.error = err.message;
@@ -898,6 +903,63 @@ class Updater {
                 }
             });
         return rt.checking;
+    }
+
+    /* Where an entry's icon is kept: <state_dir>/icons/<sha256>.png, named by
+     * the sha256 its source gives, else by source, id, version and URL. */
+    iconFile(source, entry) {
+        const key = entry.icon.sha256 || sha256(`${source}\0${entry.id}\0${entry.version}\0${entry.icon.ref}`);
+        return path.join(this.conf.state_dir, 'icons', `${key}.png`);
+    }
+
+    /* Fetches the icons a source's components name that are not kept yet,
+     * one source's at a time: a PNG of at most ICON_BYTES, matching its
+     * sha256 when the source gives one, kept world-readable for the Store.
+     * A missing or bad icon is logged and asked for again a day later; the
+     * component is listed without it. */
+    fetchIcons(rt) {
+        if (rt.icons) {
+            return rt.icons;
+        }
+        const dir = path.join(this.conf.state_dir, 'icons');
+        this.iconFailed = this.iconFailed || new Map();
+        const due = (file) => !fs.existsSync(file) && !(this.iconFailed.get(file) > Date.now() - 86400000);
+        rt.icons = rt.components.filter((c) => c.icon && due(this.iconFile(rt.def.id, c))).reduce((p, c) => p
+            .then(() => rt.reader.icon(c))
+            .then((b) => {
+                if (b.length > sourcesLib.ICON_BYTES || b.slice(0, 8).toString('hex') !== '89504e470d0a1a0a') {
+                    throw new Error(`not a PNG of at most ${sourcesLib.ICON_BYTES} bytes`);
+                }
+                if (c.icon.sha256 && sha256(b) !== c.icon.sha256) {
+                    throw new Error('does not match its sha256');
+                }
+                mkdirp(dir, 0o755);
+                const file = this.iconFile(rt.def.id, c);
+                fs.writeFileSync(`${file}.tmp`, b, { mode: 0o644 });
+                fs.chmodSync(`${file}.tmp`, 0o644);
+                fs.renameSync(`${file}.tmp`, file);
+                this.changed();
+            })
+            .catch((err) => {
+                this.iconFailed.set(this.iconFile(rt.def.id, c), Date.now());
+                console.log(`source ${rt.def.id}: icon of ${c.id}: ${err.message}`);
+            }), Promise.resolve()).then(() => {
+            rt.icons = null;
+        });
+        return rt.icons;
+    }
+
+    /* Removes the kept icons no source's components name. */
+    pruneIcons() {
+        const dir = path.join(this.conf.state_dir, 'icons');
+        const keep = [];
+        this.defs().forEach((d) => {
+            const rt = this.src.get(d.id);
+            (rt ? rt.components : []).filter((c) => c.icon).forEach((c) => keep.push(path.basename(this.iconFile(d.id, c))));
+        });
+        try {
+            fs.readdirSync(dir).filter((n) => keep.indexOf(n) < 0).forEach((n) => rmIfThere(path.join(dir, n)));
+        } catch (e) { /* none yet */ }
     }
 
     /* The USB media mounted now (README.md, "USB media"). Returns true when
@@ -930,6 +992,7 @@ class Updater {
         this.scanTokens();
         this.validateTokens();
         this.checking = Promise.all(this.defs().map((d) => this.checkSource(d.id)))
+            .then(() => this.pruneIcons())
             .then(() => this.refresh())
             .then(() => {
                 this.checking = null;
