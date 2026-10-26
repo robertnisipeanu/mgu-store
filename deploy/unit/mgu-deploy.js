@@ -1029,6 +1029,17 @@ function incompatible(a) {
  * second provider is refused unless the install is asked to replace the
  * one installed (--replace): it then goes first, in the same transaction. */
 var PROVIDES = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/* A unit of c that is on the unit but that no installed tool of ours
+ * lists, such as IterioDev's App Manager's mgu-renderd.service: a tool
+ * that writes it would fight that manager over it. */
+function foreignUnit(c) {
+    var tools = installedTools();
+    return (c.units || []).map(function (u) { return u.name; }).filter(function (name) {
+        return lstatOrNull(path.join(CFG.systemd, name)) && !tools.some(function (t) {
+            return (t.component.units || []).some(function (u) { return u.name === name; });
+        });
+    })[0] || null;
+}
 function providerOf(cap, exceptId) {
     return installedTools().filter(function (t) { return t.id !== exceptId && t.component.mguProvides === cap; })[0] || null;
 }
@@ -2130,7 +2141,7 @@ function rollbackReplace(a, tx, backup, rep, state) {
             if (!tx.versionExisted && tx.before !== a.version) rmrf(path.join(tx.root, 'versions', a.version));
         }
     }
-    if (rep.aside) { rmrf(rep.root); fs.renameSync(rep.aside, rep.root); }
+    if (rep.aside && lstatOrNull(rep.aside)) { rmrf(rep.root); fs.renameSync(rep.aside, rep.root); }
     restoreSnapshot(backup);
     runOk(CFG.systemctl, ['daemon-reload']);
     pruneCreatedDirs(state);
@@ -2289,9 +2300,6 @@ function uninstallAppId8(id, state) {
     queueId8({ action: 'remove', id: id });
     say(id + ' is ' + ID8_REMOVES + ' of the head unit');
 }
-/* Moves p into bin under its own path (/var/opt/x -> <bin>/var/opt/x). A
- * path on the read-only root is copied here and deleted in the rootfs
- * window (ops). */
 function copyTree(src, dst) {
     var st = fs.lstatSync(src);
     mkdirp(path.dirname(dst));
@@ -2302,6 +2310,9 @@ function copyTree(src, dst) {
     } else fs.writeFileSync(dst, fs.readFileSync(src), { mode: st.mode & 0o7777 });
     if (!FAKE) { try { fs.lchownSync(dst, st.uid, st.gid); } catch (e) { /* kept as root's */ } }
 }
+/* Moves p into bin under its own path (/var/opt/x -> <bin>/var/opt/x). A
+ * path on the read-only root is copied here and deleted in the rootfs
+ * window (ops). */
 function trashPath(p, bin, ops, log) {
     if (!lstatOrNull(p)) return false;
     var dst = path.join(bin, p);
@@ -3226,9 +3237,18 @@ function cmdInstall(args) {
     try {
         var validated = files.map(function (f) { return validateArtifact(f, stage); });
         validated = orderArtifacts(validated);
-        validated.forEach(function (a) {
+        /* a kit (--skip-older) installs what is for this unit and leaves the rest */
+        validated = validated.filter(function (a) {
             var why = incompatible(a);
-            if (why) throw refuse(why);
+            if (why && !args.skipOlder) throw refuse(why);
+            if (why) say(a.id + ' ' + a.version + ' skipped: ' + why);
+            return !why;
+        });
+        validated.forEach(function (a) {
+            var foreign = a.kind === 'tool' && (a.service || a.provides) ? foreignUnit(a.component) : null;
+            if (foreign) {
+                throw refuse(a.id + ' ' + a.version + ': ' + foreign + ' is installed, but by no tool of ours (another manager runs it); remove it there first');
+            }
         });
         if (!unitInfo().hmi) warn('which head unit this is is unknown (' + unitInfo().basis + '): mguHmi is not checked');
         var replaces = {};
@@ -3247,6 +3267,12 @@ function cmdInstall(args) {
         var decisions = {};
         validated.forEach(function (a) {
             if (a.kind === 'app') decisions[a.id] = appDecision(a, args.skipOlder);
+            /* the installed version again on iDrive 8: a queued removal of it is dropped */
+            if (id8 && a.kind === 'app' && decisions[a.id].action === 'current' &&
+                readPending().some(function (c) { return c.id === a.id && c.action === 'remove'; })) {
+                queueId8({ id: a.id });
+                say('the queued removal of ' + a.id + ' is dropped');
+            }
         });
         if (args.skipOlder) {
             var tools = installedTools();
@@ -3296,12 +3322,12 @@ function cmdInstall(args) {
                 if (a.kind === 'tool') installTool(a, state, tx);
                 else if (id8) installAppId8(a, state, decisions[a.id]);
                 else installApp(a, state, decisions[a.id]);
+                syncDropIns();
                 if (rep) {
                     rmrf(rep.aside);
                     state.pending_reboot = state.pending_reboot.filter(function (p) { return p.id !== rep.id; });
                     say(cur.id + ' replaced by ' + a.id);
                 }
-                syncDropIns();
                 done.push(a.id + ' ' + a.version);
             } catch (e) {
                 process.stderr.write(a.id + ' ' + a.version + ' failed: ' + e.message + '\n');

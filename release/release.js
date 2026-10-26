@@ -29,7 +29,7 @@ const REPO = path.resolve(__dirname, '..');
 const OUT = path.join(__dirname, 'out');
 const DEPLOY = path.join('deploy', 'hu');
 const publishTarget = require('./publish');
-const { compareVersions, SEMVER } = require('../native/mgu-updater/js/catalog.js');
+const { compareVersions, hmiList, SEMVER } = require('../native/mgu-updater/js/catalog.js');
 
 function readJson(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -86,11 +86,11 @@ function catalogFields(from, where) {
         }
     });
     if (from.mguHmi !== undefined) {
-        if (!Array.isArray(from.mguHmi) || !from.mguHmi.length ||
-            from.mguHmi.some((h, i) => ['ID7', 'ID8'].indexOf(h) < 0 || from.mguHmi.indexOf(h) !== i)) {
-            throw new Error(`${where}: "mguHmi" lists "ID7" and/or "ID8"`);
+        try {
+            out.mguHmi = hmiList(from.mguHmi);
+        } catch (e) {
+            throw new Error(`${where}: ${e.message}`);
         }
-        out.mguHmi = from.mguHmi.slice().sort();
     }
     if (from.mguProvides !== undefined) {
         if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(from.mguProvides)) {

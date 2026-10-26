@@ -378,6 +378,8 @@ under `uiDescriptions/`). An install of one that is not for this unit is
 refused before anything changes (exit 2: `oap-cardash 1.1.4 is for iDrive 8
 (its rhmiData); this head unit is iDrive 7`); one that names none either way
 installs. On a unit not known the install says mguHmi is not checked.
+With `--skip-older` (a kit, `mgu-install.js first-install`) such an
+artifact is skipped, saying why, and the others install.
 
 ### iDrive 8 apps
 
@@ -399,7 +401,8 @@ whose das edits and removal steps it follows:
   Neither app-privacy nor the provisioning fallback is used there (`fallback
   on|off|migrate` is refused).
 - `uninstall` queues the removal (`removed at the next start`); for an app
-  only queued, it drops the queued install.
+  only queued, it drops the queued install. Installing the installed
+  version again drops a queued removal.
 - The first change queued installs `mgu-deploy-apply.service` (enabled for
   `late.target`, ordered before `telematics-platform` and `oapcontroller`,
   run only while `id8/pending.json` exists; listed in recmgr where the unit
@@ -451,7 +454,10 @@ same ivi layer and surface ids, so `renderer` is one. A service package
 provides its kind. Installing a second provider is refused (exit 2:
 `... provides renderer, which mgu-renderd 1.1.0 provides; only one can be
 installed: install with --replace to replace mgu-renderd`), as are two in
-one install. With `--replace`, in one transaction with one snapshot of
+one install. A service package, or a tool providing a capability, whose
+unit file is on the unit but listed by no installed tool of ours (IterioDev's
+App Manager writes `mgu-renderd.service` for its own renderer) is refused,
+`--replace` or not: the other manager would write its unit back. With `--replace`, in one transaction with one snapshot of
 both: the installed provider is uninstalled (its running units stopped
 when recmgr has them, its units, links and recmgr names removed, its
 folder moved aside as `/var/opt/<id>.replaced-<pid>`), then the new one
@@ -1138,6 +1144,9 @@ whole iDrive 8 path:
 - MainApp-21 installing an npm-format package from `preinstalled_apps`
   repacked by this tool (a flat or `.mgu` one), and a source package built
   from an iDrive 8 donor;
-- the renderer and tether units as written here, and running this tool
-  and the App Manager side by side (both write `mgu-renderd.service`; one
-  of them should own each service).
+- the renderer and tether units as written here (a renderer the App
+  Manager installed is refused here; remove it there first);
+- MainApp-21's process command line holding `oap-mainapp21/src/main.js`
+  (`apply-pending` refuses while it runs, by that);
+- MainApp-21 supplying `oap-sdk` to an npm package that names it in
+  `dependencies` without shipping it (IterioDev's packages do so).

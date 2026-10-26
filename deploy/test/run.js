@@ -2802,8 +2802,11 @@ function testMguInstallUsb() {
         const rs = mguInstall(['usb-repo', svcStick, serviceArtifact('renderer', '1.1.0')], opts);
         const svcEntry = (readJson(path.join(svcStick, 'mgu-repo', 'local', 'catalog.json')).components || [])[0] || {};
         check('mgu-install usb-repo: a renderer package is listed as the tool it installs as, providing renderer', rs.status === 0 &&
-            svcEntry.id === 'mgu-renderd' && svcEntry.kind === 'tool' && svcEntry.mguProvides === 'renderer' && svcEntry.uninstallable === true,
+            svcEntry.id === 'mgu-renderd' && svcEntry.kind === 'tool' && svcEntry.mguProvides === 'renderer' && svcEntry.uninstallable === true &&
+            JSON.stringify(svcEntry.requires) === '{"mgu-deploy":"0.3.0"}',
             `${rs.out}\n${JSON.stringify(svcEntry)}`);
+        const badHmi = mguInstall(['usb-repo', svcStick, rhmiApp('badhmi', '1.0.0', null, { pkg: { mguHmi: 'ID7' } })], opts);
+        check('mgu-install usb-repo: a malformed mguHmi is refused', badHmi.status === 2 && badHmi.stderr.includes('mguHmi must list'), badHmi.out);
         const badPub = path.join(fs.mkdtempSync(path.join(T, 'badpub-')), 'dir-publish');
         cp.execFileSync('cp', ['-R', pub + '/.', badPub]);
         fs.appendFileSync(path.join(badPub, 'dir_app@1.0.0.tgz'), 'x');
@@ -2954,6 +2957,11 @@ function testCompat() {
     check('compat: mguHmi that is not a list of ID7/ID8 is refused', r3.status === 2 && r3.out.includes('mguHmi must list "ID7" and/or "ID8"'), r3.out);
     const c = root.run(['check', '--artifact', rhmiApp('both', '1.0.0', ['ID7', 'ID8'], { marked: true })]);
     check('compat: check names the HMIs an artifact is for', c.out.includes('app both 1.0.0 ok (for iDrive 7 and iDrive 8)'), c.out);
+    const kit = fakeRoot();
+    const k = kit.run(['install', '--artifact', rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true }), '--artifact', toolArtifact('0.2.0'),
+        '--skip-older', '--yes']);
+    check('compat: a kit (--skip-older) skips what is not for this unit and installs the rest', k.status === 0 &&
+        k.out.includes('oap-cardash 1.1.4 skipped: oap-cardash 1.1.4 is for iDrive 8') && fs.existsSync(kit.p('var/opt/fixture-tool/current')), k.out);
     const out = fs.mkdtempSync(path.join(T, 'art-'));
     const b = hu(['artifact', fixtureCopy('0.2.0', (x) => { x.mguHmi = ['ID8']; }), '--out', out]);
     const r4 = root.run(['install', '--artifact', path.join(out, 'fixture-tool@0.2.0.tgz'), '--yes']);
@@ -2997,6 +3005,14 @@ function testServices() {
         !fs.existsSync(root.p('etc/systemd/system/late.target.wants/ipheth-tether.service')) &&
         !root.systemctlCalls().some((c) => /ipheth-tether/.test(c) && /^(start|restart)/.test(c)) &&
         root.status().components.some((c) => c.id === 'ipheth-tether' && c.provides === 'tether'), t.out);
+    const his = fakeRoot();
+    write(his.p('etc/systemd/system/mgu-renderd.service'), '[Service]\nExecStart=/var/opt/appmanager/renderer/mgu-renderd\n');
+    const h0 = his.hash();
+    const fr = his.run(['install', '--artifact', art, '--yes']);
+    const fr2 = his.run(['install', '--artifact', art, '--replace', '--yes']);
+    check('service: a renderer whose unit another manager installed is refused, --replace or not, nothing changed',
+        fr.status === 2 && fr2.status === 2 && fr.out.includes('mgu-renderd 1.1.0: mgu-renderd.service is installed, but by no tool of ours') &&
+        his.hash().hash === h0.hash, fr.out + fr2.out);
     const u = root.run(['uninstall', 'mgu-renderd', '--yes']);
     check('service: uninstall removes the tool, its unit, link and recmgr entry', u.status === 0 &&
         !fs.existsSync(root.p('var/opt/mgu-renderd')) && !fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
@@ -3109,6 +3125,10 @@ function testId8Apps() {
         write(root.p('var/opt/personal/p1/oap/oap_13001/x'), 'p\n');
         write(root.p('etc/vsomeip/13001_13001/policy.json'), '{}\n');
         check(`${tag}: MainApp's install shows as installed`, root.status().components.some((c) => c.id === 'oap-cardash' && c.version === '1.1.4'));
+        root.run(['uninstall', 'oap-cardash', '--yes']);
+        const again = root.run(['install', '--artifact', art, '--yes']);
+        check(`${tag}: installing the installed version again drops its queued removal`, again.status === 0 &&
+            again.out.includes('the queued removal of oap-cardash is dropped') && root.status().pending_reboot.length === 0, again.out);
         const up = root.run(['install', '--artifact', rhmiApp('oap-cardash', '1.1.5', ['ID8'], { npm: true }), '--yes']);
         check(`${tag}: an update says the installed version and its data go first`, up.status === 0 &&
             up.out.includes('1.1.4 is uninstalled first, and its data with it'), up.out);

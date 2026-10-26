@@ -652,7 +652,7 @@ function describePackage(file, data) {
     return { id: pkg.name, kind: pkg.mguService ? 'tool' : 'app', version: pkg.version,
         title: title(members, base) || pkg.productName || pkg.name,
         description: typeof pkg.description === 'string' ? pkg.description : '', mgu: base === 'source/',
-        mguHmi: pkg.mguHmi, mguProvides: pkg.mguService };
+        mguHmi: pkg.mguHmi, mguProvides: pkg.mguService, service: !!pkg.mguService };
 }
 
 /* A catalog entry as the stick lists it: the source's fields, the artifact
@@ -797,8 +797,17 @@ function localFolder(dest, inputs) {
             say(`  ${d.id} ${have.entry.version} stays (${path.basename(file)} is ${d.version})`);
             return;
         }
+        if (d.mguHmi !== undefined && (!Array.isArray(d.mguHmi) || !d.mguHmi.length ||
+            d.mguHmi.some((h, i) => ['ID7', 'ID8'].indexOf(h) < 0 || d.mguHmi.indexOf(h) !== i))) {
+            throw new Usage(`${file}: mguHmi must list "ID7" and/or "ID8"`);
+        }
+        if (d.mguProvides !== undefined && !(d.kind === 'tool' && /^[a-z0-9][a-z0-9-]{0,31}$/.test(d.mguProvides))) {
+            throw new Usage(`${file}: mguProvides is one lower-case name, for a tool`);
+        }
         const entry = { id: d.id, kind: d.kind, title: d.title, description: d.description, version: d.version,
-            build: d.build, uninstallable: d.kind === 'app' || d.mguProvides ? true : undefined, mguHmi: d.mguHmi, mguProvides: d.mguProvides };
+            build: d.build, uninstallable: d.kind === 'app' || d.service ? true : undefined, mguHmi: d.mguHmi, mguProvides: d.mguProvides,
+            // the deploy tool that installs a service package as a tool
+            requires: d.service ? { 'mgu-deploy': '0.3.0' } : undefined };
         byId.set(d.id, { entry, file: `${d.id}@${d.version}.${d.mgu ? 'mgu' : 'tgz'}`, data });
         say(`  ${d.id} ${d.version}  ${path.basename(file)}`);
     });

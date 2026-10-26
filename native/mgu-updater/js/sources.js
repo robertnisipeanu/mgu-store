@@ -429,9 +429,10 @@ function httpsReader(s, ctx) {
             try {
                 url = new URL(String((item && item.url) || ''), s.url).toString();
             } catch (e) { /* refused below */ }
-            const name = url ? decodeURIComponent(url.split('?')[0].split('/').pop() || '').slice(0, 100) : '?';
+            let name = '?';
             return Promise.resolve()
                 .then(() => {
+                    name = url ? decodeURIComponent(url.split('?')[0].split('/').pop() || '').slice(0, 100) : name;
                     if (!/^[0-9a-f]{64}$/.test(sha) || !url || !/^https:\/\//.test(url)) {
                         throw new Error('needs an https url and a sha256');
                     }
@@ -453,8 +454,7 @@ function httpsReader(s, ctx) {
                 .then((data) => {
                     keep.push(`${sha}.tgz`);
                     return tar.untgz(data, ctx.maxBuildBytes).then((members) => {
-                        const pkg = packageInfo(members).pkg;
-                        const entry = packageEntry(members, data, { name: `${pkg.name}@${pkg.version}.tgz`, url });
+                        const entry = packageEntry(members, data, { url }, 'tgz');
                         const have = newest.get(entry.id);
                         if (!have || catalogLib.compareVersions(entry.version, have.version) > 0) {
                             newest.set(entry.id, entry);
@@ -769,7 +769,7 @@ const SERVICE_KINDS = ['renderer', 'tether'];
  * makes of it, which provides its kind and needs mgu-deploy 0.3.0 or
  * newer to install. An app that names no mguHmi is
  * for the HMIs its rhmiData has a UI for. */
-function packageEntry(members, data, artifact) {
+function packageEntry(members, data, artifact, ext) {
     const { pkg, title, hmi } = packageInfo(members);
     if (!ID.test(pkg.name || '') || !catalogLib.SEMVER.test(pkg.version || '')) {
         throw new Error('package.json needs a lower-case name and an x.y.z version');
@@ -786,7 +786,8 @@ function packageEntry(members, data, artifact) {
         mguProvides: service || undefined, service,
         // the deploy tool that installs a service package as a tool
         requires: service ? { 'mgu-deploy': '0.3.0' } : undefined,
-        artifact: Object.assign({ size: data.length, sha256: crypto.createHash('sha256').update(data).digest('hex') }, artifact),
+        artifact: Object.assign({ name: `${pkg.name}@${pkg.version}.${ext}`, size: data.length,
+            sha256: crypto.createHash('sha256').update(data).digest('hex') }, artifact),
         uninstallable: true
     });
 }
@@ -808,9 +809,7 @@ function looseReader(root, ctx) {
                     return tar.untgz(data, ctx.maxBuildBytes);
                 })
                 .then((members) => {
-                    const pkg = packageInfo(members).pkg;
-                    const entry = packageEntry(members, data, {
-                        name: `${pkg.name}@${pkg.version}.${/\.mgu$/i.test(name) ? 'mgu' : 'tgz'}`, url: name });
+                    const entry = packageEntry(members, data, { url: name }, /\.mgu$/i.test(name) ? 'mgu' : 'tgz');
                     const have = newest.get(entry.id);
                     if (!have || catalogLib.compareVersions(entry.version, have.version) > 0) {
                         newest.set(entry.id, entry);

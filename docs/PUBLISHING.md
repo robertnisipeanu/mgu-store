@@ -34,7 +34,8 @@ What every layout shares:
   has a UI for (`rhmiData/application.json` `uiDescriptions[].hmi`, or its
   `uiDescriptions/ID7|ID8/` folders) wherever the package itself is read
   (a stick, an index, the install); a catalog entry or a release asset
-  without it shows as unknown and installs.
+  without it shows as unknown, and the install still refuses it when its
+  rhmiData has a UI for the other unit only.
 - **Apps only, unless you ship a tool kit or a service package.** Native
   companions (a renderer, a daemon) are root tools: they install only as a
   tool artifact with `component.json` (deploy/README.md, "Artifacts"),

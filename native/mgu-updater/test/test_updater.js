@@ -2101,7 +2101,8 @@ function testUnitServices(certs, pubDir) {
             'rhmiData/uiDescriptions/ID8/application.xml': '<x/>' });
     const both = npmPkg('both_app@1.0.0.tgz', { name: 'both_app', version: '1.0.0', mguHmi: ['ID7', 'ID8'] });
     fs.writeFileSync(path.join(pubDir, 'index.json'), JSON.stringify({ packages: [renderer, id8, both,
-        { url: 'gone.tgz', sha256: '0'.repeat(64) }, { url: 'oap-cardash@1.1.4.tgz', sha256: '1'.repeat(64) }] }));
+        { url: 'gone.tgz', sha256: '0'.repeat(64) }, { url: 'oap-cardash@1.1.4.tgz', sha256: '1'.repeat(64) },
+        { url: 'a%zz.tgz', sha256: 'a'.repeat(64) }] }));
     // a catalog with another renderer, as a tool kit
     publish(cat, [Object.assign(entry(toolKit(cat, 'my-render', '0.1.0', { 'r.sh': ['#!/bin/sh\n', 0o755] }, { mguProvides: 'renderer' }), 'tool', 'My renderer'),
         { mguProvides: 'renderer', uninstallable: true })], { schema: 2 });
@@ -2142,7 +2143,8 @@ function testUnitServices(certs, pubDir) {
                 comp('both_app').version === '1.0.0', JSON.stringify(s.sources));
             ok('index: a package that is missing or does not match its sha256 is left out, said why',
                 /gone\.tgz/.test(s.sources.find((x) => x.id === 'idx').error || '') &&
-                /does not match the sha256/.test(s.sources.find((x) => x.id === 'idx').error || ''), s.sources.find((x) => x.id === 'idx').error);
+                /does not match the sha256/.test(s.sources.find((x) => x.id === 'idx').error || '') &&
+                /URI malformed/.test(s.sources.find((x) => x.id === 'idx').error || ''), s.sources.find((x) => x.id === 'idx').error);
             ok('index: each package is kept by its sha256, root\'s alone', fs.existsSync(cached(renderer.sha256)) &&
                 (fs.statSync(cached(renderer.sha256)).mode & 0o777) === 0o600);
             ok('service: a renderer package is listed as a tool providing renderer, compatibility unknown',
