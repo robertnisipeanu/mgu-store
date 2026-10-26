@@ -29,7 +29,7 @@ const REPO = path.resolve(__dirname, '..');
 const OUT = path.join(__dirname, 'out');
 const DEPLOY = path.join('deploy', 'hu');
 const publishTarget = require('./publish');
-const { compareVersions, SEMVER } = require('../native/mgu-updater/js/catalog.js');
+const { compareVersions, hmiList, SEMVER } = require('../native/mgu-updater/js/catalog.js');
 
 function readJson(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -85,7 +85,36 @@ function catalogFields(from, where) {
             out[k] = true;
         }
     });
+    if (from.mguHmi !== undefined) {
+        try {
+            if (from.mguHmi === null) {
+                throw new Error('mguHmi must list "ID7" and/or "ID8"');
+            }
+            out.mguHmi = hmiList(from.mguHmi);
+        } catch (e) {
+            throw new Error(`${where}: ${e.message}`);
+        }
+    }
+    if (from.mguProvides !== undefined) {
+        if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(from.mguProvides)) {
+            throw new Error(`${where}: "mguProvides" is one lower-case name`);
+        }
+        out.mguProvides = from.mguProvides;
+    }
     return out;
+}
+
+/* The HMIs an app's staged rhmiData has a UI for (application.json's
+ * uiDescriptions[].hmi), or undefined. */
+function rhmiHmi(stagedDir) {
+    const app = readJson(path.join(stagedDir, 'rhmiData', 'application.json')).application;
+    const out = [];
+    (app.uiDescriptions || []).forEach((u) => (u.hmi || []).forEach((h) => {
+        if (['ID7', 'ID8'].indexOf(h) >= 0 && out.indexOf(h) < 0) {
+            out.push(h);
+        }
+    }));
+    return out.length ? out.sort() : undefined;
 }
 
 /* Every releasable component in a repo tree (the working tree or an export). */
@@ -134,7 +163,7 @@ function components(root = REPO) {
             shipped: [`apps/${id}/${id}@${version}`].concat(manifest ?
                 [`apps/${id}/mgu-app.json`].concat(manifest.modules.map((m) => `apps/${id}/${m}`)) : []),
             artifact: `apps/${id}/${id}@${version}${manifest ? '.src' : ''}.tgz`
-        }, catalogFields(release, `apps/${id}/release.json`)));
+        }, catalogFields(Object.assign({ mguHmi: rhmiHmi(stagedDir) }, release), `apps/${id}/release.json`)));
     });
     const tool = (dir, id, shipped) => {
         const file = path.join(root, dir, 'component.json');
@@ -259,7 +288,7 @@ function catalogEntry(c, file) {
     if (c.build) {
         entry.build = c.build;
     }
-    ['requires', 'optional', 'uninstallable'].forEach((k) => {
+    ['requires', 'optional', 'uninstallable', 'mguHmi', 'mguProvides'].forEach((k) => {
         if (c[k] !== undefined) {
             entry[k] = c[k];
         }

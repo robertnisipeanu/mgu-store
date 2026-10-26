@@ -19,6 +19,12 @@
  * $FAKE_DEPLOY_LOG.pending lists ids (one per line) reported under
  * pending_reboot, whose service counts as not restarted;
  * while $FAKE_DEPLOY_LOG.rollbackfail exists, rollback exits 1.
+ * status --json says the head unit is $FAKE_UNIT_HMI (ID7 without it) and
+ * lists every installed tool with what it provides (component.json
+ * mguProvides). A root-service package (package.json with mguService) is
+ * installed as the tool of its name, providing its kind; a tool providing
+ * what another installed tool provides is refused (exit 2) without
+ * --replace, which removes that tool first.
  * mgu-uplink stands for the internet: once its current version runs, the
  * lease at $FAKE_LEASE exists ($FAKE_LEASE.good copied) unless that
  * version's component.json says "test_broken": true.
@@ -108,9 +114,21 @@ if (cmd === 'uninstall') {
     console.log(`${id} removed`);
     process.exit(0);
 }
+function tools() {
+    const root = process.env.TOOL_ROOT;
+    return (fs.existsSync(root) ? fs.readdirSync(root) : []).map((id) => {
+        try {
+            return JSON.parse(fs.readFileSync(path.join(root, id, 'current', 'component.json'), 'utf8'));
+        } catch (e) {
+            return null;
+        }
+    }).filter((c) => c && c.id);
+}
 if (cmd === 'status') {
     const pending = (process.env.FAKE_PENDING || '').split(',').filter(Boolean).concat(pendingIds());
-    console.log(JSON.stringify({ components: [], pending_reboot: pending.map((id) => ({ id, reason: 'test' })) }));
+    console.log(JSON.stringify({ unit: { hmi: process.env.FAKE_UNIT_HMI || 'ID7', firmware: 'test firmware' },
+        components: tools().map((c) => ({ id: c.id, kind: 'tool', version: c.version, provides: c.mguProvides || null })),
+        pending_reboot: pending.map((id) => ({ id, reason: 'test' })) }));
     process.exit(0);
 }
 if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.fail`)) {
@@ -120,8 +138,29 @@ if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.fail`)) {
 }
 const tmp = fs.mkdtempSync('/tmp/fake-deploy-');
 cp.execFileSync('tar', ['-xzf', file, '-C', tmp]);
+const svc = (() => {
+    try {
+        const p = JSON.parse(fs.readFileSync(path.join(tmp, 'package', 'package.json'), 'utf8'));
+        return p.mguService ? p : null;
+    } catch (e) {
+        return null;
+    }
+})();
+if (svc) {
+    mkdirp(path.join(tmp, 'files'));
+    fs.writeFileSync(path.join(tmp, 'component.json'), JSON.stringify({ id: svc.name, kind: 'tool', version: svc.version, mguProvides: svc.mguService }));
+}
 if (fs.existsSync(path.join(tmp, 'component.json'))) {
     const c = JSON.parse(fs.readFileSync(path.join(tmp, 'component.json'), 'utf8'));
+    const holder = c.mguProvides && tools().find((t) => t.id !== c.id && t.mguProvides === c.mguProvides);
+    if (holder && process.argv.indexOf('--replace') < 0) {
+        process.stderr.write(`mgu-deploy: ${c.id} provides ${c.mguProvides}, which ${holder.id} provides\n`);
+        process.exit(2);
+    }
+    if (holder) {
+        cp.execFileSync('rm', ['-rf', path.join(process.env.TOOL_ROOT, holder.id)]);
+        console.log(`${holder.id} replaced`);
+    }
     const root = path.join(process.env.TOOL_ROOT, c.id);
     const dest = path.join(root, 'versions', c.version);
     mkdirp(dest);

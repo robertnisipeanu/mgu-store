@@ -394,8 +394,9 @@ function findDonor(files, mustName, pick, what) {
 }
 
 /* Only stock BMW packages supply SDK code. Packages carrying the local
- * marker (even false), or named in either manager list, are excluded from
- * both the preinstalled and installed searches. Missing/malformed package
+ * marker (even false), named in either manager list, or in opts.exclude
+ * (on iDrive 8 the apps provisioning lists as preinstalled custom apps),
+ * are excluded from both the preinstalled and installed searches. Missing/malformed package
  * metadata cannot establish a stock donor. */
 function unitDonors(mainappDir, oapDir, opts) {
     opts = opts || {};
@@ -409,8 +410,10 @@ function unitDonors(mainappDir, oapDir, opts) {
     if (!Array.isArray(local) || !custom || typeof custom !== 'object' || Array.isArray(custom)) {
         throw new Error('invalid donor exclusion lists');
     }
+    const exclude = Array.isArray(opts.exclude) ? opts.exclude : [];
     const stock = (pkg) => pkg && typeof pkg.name === 'string' && pkg.name &&
         !Object.prototype.hasOwnProperty.call(pkg, 'mguLocalOnly') && local.indexOf(pkg.name) < 0 &&
+        exclude.indexOf(pkg.name) < 0 &&
         !Object.prototype.hasOwnProperty.call(custom, pkg.name);
     const list = (dir, re) => {
         try {

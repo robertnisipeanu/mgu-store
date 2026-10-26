@@ -332,7 +332,9 @@ const OPS = {
     'login-cancel': () => ({}),
     'token-add': (b) => (str(b.token, 4096) && (b.label === undefined || str(b.label, 64)) ?
         Object.assign({ token: b.token.trim() }, b.label ? { label: b.label.trim() } : {}) : null),
-    'token-remove': (b) => (str(b.id, 64) ? { id: b.id } : null)
+    'token-remove': (b) => (str(b.id, 64) ? { id: b.id } : null),
+    // the page installs only to replace the tool providing the same capability
+    install: (b) => (str(b.id, 64) && b.replace === true ? { id: b.id, replace: true } : null)
 };
 
 function serve() {
@@ -781,9 +783,16 @@ function renderComponents(list) {
       STATUS[c.status] || c.status];
     if (c.source) { meta.push(c.source); }
     if (c.pendingReboot) { meta.push('Restart pending'); }
+    if (c.provides) { meta.push(c.provides + (c.installed && !c.replaces ? ' (active)' : '')); }
+    if (c.compat === 'no') { meta.push('Not for this head unit'); }
     main.appendChild(el('div', 'mut', meta.join(' · ')));
     if (c.error) { main.appendChild(el('div', 'bad', c.error)); }
     row.appendChild(main);
+    if (c.replaces && c.compat !== 'no') {
+      row.appendChild(button('Replace', function () {
+        if (confirm('Replace ' + c.replaces + ' with ' + (c.title || c.id) + '?')) { op({ op: 'install', id: c.id, replace: true }); }
+      }));
+    }
     box.appendChild(row);
   });
 }

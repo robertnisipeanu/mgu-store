@@ -41,7 +41,9 @@ prefix.
   `<id>@<version>.tgz`, packed with `tools/oap_pack.js`. A release build
   has no oap-sdk donor (`MGU_SDK_DONOR` is unset for it), and no file of
   the SDK is in this repository.
-- `requires`, `optional`, `uninstallable`: the catalog fields below.
+- `requires`, `optional`, `uninstallable`, `mguHmi`: the catalog fields
+  below; without `mguHmi`, the app's staged rhmiData names it
+  (`uiDescriptions[].hmi`).
 
 The store shows the app under the en_GB text of its first entry point.
 
@@ -50,7 +52,7 @@ The store shows the app under the en_GB text of its first entry point.
 `enable`, `recmgr`, `restart` (the deploy tool's format; see
 `native/mgu-updater/component.json`), and optionally `internet` with
 `uids` (deploy/README.md, "Internet for selected components") and the
-catalog fields `requires`, `optional`, `uninstallable`.
+catalog fields `requires`, `optional`, `uninstallable`, `mguHmi`, `mguProvides`.
 
 ## Versions
 
@@ -127,6 +129,10 @@ Schema 2 adds, per entry:
 - `optional: true`: listed, never offered as an update unless installed
   (`mgu-uplink`).
 - `uninstallable: true`: the Store may offer Remove (`mgu-uplink`).
+- `mguHmi: ["ID7"|"ID8", ...]`: the head units it is for; the Store
+  refuses it on another (docs/PUBLISHING.md). `robertn_store`: `["ID7"]`.
+- `mguProvides: "<capability>"`: a tool only one of which may be installed
+  for that capability (`renderer`).
 
 ## Publishing
 

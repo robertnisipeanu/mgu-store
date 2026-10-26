@@ -53,7 +53,7 @@ in stock apps is a local `{version}` marker for the install/update event.
 
 `patch_mainapp.js` runs on the unit's Node 8 as root; the unit has no
 Python. It ships as the `app-privacy` tool component (`component.json`,
-the deploy tool's format), installed at
+the deploy tool's format; iDrive 7's MainApp only, `"mguHmi": ["ID7"]`), installed at
 `/var/opt/app-privacy/current/patch_mainapp.js`, with `app-privacy.service`,
 a boot oneshot ordered before `oapcontroller.service` that runs `boot`
 (apply, always exit 0). When the bundles are replaced (a software update
@@ -63,7 +63,7 @@ that rewrites all of it removes the unit too, and the component has to be
 installed again.
 
 ```sh
-node patch_mainapp.js --version          # app-privacy 1.2.1
+node patch_mainapp.js --version          # app-privacy 1.2.2
 node patch_mainapp.js check [--json]     # 0 patched, 1 unpatched, 2 mismatch
 node patch_mainapp.js apply [--json]     # 0 patched, 2 refused, 1 write error
 node patch_mainapp.js revert [--json]    # 0 unpatched, 2 refused, 1 write error

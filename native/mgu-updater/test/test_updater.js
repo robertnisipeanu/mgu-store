@@ -20,7 +20,10 @@
  *    that moves, repo build scripts (built, failing, too slow, writing
  *    outside), requirements installed first, uninstall, USB media, the
  *    privileged requests and their secret files, a first start without
- *    sources.json, and the Store 0.3's view of the state.
+ *    sources.json, and the Store 0.3's view of the state;
+ *  - the head unit and compatibility (mguHmi), root-service packages and
+ *    apps from an App Manager index (https), and two tools providing one
+ *    capability (refused, replaced with the secret, uninstalled).
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -1906,7 +1909,8 @@ function testSources(certs) {
             pkgTgz(path.join(oapDir, 'App Manager v1.0.9.tgz'), true, { name: 'oap-appmanager', version: '1.0.9', productName: 'App Manager' }, 'Apps');
             pkgTgz(path.join(oapDir, 'older-manager.tar.gz'), true, { name: 'oap-appmanager', version: '1.0.2' }, null);
             pkgTgz(path.join(oapDir, 'flat.TGZ'), false, { name: 'flat_app', version: '2.0.0', productName: 'Flat' }, null);
-            pkgTgz(path.join(oapDir, 'renderer.tgz'), true, { name: 'mgu-renderd', version: '1.0.0', mguService: { unit: 'x' } }, null);
+            pkgTgz(path.join(oapDir, 'renderer.tgz'), true, { name: 'mgu-renderd', version: '1.0.0', mguService: 'renderer' }, null);
+            pkgTgz(path.join(oapDir, 'odd-service.tgz'), true, { name: 'odd', version: '1.0.0', mguService: { unit: 'x' } }, null);
             fs.copyFileSync(mgu('loose_mgu', '0.2.0'), path.join(oapDir, 'thing.mgu'));
             fs.writeFileSync(path.join(oapDir, 'README.txt'), 'not a package');
             fs.writeFileSync(path.join(oapDir, 'broken.tgz'), 'not gzip');
@@ -1931,9 +1935,11 @@ function testSources(certs) {
                         comp('flat_app').title === 'Flat' && comp('loose_mgu').version === '0.2.0' && comp('oap-appmanager').source === 'usb:STICK/oap',
                         JSON.stringify(st().components.filter((c) => /usb:STICK\/oap/.test(c.source))));
                     ok('usb oap/: every app can be removed', comp('flat_app').uninstallable === true && comp('loose_mgu').uninstallable === true);
-                    ok('usb oap/: root-service packages, links and files that are not packages are left out',
-                        !comp('mgu-renderd').id && comp('rel_app').source === 'rel' && src('usb:STICK/oap').components === 3 &&
-                        /broken\.tgz/.test(src('usb:STICK/oap').error || '') && !/renderer|README|linked/.test(src('usb:STICK/oap').error || ''),
+                    ok('usb oap/: a root-service package is the tool it installs as; an unknown service, links and files that are not packages are left out',
+                        comp('mgu-renderd').kind === 'tool' && comp('mgu-renderd').provides === 'renderer' && comp('rel_app').source === 'rel' &&
+                        src('usb:STICK/oap').components === 4 && /broken\.tgz/.test(src('usb:STICK/oap').error || '') &&
+                        /odd-service\.tgz: unknown mguService/.test(src('usb:STICK/oap').error || '') &&
+                        !/renderer\.tgz|README|linked/.test(src('usb:STICK/oap').error || ''),
                         JSON.stringify(src('usb:STICK/oap')));
                     fs.writeFileSync(deployLog, '');
                     return ask(sock, { op: 'install', id: 'oap-appmanager' });
@@ -2050,6 +2056,159 @@ function testSources(certs) {
         });
 }
 
+/* The head unit, compatibility, root-service packages from an App Manager
+ * index, and a capability two tools provide (an updater in this process,
+ * the index served by the HTTPS server from pubDir). */
+function testUnitServices(certs, pubDir) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'mu');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const state = path.join(M, 'state');
+    const cat = path.join(M, 'cat');
+    [M, opt, oap, state, cat, path.join(M, 'shm'), path.join(M, 'media')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog });
+    delete process.env.FAKE_LEASE;
+    delete process.env.FAKE_PENDING;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    const deployed = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^(install|uninstall)/.test(l));
+    // the deploy tool that installs service packages
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.3.0' }));
+    fs.symlinkSync('versions/0.3.0', path.join(opt, 'mgu-deploy', 'current'));
+    // npm-format packages the App Manager's way
+    const npmPkg = (name, pkg, files) => {
+        const d = path.join(T, 'src', `idx-${name}`);
+        mkdirp(path.join(d, 'package'));
+        fs.writeFileSync(path.join(d, 'package', 'package.json'), JSON.stringify(pkg));
+        Object.keys(files || {}).forEach((f) => {
+            mkdirp(path.dirname(path.join(d, 'package', f)));
+            fs.writeFileSync(path.join(d, 'package', f), files[f]);
+        });
+        const out = path.join(pubDir, name);
+        cp.execFileSync('tar', ['-czf', out, '-C', d, 'package']);
+        return { url: name, sha256: sha256(fs.readFileSync(out)) };
+    };
+    const renderer = npmPkg('mgu-renderd@1.1.0.tgz', { name: 'mgu-renderd', version: '1.1.0', productName: 'GPU renderer', mguService: 'renderer' },
+        { 'mgu-renderd': 'ELF' });
+    const id8 = npmPkg('oap-cardash@1.1.4.tgz', { name: 'oap-cardash', version: '1.1.4', productName: 'Car Data' },
+        { 'rhmiData/application.json': JSON.stringify({ application: { name: 'oap-cardash', uiDescriptions: [{ hmi: ['ID8'] }] } }),
+            'rhmiData/uiDescriptions/ID8/application.xml': '<x/>' });
+    const both = npmPkg('both_app@1.0.0.tgz', { name: 'both_app', version: '1.0.0', mguHmi: ['ID7', 'ID8'] });
+    fs.writeFileSync(path.join(pubDir, 'index.json'), JSON.stringify({ packages: [renderer, id8, both,
+        { url: 'gone.tgz', sha256: '0'.repeat(64) }, { url: 'oap-cardash@1.1.4.tgz', sha256: '1'.repeat(64) },
+        { url: 'a%zz.tgz', sha256: 'a'.repeat(64) }] }));
+    // a catalog with another renderer, as a tool kit
+    publish(cat, [Object.assign(entry(toolKit(cat, 'my-render', '0.1.0', { 'r.sh': ['#!/bin/sh\n', 0o755] }, { mguProvides: 'renderer' }), 'tool', 'My renderer'),
+        { mguProvides: 'renderer', uninstallable: true })], { schema: 2 });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [
+        { id: 'mgu-store', type: 'file', path: path.join(M, 'empty'), builtin: true },
+        { id: 'idx', type: 'https', url: `https://updates.test:${HTTPS_PORT}/index.json` },
+        { id: 'cat', type: 'file', path: cat }
+    ] }));
+    mkdirp(path.join(M, 'empty'));
+    publish(path.join(M, 'empty'), []);
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
+        github_api: API, github_web: GH_WEB, github_client_id: 'Iv1.test', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    fs.writeFileSync(conf.mounts, '');
+    const u = new Updater(conf);
+    const st = () => u.state();
+    const comp = (id) => st().components.find((c) => c.id === id) || {};
+    const sock = conf.socket;
+    const priv = (req) => ask(sock, Object.assign({ secret: u.secret }, req));
+    const settled = () => until(st, (s) => !s.busy && !s.components.some((c) => c.queued) && !s.sources.some((x) => x.status === 'checking'), 60000, 'settled');
+    const cached = (sha) => path.join(state, 'index', 'idx', `${sha}.tgz`);
+    return u.serve()
+        .then(() => u.check())
+        .then(() => {
+            const s = st();
+            ok('unit: the state names the head unit the deploy tool reports', JSON.stringify(s.unit) === JSON.stringify({ hmi: 'ID7', firmware: 'test firmware' }),
+                JSON.stringify(s.unit));
+            ok('index: an https URL serving {packages: [{url, sha256}]} is read as an App Manager index',
+                s.sources.find((x) => x.id === 'idx').status === 'ok' && comp('mgu-renderd').source === 'idx' && comp('oap-cardash').source === 'idx' &&
+                comp('both_app').version === '1.0.0', JSON.stringify(s.sources));
+            ok('index: a package that is missing or does not match its sha256 is left out, said why',
+                /gone\.tgz/.test(s.sources.find((x) => x.id === 'idx').error || '') &&
+                /does not match the sha256/.test(s.sources.find((x) => x.id === 'idx').error || '') &&
+                /URI malformed/.test(s.sources.find((x) => x.id === 'idx').error || ''), s.sources.find((x) => x.id === 'idx').error);
+            ok('index: each package is kept by its sha256, root\'s alone', fs.existsSync(cached(renderer.sha256)) &&
+                (fs.statSync(cached(renderer.sha256)).mode & 0o777) === 0o600);
+            ok('service: a renderer package is listed as a tool providing renderer, compatibility unknown',
+                comp('mgu-renderd').kind === 'tool' && comp('mgu-renderd').provides === 'renderer' && comp('mgu-renderd').service === 'renderer' &&
+                comp('mgu-renderd').compat === 'unknown' && comp('mgu-renderd').uninstallable === true && comp('mgu-renderd').title === 'GPU renderer' &&
+                u.src.get('idx').components.find((c) => c.id === 'mgu-renderd').requires['mgu-deploy'] === '0.3.0',
+                JSON.stringify(comp('mgu-renderd')));
+            ok('compat: an app whose rhmiData is iDrive 8 only is not for this iDrive 7; one declaring both is',
+                JSON.stringify(comp('oap-cardash').mguHmi) === '["ID8"]' && comp('oap-cardash').compat === 'no' && comp('both_app').compat === 'yes',
+                JSON.stringify([comp('oap-cardash'), comp('both_app')]));
+            fs.unlinkSync(path.join(pubDir, 'mgu-renderd@1.1.0.tgz'));
+            return ask(sock, { op: 'install', id: 'oap-cardash' });
+        })
+        .then((err) => {
+            ok('compat: installing it is refused with the reason, the deploy tool never asked',
+                err === 'Car Data is for iDrive 8; this head unit is iDrive 7' && comp('oap-cardash').error === err && !deployed().length, err);
+            return ask(sock, { op: 'install', id: 'mgu-renderd' });
+        })
+        .then((err) => until(st, () => !st().busy && comp('mgu-renderd').status === 'installed', 30000, 'renderer installed').then(() => err))
+        .then((err) => {
+            ok('service: it installs from the kept package (no longer served) through the deploy tool',
+                err === null && /mgu-renderd@1\.1\.0\.tgz --yes/.test(deployed()[0]), `${err} ${deployed()}`);
+            ok('provides: the state names the installed provider, and the tool that would replace it',
+                JSON.stringify(st().providers) === '{"renderer":{"id":"mgu-renderd","version":"1.1.0"}}' &&
+                comp('my-render').provides === 'renderer' && comp('my-render').replaces === 'mgu-renderd' && comp('mgu-renderd').replaces === null,
+                JSON.stringify([st().providers, comp('my-render')]));
+            return ask(sock, { op: 'install', id: 'my-render' });
+        })
+        .then((err) => {
+            ok('provides: a second provider is refused unless replacing', err === 'My renderer provides renderer, which mgu-renderd provides: replace mgu-renderd to install it' &&
+                deployed().length === 1, err);
+            return ask(sock, { op: 'install', id: 'my-render', replace: true });
+        })
+        .then((err) => {
+            ok('provides: replacing is privileged', err === 'forbidden', err);
+            return priv({ op: 'install', id: 'my-render', replace: true });
+        })
+        .then(() => until(st, () => !st().busy && comp('my-render').status === 'installed', 30000, 'my-render installed'))
+        .then(() => {
+            ok('provides: with the secret the deploy tool replaces it', /^install --artifact .*my-render@0\.1\.0\.tgz --replace --yes$/.test(deployed()[1]) &&
+                comp('mgu-renderd').status === 'available' && JSON.stringify(st().providers) === '{"renderer":{"id":"my-render","version":"0.1.0"}}' &&
+                !u.origins['mgu-renderd'] && u.origins['my-render'].source === 'cat', `${deployed()} ${JSON.stringify(st().providers)}`);
+            return priv({ op: 'uninstall', id: 'my-render' });
+        })
+        .then(() => until(st, () => !st().busy && comp('my-render').status === 'available', 30000, 'my-render removed'))
+        .then(() => {
+            ok('provides: after the uninstall no tool provides it', JSON.stringify(st().providers) === '{}' && comp('my-render').replaces === null);
+            process.env.FAKE_UNIT_HMI = 'ID8';
+            return u.refresh();
+        })
+        .then(() => {
+            ok('compat: on iDrive 8 the iDrive 8 app is', comp('oap-cardash').compat === 'yes' && st().unit.hmi === 'ID8');
+            delete process.env.FAKE_UNIT_HMI;
+            fs.writeFileSync(path.join(pubDir, 'index.json'), JSON.stringify({ packages: [both] }));
+            return u.check();
+        })
+        .then(() => settled())
+        .then(() => {
+            ok('index: a package the index no longer lists is no longer kept', !fs.existsSync(cached(renderer.sha256)) &&
+                fs.existsSync(cached(both.sha256)) && !comp('oap-cardash').id);
+            u.server.close();
+        });
+}
+
 /* A first start without sources.json, and one this version cannot read. */
 function testFirstStart() {
     const { Updater } = require('../js/updater');
@@ -2140,6 +2299,7 @@ function main() {
         .then(() => Promise.all([startDns(), startHttps(certs, pubDir)]))
         .then(([dnsSrv, httpsSrv]) => testFetch(certs, pubDir)
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
+            .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testDaemon(certs, pubDir))
             .then(() => {
                 dnsSrv.close();

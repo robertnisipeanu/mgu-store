@@ -2,7 +2,7 @@
 /**
  * Catalogs (release/README.md) and what they mean for this head unit: parse
  * and check a catalog (schema 1, or 2 with build / requires / optional /
- * uninstallable), and compare the components every source lists with what
+ * uninstallable / mguHmi / mguProvides), and compare the components every source lists with what
  * is installed. A `signature` in a catalog is ignored: trust is HTTPS (and
  * a token that reaches it) to the source the owner added, and every
  * download is checked against the size and sha256 it lists. Node 8; no I/O.
@@ -12,6 +12,29 @@ const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const KINDS = ['app', 'tool'];
+const HMIS = ['ID7', 'ID8'];
+const PROVIDES = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/* mguHmi: the head units a component is for, ["ID7"], ["ID8"] or both;
+ * null when it does not say. */
+function hmiList(v) {
+    if (v === undefined || v === null) {
+        return null;
+    }
+    if (!Array.isArray(v) || !v.length || v.some((h, i) => HMIS.indexOf(h) < 0 || v.indexOf(h) !== i)) {
+        throw new Error('mguHmi must list "ID7" and/or "ID8"');
+    }
+    return v.slice().sort();
+}
+
+/* Whether a component is for the unit: yes, no, or unknown (it does not
+ * say, or the unit is not known). */
+function compat(hmis, unitHmi) {
+    if (!hmis || !unitHmi) {
+        return 'unknown';
+    }
+    return hmis.indexOf(unitHmi) >= 0 ? 'yes' : 'no';
+}
 
 function compareVersions(a, b) {
     const pa = a.split('.').map(Number);
@@ -41,7 +64,19 @@ function checkExtras(c) {
             throw new Error(`${where}: ${k} must be true or false`);
         }
     });
+    let hmi;
+    try {
+        hmi = hmiList(c.mguHmi);
+    } catch (e) {
+        throw new Error(`${where}: ${e.message}`);
+    }
+    if (c.mguProvides !== undefined && c.mguProvides !== null && !(c.kind === 'tool' && PROVIDES.test(c.mguProvides))) {
+        throw new Error(`${where}: mguProvides is one lower-case name, for a tool`);
+    }
     return Object.assign(c, {
+        mguHmi: hmi,
+        mguProvides: c.mguProvides || null,
+        service: c.service || null,
         build: c.build || null,
         requires: req,
         optional: !!c.optional,
@@ -105,9 +140,12 @@ function plan(entries, installed) {
             source: r.source,
             build: c.build,
             optional: c.optional,
-            uninstallable: c.uninstallable
+            uninstallable: c.uninstallable,
+            mguHmi: c.mguHmi,
+            provides: c.mguProvides,
+            service: c.service
         };
     });
 }
 
-module.exports = { parse, plan, checkExtras, compareVersions, SEMVER, ID, SHA256 };
+module.exports = { parse, plan, checkExtras, compareVersions, hmiList, compat, SEMVER, ID, SHA256, HMIS };
