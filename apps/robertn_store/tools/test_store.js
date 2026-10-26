@@ -156,8 +156,19 @@ class RenderClient extends EventEmitter {
     grab(on) { this.grabbing = on; }
     frame(rec) { frames.push(rec); return true; }
 }
+// FrontCCU: the sample callback the app subscribes with
+let frontCcu = null;
+const someipBuilders = {
+    buildTypedProxy: (iface, instance) => Promise.resolve({
+        iface, instance,
+        init: () => Promise.resolve(),
+        waitUntilAvailable: () => Promise.resolve(),
+        statusRotaryEncoderState: { subscribe: (cb) => { frontCcu = cb; return Promise.resolve(); } }
+    })
+};
 const stubs = {
     'oap-sdk/src/core/OnlineApp.js': OnlineApp,
+    'oap-sdk/src/someip/someipBuilders': someipBuilders,
     'oap-sdk/src/logging/logging': { getSDKLogger: () => quiet },
     './client.js': { UpdaterClient: Client },
     './mgu_render_client.js': { RenderClient }
@@ -192,7 +203,7 @@ let checks = 0;
 const eq = (got, want, msg) => { checks += 1; assert.deepStrictEqual(got, want, msg); };
 
 function run() {
-    return app._setupRhmi().then(() => {
+    return app._setupRhmi().then(() => app._setupController()).then(() => {
         app._setVisible(true);
         // no updater yet, and it has not run since this Store was installed: no secret
         app._client.emit('down');
@@ -702,6 +713,31 @@ function runDrawn() {
     }).then(() => {
         eq(sent.map(secretless), [{ channel: 'tags', op: 'source-add', type: 'github', repo: 'o/r' }]);
         eq(drawn.stack.length, 1);
+        // embed: FrontCCU's dial moves the focus and its push presses (the template's buttons get neither)
+        eq(typeof frontCcu, mode === 'embed' ? 'function' : 'object', 'FrontCCU subscribed for embed only');
+        if (mode === 'embed') {
+            const ccu = (op, push) => frontCcu({ frontRotaryEncoderOperation: op, frontSequenceNumberOperatingElement: 0,
+                frontRotaryEncoderPushButton: push || 'KEINE_BETAETIGUNG' });
+            drawn.setTab('store');
+            drawn.focus = 5;
+            ccu(65534);
+            ccu(1);
+            eq(drawn.focus, 8, 'three detents over the counter\'s wrap');
+            ccu(0);
+            eq(drawn.focus, 7);
+            reset();
+            ccu(0, 'DREHGEBER_KURZ_GEDRUECKT');
+            ccu(0, 'DREHGEBER_KURZ_GEDRUECKT');
+            eq(drawn.top(), { name: 'app', id: 'doom' }, 'a push presses the focused tile (DOOM)');
+            eq(states.length, 1, 'once while held');
+            ccu(0);
+            drawn.pop();
+            drawn.focus = 5;
+            drawn.controller = true;
+            ccu(3);
+            eq(drawn.focus, 5, 'with the controller gate the renderer\'s dial counts instead');
+            drawn.controller = false;
+        }
         // a popup over a layer page hides the layer
         if (mode === 'layer') {
             app._states[host(1)].emit('focus', { focus: false });

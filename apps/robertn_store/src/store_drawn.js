@@ -19,7 +19,7 @@
  * draws the focus ring there, a press on one presses the item. Touch in the
  * renderer's claimed area hits the items themselves; a drag scrolls. With
  * the HMI's controller gate (the renderer's `controller`), the dial moves
- * the focus and a push presses.
+ * the focus and a push presses; in embed mode without it, FrontCCU does.
  *
  * Emits 'mode' (null, 'layer' or 'embed') when what the renderer offers
  * changes (null: the widget screens show), and 'page-focus' (the page) when
@@ -40,6 +40,8 @@ const FPS = 30;                         // frames a second at most: the screens 
 const KEEPALIVE_MS = 1000;              // the renderer hides an app silent for 3 s
 const CLOSED_RESHOW_MS = 700;           // a touch outside that left the page where it was
 const DRAG_PX = 14;
+// FrontCCU frontRotaryEncoderPushButton pushed (short, long): by name or ordinal
+const PUSHED = ['DREHGEBER_KURZ_GEDRUECKT', 'DREHGEBER_LANG_GEDRUECKT', 1, 2];
 
 class Drawn extends EventEmitter {
     /**
@@ -74,6 +76,7 @@ class Drawn extends EventEmitter {
         this.keepalive = null;
         this.touch = null;
         this.ccu = null;
+        this.fccu = null;
         this.pics = new Map();              // picture file -> { img, used }
         this.decoding = new Set();
         this.gpu.on('ready', (screen, info) => this._ready(info));
@@ -396,20 +399,38 @@ class Drawn extends EventEmitter {
         });
     }
 
-    /* The controller gate's events: the dial counter moves the focus, a push
-     * presses the focused item. */
+    /* A FrontCCU.statusRotaryEncoderState sample. The page template gives
+     * the embed host states' buttons neither focus nor presses, so in embed
+     * mode without the controller gate the dial and push come from here. */
+    frontCcu(s) {
+        const last = this.fccu;
+        const op = s && s.frontRotaryEncoderOperation;
+        this.fccu = { knob: typeof op === 'number' ? op : 0xffff,
+            press: PUSHED.indexOf(s && s.frontRotaryEncoderPushButton) >= 0 };
+        if (last && this.mode === 'embed' && !this.controller) {
+            this._dial(last.knob, this.fccu.knob, this.fccu.press && !last.press);
+        }
+    }
+
     _ccu(e) {
         const last = this.ccu;
         this.ccu = e;
-        if (!last || !this.on_) {
+        if (last) {
+            this._dial(last.knob, e.knob, e.press && e.press !== last.press && e.seq !== last.seq);
+        }
+    }
+
+    /* The dial counter moves the focus, a push presses the focused item. */
+    _dial(from, to, pushed) {
+        if (!this.on_) {
             return;
         }
-        if (e.knob !== 0xffff && last.knob !== 0xffff && e.knob !== last.knob) {
-            const steps = ((e.knob - last.knob + 0x18000) % 0x10000) - 0x8000;
+        if (to !== 0xffff && from !== 0xffff && to !== from) {
+            const steps = ((to - from + 0x18000) % 0x10000) - 0x8000;
             this.focus = Math.max(0, Math.min(this.items.length - 1, (this.focus < 0 ? 0 : this.focus + steps)));
             this.render();
         }
-        if (e.press && e.press !== last.press && e.seq !== last.seq && this.items[this.focus]) {
+        if (pushed && this.items[this.focus]) {
             this.host.act(this.items[this.focus].act);
         }
     }

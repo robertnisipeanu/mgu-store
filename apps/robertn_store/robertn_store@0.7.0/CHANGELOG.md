@@ -6,8 +6,8 @@ The Store's screens are drawn by mgu-render: IterioDev's App Manager 2
 (side menu Store, Installed, USB, Settings; a grid of tiles with package
 pictures or letter tiles, states and badges; a component's page with
 Installed and Available; confirm sheets), on iDrive 7 and iDrive 8, with
-the controller (the HMI's focus over hidden buttons, a ring on the drawn
-page) and touch. The widget screens show whenever the renderer is not
+the controller (a ring on the drawn page: the HMI's focus over hidden
+buttons, or FrontCCU's dial and push inside the page template) and touch. The widget screens show whenever the renderer is not
 there, and the Store moves between the two as it comes and goes. A
 component providing what another installed tool provides asks Replace?
 and installs with replace. Package pictures and authors show where the
