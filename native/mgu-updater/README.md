@@ -213,8 +213,9 @@ the account from `/user`, in place of an earlier sign-in's token of that
 account. An expiring token is renewed from its refresh token before a
 source is read. The App: *Enable Device Flow* on,
 repository permission *Contents: Read-only* (Metadata comes with it),
-installed on the repos the car reads; its client id goes in
-`github_client_id`. Requests to `github.com` carry the client id with the
+installable by any account, installed by each owner on the repos their car
+reads; the shipped `github_client_id` is the client id of
+https://github.com/apps/mgu-store (public; no client secret or private key). Requests to `github.com` carry the client id with the
 device code, or with the refresh token on a renewal; never an access
 token.
 
