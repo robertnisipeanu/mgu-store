@@ -1,5 +1,11 @@
 # Deploy tool changelog
 
+## 0.4.0
+
+- Providers of one capability install side by side, a second renderer among them; `install --replace` is gone (the flag is ignored). A service package or provider whose unit another manager installed is still refused.
+- `"keepRunning": true` in a tool's `component.json` (`deploy/hu artifact` keeps it): a running unit in `restart` is not restarted by an update or a rollback (to a version with or without it); it keeps the version it started with, reported pending (`the new version runs from its next start`). Renderer service packages get it, as IterioDev's App Manager 2.0.1 leaves a running renderer running.
+- A running socket whose unit changed is restarted when its service is stopped, so it listens as the new unit says; while its service runs it changes with the next boot (pending).
+
 ## 0.3.2
 
 - A tool's `dropins` (`[{unit, name}]`, payload `dropins/<unit>.d/<name>`; `deploy/hu artifact` packs them from `from`): drop-ins for units the tool does not own, installed with its units, in the snapshot, removed on uninstall with the folder the tool made; one no tool of ours installed refuses the install.

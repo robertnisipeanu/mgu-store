@@ -1,5 +1,11 @@
 # Updater changelog
 
+## 0.6.0
+
+- Providers of one capability install side by side: a second renderer installs beside the first, with no Replace. `providers` lists every installed provider of each capability (`{"renderer": [{id, version}, ...]}`); components carry no `replaces`; `install` takes no `replace`, and the phone page installs nothing (it showed only Replace) and shows a component's capability.
+- `providers` holds every installed provider, so a requirement that provides a capability counts as met when another installed tool provides it, whichever it is.
+- Renderer and tether service packages, and a repo tool that provides a capability, require `mgu-deploy` 0.4.0; a repo service tool providing `renderer` carries `keepRunning`, so an update leaves it running.
+
 ## 0.5.3
 
 - An app whose id an installed app of another origin holds: built here (a repo tree's build script, or source package), it installs as `<id>2`, `<id>3`, … (the first id free on the unit and in every source), from a copy of its folder made over to that id; `state/aliases.json` keeps that id for its source, so its updates land there, until it is removed. A package built elsewhere is listed as blocked (`<id> is already installed from <source>`) and not installed. State rows carry `listedId` and `blocked`.

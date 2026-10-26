@@ -1,7 +1,7 @@
 {
   "id": "mgu-deploy",
   "kind": "tool",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "title": "Deploy tool",
   "description": "Installs, updates, rolls back and removes our tools and apps on the head unit, with a snapshot before every change",
   "versionFiles": ["unit/mgu-deploy.js"],

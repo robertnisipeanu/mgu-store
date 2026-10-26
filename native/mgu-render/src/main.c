@@ -13,7 +13,11 @@
  * them (touch.c); the iDrive controller can be held back from the HMI for an app (GRAB, when the
  * HMI's controller gate is loaded).
  *
+ * Apps connect to its own socket (socket_path). The community renderers' socket (shared_path) is a link to it
+ * while no other renderer is installed (share.c): their apps then draw here, unchanged.
+ *
  *   mgu-render [-c FILE] [-s key=value]... [-v]
+ *   mgu-render [-c FILE] --share | --unshare   serve the community socket now, or stop serving it (the socket unit)
  *   mgu-render --replay FILE --out FILE.pam [--raw FILE.rgba]   render a recorded client stream offscreen
  *
  * From mgu-renderd src/main.c (idrive7-apps kit/renderd, MIT, Copyright (c) 2026 cauliflowermossgrape;
@@ -49,17 +53,19 @@
 #include "gfx.h"
 #include "log.h"
 #include "proto.h"
+#include "share.h"
 #include "touch.h"
 #include "ivi-application-client-protocol.h"
 #include "ivi-controller-client-protocol.h"
 
 #define MAX_CLIENTS 16
 #define MAX_MSG (24u << 20)
-#define LAYER_BASE 0x4d470000u      /* "MG" */
-#define SURF_BASE 0x4d470100u
+#define LAYER_BASE 0x4d520000u      /* "MR"; the community renderers use "MG", 0x4d470000 and 0x4d470100 */
+#define SURF_BASE 0x4d520100u
 #define WATCHDOG_US 3000000ull       /* an app on screen that says nothing for this long is hidden */
 #define GRAB_US 1500000ull           /* a GRAB holds this long unless repeated */
 #define GATE_TOUCH_US 200000ull      /* the controller gate's file is refreshed this often while held */
+#define SHARE_US 2000000ull          /* the community socket's rule is applied this often */
 #ifndef GL_BGRA_EXT
 #define GL_BGRA_EXT 0x80E1
 #endif
@@ -135,7 +141,8 @@ static uint64_t show_counter;
 static client *embed_owner;
 static int touch_on;
 static int ccu_fd = -1, ctl_gate_on;
-static uint64_t ctl_gate_t;
+static uint64_t ctl_gate_t, ccu_retry;
+static void ccu_open(void);
 
 static void c_screen(void *d, struct ivi_controller *c, uint32_t id, struct ivi_controller_screen *s) {
     (void)d, (void)c;
@@ -592,10 +599,18 @@ static void touch_defaults(int area[4]) {
 /* ---------------- controller gate (upstream inputgate) ---------------- */
 static int grabbing(const client *c, uint64_t t) { return c->grab_t && t - c->grab_t < GRAB_US && shown(c); }
 
+/* The gate's file and event socket are upstream's interface, which upstream's renderer also uses: they are held
+ * only while one of our apps grabs, and the file only while the event socket is ours. Bound by another renderer,
+ * the controller stays the HMI's (and that renderer's) for our apps. */
 static void ctl_gate_update(uint64_t t) {
     if (!cfg.controller_gate[0]) return;
     int want = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] && grabbing(clients[i], t)) want = 1;
+    if (want && ccu_fd < 0 && t >= ccu_retry) {
+        ccu_open();
+        if (ccu_fd < 0) ccu_retry = t + 5000000;
+    }
+    if (ccu_fd < 0) want = 0;
     if (want) {
         if (!ctl_gate_on || t - ctl_gate_t >= GATE_TOUCH_US) {
             int fd = open(cfg.controller_gate, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0644);
@@ -607,6 +622,7 @@ static void ctl_gate_update(uint64_t t) {
         unlink(cfg.controller_gate); ctl_gate_on = 0;
         log_info("controller: back to the HMI");
     }
+    if (!want && ccu_fd >= 0) { close(ccu_fd); ccu_fd = -1; }
 }
 
 static void ccu_read(void) {
@@ -1030,7 +1046,8 @@ static void ccu_open(void) {
     static const char cn[] = "\0mgu-renderd-ccu";
     memcpy(ca.sun_path, cn, sizeof cn - 1);
     if (bind(ccu_fd, (struct sockaddr *)&ca, (socklen_t)(offsetof(struct sockaddr_un, sun_path) + sizeof cn - 1)) < 0) {
-        log_warn("controller socket: %s", strerror(errno)); close(ccu_fd); ccu_fd = -1;
+        log_warn("controller socket: %s%s", strerror(errno), errno == EADDRINUSE ? " (another renderer has it)" : "");
+        close(ccu_fd); ccu_fd = -1;
     }
 }
 
@@ -1043,16 +1060,36 @@ static int touch_start(void) {
     return touch_init(iface, strcmp(iface, "lo") ? cfg.touch_saddr : "", area) == 0;
 }
 
+/* ---------------- the community socket (share.c) ---------------- */
+static struct share share;
+static int share_state;
+
+static void share_setup(void) {
+    _Static_assert(CFG_MAX_SHARED_YIELD <= SHARE_MAX_YIELD, "shared_yield does not fit struct share");
+    share.own = cfg.socket_path;
+    share.shared = cfg.shared_path;
+    share.n_yield = cfg.n_shared_yield;
+    for (int i = 0; i < cfg.n_shared_yield; i++) share.yield[i] = cfg.shared_yield[i];
+}
+
+static void share_tick(void) {
+    if (!cfg.shared_path[0]) return;
+    int r = share_update(&share);
+    if (r != share_state && r != SHARE_HELD) log_info("%s: %s", cfg.shared_path, share_name(r));
+    share_state = r == SHARE_TAKEN ? SHARE_HELD : r == SHARE_DROPPED ? SHARE_NONE : r;
+}
+
 /* ---------------- main ---------------- */
 static volatile sig_atomic_t quit;
 static void on_sig(int s) { (void)s; quit = 1; }
 
 static void usage(const char *a0) {
-    fprintf(stderr, "usage: %s [-c FILE] [-s key=value]... [-v] | --replay FILE --out FILE.pam [--raw FILE.rgba]\n", a0);
+    fprintf(stderr, "usage: %s [-c FILE] [-s key=value]... [-v] [--share | --unshare] | --replay FILE --out FILE.pam [--raw FILE.rgba]\n", a0);
 }
 
 int main(int argc, char **argv) {
     const char *rin = NULL, *rout = "out.pam", *rraw = NULL;
+    int share_only = 0;
     cfg_defaults(&cfg);
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-c") && i + 1 < argc) { if (cfg_load(&cfg, argv[++i])) return 2; }
@@ -1061,11 +1098,20 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--out") && i + 1 < argc) rout = argv[++i];
         else if (!strcmp(argv[i], "--raw") && i + 1 < argc) rraw = argv[++i];
         else if (!strcmp(argv[i], "-v")) cfg.verbose = 1;
+        else if (!strcmp(argv[i], "--share")) share_only = 1;
+        else if (!strcmp(argv[i], "--unshare")) share_only = 2;
         else { usage(argv[0]); return 2; }
     }
     log_verbose = cfg.verbose;
     t_start = now_us();
     if (rin) return replay(rin, rout, rraw);
+    share_setup();
+    if (share_only) {
+        if (!cfg.shared_path[0]) return 0;
+        int r = share_only == 1 ? share_update(&share) : share_drop(&share);
+        log_info("%s: %s", cfg.shared_path, share_name(r));
+        return 0;
+    }
 
     signal(SIGPIPE, SIG_IGN);
     signal(SIGTERM, on_sig); signal(SIGINT, on_sig);
@@ -1094,9 +1140,9 @@ int main(int argc, char **argv) {
     if ((listen_fd = open_listener()) < 0) return 1;
     t_listen = now_us();
     if (cfg.embed) embed_connect(cfg.hmi_display, cfg.embed_surface_id, cfg.embed_area[2], cfg.embed_area[3]);
-    if (cfg.controller_gate[0]) { unlink(cfg.controller_gate); ccu_open(); }
+    share_tick();
 
-    uint64_t gate_retry = 0, embed_retry = 0;
+    uint64_t gate_retry = 0, embed_retry = 0, share_next = 0;
     while (!quit) {
         uint64_t tnow = now_us();
         for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -1111,6 +1157,7 @@ int main(int argc, char **argv) {
         render_embed();
         ctl_gate_update(tnow);
         if (touch_on) touch_tick(any_claim());
+        if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); }
         if (cfg.foreground_gate[0] && gate_fd() < 0 && tnow > gate_retry) {
             gate_retry = tnow + 5000000;
             gate_start(cfg.foreground_gate);
@@ -1167,7 +1214,10 @@ int main(int argc, char **argv) {
     if (ctl_gate_on) unlink(cfg.controller_gate);
     gate_stop();
     embed_disconnect();
-    if (own_socket) unlink(cfg.socket_path);
+    if (own_socket) {                                    /* run by hand: its socket and the link to it go */
+        if (cfg.shared_path[0]) share_drop(&share);
+        unlink(cfg.socket_path);
+    }
     log_info("exit");
     return 0;
 }

@@ -6,9 +6,15 @@
  * The HMI (Hmi8 on iDrive 8, HmiMain3D on iDrive 7) reads the centre display's touch as UDP PDUs on port 30567 -
  * on the car from the display (APIX3 Ethernet, 160.48.199.115 on vlan73), in the MGU VM from vminput (lo). While a
  * visible app has claimed an area, one stateless nftables rule (raw prerouting, notrack, destination port
- * rewritten 30567 -> 30568) sends them here instead. Per gesture, decided when the finger goes down: inside a
+ * rewritten 30567 -> 30570) sends them here instead. Per gesture, decided when the finger goes down: inside a
  * claim (and the -a area) -> the app's (E_TOUCH), else every PDU goes on to the HMI unchanged (127.0.0.1:30567,
- * from port 30569, which the VM rule skips so nothing loops). Non-finger PDUs always go to the HMI. One finger.
+ * from port 30571, which the VM rule skips so nothing loops). Non-finger PDUs always go to the HMI. One finger.
+ *
+ * Beside IterioDev's renderer, which diverts the same PDUs with its own rule (table ip touchroute, ports 30568 in
+ * and 30569 out): ours has its own table (ip mgu_render) and ports, so neither removes the other's rule or takes
+ * the other's port. Each diverts only while one of its own apps is shown with claims, so they take turns. Were
+ * both in at once, the first chain to see a PDU takes it; on lo our rule lets IterioDev's re-injections (from
+ * 30569) through as well as ours, and his catches ours, so a PDU passes each renderer at most once.
  * A gesture that goes to the HMI while apps claim closes them (E_CLOSED): the user tapped the HMI, e.g. its home
  * button - with no claim left the rule goes, and the rest of that gesture reaches the HMI directly.
  *
@@ -33,15 +39,16 @@
 #include <unistd.h>
 #include "touch.h"
 
-enum { PORT_HMI = 30567, PORT_IN = 30568, PORT_OUT = 30569, GUARD_MS = 1500 };
+enum { PORT_HMI = 30567, PORT_IN = 30570, PORT_OUT = 30571, PORT_OTHER_OUT = 30569, GUARD_MS = 1500 };
+#define TABLE "ip mgu_render"
 enum { DOWN = 1, MOVE = 2, UP = 3 };
 enum { NONE = -1, HMI = -2, GONE = -3 };       /* gesture owner, else a client slot; GONE: its app left */
 
 /* On the car the release firewall (ip filter input, ends in logblocked = drop) only accepts the display's touch
- * on 30567, so the diverted 30568 needs its own accept in that chain - inserted (once, idempotent) every time
+ * on 30567, so the diverted 30570 needs its own accept in that chain - inserted (once, idempotent) every time
  * the divert goes in, as the firewall may have been reloaded meanwhile; without it diverted touches never arrive
  * (iDrive 8 car). lo (VM, emulator) is accepted anyway. */
-static char rule[256], open_fw[512];
+static char rule[384], open_fw[512];
 static int in = -1, out = -1, beat = -1, loaded, owner = NONE;
 static int ax, ay, aw, ah;                     /* area apps may claim; aw 0 = whole screen */
 
@@ -57,13 +64,13 @@ static int nft(const char *script)
 }
 static int rule_in(void)
 {
-    if (open_fw[0] && system(open_fw) != 0) fprintf(stderr, "[mgu-render] touch: opening the firewall for 30568 failed\n");
-    char s[512];
-    snprintf(s, sizeof s, "table ip touchroute\ndelete table ip touchroute\ntable ip touchroute {\n"
+    if (open_fw[0] && system(open_fw) != 0) fprintf(stderr, "[mgu-render] touch: opening the firewall for %d failed\n", PORT_IN);
+    char s[768];
+    snprintf(s, sizeof s, "table " TABLE "\ndelete table " TABLE "\ntable " TABLE " {\n"
         "chain pre {\ntype filter hook prerouting priority -300; policy accept;\n%s\n}\n}\n", rule);
     return nft(s);
 }
-static void rule_out(void) { nft("table ip touchroute\ndelete table ip touchroute\n"); }
+static void rule_out(void) { nft("table " TABLE "\ndelete table " TABLE "\n"); }
 
 /* The guard: beats are '0' (no rule) / '1' (rule in). Dead renderer (pipe closed) -> rule out; hung with the
  * rule in -> rule out + kill it. A hang without the rule (start-up, nothing claimed) touches nobody's input. */
@@ -90,14 +97,17 @@ static void guard(int fd, pid_t renderer)
     }
 }
 
-int touch_init(const char *iface, const char *saddr, const int area[4])
+/* the divert rule and the firewall line for iface (and saddr), into rule and open_fw; -1 for a bad name */
+static int touch_rules(const char *iface, const char *saddr)
 {
     if (!iface || !*iface) { fprintf(stderr, "touch: no interface\n"); return -1; }
     for (const char *q = iface; *q; q++) if (!((*q >= 'a' && *q <= 'z') || (*q >= '0' && *q <= '9') || *q == '.' || *q == '_' || *q == '-')) return -1;
     for (const char *q = saddr; q && *q; q++) if (!((*q >= '0' && *q <= '9') || *q == '.')) return -1;
     if (!strcmp(iface, "lo")) {
-        /* the HMI's touch comes from a local sender: skip our own re-injections (from PORT_OUT) */
-        snprintf(rule, sizeof rule, "iifname \"lo\" udp dport %d udp sport != %d notrack udp dport set %d", PORT_HMI, PORT_OUT, PORT_IN);
+        /* the HMI's touch comes from a local sender: re-injections (ours from PORT_OUT, IterioDev's renderer's from
+         * PORT_OTHER_OUT) go on to the HMI */
+        snprintf(rule, sizeof rule, "iifname \"lo\" udp sport { %d, %d } accept\n"
+                 "iifname \"lo\" udp dport %d notrack udp dport set %d", PORT_OTHER_OUT, PORT_OUT, PORT_HMI, PORT_IN);
         open_fw[0] = 0;
     } else {
         char src[64] = "";
@@ -106,6 +116,12 @@ int touch_init(const char *iface, const char *saddr, const int area[4])
         snprintf(open_fw, sizeof open_fw, "nft list chain ip filter input 2>/dev/null | grep -q 'udp dport %d accept' || "
                  "nft insert rule ip filter input iifname %s %sudp dport %d accept", PORT_IN, iface, src, PORT_IN);
     }
+    return 0;
+}
+
+int touch_init(const char *iface, const char *saddr, const int area[4])
+{
+    if (touch_rules(iface, saddr) < 0) return -1;
     aw = 0;
     if (area && area[2] > 0 && area[3] > 0) { ax = area[0]; ay = area[1]; aw = area[2]; ah = area[3]; }
     rule_out();                                               /* a leftover from a crash before this start */
@@ -114,7 +130,7 @@ int touch_init(const char *iface, const char *saddr, const int area[4])
     in = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     out = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
     if (bind(in, (struct sockaddr *)&a, sizeof a) || bind(out, (struct sockaddr *)&o, sizeof o)) {
-        perror("touch: bind 30568/30569"); close(in); close(out); in = out = -1; return -1;
+        perror("touch: bind 30570/30571"); close(in); close(out); in = out = -1; return -1;
     }
     int p[2];
     pid_t me = getpid();

@@ -10,7 +10,12 @@
 void cfg_defaults(struct cfg *c)
 {
     memset(c, 0, sizeof *c);
-    snprintf(c->socket_path, sizeof c->socket_path, "/run/mgu-renderd/renderd.sock");
+    snprintf(c->socket_path, sizeof c->socket_path, "/run/mgu-render/render.sock");
+    snprintf(c->shared_path, sizeof c->shared_path, "/run/mgu-renderd/renderd.sock");
+    const char *other[] = { "/etc/systemd/system/mgu-renderd.service", "/run/systemd/system/mgu-renderd.service",
+                            "/etc/systemd/system/idrive7-renderd.service" };
+    for (int i = 0; i < 3; i++) snprintf(c->shared_yield[i], sizeof c->shared_yield[i], "%s", other[i]);
+    c->n_shared_yield = 3;
     snprintf(c->wayland_display, sizeof c->wayland_display, "wayland-0");
     c->embed = 1;
     snprintf(c->hmi_display, sizeof c->hmi_display, "wayland-1");
@@ -65,6 +70,7 @@ int cfg_set(struct cfg *c, const char *key, const char *value)
     long n;
     STR("socket_path", socket_path);
     STR("socket_group", socket_group);
+    STR("shared_path", shared_path);
     STR("wayland_display", wayland_display);
     STR("hmi_display", hmi_display);
     STR("embed_marker", embed_marker);
@@ -91,6 +97,23 @@ int cfg_set(struct cfg *c, const char *key, const char *value)
             return 0;
         log_error("%s: x,y,w,h or auto expected", key);
         return -1;
+    }
+    if (!strcmp(key, "shared_yield")) {
+        c->n_shared_yield = 0;
+        for (const char *p = value; *p;) {
+            while (*p == ',' || isspace((unsigned char)*p))
+                p++;
+            size_t n = strcspn(p, ", \t");
+            if (!n)
+                break;
+            if (c->n_shared_yield == CFG_MAX_SHARED_YIELD || n >= sizeof c->shared_yield[0]) {
+                log_error("%s: at most %d paths of %d characters", key, CFG_MAX_SHARED_YIELD, (int)sizeof c->shared_yield[0] - 1);
+                return -1;
+            }
+            snprintf(c->shared_yield[c->n_shared_yield++], sizeof c->shared_yield[0], "%.*s", (int)n, p);
+            p += n;
+        }
+        return 0;
     }
     if (!strcmp(key, "yield_surfaces")) {
         c->n_yield = 0;

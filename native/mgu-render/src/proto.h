@@ -5,7 +5,7 @@
  * Draw commands are a stream of 32-bit words: an opcode word, then its arguments
  * (f32 coordinates in the app's logical pixels, u32 colours as 0xRRGGBBAA).
  *
- * Three dialects share the socket /run/mgu-renderd/renderd.sock and messages 1-8:
+ * Three dialects share the socket (ours, /run/mgu-render/render.sock, and the community one linked to it) and messages 1-8:
  *   upstream  idrive7-apps kit/renderd (protocol 1): 9 IMAGE, 10 GRAB, 105 CCU
  *   iterio    IterioDev mgu-renderd (protocol 3):    9 CLAIM, 10 IMAGE, 11 DROP_IMAGE, 105 TOUCH, 106 CLOSED
  *   native    mgu-render/1, asked for in HELLO:      the iterio messages + the X_* extensions below

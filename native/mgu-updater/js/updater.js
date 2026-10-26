@@ -325,12 +325,12 @@ function unitOf(st) {
         firmware: typeof u.firmware === 'string' ? u.firmware : null } : null;
 }
 
-/* The installed tool providing each capability: { <capability>: { id, version } }. */
+/* The installed tools providing each capability: { <capability>: [{ id, version }, ...] }. */
 function providersOf(st) {
     const out = {};
     ((st && st.components) || []).forEach((c) => {
         if (c && c.kind === 'tool' && typeof c.provides === 'string' && c.provides) {
-            out[c.provides] = { id: c.id, version: c.version };
+            (out[c.provides] = out[c.provides] || []).push({ id: c.id, version: c.version });
         }
     });
     return out;
@@ -799,15 +799,11 @@ class Updater {
             if (row.status === 'installed' && entry.revision && o && o.source === row.source && o.commit && o.commit !== entry.commit) {
                 row.status = 'update';
             }
-            const cap = row.provides;
-            const holder = cap && this.providers[cap];
             const icon = entry.icon ? this.iconFile(resolved[i].source, entry) : null;
             return Object.assign(row, {
                 // the kept icon (a PNG anyone may read), null without one
                 icon: icon && fs.existsSync(icon) ? icon : null,
                 compat: catalogLib.compat(row.mguHmi, this.unit && this.unit.hmi),
-                // the installed tool this one would replace (they provide the same capability)
-                replaces: holder && holder.id !== row.id ? holder.id : null,
                 revision: entry.revision || null,
                 // the id its source lists, when it is (or would be) installed under another one
                 listedId: entry.listedId || null,
@@ -1098,8 +1094,7 @@ class Updater {
         }
         const r = this.resolved().get(dep);
         const cap = r && r.entry.mguProvides;
-        const holder = cap && this.providers[cap];
-        return !!(holder && holder.id !== dep);
+        return !!cap && (this.providers[cap] || []).some((p) => p.id !== dep);
     }
 
     /* An entry of dep at least min: from source first, else any source in order. */
@@ -1174,10 +1169,8 @@ class Updater {
     }
 
     /* Queues an install of id, after the requirements it lacks. One that
-     * is not for this head unit is refused; one providing a capability
-     * another installed tool provides only with replace (privileged), and
-     * the deploy tool then replaces that tool. */
-    request(id, replace) {
+     * is not for this head unit is refused. */
+    request(id) {
         if (this.rebooting) {
             return 'the head unit is restarting';
         }
@@ -1193,10 +1186,6 @@ class Updater {
             this.errors[id] = bad;
             this.changed();
             return bad;
-        }
-        const holder = r.entry.mguProvides && this.providers[r.entry.mguProvides];
-        if (holder && holder.id !== id && !replace) {
-            return `${r.entry.title} provides ${r.entry.mguProvides}, which ${holder.id} provides: replace ${holder.id} to install it`;
         }
         // a capability it needs: some installed tool provides it
         const lacking = (r.entry.mguNeeds || []).filter((cap) => !this.providerIds(cap).length)[0];
@@ -1222,8 +1211,7 @@ class Updater {
             steps = [self];
             this.errors[id] = `needs a newer ${SELF}: it installs first, then ${id} can be installed`;
         }
-        const items = steps.map((s) => Object.assign({ op: 'install', id: s.id, source: s.source }, s.listed ? { listed: s.listed } : {},
-            s.id === id && replace ? { replace: true } : {}));
+        const items = steps.map((s) => Object.assign({ op: 'install', id: s.id, source: s.source }, s.listed ? { listed: s.listed } : {}));
         const refused = items.map((i) => this.conflict(i)).filter(Boolean)[0];
         if (refused) {
             return refused;
@@ -1481,7 +1469,7 @@ class Updater {
                     }
                     writeAtomic(trial, fs.readlinkSync(path.join(this.conf.tool_root, SELF, 'current')) + '\n');
                 }
-                return this.deploy(verified, item.replace === true);
+                return this.deploy(verified);
             })
             .then((code) => {
                 if (code !== 0) {
@@ -1490,10 +1478,6 @@ class Updater {
                         `install failed${why ? ': ' + why : ''}; the previous version was kept`);
                 }
                 console.log(`installed ${id}@${entry.version}`);
-                const replaced = item.replace && entry.mguProvides && this.providers[entry.mguProvides];
-                if (replaced && replaced.id !== id) {
-                    delete this.origins[replaced.id];
-                }
                 this.origins[id] = { source: item.source, commit: entry.commit || null };
                 this.saveOrigins();
                 if (entry.listedId) {
@@ -1652,8 +1636,8 @@ class Updater {
         });
     }
 
-    deploy(file, replace) {
-        return this.deployTool(['install', '--artifact', file].concat(replace ? ['--replace'] : []).concat(['--yes']));
+    deploy(file) {
+        return this.deployTool(['install', '--artifact', file, '--yes']);
     }
 
     /* Runs the deploy tool; resolves with its exit status. deployError keeps
@@ -2003,14 +1987,13 @@ class Updater {
     /* One request; returns the reason it is refused, null when the state
      * answers it, or undefined when it answers later through reply(msg). */
     handle(req, reply) {
-        // an install that replaces an installed tool is the Store's or the phone page's to ask for
-        if ((PRIVILEGED.indexOf(req.op) >= 0 || (req.op === 'install' && req.replace === true)) && !this.authorized(req.secret)) {
+        if (PRIVILEGED.indexOf(req.op) >= 0 && !this.authorized(req.secret)) {
             return 'forbidden';
         }
         switch (req.op) {
         case 'status': return null;
         case 'check': this.check(); return null;
-        case 'install': return typeof req.id === 'string' ? this.request(req.id, req.replace === true) : 'install needs an id';
+        case 'install': return typeof req.id === 'string' ? this.request(req.id) : 'install needs an id';
         case 'reboot': return this.reboot();
         case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id) : 'uninstall needs an id';
         case 'source-add': return this.sourceAdd(req);

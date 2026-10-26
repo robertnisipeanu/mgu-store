@@ -47,12 +47,10 @@ What every layout shares:
   listed in a catalog or committed prebuilt in a repo tree, or as one of
   IterioDev's App Manager service packages (below). An app's own
   javascript cannot install one.
-- **One renderer.** A tool that only one installed tool may provide a
-  capability for says so: `"mguProvides": "renderer"` in its
-  `component.json` and catalog entry (every renderer binds
-  `/run/mgu-renderd/renderd.sock` and the same ivi layer and surface ids).
-  The Store then offers to replace the installed renderer rather than
-  install a second one.
+- **Renderers.** A renderer says so: `"mguProvides": "renderer"` in its
+  `component.json` and catalog entry. An app that requires a renderer is
+  satisfied by any installed one, and renderers install side by side
+  (`native/mgu-render/README.md`, "Beside other renderers").
 
 ## 1. Releases
 

@@ -182,7 +182,7 @@ function buildArtifact(compDir, outDir) {
         manifest.internet = c.internet;
         manifest.uids = c.uids;
     }
-    ['mguHmi', 'mguProvides'].forEach((k) => {
+    ['mguHmi', 'mguProvides', 'keepRunning'].forEach((k) => {
         if (c[k] !== undefined) {
             manifest[k] = c[k];
         }

@@ -6,7 +6,7 @@
  * Runs as root under the unit's Node 8, invoked through mgu-deploy.sh.
  *
  *   mgu-deploy.sh check [--artifact <file>...]
- *   mgu-deploy.sh install [--artifact <file>...] [--replace] [--yes]
+ *   mgu-deploy.sh install [--artifact <file>...] [--yes]
  *   mgu-deploy.sh status [--json]
  *   mgu-deploy.sh uninstall <id> [--yes]
  *   mgu-deploy.sh rollback <id> [--yes]
@@ -43,7 +43,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.3.2';
+var VERSION = '0.4.0';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -960,6 +960,7 @@ function validateTool(file, dir, c) {
     if (c.mguProvides !== undefined && !PROVIDES.test(c.mguProvides)) {
         throw refuse(file + ': mguProvides is one lower-case name, e.g. "renderer"');
     }
+    if (c.keepRunning !== undefined && typeof c.keepRunning !== 'boolean') throw refuse(file + ': keepRunning is true or false');
     return { kind: 'tool', file: file, dir: dir, component: c, id: c.id, version: c.version,
         hmi: hmiList(c.mguHmi, file + ' component.json'), hmiFrom: c.mguHmi ? 'declared' : null,
         provides: c.mguProvides || null };
@@ -1030,11 +1031,10 @@ function incompatible(a) {
 }
 
 /* ---- capabilities (mguProvides) --------------------------------------------------- */
-/* A tool may provide a capability only one installed tool can hold, such
- * as "renderer": every renderer binds /run/mgu-renderd/renderd.sock and the
- * same ivi layer and surface ids. A service package provides its kind. A
- * second provider is refused unless the install is asked to replace the
- * one installed (--replace): it then goes first, in the same transaction. */
+/* A tool may say which capability it provides, such as "renderer"; a
+ * service package provides its kind. Providers of one capability install
+ * side by side (each renderer keeps to its own socket and ivi ids, and
+ * mgu-render leaves the community socket to another installed renderer). */
 var PROVIDES = /^[a-z0-9][a-z0-9-]{0,31}$/;
 /* A tool's drop-in for a unit it does not own (component.json "dropins":
  * [{unit, name}], payload dropins/<unit>.d/<name>): it goes to
@@ -1060,9 +1060,6 @@ function foreignUnit(c) {
     return unit || (dropin ? d2s(dropin) : null);
 }
 function d2s(d) { return d.unit + '.d/' + d.name; }
-function providerOf(cap, exceptId) {
-    return installedTools().filter(function (t) { return t.id !== exceptId && t.component.mguProvides === cap; })[0] || null;
-}
 
 /* ---- root-service packages (mguService) ------------------------------------------ */
 /* IterioDev's App Manager installs two root services as packages
@@ -1130,6 +1127,8 @@ function validateService(file, dir, pkgDir, pkg) {
             { path: 'package.json', mode: '0644', sha256: sha256File(path.join(kit, 'files', 'package.json')) }],
         units: [{ name: unit }], enable: kind === 'tether' ? [] : [{ unit: unit, target: 'late.target' }],
         recmgr: [s.name], restart: kind === 'tether' ? [] : [unit], mguProvides: kind };
+    /* as his App Manager does: a running renderer is not stopped by an update */
+    if (kind === 'renderer') c.keepRunning = true;
     if (hmi) c.mguHmi = hmi;
     fs.writeFileSync(path.join(kit, 'component.json'), JSON.stringify(c, null, 2) + '\n');
     var a = validateTool(file, kit, c);
@@ -1324,6 +1323,7 @@ function toolTouched(c) {
 function recmgrBase(unit) { return unit.replace(/\.(service|socket|target)$/, ''); }
 var PENDING_RECMGR = 'recmgr entry takes effect after reboot';
 var PENDING_BOOT = 'starts at the next boot';
+var PENDING_NEXT_START = 'the new version runs from its next start';
 
 /* ---- restarts and their health ---------------------------------------------- */
 
@@ -1370,7 +1370,10 @@ function applyRestarts(c, state, fresh) {
         });
         var loaded = recmgrLoaded(recmgrBase(unit));
         if (unitState(unit, 'is-active') === 'active') {
-            if (loaded) { runOk(CFG.systemctl, ['restart', unit]); say('restarted ' + unit); out.push(unit); }
+            if (c.keepRunning) {
+                addPending(state, c.id, PENDING_NEXT_START);
+                say(unit + ' keeps running the version it started with; the new one runs from its next start');
+            } else if (loaded) { runOk(CFG.systemctl, ['restart', unit]); say('restarted ' + unit); out.push(unit); }
             else {
                 addPending(state, c.id, PENDING_RECMGR);
                 say(unit + ' keeps running the previous version until a reboot' + (socketActivated ? ' (socket is live)' : ''));
@@ -1444,11 +1447,11 @@ function installTool(a, state, tx) {
     if (before !== c.version) switchCurrent(root, c.version);
     /* systemd units, enablement and the recmgr list change in one window,
      * and only when the desired bytes differ. */
-    var ops = [], unitChanged = false;
+    var ops = [], unitChanged = false, changed = [];
     (c.units || []).forEach(function (u) {
         var src = path.join(a.dir, 'units', u.name), destUnit = path.join(CFG.systemd, u.name);
         if (!bytesEqualFile(fs.readFileSync(src), destUnit)) {
-            ops.push({ type: 'copy', src: src, path: destUnit, mode: 0o644 }); unitChanged = true;
+            ops.push({ type: 'copy', src: src, path: destUnit, mode: 0o644 }); unitChanged = true; changed.push(u.name);
         }
     });
     (c.enable || []).forEach(function (en) {
@@ -1477,10 +1480,24 @@ function installTool(a, state, tx) {
     if (ops.length) rootfsWindow(ops);
     if (unitChanged) runOk(CFG.systemctl, ['daemon-reload']);
     /* An enabled socket starts once recmgr has loaded its entry: the
-     * service it activates can stop like any other. */
+     * service it activates can stop like any other. A running socket whose
+     * unit changed listens as the new unit says only once it restarts,
+     * which systemd refuses while its service runs: it restarts now when
+     * its service is stopped, else with the next boot. */
     (c.enable || []).forEach(function (en) {
-        if (!/\.socket$/.test(en.unit) || unitState(en.unit, 'is-active') === 'active') return;
-        if (!recmgrLoaded(recmgrBase(en.unit))) { addPending(state, c.id, PENDING_BOOT); say(en.unit + ' ' + PENDING_BOOT); return; }
+        if (!/\.socket$/.test(en.unit)) return;
+        var base = recmgrBase(en.unit);
+        if (unitState(en.unit, 'is-active') === 'active') {
+            if (changed.indexOf(en.unit) < 0) return;
+            if (unitState(base + '.service', 'is-active') === 'active' || !recmgrLoaded(base)) {
+                addPending(state, c.id, PENDING_NEXT_START); say(en.unit + ' changes with the next boot');
+                return;
+            }
+            if (systemctl(['restart', en.unit]).status === 0) say('restarted ' + en.unit);
+            else warn('could not restart ' + en.unit);
+            return;
+        }
+        if (!recmgrLoaded(base)) { addPending(state, c.id, PENDING_BOOT); say(en.unit + ' ' + PENDING_BOOT); return; }
         var r = systemctl(['start', en.unit]);
         if (r.status === 0) say('started ' + en.unit);
         else warn('could not start ' + en.unit);
@@ -2115,12 +2132,8 @@ function ampelUninstallCleanup() {
             'patch until its next restart (recmgr entry not loaded, not restarting it)');
     }
 }
-/* opts.aside: the tool's folder is moved to <root>.replaced-<pid> instead
- * of removed, for a replace to put back. Returns { stopped: units it
- * stopped, aside }. */
-function uninstallTool(id, state, opts) {
-    opts = opts || {};
-    var tools = installedTools().filter(function (t) { return t.id === id; }), stopped = [];
+function uninstallTool(id, state) {
+    var tools = installedTools().filter(function (t) { return t.id === id; });
     if (!tools.length) throw refuse(id + ': no installed tool with that id');
     var c = tools[0].component, root = tools[0].root;
     say('uninstalling tool ' + id + ' ' + c.version);
@@ -2128,7 +2141,7 @@ function uninstallTool(id, state, opts) {
     if (id === 'app-privacy' && privacyRevert() && managerPid()) bounceManager();
     (c.units || []).forEach(function (u) {
         if (unitState(u.name, 'is-active') !== 'active') return;
-        if (recmgrLoaded(recmgrBase(u.name))) { runOk(CFG.systemctl, ['stop', u.name]); say('stopped ' + u.name); stopped.push(u.name); }
+        if (recmgrLoaded(recmgrBase(u.name))) { runOk(CFG.systemctl, ['stop', u.name]); say('stopped ' + u.name); }
         else { addPending(state, id, PENDING_RECMGR); warn(u.name + ' left running until a reboot'); }
     });
     var ops = [], removeRec = (c.recmgr || []).filter(function (n) {
@@ -2145,43 +2158,10 @@ function uninstallTool(id, state, opts) {
     if (ops.length) rootfsWindow(ops);
     if (ops.length) runOk(CFG.systemctl, ['daemon-reload']);
     pruneCreatedDirs(state);
-    if (opts.aside) {
-        var aside = root + '.replaced-' + process.pid;
-        rmrf(aside);
-        fs.renameSync(root, aside);
-        say(id + ' uninstalled (kept aside until the replacement is up)');
-        return { stopped: stopped, aside: aside, root: root };
-    }
     var own = fs.readdirSync(root).filter(function (n) { return ['versions', 'current', 'current.new'].indexOf(n) < 0; });
     if (own.length) say('removing ' + id + "'s own files beside its versions: " + own.sort().join(', '));
     rmrf(root);
     say(id + ' uninstalled');
-    return { stopped: stopped, aside: null, root: root };
-}
-/* Undoes a replace that failed: the new tool's units stop (when recmgr
- * has them), its files go, the replaced tool's folder comes back, the
- * snapshot puts both tools' units, links and the recmgr list back, and the
- * units the replace stopped start again. */
-function rollbackReplace(a, tx, backup, rep, state) {
-    say('rolling back the replace of ' + rep.id + ' by ' + a.id + ' ' + a.version + ' from ' + backup);
-    (a.component.units || []).forEach(function (u) {
-        if (unitState(u.name, 'is-active') === 'active' && recmgrLoaded(recmgrBase(u.name))) {
-            systemctl(['stop', u.name]); say('stopped ' + u.name);
-        }
-    });
-    if (tx.root) {
-        if (!tx.rootExisted) rmrf(tx.root);
-        else {
-            if (tx.before) switchCurrent(tx.root, tx.before); else rmrf(path.join(tx.root, 'current'));
-            if (!tx.versionExisted && tx.before !== a.version) rmrf(path.join(tx.root, 'versions', a.version));
-        }
-    }
-    if (rep.aside && lstatOrNull(rep.aside)) { rmrf(rep.root); fs.renameSync(rep.aside, rep.root); }
-    restoreSnapshot(backup);
-    runOk(CFG.systemctl, ['daemon-reload']);
-    pruneCreatedDirs(state);
-    rep.stopped.forEach(function (u) { runOk(CFG.systemctl, ['start', u]); say('started ' + u + ' again'); });
-    say(rep.id + ' is back');
 }
 /* An app on iDrive 8: its removal queued for the next start (or a queued
  * install dropped), in a snapshot of the boot unit's files. */
@@ -3296,19 +3276,6 @@ function cmdInstall(args) {
             }
         });
         if (!unitInfo().hmi) warn('which head unit this is is unknown (' + unitInfo().basis + '): mguHmi is not checked');
-        var replaces = {};
-        validated.forEach(function (a) {
-            if (!a.provides) return;
-            var other = validated.filter(function (b) { return b !== a && b.provides === a.provides; })[0];
-            if (other) throw refuse(a.id + ' and ' + other.id + ' both provide ' + a.provides + '; install one');
-            var cur = providerOf(a.provides, a.id);
-            if (!cur) return;
-            if (!args.replace) {
-                throw refuse(a.id + ' ' + a.version + ' provides ' + a.provides + ', which ' + cur.id + ' ' + cur.version +
-                    ' provides; only one can be installed: install with --replace to replace ' + cur.id);
-            }
-            replaces[a.id] = cur;
-        });
         var decisions = {};
         validated.forEach(function (a) {
             if (a.kind === 'app') decisions[a.id] = appDecision(a, args.skipOlder);
@@ -3354,31 +3321,19 @@ function cmdInstall(args) {
                     throw e;
                 }
             }
-            var cur = replaces[a.id], rep = null;
-            var tx = {}, backup = takeSnapshot('install', artifactTouched(a).concat(cur ? toolTouched(cur.component) : []));
+            var tx = {}, backup = takeSnapshot('install', artifactTouched(a));
             attempted = true;
             if (a.kind === 'app' && !id8) beginAppTx(tx);
             try {
-                if (cur) {
-                    say('replacing ' + cur.id + ' ' + cur.version + ' (' + a.provides + ') with ' + a.id + ' ' + a.version);
-                    rep = uninstallTool(cur.id, state, { aside: true });
-                    rep.id = cur.id;
-                }
                 if (a.kind === 'tool') installTool(a, state, tx);
                 else if (id8) installAppId8(a, state, decisions[a.id]);
                 else installApp(a, state, decisions[a.id]);
                 syncDropIns();
-                if (rep) {
-                    rmrf(rep.aside);
-                    state.pending_reboot = state.pending_reboot.filter(function (p) { return p.id !== rep.id; });
-                    say(cur.id + ' replaced by ' + a.id);
-                }
                 done.push(a.id + ' ' + a.version);
             } catch (e) {
                 process.stderr.write(a.id + ' ' + a.version + ' failed: ' + e.message + '\n');
                 try {
-                    if (cur) { if (rep) rollbackReplace(a, tx, backup, rep, state); else restoreSnapshot(backup); }
-                    else if (a.kind === 'tool') rollbackTool(a, tx, backup, e, state);
+                    if (a.kind === 'tool') rollbackTool(a, tx, backup, e, state);
                     else if (id8) { restoreSnapshot(backup); pruneCreatedDirs(state); }
                     else rollbackApp(a, tx, backup, state);
                 } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
@@ -3505,7 +3460,9 @@ function cmdRollback(args) {
         return 0;
     }
     try {
-        var touched = applyRestarts(tc, state, false), bad = healthCheck(touched);
+        /* a running service started by a keepRunning version stays running either way */
+        var keep = Object.assign({}, tc, { keepRunning: tc.keepRunning || tool.component.keepRunning });
+        var touched = applyRestarts(keep, state, false), bad = healthCheck(touched);
         if (bad) {
             switchCurrent(root, cur);
             say(cur + ' is current again');
@@ -3683,7 +3640,7 @@ var HELP = [
     'mgu-deploy ' + VERSION,
     'usage: mgu-deploy.sh <command> ...',
     '  check [--artifact <file>...]     read-only checks; exits 2 on a hard problem',
-    '  install [--artifact <file>...] [--skip-older] [--replace] [--yes]',
+    '  install [--artifact <file>...] [--skip-older] [--yes]',
     '                                    install tools/apps (default: ./artifacts/*.tgz)',
     '  status [--json]                  installed components and pending reboots',
     '  uninstall <id> [--yes]           remove one tool or app',
@@ -3708,7 +3665,6 @@ function parseArgs(argv) {
         if (argv[i] === '--artifact') { out.artifacts.push(argv[++i]); }
         else if (argv[i] === '--json') out.json = true;
         else if (argv[i] === '--skip-older') out.skipOlder = true;
-        else if (argv[i] === '--replace') out.replace = true;
         else if (argv[i] === '--yes') out.yes = true;
         else if (argv[i] === '--remove') out.remove = argv[++i] || '';
         else if (argv[i] === '--list') out.list = true;

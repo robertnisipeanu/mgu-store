@@ -4,11 +4,16 @@ The renderer for apps on the head unit: apps send draw commands (or pixels)
 over a socket, and mgu-render draws them with OpenGL ES at the display's rate,
 either on the app's own layer over the HMI or inside the app's own HMI page.
 
-- **Every existing renderer app runs unchanged.** It serves the socket
-  `/run/mgu-renderd/renderd.sock` in both protocols apps already use: upstream
-  idrive7-apps' `kit/renderd` (car_vitals, gforce, doom, ...) and IterioDev's
-  mgu-renderd (oap-cardash, oap-draggy, oap-dtcscan, ...). Their draws come out
-  byte for byte as from each original (`make test`).
+- **Every existing renderer app runs unchanged.** It speaks both protocols
+  apps already use: upstream idrive7-apps' `kit/renderd` (car_vitals, gforce,
+  doom, ...) and IterioDev's mgu-renderd (oap-cardash, oap-draggy,
+  oap-dtcscan, ...). Their draws come out byte for byte as from each original
+  (`make test`).
+- **Beside the other renderers.** Its own socket is
+  `/run/mgu-render/render.sock` (the Store, `js/mgu_render_client.js`). The
+  community socket `/run/mgu-renderd/renderd.sock` is a link to it while no
+  other renderer is installed; with IterioDev's or upstream's renderer
+  installed, that one has it ("Beside other renderers").
 - **Its own protocol, mgu-render/1,** asked for in HELLO, adds the embed
   placement, pixel images written in regions (INDEX8 with a palette, for a game
   like DOOM), and state events. [PROTOCOL.md](PROTOCOL.md) describes all three.
@@ -63,8 +68,9 @@ from the installed HmiMain3D.
 `foreground_gate.js`, `hmi_template.js`, `mgu-render-hmi.sh`,
 `mgu_render_client.js` (for apps to copy), `LICENSE.mgu-renderd`.
 
-- `mgu-render.socket` (sockets.target): `/run/mgu-renderd/renderd.sock`,
-  0660, group `tm_oap_app`. The first app that connects starts
+- `mgu-render.socket` (sockets.target): `/run/mgu-render/render.sock`,
+  0660, group `tm_oap_app`; once it listens, `mgu-render --share` links the
+  community socket to it (below). The first app that connects starts
   `mgu-render.service` (root:mgu_wayland; waits for Winston's socket).
 - `mgu-render-hmi.service` (before `hmi.service`): generates the page
   template from the installed HmiMain3D (again whenever that binary changes),
@@ -74,11 +80,82 @@ from the installed HmiMain3D.
   stock widgets; `umount /mnt/dataro/data/hmi/bmw/widget` undoes it.
 - Logs: `journalctl -u mgu-render -u mgu-render-hmi`.
 
-Only one renderer may own the socket: the Store installs one provider of
-`renderer` at a time. `mgu-deploy.sh install --replace` swaps mgu-render with
-IterioDev's mgu-renderd or upstream's renderer packaged as a `mguService:
-renderer` package, either way. display-bridge (mgu-apps) uses the same page
-template and ivi id `0x500` for its own embed; the two are not run together.
+An update does not stop a running mgu-render (`keepRunning` in
+`component.json`): the files and units are replaced, the running daemon goes
+on, and the new version runs from its next start: stopping a renderer with
+apps' surfaces up can restart the head unit (IterioDev's iDrive 8 car), and
+a handover to a new daemon would end the old one's surfaces the same way. The socket's own path changes only when the
+socket unit restarts: at once when the daemon is not running (the deploy
+tool restarts a changed socket whose service is stopped), else at the next
+head-unit start; meanwhile apps reach it through the community socket, which
+the client tries next.
+
+display-bridge (mgu-apps) uses the same page template and ivi id `0x500` for
+its own embed; the two are not run together.
+
+## Beside other renderers
+
+IterioDev's mgu-renderd (`mgu-renderd.service`, from his App Manager or as a
+service package through the Store) and upstream idrive7-apps' renderer
+(`mgu-renderd.service` from its installer, or the tool `idrive7-renderd`
+from its repository through the Store, `idrive7-renderd.service`) can be
+installed with mgu-render. Each serves its own apps; nothing is replaced. A
+tool that needs a renderer (upstream's controller gate) is satisfied by any.
+
+**Sockets.** Ours is `/run/mgu-render/render.sock`. The community socket
+`/run/mgu-renderd/renderd.sock` is ours exactly when it is a symlink to our
+socket; anything else there is another renderer's and is never removed,
+except a socket nobody listens on while no other renderer is installed (the
+one mgu-render before 0.2.0 listened on, left when its socket unit
+restarts), which the link replaces.
+- *Taken* (`src/share.c`): the link is made only where nothing is (`symlink`
+  fails on anything present) and only while none of `shared_yield`'s unit
+  files is installed: `/etc/systemd/system/mgu-renderd.service`,
+  `/run/systemd/system/mgu-renderd.service`,
+  `/etc/systemd/system/idrive7-renderd.service`. The socket unit makes it at
+  its start (`mgu-render --share`), the daemon checks every 2 s while it
+  runs. Through the link, socket activation works for community apps too.
+- *Handed over*: the other renderers unlink the path and bind their own
+  socket at their start, so one that starts has it at once. Installed but not
+  yet started, its unit file is there: the daemon removes our link within
+  2 s. Our link is moved aside before it is removed; when what moved is a
+  socket the other renderer bound in between, it goes back (`link`, which
+  never replaces anything), so the other's socket is never lost.
+- *Taken back*: once the other renderer's unit file is gone (removed) and its
+  socket with it, the daemon links the path again within 2 s; when the daemon
+  is not running, at its next start or the next head-unit start. An installed
+  renderer that stops or restarts (`Restart=always`) keeps the path: its unit
+  file is still there.
+- The socket unit stopping (uninstall) removes our socket and our link
+  (`--unshare`), nothing else.
+
+**ivi ids.** Our layer apps use layer `0x4d520000 + slot` and surface
+`0x4d520100 + slot` ("MR"); the community renderers use `0x4d470000` and
+`0x4d470100` ("MG") on the same compositor, so two apps in slot 0 never share
+an id. The embed surface `0x500` is on the HMI's own compositor (`wayland-1`),
+which neither community renderer connects to.
+
+**Touch.** IterioDev's renderer diverts the display's touch with its own
+table (`ip touchroute`, ports 30568 in, 30569 out); ours has `ip mgu_render`
+and ports 30570 in, 30571 out, so neither removes the other's rule or takes
+its ports. Each diverts only while one of its own apps is shown with claims:
+ours only while one of its apps is in front (the foreground gate), his while
+his app shows its screen. They take turns. Were both in at once, the first
+chain to see a PDU takes it; on the emulator's `lo` our rule passes both
+renderers' re-injections (from 30569 and 30571) to the HMI and his catches
+ours, so a PDU passes each renderer at most once and nothing loops. Neither
+leaves its rule behind: each has a guard process that removes it when its
+renderer dies or hangs, and its unit's `ExecStopPost` deletes its own table
+only. Upstream's renderer has no divert.
+
+**Controller.** Upstream's controller gate (`mgu-inputgate.so`) talks to one
+renderer: the file `/run/mgu-renderd/inputgate` and the event socket
+`@mgu-renderd-ccu`, which upstream's renderer binds at its start. mgu-render
+binds that socket only while one of its apps holds GRAB, and touches the file
+only while the socket is its own; bound by upstream's renderer, our apps go
+without the gate (they read FrontCCU themselves). A stale file releases the
+controller after 0.7 s by the gate's own rule, so a killed renderer holds
+nothing.
 
 ## Settings
 
@@ -137,7 +214,7 @@ HMI only where the HMI's controller gate is loaded (`info.controller`).
 |---|---|
 | `make target` | `build/target/mgu-render`: x86-64, glibc 2.27, loader `/lib/ld-linux-x86-64.so.2`, built in Ubuntu 18.04 (Docker, linux/amd64) |
 | `make check-target` | the binary's architecture, loader, libraries (`libwayland-client`, `libwayland-egl`, `libEGL`, `libGLESv2`, libc, libm) and glibc versions |
-| `make test` | in Ubuntu 24.04 with Mesa's llvmpipe (Docker): `test/test_dialect.c`, and `test/replay.sh`: every session in `test/sessions/` (recorded from upstream's and IterioDev's kits, `test/sessions/README.md`) and the synthetic ones (`test/gen_sessions.js`) replayed through the original daemons (`test/reference/`) and mgu-render, every frame compared byte for byte; native pixmaps compared with the same pictures sent as IterioDev pictures |
+| `make test` | in Ubuntu 24.04 with Mesa's llvmpipe (Docker): `test/test_dialect.c`, `test/test_touch.c` (routing; our table and ports only, in while claimed, out when not and when the renderer dies), `test/test_share.c` (the community socket beside a fake second renderer: handover, restart, take-back, the drop race, foreign sockets kept), and `test/replay.sh`: every session in `test/sessions/` (recorded from upstream's and IterioDev's kits, `test/sessions/README.md`) and the synthetic ones (`test/gen_sessions.js`) replayed through the original daemons (`test/reference/`) and mgu-render, every frame compared byte for byte; native pixmaps compared with the same pictures sent as IterioDev pictures |
 | `deploy/hu install mgu-render` | build and install on a unit or the emulator (deploy/README.md) |
 
 `mgu-render --replay FILE --out F.pam [--raw F.rgba]` draws a recorded
@@ -154,10 +231,12 @@ the car can show:
 - [ ] Layer: an upstream app (car_vitals) draws at 60 fps under our unit (upstream measured 56-61 fps with its own); our layer's z-order over HMI popups and the camera, and the yield surface ids of the reversing camera.
 - [ ] Embed: DOOM-style pixmap frames inside the page: presented rate (`fps` in `test/pixel_client.js`), and the readback cost at 1796×632 (STATS avg µs) on the HD 505.
 - [ ] Embed: whether HmiMain3D's compositor offers `wl_drm`/`zwp_linux_dmabuf_v1` (`verbose = 1` logs its globals): an EGL surface there would skip the readback.
-- [ ] Touch: finger PDUs on UDP 30567 from 160.48.199.115 on vlan73, finger PDUs told by their finger count (payload byte 37) whatever their word type, the firewall accepting 30568 with the inserted rule; the claim area 84,76,1836,644.
+- [ ] Touch: finger PDUs on UDP 30567 from 160.48.199.115 on vlan73, finger PDUs told by their finger count (payload byte 37) whatever their word type; the claim area 84,76,1836,644.
 - [ ] Touch in embed mode: a claimed area inside the page reaches the app and the HMI's hidden components under it do not react.
 - [ ] The foreground gate as root:root (gid 0) under the unit's SOME/IP credentials.
 - [ ] GRAB with upstream's `mgu-inputgate.so` loaded (installed separately).
+- [ ] The release firewall accepting 30570 with the inserted rule (as for IterioDev's 30568).
+- [ ] Beside upstream's renderer: its apps on its own layer ids, ours on ours, both shown in turn; the community socket its.
 
 **iDrive 8**
 - [ ] Layer with IterioDev's apps unchanged (their packages are iDrive 8 only), screen 2880×960, the touch divert as with IterioDev's renderer.

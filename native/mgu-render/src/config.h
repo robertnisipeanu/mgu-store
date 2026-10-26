@@ -4,10 +4,14 @@
 #include <stdint.h>
 
 #define CFG_MAX_YIELD 16
+#define CFG_MAX_SHARED_YIELD 8
 
 struct cfg {
-    char socket_path[108];      /* used when not socket-activated */
+    char socket_path[108];      /* our own socket (the socket unit's; bound here when not socket-activated) */
     char socket_group[32];      /* group of a socket the daemon creates; empty: mode 0666 */
+    char shared_path[108];      /* the community renderers' socket, a link to ours while ours to serve; empty: none */
+    char shared_yield[CFG_MAX_SHARED_YIELD][128]; /* other renderers' unit files: one present = the path is its */
+    int n_shared_yield;
     char wayland_display[64];   /* the system compositor (Winston), in XDG_RUNTIME_DIR */
     uint32_t screen_id;         /* layer mode's screen; 0: the lowest id (the centre display) */
     int app_area[4];            /* layer mode: the app content area apps are told (X_READY); w 0: by screen size */

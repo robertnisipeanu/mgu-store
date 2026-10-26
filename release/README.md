@@ -131,8 +131,9 @@ Schema 2 adds, per entry:
 - `uninstallable: true`: the Store may offer Remove (`mgu-uplink`).
 - `mguHmi: ["ID7"|"ID8", ...]`: the head units it is for; the Store
   refuses it on another (docs/PUBLISHING.md). `robertn_store`: `["ID7"]`.
-- `mguProvides: "<capability>"`: a tool only one of which may be installed
-  for that capability (`renderer`).
+- `mguProvides: "<capability>"`: the capability a tool provides
+  (`renderer`); a requirement on such a tool is also met by another
+  installed provider, and providers install side by side.
 
 ## Publishing
 

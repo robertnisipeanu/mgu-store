@@ -10,8 +10,9 @@ User=root
 Group=mgu_wayland
 ExecStartPre=/bin/sh -c 'i=0; while [ ! -S /run/wayland/wayland-0 ]; do i=$$((i+1)); [ $$i -gt 120 ] && exit 1; sleep 1; done'
 ExecStart=/var/opt/mgu-render/current/mgu-render -c /var/opt/mgu-render/current/mgu-render.conf
-# A killed renderer leaves no touch divert behind (its guard removes it too) and no controller hold.
-ExecStopPost=-/bin/sh -c 'nft delete table ip touchroute 2>/dev/null; rm -f /run/mgu-renderd/inputgate; true'
+# A killed renderer leaves no touch divert behind (its guard removes it too); only our own table: other renderers'
+# stay theirs.
+ExecStopPost=-/bin/sh -c 'nft delete table ip mgu_render 2>/dev/null; true'
 Restart=on-failure
 RestartSec=3
 TimeoutStartSec=150

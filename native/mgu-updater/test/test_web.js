@@ -289,12 +289,6 @@ test('ops go to the updater with the web secret and only their own fields', () =
         .then((r) => {
             assert.deepStrictEqual(r.json, { ok: true });
             assert(!('source' in received[received.length - 1]));
-            return post('/api/op', { token, body: { op: 'install', id: 'my-render', replace: true, extra: 1 } });
-        })
-        .then((r) => {
-            assert.deepStrictEqual(r.json, { ok: true });
-            const q = received[received.length - 1];
-            assert.deepStrictEqual([q.op, q.id, q.replace, 'extra' in q], ['install', 'my-render', true, false]);
             return post('/api/op', { token, body: { op: 'source-remove', id: 'mgu-store' } });
         })
         .then((r) => {
@@ -306,7 +300,7 @@ test('ops go to the updater with the web secret and only their own fields', () =
 test('requests the page cannot make are refused before the updater', () => {
     received.length = 0;
     const bad = [
-        { op: 'web', enable: false }, { op: 'reboot' }, { op: 'install', id: 'doom' }, { op: 'install', id: 'doom', replace: 'yes' },
+        { op: 'web', enable: false }, { op: 'reboot' }, { op: 'install', id: 'doom' }, { op: 'install', id: 'doom', replace: true },
         { op: 'source-add', type: 'github', repo: 'a/b' },
         { op: 'source-add', type: 'github', repo: 'a/b', channel: 3 },
         { op: 'source-add', type: 'https' },
