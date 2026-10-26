@@ -1,0 +1,18 @@
+[Unit]
+Description=mgu-render: apps' screens on the GPU
+Requires=mgu-render.socket
+After=winston.service mgu-render.socket
+
+[Service]
+# Winston's socket directory /run/wayland is root:mgu_wayland 0770; root for the touch rule (nft).
+Environment=XDG_RUNTIME_DIR=/run/wayland
+User=root
+Group=mgu_wayland
+ExecStartPre=/bin/sh -c 'i=0; while [ ! -S /run/wayland/wayland-0 ]; do i=$$((i+1)); [ $$i -gt 120 ] && exit 1; sleep 1; done'
+ExecStart=/var/opt/mgu-render/current/mgu-render -c /var/opt/mgu-render/current/mgu-render.conf
+# A killed renderer leaves no touch divert behind (its guard removes it too) and no controller hold.
+ExecStopPost=-/bin/sh -c 'nft delete table ip touchroute 2>/dev/null; rm -f /run/mgu-renderd/inputgate; true'
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=150
+TimeoutStopSec=5

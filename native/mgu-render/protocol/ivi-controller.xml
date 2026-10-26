@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ivi_controller v1, as built into the head unit's libivi-controller.so.1.11.0
+  (wayland-ivi-extension 1.11.0) and implemented by the compositor's genivi.so
+  plugin. Request/event names, opcodes (document order), signatures and
+  argument interfaces match the descriptors in that library exactly; check
+  with tools/check_protocol_abi.py. Argument names follow upstream COVESA
+  wayland-ivi-extension 1.x.
+
+  The interfaces are those of COVESA wayland-ivi-extension (DENSO CORPORATION,
+  BMW Car IT GmbH).
+-->
+<protocol name="ivi_controller">
+  <copyright>
+    Copyright (C) 2013 DENSO CORPORATION
+    Copyright (c) 2013 BMW Car IT GmbH
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+    THE SOFTWARE.
+  </copyright>
+
+  <interface name="ivi_controller_surface" version="1">
+    <request name="set_visibility">
+      <arg name="visibility" type="uint"/>
+    </request>
+    <request name="set_opacity">
+      <arg name="opacity" type="fixed"/>
+    </request>
+    <request name="set_source_rectangle">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="set_destination_rectangle">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="set_configuration">
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="set_orientation">
+      <arg name="orientation" type="int"/>
+    </request>
+    <request name="screenshot">
+      <arg name="filename" type="string"/>
+    </request>
+    <request name="send_stats"/>
+    <request name="destroy" type="destructor">
+      <arg name="destroy_scene_object" type="int"/>
+    </request>
+
+    <event name="visibility">
+      <arg name="visibility" type="int"/>
+    </event>
+    <event name="opacity">
+      <arg name="opacity" type="fixed"/>
+    </event>
+    <event name="source_rectangle">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+    <event name="destination_rectangle">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+    <event name="configuration">
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+    <event name="orientation">
+      <arg name="orientation" type="int"/>
+    </event>
+    <event name="pixelformat">
+      <arg name="pixelformat" type="int"/>
+    </event>
+    <event name="layer">
+      <arg name="layer" type="object" interface="ivi_controller_layer" allow-null="true"/>
+    </event>
+    <event name="stats">
+      <arg name="redraw_count" type="uint"/>
+      <arg name="frame_count" type="uint"/>
+      <arg name="update_count" type="uint"/>
+      <arg name="pid" type="uint"/>
+      <arg name="process_name" type="string" allow-null="true"/>
+    </event>
+    <event name="destroyed"/>
+    <event name="content">
+      <arg name="content_state" type="int"/>
+    </event>
+  </interface>
+
+  <interface name="ivi_controller_layer" version="1">
+    <request name="set_visibility">
+      <arg name="visibility" type="uint"/>
+    </request>
+    <request name="set_opacity">
+      <arg name="opacity" type="fixed"/>
+    </request>
+    <request name="set_source_rectangle">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="set_destination_rectangle">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="set_configuration">
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="set_orientation">
+      <arg name="orientation" type="int"/>
+    </request>
+    <request name="screenshot">
+      <arg name="filename" type="string"/>
+    </request>
+    <request name="clear_surfaces"/>
+    <request name="add_surface">
+      <arg name="surface" type="object" interface="ivi_controller_surface"/>
+    </request>
+    <request name="remove_surface">
+      <arg name="surface" type="object" interface="ivi_controller_surface"/>
+    </request>
+    <request name="set_render_order">
+      <arg name="id_surfaces" type="array"/>
+    </request>
+    <request name="destroy" type="destructor">
+      <arg name="destroy_scene_object" type="int"/>
+    </request>
+
+    <event name="visibility">
+      <arg name="visibility" type="int"/>
+    </event>
+    <event name="opacity">
+      <arg name="opacity" type="fixed"/>
+    </event>
+    <event name="source_rectangle">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+    <event name="destination_rectangle">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+    <event name="configuration">
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+    <event name="orientation">
+      <arg name="orientation" type="int"/>
+    </event>
+    <event name="screen">
+      <arg name="screen" type="object" interface="wl_output" allow-null="true"/>
+    </event>
+    <event name="destroyed"/>
+  </interface>
+
+  <interface name="ivi_controller_screen" version="1">
+    <request name="destroy" type="destructor"/>
+    <request name="clear"/>
+    <request name="add_layer">
+      <arg name="layer" type="object" interface="ivi_controller_layer"/>
+    </request>
+    <request name="screenshot">
+      <arg name="filename" type="string"/>
+    </request>
+    <request name="set_render_order">
+      <arg name="id_layers" type="array"/>
+    </request>
+  </interface>
+
+  <interface name="ivi_controller" version="1">
+    <request name="commit_changes"/>
+    <request name="layer_create">
+      <arg name="id_layer" type="uint"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="id" type="new_id" interface="ivi_controller_layer"/>
+    </request>
+    <request name="surface_create">
+      <arg name="id_surface" type="uint"/>
+      <arg name="id" type="new_id" interface="ivi_controller_surface"/>
+    </request>
+
+    <event name="screen">
+      <arg name="id_screen" type="uint"/>
+      <arg name="screen" type="new_id" interface="ivi_controller_screen"/>
+    </event>
+    <event name="layer">
+      <arg name="id_layer" type="uint"/>
+    </event>
+    <event name="surface">
+      <arg name="id_surface" type="uint"/>
+    </event>
+    <event name="error">
+      <arg name="object_id" type="int"/>
+      <arg name="object_type" type="int"/>
+      <arg name="error_code" type="int"/>
+      <arg name="error_text" type="string" allow-null="true"/>
+    </event>
+  </interface>
+</protocol>

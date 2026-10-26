@@ -1,0 +1,13 @@
+[Unit]
+Description=mgu-render app socket
+
+[Socket]
+# The renderer socket both legacy kits connect to; the first connection starts mgu-render.service.
+ListenStream=/run/mgu-renderd/renderd.sock
+DirectoryMode=0755
+SocketMode=0660
+# Every OAP app process has tm_oap_app as a supplementary group.
+SocketGroup=tm_oap_app
+
+[Install]
+WantedBy=sockets.target
