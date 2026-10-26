@@ -14,7 +14,6 @@
     { "path": "tar.js", "from": "js/tar.js", "mode": "0644" },
     { "path": "login.js", "from": "js/login.js", "mode": "0644" },
     { "path": "build.js", "from": "js/build.js", "mode": "0644" },
-    { "path": "migrate.js", "from": "js/migrate.js", "mode": "0644" },
     { "path": "web.js", "from": "js/web.js", "mode": "0644" },
     { "path": "updater.conf", "from": "updater.conf", "mode": "0644" }
   ],

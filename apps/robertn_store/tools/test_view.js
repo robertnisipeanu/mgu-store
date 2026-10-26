@@ -13,16 +13,16 @@ const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', versi
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
 const st = (o) => Object.assign({ online: true, busy: null, components: [],
     catalog: { checking: false, error: null, checkedAt: new Date(2026, 9, 21, 14, 2).getTime() } }, o);
-const src = (o) => Object.assign({ id: 'mgu-apps', type: 'github', label: 'robertnisipeanu/mgu-apps', builtin: false,
+const src = (o) => Object.assign({ id: 'idrive7-apps', type: 'github', label: 'someone/idrive7-apps', builtin: false,
     usb: false, status: 'ok', error: null, auth: null, checkedAt: 0, components: 7 }, o);
-const login = (o) => Object.assign({ source: 'mgu-apps', url: 'https://github.com/login/device', code: 'ABCD-1234',
+const login = (o) => Object.assign({ source: 'idrive7-apps', url: 'https://github.com/login/device', code: 'ABCD-1234',
     expiresAt: 0, status: 'pending', error: null }, o);
 const web = (o) => Object.assign({ enabled: true, error: null, urls: ['http://172.16.222.97:8470/'] }, o);
 const TOKEN_URL = 'http://172.16.222.97:8470/#t=0123abcd';
 const address = (w, file) => JSON.stringify(phoneAddress(w, file));
 const parsed = (text) => JSON.stringify(parseSource(text));
 const cases = [
-    [parsed('robertnisipeanu/mgu-apps'), '{"type":"github","repo":"robertnisipeanu/mgu-apps"}'],
+    [parsed('someone/idrive7-apps'), '{"type":"github","repo":"someone/idrive7-apps"}'],
     [parsed('  Owner-1/repo.name_x  '), '{"type":"github","repo":"Owner-1/repo.name_x"}'],
     [parsed('https://github.com/owner/repo'), '{"type":"github","repo":"owner/repo"}'],
     [parsed('github.com/owner/repo.git/'), '{"type":"github","repo":"owner/repo"}'],
@@ -94,8 +94,8 @@ const cases = [
     [rowAction(row({ status: 'installed', uninstallable: true, queued: true }), null), null],
     [rowAction(row({ status: 'installed', uninstallable: false }), null), null],
     [rowAction(row({ status: 'installed', uninstallable: 'yes' }), null), null],
-    [sourceLabel(src({})), 'robertnisipeanu/mgu-apps'],
-    [sourceLabel(src({ label: undefined })), 'mgu-apps'],
+    [sourceLabel(src({})), 'someone/idrive7-apps'],
+    [sourceLabel(src({ label: undefined })), 'idrive7-apps'],
     [sourceState(src({})), 'OK'],
     [sourceState(src({ status: 'checking' })), 'Checking'],
     [sourceState(src({ status: 'error', error: 'HTTP 404' })), 'Error'],
@@ -121,20 +121,20 @@ const cases = [
     [sourceChannel(src({ channel: 'other' })), ''],
     [sourceAccount(src({ auth: { kind: 'github', login: 'robertnisipeanu' } })), 'robertnisipeanu'],
     [sourceAccount(src({})), ''],
-    [loginStatus(null, 'mgu-apps'), 'Starting'],
-    [loginStatus(login({ source: 'other' }), 'mgu-apps'), 'Starting'],
-    [loginStatus(login({}), 'mgu-apps'), 'Waiting for sign-in'],
-    [loginStatus(login({ status: 'done' }), 'mgu-apps'), 'Signed in'],
-    [loginStatus(login({ status: 'expired' }), 'mgu-apps'), 'Code expired'],
-    [loginStatus(login({ status: 'error', error: 'access_denied' }), 'mgu-apps'), 'Sign-in failed: access_denied'],
-    [loginStatus(login({ status: 'error' }), 'mgu-apps'), 'Sign-in failed'],
-    [loginStatus(null, 'mgu-apps', 'forbidden'), 'Sign-in failed: forbidden'],
-    [loginStatus(login({}), 'mgu-apps', 'no GitHub App client id configured'),
+    [loginStatus(null, 'idrive7-apps'), 'Starting'],
+    [loginStatus(login({ source: 'other' }), 'idrive7-apps'), 'Starting'],
+    [loginStatus(login({}), 'idrive7-apps'), 'Waiting for sign-in'],
+    [loginStatus(login({ status: 'done' }), 'idrive7-apps'), 'Signed in'],
+    [loginStatus(login({ status: 'expired' }), 'idrive7-apps'), 'Code expired'],
+    [loginStatus(login({ status: 'error', error: 'access_denied' }), 'idrive7-apps'), 'Sign-in failed: access_denied'],
+    [loginStatus(login({ status: 'error' }), 'idrive7-apps'), 'Sign-in failed'],
+    [loginStatus(null, 'idrive7-apps', 'forbidden'), 'Sign-in failed: forbidden'],
+    [loginStatus(login({}), 'idrive7-apps', 'no GitHub App client id configured'),
         'Sign-in failed: no GitHub App client id configured'],
-    [loginCode(login({}), 'mgu-apps'), 'ABCD-1234'],
+    [loginCode(login({}), 'idrive7-apps'), 'ABCD-1234'],
     [loginCode(login({}), 'other'), ''],
-    [loginCode(login({ status: 'expired' }), 'mgu-apps'), ''],
-    [loginCode(null, 'mgu-apps'), ''],
+    [loginCode(login({ status: 'expired' }), 'idrive7-apps'), ''],
+    [loginCode(null, 'idrive7-apps'), ''],
     [phoneState(web({})), 'On'],
     [phoneState(web({ enabled: false })), 'Off'],
     [address(web({}), `${TOKEN_URL}\n`), JSON.stringify({ qr: TOKEN_URL, text: TOKEN_URL })],
