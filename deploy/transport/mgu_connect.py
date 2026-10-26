@@ -46,7 +46,7 @@ HU_SSH_PORT = 22
 DEFAULT_LPORT = 2222
 ARM_WAIT_TRIES = 40                 # banner polls through the relay after arming
 CACHE_NAME = "last_hu_enet_ip"
-DEFAULT_STATE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "mgu-apps")
+DEFAULT_STATE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "mgu-store")
 ARM_ASSETS = ("mgu_ssh_key_rsa.pem", "asset_03.bin", "asset_04.bin")   # debug_cert.ASSETS
 
 BOOTSTRAP_HINT = (

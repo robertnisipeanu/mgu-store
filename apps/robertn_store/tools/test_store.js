@@ -134,7 +134,7 @@ const ST = Object.assign({}, base, {
     sources: [
         { id: 'mgu-store', type: 'github', label: 'robertnisipeanu/mgu-store', builtin: true, usb: false, status: 'ok',
             auth: { kind: 'github', login: 'rn' }, components: 5, channel: 'releases' },
-        { id: 'mgu-apps', type: 'github', label: 'robertnisipeanu/mgu-apps', builtin: false, usb: false,
+        { id: 'idrive7-apps', type: 'github', label: 'someone/idrive7-apps', builtin: false, usb: false,
             status: 'auth-needed', error: 'sign in', auth: null, components: 0 }],
     login: null,
     web: { enabled: false, urls: [], error: null }
@@ -311,12 +311,12 @@ function run() {
         eq(last(/storeSourcesStatus\.0\.Text/),
             'storeSourcesStatus.0.Text=Add source failed: https://example.org/c.json is already a source');
         reset();
-        app._sourceId = 'mgu-apps';
+        app._sourceId = 'idrive7-apps';
         app._removeSource();
         app._client.emit('reply-error', 'forbidden');
         return tick();
     }).then(() => {
-        eq(sent.map(secretless), [{ op: 'source-remove', id: 'mgu-apps' }]);
+        eq(sent.map(secretless), [{ op: 'source-remove', id: 'idrive7-apps' }]);
         eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Remove failed: forbidden');
         eq(states, ['close ST_OnlineApps_StoreSourceRemove'], 'only the confirm closes');
         // the refused source's page closes once it shows again: Sources has the message
@@ -326,7 +326,7 @@ function run() {
         eq(states, ['close ST_OnlineApps_StoreSourceRemove', 'close ST_OnlineApps_StoreSource'], 'refused: back to Sources');
         // removed: the page closes once the updater's state no longer lists the source
         reset();
-        app._sourceId = 'mgu-apps';
+        app._sourceId = 'idrive7-apps';
         app._client.emit('state', ST);
         app._states.ST_OnlineApps_StoreSource.emit('visible', { visible: true });
         app._removeSource();
@@ -347,7 +347,7 @@ function run() {
         eq(states, [], 'a page this Store did not remove stays open');
         // not sent without the secret: back to Sources, which says why
         reset();
-        app._sourceId = 'mgu-apps';
+        app._sourceId = 'idrive7-apps';
         const secretFile = path.join(DATA, 'updater-secret');
         const secretText = fs.readFileSync(secretFile, 'utf8');
         fs.unlinkSync(secretFile);
@@ -360,7 +360,7 @@ function run() {
         eq(states, ['close ST_OnlineApps_StoreSourceRemove', 'close ST_OnlineApps_StoreSource'], 'unsent: back to Sources');
         // opening a source's page again forgets an earlier removal
         reset();
-        app._removingSource = 'mgu-apps';
+        app._removingSource = 'idrive7-apps';
         app._removalRefused = true;
         app._onSource(1);
         eq([app._removingSource, app._removalRefused], [null, false]);
@@ -377,7 +377,7 @@ function run() {
 
         // sign-in: a refusal shows; an earlier done does not close a new page
         reset();
-        app._sourceId = 'mgu-apps';
+        app._sourceId = 'idrive7-apps';
         app._signIn();
         app._client.emit('reply-error', 'forbidden');
         return tick();
@@ -386,16 +386,16 @@ function run() {
         reset();
         app._signIn();
         app._visibleStates.add('ST_OnlineApps_StoreLogin');
-        app._client.emit('state', Object.assign({}, ST, { login: { source: 'mgu-apps', status: 'done' } }));
+        app._client.emit('state', Object.assign({}, ST, { login: { source: 'idrive7-apps', status: 'done' } }));
         return tick();
     }).then(() => {
         eq(states, ['open ST_OnlineApps_StoreLogin'], 'stale done ignored');
-        app._client.emit('state', Object.assign({}, ST, { login: { source: 'mgu-apps', url: 'https://github.com/login/device',
+        app._client.emit('state', Object.assign({}, ST, { login: { source: 'idrive7-apps', url: 'https://github.com/login/device',
             code: 'WXYZ-0000', status: 'pending' } }));
         return tick();
     }).then(() => {
         eq(last(/storeLoginCode\.0\.Text/), 'storeLoginCode.0.Text=WXYZ-0000');
-        app._client.emit('state', Object.assign({}, ST, { login: { source: 'mgu-apps', status: 'done' } }));
+        app._client.emit('state', Object.assign({}, ST, { login: { source: 'idrive7-apps', status: 'done' } }));
         return tick();
     }).then(() => {
         eq(states, ['open ST_OnlineApps_StoreLogin', 'close ST_OnlineApps_StoreLogin'], 'closes once done');

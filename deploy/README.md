@@ -125,7 +125,7 @@ before any connection, naming the file and the folder it looked in.
 `--arm-debug` also needs the Python package `cryptography`.
 
 **State.** The last ENET address that answered is written to
-`~/.cache/mgu-apps/last_hu_enet_ip` (`HU_STATE_DIR`), and also read from
+`~/.cache/mgu-store/last_hu_enet_ip` (`HU_STATE_DIR`), and also read from
 `last_hu_enet_ip` beside the assets folder, where the claude-bmw-ecu tools
 kept it.
 
@@ -843,7 +843,7 @@ stdout, read-only, taking no lock, of this shape:
                  { "id", "kind": "app", "version", "uid", "installationSource", "running",
                    "tile_provisioned", "tile_fallback", "tile_visible" }],
   "pending_reboot": [{ "id", "reason" }],
-  "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],   (mgu-apps' display-bridge)
+  "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],   (display-bridge)
   "fallback": { ... }, "backups": 3, "stock_backup": true, "updater_token": "present",
   "retired_leftovers": ["/usr/lib/oap-mainapp/src/main.js.capbak"] }
 ```

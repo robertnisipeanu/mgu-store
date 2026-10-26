@@ -263,7 +263,7 @@ test('ops go to the updater with the web secret and only their own fields', () =
         })
         .then((r) => {
             assert.deepStrictEqual(r.json, { ok: true });
-            return post('/api/op', { token, body: { op: 'token-set', source: 'mgu-apps', token: ' ghp_x \n' } });
+            return post('/api/op', { token, body: { op: 'token-set', source: 'idrive7-apps', token: ' ghp_x \n' } });
         })
         .then((r) => {
             assert.deepStrictEqual(r.json, { ok: true });

@@ -28,7 +28,6 @@ const { URL } = require('url');
 const catalogLib = require('./catalog');
 const sourcesLib = require('./sources');
 const { DeviceLogin } = require('./login');
-const { migrate } = require('./migrate');
 const { runBuild, cleanBuilds } = require('./build');
 const { UpdaterClient } = require('./client');
 
@@ -577,13 +576,14 @@ class Updater {
         return { id: SELF_SOURCE_ID, type: 'github', repo: this.conf.builtin_repo || 'robertnisipeanu/mgu-store', builtin: true };
     }
 
-    /* sources.json, made on the first start (migrate.js); the built-in source
-     * is always there. A file that cannot be read leaves the built-in source
-     * alone and says why. */
+    /* sources.json (seeded by the installers, then written by the updater);
+     * without it, the built-in source alone. The built-in source is always
+     * there. A file that cannot be read leaves the built-in source alone and
+     * says why. */
     loadSources() {
         let list;
         try {
-            list = sourcesLib.load(this.conf.sources) || migrate(this.conf, this.builtin(), this.credentials, (l) => console.log(l));
+            list = sourcesLib.load(this.conf.sources) || [];
         } catch (e) {
             console.log(`sources: ${e.message}`);
             this.sourcesError = e.message;
