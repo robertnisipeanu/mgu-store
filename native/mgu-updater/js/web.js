@@ -826,6 +826,7 @@ function render(st) {
     var bar = $('busyBar');
     if (b.total) { bar.max = b.total; bar.value = b.progress || 0; } else { bar.removeAttribute('value'); }
   }
+  $('loginStart').hidden = !st.signin;
   if (changed('sources', st.sources || [])) { renderSources(st.sources || []); }
   if (changed('tokens', [st.tokens || [], st.sources || []])) { renderTokens(st.tokens || [], st.sources || []); }
   if (changed('components', st.components || [])) { renderComponents(st.components || []); }
@@ -942,7 +943,7 @@ a{color:var(--acc)}
 <form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel"><option value="releases">Releases</option><option value="branch">Branch</option><option value="tags">Tags</option></select><input id="addBranch" aria-label="Branch" placeholder="Default branch" autocapitalize="off" autocorrect="off" spellcheck="false" hidden><button class="pri">Add</button></form>
 <h2>Tokens</h2>
 <div id="tokens"></div>
-<form id="tokenForm"><input id="tokenValue" type="password" aria-label="Token" placeholder="Token" autocomplete="off"><button class="pri">Add token</button><button id="loginStart" type="button">Sign in with GitHub</button></form>
+<form id="tokenForm"><input id="tokenValue" type="password" aria-label="Token" placeholder="Token" autocomplete="off"><button class="pri">Add token</button><button id="loginStart" type="button" hidden>Sign in with GitHub</button></form>
 <h2>Components</h2>
 <div id="components"></div>
 <h2>Logs</h2>

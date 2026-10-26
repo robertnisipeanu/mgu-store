@@ -406,6 +406,7 @@ function testShipped() {
         needed.filter((n) => n !== 'web.js').every((n) => shipped.indexOf(n) >= 0), JSON.stringify(needed));
     ok('shipped: component.json installs each file it names (web.js once the phone page is in this tree)',
         component.files.every((f) => f.path === 'web.js' || fs.existsSync(path.join(ROOT, f.from))) && shipped.indexOf('web.js') >= 0);
+    ok('shipped: no GitHub App client id, so GitHub sign-in is not offered', conf.github_client_id === '');
     ok('shipped: no catalog key and no signing settings',
         !shipped.some((f) => /\.pem$/.test(f)) && conf.public_key === undefined && conf.catalog === undefined &&
         !fs.readdirSync(ROOT).some((f) => /\.pem$/.test(f)));
@@ -1637,6 +1638,7 @@ function testSources(certs) {
             return priv({ op: 'source-remove', id: 'third' });
         })
         .then(() => {
+            ok('login: offered with a GitHub App client id configured', st().signin === true);
             seen.length = 0;
             return priv({ op: 'login-start' });
         })

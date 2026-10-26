@@ -189,8 +189,9 @@ the folder again every `usb_poll_s` and on each check.
   supervisor goes back to still has them.
 
 **Signing in to GitHub.** `login-start` runs GitHub's device flow for a
-GitHub App (`github_client_id`; empty until the App exists, and then
-sign-in is refused while a pasted token still works): the state's `login`
+GitHub App (`github_client_id`; while it is empty the state's `signin` is
+false, clients offer no sign-in, `login-start` is refused, and a pasted token
+still works): the state's `login`
 shows the address and the code, which the owner enters on a phone; the
 updater polls at the interval GitHub gives (5 s more on `slow_down`) until
 the code expires, and stores the token it gets as a token labelled with
@@ -386,8 +387,8 @@ installed, errors, and the logs. On it the owner adds a GitHub source
 (owner/repo with Releases, a branch, the default branch when none is named, or Tags) or a catalog URL and
 removes one; each source shows the account that reads it, or *Sign-in
 needed*. Its Tokens list each token (label, account, the sources it reads)
-with Remove; a token is added by pasting it, or by Sign in with GitHub (the
-code and the link show on the page). A component not for this head unit
+with Remove; a token is added by pasting it, or by Sign in with GitHub (shown
+while the state's `signin` is true; the code and the link show on the page). A component not for this head unit
 says so; one providing what another installed tool provides (a second
 renderer) has Replace, which asks *Replace <installed> with <it>?* and
 installs it with `replace`. Off by default; the Store turns it
@@ -489,6 +490,7 @@ each request, and whenever it changes (at most every 250 ms):
     "auth": { "kind": "github", "token": "3f9a01c2", "login": "someone" }, "checkedAt": 1792620000000, "components": 7 } ],
   "tokens": [ { "id": "3f9a01c2", "kind": "github", "label": "someone", "login": "someone",
     "addedAt": 1792610000000, "rejected": false, "usedBy": ["mgu-store", "idrive7-apps"] } ],
+  "signin": true,
   "login": { "url": "https://github.com/login/device", "code": "ABCD-1234",
     "expiresAt": 1792620900000, "status": "pending", "error": null },
   "web": { "enabled": false, "urls": [], "error": null },
@@ -520,6 +522,8 @@ each request, and whenever it changes (at most every 250 ms):
   out.
 - `tokens`: the stored tokens ("Tokens"), never their text; `usedBy` the
   sources each one reads, `rejected` when GitHub refuses it.
+- `signin`: true when a GitHub App client id is configured; only then do
+  clients offer Sign in with GitHub.
 - `login`: the GitHub sign-in in progress (`pending`, `done`, `error`,
   `expired`), or null.
 - `web`: the phone page's state (`js/web.js`), present when the updater has it.
