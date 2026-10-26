@@ -49,7 +49,7 @@ The store shows the app under the en_GB text of its first entry point.
 
 **Adding a tool** is its `native/<id>/component.json`: `id`, `kind: "tool"`,
 `version`, `title`, `description`, `files[{path, from, mode}]`, `units`,
-`enable`, `recmgr`, `restart` (the deploy tool's format; see
+`enable`, `recmgr`, `restart`, `dropins` (the deploy tool's format; see
 `native/mgu-updater/component.json`), and optionally `internet` with
 `uids` (deploy/README.md, "Internet for selected components") and the
 catalog fields `requires`, `optional`, `uninstallable`, `mguHmi`, `mguProvides`.

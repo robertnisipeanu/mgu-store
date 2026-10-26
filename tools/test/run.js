@@ -315,9 +315,10 @@ function testModuleMode() {
         link.preparePackage(perm, path.join(tmp('out'), 'p2.tgz'), { donors: [] }).permissions.length === 0);
     const e = throws(() => link.preparePackage(thirdParty(), path.join(tmp('out'), 'n.tgz'), { donors: [] }));
     check('module: no donor fails before anything is packed', e && e.noDonor && /no donor holds the oap-sdk core/.test(e.message), e && e.message);
-    const sd = link.sdkDonor([path.join(T, 'none.tgz'), donorTgz]);
-    check('module: sdkDonor is that donor, its text and oap-sdk version', sd.label === 'donor_app@1.0.0.tgz:javascript/app.js' &&
-        sd.text === donor.bundle() && sd.sdkVersion === '24.10.2');
+    const sd = link.sdkModule([path.join(T, 'none.tgz'), donorTgz]);
+    check('module: sdkModule is that donor, its text and oap-sdk version, and the module generated from it',
+        sd.donor === 'donor_app@1.0.0.tgz:javascript/app.js' && sd.text === donor.bundle() && sd.sdkVersion === '24.10.2' &&
+        /^\/\* require\('oap-sdk'\)/.test(sd.index) && JSON.parse(sd.pkg).version === '24.10.2' && sd.api.indexOf('OnlineApp') >= 0);
 }
 
 function testUntar() {
@@ -389,7 +390,7 @@ function testHostileDonor() {
             const before = process.env[key];
             process.env[key] = '0';
             let e;
-            try { e = throws(() => link.sdkDonor([js])); }
+            try { e = throws(() => link.sdkModule([js])); }
             finally {
                 if (before === undefined) delete process.env[key];
                 else process.env[key] = before;
@@ -399,16 +400,16 @@ function testHostileDonor() {
         const spawn = cp.spawnSync;
         let options;
         cp.spawnSync = (exe, args, opts) => { options = opts; return spawn(exe, args, opts); };
-        try { link.sdkDonor([js]); } finally { cp.spawnSync = spawn; }
+        try { link.sdkModule([js]); } finally { cp.spawnSync = spawn; }
         check('split: root runs the worker with nobody uid/gid, a timeout and an output cap', options &&
             options.uid === 65534 && options.gid === 65534 && options.timeout === 30000 &&
             options.maxBuffer === (64 << 20) && options.killSignal === 'SIGKILL' && options.cwd === '/' &&
             Object.keys(options.env).length === 0);
         write(js, donor.bundle() + 'while (true) {}');
-        let e = throws(() => link.sdkDonor([js]));
+        let e = throws(() => link.sdkModule([js]));
         check('split: a hostile infinite loop is killed at the worker deadline', e && /ETIMEDOUT|Script execution timed out/.test(e.message), e && e.message);
         write(js, donor.bundle() + "mods[1][1].huge = 'x'.repeat(64 << 20);");
-        e = throws(() => link.sdkDonor([js]));
+        e = throws(() => link.sdkModule([js]));
         check('split: oversized worker JSON is refused at the output cap', e && /ENOBUFS/.test(e.message), e && e.message);
     } else {
         console.log('# skipped: root split uid assertion (Docker runs it as root)');

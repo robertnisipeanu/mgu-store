@@ -201,19 +201,75 @@ An app builds on the unit in one of two ways:
    into `javascript/app.js` (`tools/oap_link.js`, with the donor's module
    ids) and installs the package. The same build runs on a desktop with
    `apps/<id>/tools/build.js --sdk <donor>`, for the emulator.
-2. **A build script**, `"build": {"node": "<script, relative to the repo
-   root>", "args": [...]}`: the repository's own build, run on the unit
-   with these rules:
-   - Node **8.16.2**, as an unprivileged uid with **no network**, in a
-     writable copy of the repository (the working directory), limited to
-     10 minutes and 200 MB;
+2. **A build script**, `"build": {"node" or "python": "<script, relative
+   to the repo root>", "args": [...]}`: the repository's own build, run on
+   the unit with these rules:
+   - Node **8.16.2** (`node`), or Python **3.12** (`python`: the
+     `mgu-python` tool, which the Store installs first), as an
+     unprivileged uid with **no network**, in a writable copy of the
+     repository (the working directory), limited to 10 minutes and
+     200 MB; `node` is on `PATH` for a Python build too;
    - `MGU_SDK_DONOR`: a donor bundle (an app's `javascript/app.js`, a
      `package.json` naming its oap-sdk version beside `javascript/`),
      read-only. Extract or link what you need from it;
+   - `"sdk": "<folder>"` (optional): the oap-sdk module generated from the
+     donor (`index.js`, `package.json`, the shape of idrive7-apps'
+     `extract_sdk.js`) is put in that folder of the copy before the build;
    - `MGU_OUT`: an empty folder, where the script leaves **exactly one**
-     `<id>@<version>.tgz` OAP package;
+     `<id>@<version>.tgz` OAP package; or `"output": "<path in the
+     repo>"`, the package the build leaves there;
+   - `"network": true`, or the ids of the apps that need it: the build may
+     download, through an HTTP proxy the unit gives it (`http_proxy`,
+     `https_proxy`; https by CONNECT to port 443, http to port 80, public
+     addresses only). It fails without internet on the unit;
+   - `{id}`, `{version}` and `{dir}` (the app's folder) in `args` and
+     `output` are filled in;
    - the package then installs as in releases mode (the oap-sdk module
      generated when it calls `require('oap-sdk')` without one).
 
+**Every app in a folder.** In place of one entry per app, `apps` names a
+folder of apps; each subfolder holding the manifest is one, its id the
+subfolder's name, its version, title and description from the manifest, so
+a new app needs no change to `mgu-repo.json`:
+
+```json
+{ "schema": 1,
+  "apps": { "path": "apps/*", "manifest": "app.json", "exclude": ["wip"], "mguHmi": ["ID7"],
+    "build": { "python": "kit/tools/build.py", "args": ["{id}"], "sdk": "oap-sdk",
+      "output": "dist/{id}@{version}.tgz", "network": ["doom"] } } }
+```
+
 Tools in a repo tree need no build step: their `component.json` names
-prebuilt, committed files (no `build`).
+prebuilt, committed files (no `build`). A committed program that runs as a
+service can instead be described in `tools`, and the unit writes its
+systemd unit:
+
+```json
+"tools": [{ "id": "acme-renderd", "path": "native/renderd/prebuilt", "version": "1.0.0",
+  "title": "Renderer", "provides": "renderer", "mguHmi": ["ID7"],
+  "service": { "exec": "acme-renderd", "args": ["--group", "{app_gid}"], "user": "dynamic",
+    "groups": ["video", "tm_oap_app"], "environment": { "XDG_RUNTIME_DIR": "/run/wayland" },
+    "runtimeDirectory": "acme-renderd", "after": ["winston.service"], "wantedBy": "oapcontroller.service" } }]
+```
+
+- `exec`: the program, a file in `path`; it runs from the installed
+  version (`/var/opt/<id>/current/<exec>`) with `args` (`{app_gid}`: the
+  apps' group, `tm_oap_app`), as root or `"user": "dynamic"` (systemd's
+  `DynamicUser`) with `groups`, restarted when it stops, started with
+  `wantedBy` (default `multi-user.target`) and after `after`;
+- `provides`: its capability (one renderer at a time, above); the Store
+  offers to replace the installed provider;
+- each value is one plain word (letters, digits, `_.@:/=,+%-`).
+
+A committed library that a stock unit's process should load (`LD_PRELOAD`)
+is a `preload` tool. It takes effect at the next head-unit start, behind a
+boot guard: after `strikes` starts in a row in which the process did not
+stay up with it for `healthySeconds`, the unit starts without it. `needs`
+names capabilities an installed tool must provide first:
+
+```json
+{ "id": "acme-gate", "path": "native/gate/prebuilt", "version": "1.0.0", "title": "Controller gate",
+  "needs": ["renderer"], "optional": true,
+  "preload": { "library": "acme-gate.so", "unit": "hmi.service", "process": "HmiMain3D",
+    "strikes": 2, "checkAfterSeconds": 120, "healthySeconds": 60 } }
+```

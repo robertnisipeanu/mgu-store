@@ -1123,6 +1123,15 @@ class Updater {
         if (holder && holder.id !== id && !replace) {
             return `${r.entry.title} provides ${r.entry.mguProvides}, which ${holder.id} provides: replace ${holder.id} to install it`;
         }
+        // a capability it needs: some installed tool provides it
+        const lacking = (r.entry.mguNeeds || []).filter((cap) => !this.providers[cap])[0];
+        if (lacking) {
+            const offer = Array.from(this.resolved().values()).filter((o) => o.entry.mguProvides === lacking).map((o) => o.entry.title);
+            const why = `${r.entry.title} needs a ${lacking}: install ${offer.length ? offer.join(' or ') : 'one'} first`;
+            this.errors[id] = why;
+            this.changed();
+            return why;
+        }
         let steps;
         try {
             steps = this.installPlan(r, []);
@@ -1171,6 +1180,13 @@ class Updater {
         const needs = Array.from(all.values()).find((o) => o.entry.requires[id] && this.installedVersion(o.entry.id, o.entry.kind));
         if (needs) {
             return `${needs.entry.title} needs ${id}`;
+        }
+        // the provider of a capability an installed component needs stays
+        const cap = r.entry.mguProvides;
+        const needer = cap && Array.from(all.values()).find((o) => (o.entry.mguNeeds || []).indexOf(cap) >= 0 &&
+            this.installedVersion(o.entry.id, o.entry.kind));
+        if (needer) {
+            return `${needer.entry.title} needs a ${cap}: remove it first, or replace ${id} with another ${cap}`;
         }
         const refused = this.enqueue({ op: 'uninstall', id });
         if (refused) {
@@ -1248,20 +1264,22 @@ class Updater {
         writeAtomic(path.join(this.conf.state_dir, 'origins.json'), JSON.stringify(this.origins, null, 1));
     }
 
-    /* The deploy tool's SDK donor (`sdk-donor --json`: { path }), for a repo's build script. */
+    /* The deploy tool's SDK donor (`sdk-donor --json`: { path, module }), for
+     * a repo's build script: the donor bundle, and the folder of the oap-sdk
+     * module generated from it (mgu-deploy 0.3.1 and newer; else null). */
     sdkDonor() {
         return new Promise((resolve, reject) => {
             cp.execFile(this.conf.deploy, ['sdk-donor', '--json'], { timeout: 300000, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
-                let p = null;
+                let d = null;
                 try {
-                    p = JSON.parse(String(stdout).trim().split('\n').pop()).path;
+                    d = JSON.parse(String(stdout).trim().split('\n').pop());
                 } catch (e) { /* no answer */ }
-                if (err || typeof p !== 'string' || !p) {
+                if (err || !d || typeof d.path !== 'string' || !d.path) {
                     const why = /mgu-deploy: (.+)/.exec(String(stderr)) || /mgu-deploy: (.+)/.exec(String(stdout));
                     reject(new Error(`no SDK donor for the build${why ? `: ${why[1]}` : ''}`));
                     return;
                 }
-                resolve(p);
+                resolve({ path: d.path, module: typeof d.module === 'string' && d.module ? d.module : null });
             });
         });
     }
@@ -1288,7 +1306,8 @@ class Updater {
             }
             this.busy.phase = 'build';
             this.changed();
-            return this.sdkDonor().then((donor) => runBuild({ conf: this.conf, entry, files, donor, log: (l) => console.log(l) }));
+            return this.sdkDonor().then((donor) => runBuild({ conf: this.conf, entry, files, donor: donor.path, sdk: donor.module,
+                lease: readLease(this.conf), log: (l) => console.log(l) }));
         });
     }
 

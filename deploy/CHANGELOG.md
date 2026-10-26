@@ -1,5 +1,11 @@
 # Deploy tool changelog
 
+## 0.3.2
+
+- A tool's `dropins` (`[{unit, name}]`, payload `dropins/<unit>.d/<name>`; `deploy/hu artifact` packs them from `from`): drop-ins for units the tool does not own, installed with its units, in the snapshot, removed on uninstall with the folder the tool made; one no tool of ours installed refuses the install.
+- `deploy/hu install --with-uplink` adds `mgu-uplink` alone, not the other optional tools.
+- `sdk-donor` also writes the oap-sdk module that module mode generates from the donor, `<run>/sdk-donor/oap-sdk/index.js` and `package.json`, and `--json` names its folder as `module`. The updater puts it where a repository's build asks for it (`build.sdk`).
+
 ## 0.3.1
 
 - `mgu-install.js first-install` puts on the renderer (`mgu-render`) and the internet uplink (`mgu-uplink`) too; `--no-renderer` and `--no-uplink` leave them out; one the catalog does not list, or the deploy tool refuses (another renderer is installed), is left out, saying so, and the rest installs.

@@ -942,6 +942,13 @@ function validateTool(file, dir, c) {
     (c.enable || []).forEach(function (en) {
         if (!safeRel(en.unit) || !safeRel(en.target)) throw refuse(file + ': bad enable entry');
     });
+    if (c.dropins !== undefined && !Array.isArray(c.dropins)) throw refuse(file + ': dropins is not a list');
+    (c.dropins || []).forEach(function (d) {
+        if (!d || !DROPIN_UNIT.test(d.unit || '') || !DROPIN_NAME.test(d.name || '')) throw refuse(file + ': bad dropins entry');
+        if (!fs.existsSync(path.join(dir, 'dropins', d.unit + '.d', d.name))) {
+            throw refuse(file + ': payload missing dropins/' + d.unit + '.d/' + d.name);
+        }
+    });
     if (c.internet !== undefined && (c.internet !== true || !Array.isArray(c.uids) || !c.uids.length ||
         !c.uids.every(function (u) { return u === Math.floor(u) && u > 0; }))) {
         throw refuse(file + ': "internet": true needs "uids", the tool\'s numeric uids');
@@ -1029,17 +1036,30 @@ function incompatible(a) {
  * second provider is refused unless the install is asked to replace the
  * one installed (--replace): it then goes first, in the same transaction. */
 var PROVIDES = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/* A tool's drop-in for a unit it does not own (component.json "dropins":
+ * [{unit, name}], payload dropins/<unit>.d/<name>): it goes to
+ * <systemd>/<unit>.d/<name>, a folder the tool creates when missing. */
+var DROPIN_UNIT = /^[A-Za-z0-9_.@-]{1,100}\.(service|socket|target|mount|path|timer)$/;
+var DROPIN_NAME = /^[A-Za-z0-9_.@-]{1,100}\.conf$/;
+function dropinPath(d) { return path.join(CFG.systemd, d.unit + '.d', d.name); }
 /* A unit of c that is on the unit but that no installed tool of ours
  * lists, such as IterioDev's App Manager's mgu-renderd.service: a tool
  * that writes it would fight that manager over it. */
 function foreignUnit(c) {
     var tools = installedTools();
-    return (c.units || []).map(function (u) { return u.name; }).filter(function (name) {
+    var unit = (c.units || []).map(function (u) { return u.name; }).filter(function (name) {
         return lstatOrNull(path.join(CFG.systemd, name)) && !tools.some(function (t) {
             return (t.component.units || []).some(function (u) { return u.name === name; });
         });
-    })[0] || null;
+    })[0];
+    var dropin = (c.dropins || []).filter(function (d) {
+        return lstatOrNull(dropinPath(d)) && !tools.some(function (t) {
+            return (t.component.dropins || []).some(function (x) { return x.unit === d.unit && x.name === d.name; });
+        });
+    })[0];
+    return unit || (dropin ? d2s(dropin) : null);
 }
+function d2s(d) { return d.unit + '.d/' + d.name; }
 function providerOf(cap, exceptId) {
     return installedTools().filter(function (t) { return t.id !== exceptId && t.component.mguProvides === cap; })[0] || null;
 }
@@ -1298,6 +1318,7 @@ function toolTouched(c) {
     (c.enable || []).forEach(function (en) {
         paths.push(path.join(CFG.systemd, en.target + '.wants', en.unit));
     });
+    (c.dropins || []).forEach(function (d) { paths.push(dropinPath(d)); });
     return paths;
 }
 function recmgrBase(unit) { return unit.replace(/\.(service|socket|target)$/, ''); }
@@ -1391,6 +1412,7 @@ function installTool(a, state, tx) {
     var versions = path.join(root, 'versions');
     var dest = path.join(versions, c.version);
     var before = currentTarget(root);
+    var prev = before ? readJsonOrNull(path.join(versions, before, 'component.json')) : null;
     tx.root = root; tx.before = before; tx.rootExisted = fs.existsSync(root);
     tx.versionExisted = fs.existsSync(dest); tx.socketsActive = {};
     (c.enable || []).forEach(function (en) {
@@ -1438,6 +1460,18 @@ function installTool(a, state, tx) {
             ops.push({ type: 'symlink', path: link, target: '../' + en.unit }); unitChanged = true;
         }
     });
+    (c.dropins || []).forEach(function (d) {
+        var src = path.join(a.dir, 'dropins', d.unit + '.d', d.name), dest = dropinPath(d);
+        if (!bytesEqualFile(fs.readFileSync(src), dest)) {
+            if (!fs.existsSync(path.dirname(dest))) noteCreatedDir(state, path.dirname(dest));
+            ops.push({ type: 'mkdir', path: path.dirname(dest) });
+            ops.push({ type: 'copy', src: src, path: dest, mode: 0o644 }); unitChanged = true;
+        }
+    });
+    /* a drop-in the version it replaces had and this one has not */
+    ((prev && prev.dropins) || []).filter(function (d) {
+        return !(c.dropins || []).some(function (x) { return x.unit === d.unit && x.name === d.name; }) && lstatOrNull(dropinPath(d));
+    }).forEach(function (d) { ops.push({ type: 'delete', path: dropinPath(d) }); unitChanged = true; });
     var rec = recmgrOp(recmgrWith(recmgrText(), c.recmgr || [], []));
     if (rec) { ops.push(rec); unitChanged = true; }
     if (ops.length) rootfsWindow(ops);
@@ -2105,6 +2139,7 @@ function uninstallTool(id, state, opts) {
     (c.enable || []).forEach(function (en) {
         ops.push({ type: 'delete', path: path.join(CFG.systemd, en.target + '.wants', en.unit) });
     });
+    (c.dropins || []).forEach(function (d) { ops.push({ type: 'delete', path: dropinPath(d) }); });
     var rec = recmgrOp(recmgrWith(recmgrText(), [], removeRec));
     if (rec) ops.push(rec);
     if (ops.length) rootfsWindow(ops);
@@ -2953,8 +2988,13 @@ function cmdStatus(args) {
     return 0;
 }
 function artifactTouched(a) {
-    if (a.kind === 'tool') return toolTouched(a.component)
-        .concat([path.join(CFG.varOpt, a.id, 'versions', a.version)]).concat(uplinkDropIns(a.id));
+    if (a.kind === 'tool') {
+        /* the installed version's drop-ins too: an update that drops one removes it */
+        var installed = installedTools().filter(function (t) { return t.id === a.id; })[0];
+        var gone = ((installed && installed.component.dropins) || []).map(dropinPath);
+        return toolTouched(a.component).concat(gone)
+            .concat([path.join(CFG.varOpt, a.id, 'versions', a.version)]).concat(uplinkDropIns(a.id));
+    }
     if (isId8()) return applyTouched();
     var existing = null;
     try { existing = installedApp(a.id); } catch (e) { /* listed without it */ }
@@ -3199,20 +3239,25 @@ function cmdUpdaterSources() {
 /* ---- the donor for builds outside this tool ------------------------------------------ */
 /* The bundle module mode takes the oap-sdk from (oap_link.js), copied where
  * any uid can read it: <run>/sdk-donor/javascript/app.js beside a
- * package.json naming its oap-sdk version, the layout of an app's folder.
- * The updater hands it to a repository's own build (MGU_SDK_DONOR). */
+ * package.json naming its oap-sdk version, the layout of an app's folder;
+ * and in <run>/sdk-donor/oap-sdk/ the module module mode generates from it
+ * (index.js, package.json). The updater hands the bundle to a repository's
+ * own build (MGU_SDK_DONOR), and the module to a build that asks for it. */
 function cmdSdkDonor(args) {
-    var d;
-    try { d = linker().sdkDonor(unitDonors()); } catch (e) { throw refuse(e.message); }
-    var dir = path.join(CFG.run, 'sdk-donor'), js = path.join(dir, 'javascript', 'app.js');
-    var pkg = JSON.stringify({ name: 'sdk-donor', version: '0.0.0', description: 'copied from ' + d.label,
-        dependencies: { 'oap-sdk': d.sdkVersion || '0.0.0' } }, null, 2) + '\n';
+    var m;
+    try { m = linker().sdkModule(unitDonors()); } catch (e) { throw refuse(e.message); }
+    var dir = path.join(CFG.run, 'sdk-donor'), js = path.join(dir, 'javascript', 'app.js'), mod = path.join(dir, 'oap-sdk');
+    var pkg = JSON.stringify({ name: 'sdk-donor', version: '0.0.0', description: 'copied from ' + m.donor,
+        dependencies: { 'oap-sdk': m.sdkVersion || '0.0.0' } }, null, 2) + '\n';
     mkdirp(path.join(dir, 'javascript'), 0o755);
-    [CFG.run, dir, path.join(dir, 'javascript')].forEach(function (p) { fs.chmodSync(p, 0o755); });
-    if (!bytesEqualFile(Buffer.from(d.text), js)) writeAtomic(js, d.text, 0o644);
+    mkdirp(mod, 0o755);
+    [CFG.run, dir, path.join(dir, 'javascript'), mod].forEach(function (p) { fs.chmodSync(p, 0o755); });
+    if (!bytesEqualFile(Buffer.from(m.text), js)) writeAtomic(js, m.text, 0o644);
     if (!bytesEqualFile(Buffer.from(pkg), path.join(dir, 'package.json'))) writeAtomic(path.join(dir, 'package.json'), pkg, 0o644);
-    if (args.json) say(JSON.stringify({ path: js, donor: d.label, sdkVersion: d.sdkVersion }));
-    else say(js + ' (from ' + d.label + ', oap-sdk ' + (d.sdkVersion || 'unknown') + ')');
+    if (!bytesEqualFile(Buffer.from(m.index), path.join(mod, 'index.js'))) writeAtomic(path.join(mod, 'index.js'), m.index, 0o644);
+    if (!bytesEqualFile(Buffer.from(m.pkg), path.join(mod, 'package.json'))) writeAtomic(path.join(mod, 'package.json'), m.pkg, 0o644);
+    if (args.json) say(JSON.stringify({ path: js, module: mod, donor: m.donor, sdkVersion: m.sdkVersion }));
+    else say(js + ' (from ' + m.donor + ', oap-sdk ' + (m.sdkVersion || 'unknown') + ')');
     return 0;
 }
 
@@ -3245,7 +3290,7 @@ function cmdInstall(args) {
             return !why;
         });
         validated.forEach(function (a) {
-            var foreign = a.kind === 'tool' && (a.service || a.provides) ? foreignUnit(a.component) : null;
+            var foreign = a.kind === 'tool' && (a.service || a.provides || (a.component.dropins || []).length) ? foreignUnit(a.component) : null;
             if (foreign) {
                 throw refuse(a.id + ' ' + a.version + ': ' + foreign + ' is installed, but by no tool of ours (another manager runs it); remove it there first');
             }
@@ -3651,7 +3696,7 @@ var HELP = [
     '  updater-token --list [--json]    the updater\'s tokens: id, label, account',
     '  updater-token --remove <id>      remove one',
     '  updater-sources                  seed the updater\'s sources.json from stdin (kept when present)',
-    '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle',
+    '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle, and its oap-sdk module',
     '  apply-pending                    iDrive 8: apply the queued app changes (at boot, before MainApp)',
     '  help                             this text',
     'exit codes: 0 done, 1 failed (rolled back), 2 preflight refused'

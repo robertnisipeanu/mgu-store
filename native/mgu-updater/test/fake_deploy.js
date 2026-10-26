@@ -6,7 +6,7 @@
  *   fake_deploy.js uninstall <id> --yes
  *   fake_deploy.js rollback <id> --yes
  *   fake_deploy.js status --json
- *   fake_deploy.js sdk-donor --json       { path: $FAKE_DONOR }
+ *   fake_deploy.js sdk-donor --json       { path: $FAKE_DONOR, module: $FAKE_SDK_MODULE }
  * A tool artifact (component.json at the root) lands in
  * $TOOL_ROOT/<id>/versions/<version>/ with `current` switched by rename,
  * and only the new version and the one `current` pointed to before remain;
@@ -94,7 +94,8 @@ if (cmd === 'sdk-donor') {
         process.stderr.write('mgu-deploy: no donor bundle on this unit\n');
         process.exit(1);
     }
-    console.log(JSON.stringify({ path: process.env.FAKE_DONOR }));
+    console.log(JSON.stringify(Object.assign({ path: process.env.FAKE_DONOR },
+        process.env.FAKE_SDK_MODULE ? { module: process.env.FAKE_SDK_MODULE } : {})));
     process.exit(0);
 }
 if (cmd === 'uninstall') {

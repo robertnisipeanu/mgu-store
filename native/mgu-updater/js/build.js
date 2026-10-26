@@ -1,15 +1,22 @@
 'use strict';
 /**
- * A repo's own app build on the unit (mgu-repo.json `"build": {"node":
- * "<script>", "args": [...]}`; README.md, "Building on the unit"). Node 8.
+ * A repo's own app build on the unit (mgu-repo.json `"build": {"node" or
+ * "python": "<script>", "args": [...]}`; README.md, "Building on the unit").
+ * Node 8.
  *
  * The repo's files are written to a folder of their own in state_dir and
  * handed to the build uid (conf build_uid: no account, not in the uplink's
- * lists, so no network); the script runs there under this Node as that uid,
- * cwd = the repo copy, with
+ * lists, so no network); the script runs there as that uid, under this Node
+ * or conf `python` (the mgu-python tool), cwd = the repo copy, with
  *   MGU_SDK_DONOR  the SDK donor bundle the deploy tool names (read-only)
- *   MGU_OUT        an empty folder, where it leaves <id>@<version>.tgz
- * HOME and TMPDIR point into its folder too. It is stopped past
+ *   MGU_OUT        an empty folder, where it leaves <id>@<version>.tgz,
+ *                  unless the build names its `output` in the repo
+ * HOME and TMPDIR point into its folder too, and this Node's and Python's
+ * folders are on PATH. A build with `sdk` finds the oap-sdk module the
+ * deploy tool generates from the donor (index.js, package.json) in that
+ * folder of the repo copy. A build with `network` gets the internet through
+ * an HTTP proxy the fetch uid runs for it alone (proxy.js; http_proxy and
+ * https_proxy), and fails without the uplink. It is stopped past
  * build_timeout_s, or once its folder holds more than build_max_bytes.
  * Every process of the build uid is killed before a build starts (and
  * before root hands it the repo copy) and after it ends, so nothing a
@@ -54,10 +61,68 @@ function killAll(uid, gid) {
     });
 }
 
+/* The proxy for a network build, as the fetch uid: resolves with
+ * { url, stop() } once it listens. lease: { online, dns }. */
+function startProxy(conf, lease, log, id) {
+    if (!lease.online) {
+        return Promise.reject(new Error('needs internet to build (the uplink is down)'));
+    }
+    const token = crypto.randomBytes(16).toString('hex');
+    const asRoot = process.getuid() === 0;
+    return new Promise((resolve, reject) => {
+        const child = cp.spawn(process.execPath, [path.join(__dirname, 'proxy.js')], Object.assign({
+            stdio: ['pipe', 'pipe', 'inherit'], env: {}
+        }, asRoot ? { uid: Number(conf.fetch_uid), gid: Number(conf.fetch_gid) } : {}));
+        let buf = '';
+        let up = false;
+        const stop = () => {
+            try {
+                child.kill('SIGKILL');
+            } catch (e) { /* gone */ }
+        };
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (d) => {
+            buf += d;
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, nl);
+                buf = buf.slice(nl + 1);
+                let ev;
+                try {
+                    ev = JSON.parse(line);
+                } catch (e) {
+                    continue;
+                }
+                if (ev.listening && !up) {
+                    up = true;
+                    resolve({ url: `http://mgu:${token}@127.0.0.1:${ev.listening}`, stop });
+                } else if (ev.request) {
+                    log(`build ${id}: internet: ${ev.request}`);
+                } else if (ev.refused) {
+                    log(`build ${id}: internet refused: ${ev.refused}`);
+                }
+            }
+        });
+        child.on('error', reject);
+        child.on('exit', () => {
+            if (!up) {
+                reject(new Error('the build\'s proxy did not start'));
+            }
+        });
+        child.stdin.end(JSON.stringify({ token, uid: asRoot ? Number(conf.build_uid) : process.getuid(), dns: lease.dns,
+            maxBytes: Number(conf.build_max_bytes), idleMs: 60000, open: process.env.MGU_TEST_PROXY_OPEN === '1' }));
+    });
+}
+
 /* opts: { conf, entry, files: [{ name, data, mode }] (the repo, relative to
- * its root), donor, log }. Resolves with the package's bytes. */
+ * its root), donor, sdk (the folder holding the generated oap-sdk module,
+ * for a build with `sdk`), lease ({ online, dns }, for a network build),
+ * log }. Resolves with the package's bytes. */
 function runBuild(opts) {
-    const { conf, entry, files, donor, log } = opts;
+    const { conf, entry, files, donor, sdk, log } = opts;
+    const python = !!entry.script.python;
+    const interpreter = python ? conf.python : process.execPath;
+    let proxy = null;
     const uid = Number(conf.build_uid);
     const gid = Number(conf.build_gid);
     const maxBytes = Number(conf.build_max_bytes);
@@ -73,6 +138,9 @@ function runBuild(opts) {
     const tmp = path.join(dir, 'tmp');
     const name = `${entry.id}@${entry.version}.tgz`;
     const retire = () => killAll(uid, gid).then(() => new Promise((resolve) => {
+        if (proxy) {
+            proxy.stop();
+        }
         const rm = cp.spawn('rm', ['-rf', repo, out, tmp], Object.assign({ stdio: 'ignore' }, asRoot ? { uid, gid } : {}));
         rm.on('error', () => resolve());
         rm.on('close', () => {
@@ -86,9 +154,12 @@ function runBuild(opts) {
     }));
     return killAll(uid, gid)
         .then(() => {
-            const script = entry.script.node;
+            const script = entry.script.node || entry.script.python;
             if (!files.some((f) => f.name === script)) {
                 throw new Error(`the build script ${script} is not in the repo`);
+            }
+            if (python && !fs.existsSync(interpreter)) {
+                throw new Error(`needs Python (${interpreter}): install mgu-python`);
             }
             let total = 0;
             mkdirp(conf.state_dir, 0o755);
@@ -103,16 +174,42 @@ function runBuild(opts) {
                 mkdirp(path.dirname(to), 0o755);
                 fs.writeFileSync(to, f.data, { mode: f.mode & 0o111 ? 0o755 : 0o644 });
             });
+            if (entry.script.sdk) {
+                if (!sdk) {
+                    throw new Error('no oap-sdk module for the build (needs mgu-deploy 0.3.1 or newer)');
+                }
+                const to = path.join(repo, entry.script.sdk);
+                mkdirp(to, 0o755);
+                ['index.js', 'package.json'].forEach((n) => fs.writeFileSync(path.join(to, n), fs.readFileSync(path.join(sdk, n)), { mode: 0o644 }));
+            }
             if (asRoot) {
                 cp.execFileSync('chown', ['-R', `${uid}:${gid}`, repo, out, tmp]);
             }
-            log(`build ${entry.id}@${entry.version}: node ${[script].concat(entry.script.args).join(' ')}`);
+            log(`build ${entry.id}@${entry.version}: ${python ? 'python' : 'node'} ${[script].concat(entry.script.args).join(' ')}` +
+                `${entry.script.network ? ' (with internet)' : ''}`);
+            return entry.script.network ? startProxy(conf, opts.lease || { online: false }, log, entry.id).then((p) => {
+                proxy = p;
+            }) : null;
+        })
+        .then(() => {
+            const script = entry.script.node || entry.script.python;
+            const env = { MGU_SDK_DONOR: donor, MGU_OUT: out, HOME: tmp, TMPDIR: tmp,
+                PATH: [path.dirname(process.execPath)].concat(python ? [path.dirname(interpreter)] : [], ['/usr/bin', '/bin']).join(':') };
+            if (python) {
+                // the CA bundle mgu-python carries: the unit's own may be missing
+                Object.assign(env, { PYTHONDONTWRITEBYTECODE: '1', PYTHONNOUSERSITE: '1',
+                    SSL_CERT_FILE: path.join(path.dirname(path.dirname(interpreter)), 'ssl', 'cacert.pem') });
+            }
+            if (proxy) {
+                Object.assign(env, { http_proxy: proxy.url, https_proxy: proxy.url, HTTP_PROXY: proxy.url, HTTPS_PROXY: proxy.url,
+                    no_proxy: 'localhost,127.0.0.1', NO_PROXY: 'localhost,127.0.0.1' });
+            }
             return new Promise((resolve, reject) => {
-                const child = cp.spawn(process.execPath, [script].concat(entry.script.args), Object.assign({
+                const child = cp.spawn(interpreter, [script].concat(entry.script.args), Object.assign({
                     cwd: repo,
                     detached: true,
                     stdio: ['ignore', 'pipe', 'pipe'],
-                    env: { MGU_SDK_DONOR: donor, MGU_OUT: out, HOME: tmp, TMPDIR: tmp, PATH: '/usr/bin:/bin' }
+                    env
                 }, asRoot ? { uid, gid } : {}));
                 let lines = 0;
                 let stopped = null;
@@ -165,6 +262,19 @@ function runBuild(opts) {
             });
         })
         .then(() => {
+            if (!entry.script.output) {
+                return null;
+            }
+            // the declared package, copied to MGU_OUT as the build uid: it can copy only what it can read
+            return new Promise((resolve, reject) => {
+                const c = cp.spawn('cp', ['--', path.join(repo, entry.script.output), path.join(out, name)],
+                    Object.assign({ stdio: 'ignore' }, asRoot ? { uid, gid } : {}));
+                c.on('error', reject);
+                c.on('close', (code) => (code === 0 ? resolve() :
+                    reject(new Error(`the build left no ${entry.script.output}`))));
+            });
+        })
+        .then(() => {
             const left = fs.readdirSync(out);
             if (left.length !== 1 || left[0] !== name) {
                 throw new Error(`the build left ${left.length ? left.join(', ') : 'nothing'} in MGU_OUT, not ${name} alone`);
@@ -213,4 +323,4 @@ function cleanBuilds(conf) {
     } catch (e) { /* no state_dir yet */ }
 }
 
-module.exports = { runBuild, cleanBuilds };
+module.exports = { runBuild, cleanBuilds, startProxy };

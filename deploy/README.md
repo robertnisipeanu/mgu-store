@@ -180,7 +180,7 @@ and `--remove <id>` as above.
 ## Artifacts
 
 A **tool artifact** `<id>@<version>.tgz` holds `component.json` at its root,
-`files/<path>` and `units/<name>`. `deploy/hu artifact` builds it from a
+`files/<path>`, `units/<name>` and `dropins/<unit>.d/<name>`. `deploy/hu artifact` builds it from a
 folder holding a `component.json` (`native/<id>`, or `deploy` for the deploy
 tool itself):
 
@@ -190,7 +190,8 @@ tool itself):
   naming the build command;
 - the artifact's `component.json` is `{id, kind, version, title,
   description, files[{path, mode, sha256}], units[{name}], enable, recmgr,
-  restart}`, and `internet` with `uids` when the tool declares them;
+  restart}`, `dropins[{unit, name}]` (each read from `from`) and `internet`
+  with `uids` when the tool declares them;
 - members are sorted, owned 0:0, with the listed modes (`component.json` and
   units 0644) and one mtime: `SOURCE_DATE_EPOCH` when set, else the packer's
   fixed one (`tools/oap_pack.js`, which also writes the gzip header's OS byte
@@ -345,7 +346,7 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /var/opt/mgu-updater/credentials/        the updater's tokens: token-<id>, tokens.json (0600, folder 0700)
 /var/opt/mgu-uplink/uids.d/<id>          a tool's uids that get internet
 /var/opt/mgu-uplink/apps.d/<id>          an app that gets internet
-/run/mgu-deploy/sdk-donor/               the donor bundle's readable copy (sdk-donor)
+/run/mgu-deploy/sdk-donor/               the donor bundle's readable copy and its oap-sdk module (sdk-donor)
 /var/opt/mgu-deploy/id8/pending.json     iDrive 8: the queued app changes; queue/<id>@<version>.tgz their packages
 /var/opt/mgu-deploy/id8/last-apply.json  iDrive 8: what the last apply-pending did; trash/<time>/ what it removed
 /etc/systemd/system/mgu-deploy-apply.service   iDrive 8: applies the queue at boot (late.target.wants)
@@ -511,6 +512,14 @@ new version and the one `current` pointed to before stay; others are
 removed. Units, enablement links and the recmgr list change only when their
 bytes differ, then `systemctl daemon-reload`. Reinstalling the same artifact
 changes nothing but adding a snapshot.
+
+**Drop-ins.** `dropins[{unit, name}]` adds a drop-in to a unit the tool does
+not own, such as `hmi.service`: `/etc/systemd/system/<unit>.d/<name>` (the
+folder made when missing, and removed again once a removal leaves it empty),
+in the same window as the units, in the snapshot, and removed on uninstall,
+so the unit is as it was. A drop-in of that name that no tool of ours
+installed refuses the install (exit 2). Nothing is restarted for it: the
+unit reads it when it next starts.
 
 **Prune boundary.** A second update in the same boot prunes the version a
 running service may still execute from (it keeps only the new one and the
@@ -822,10 +831,13 @@ the oap-sdk on a unit with no donor is refused (exit 2, nothing changed).
 
 `sdk-donor [--json]` copies the bundle module mode takes the oap-sdk from to
 `/run/mgu-deploy/sdk-donor/javascript/app.js` (0644, folders 0755), beside a
-`package.json` naming its oap-sdk version, and prints its path (`{"path",
-"donor", "sdkVersion"}` with `--json`). The updater hands it to a
-repository's own build as `MGU_SDK_DONOR` (docs/PUBLISHING.md). No lock, no
-snapshot; exit 2 when no donor holds the core.
+`package.json` naming its oap-sdk version, and the oap-sdk module module
+mode generates from it to `/run/mgu-deploy/sdk-donor/oap-sdk/` (`index.js`,
+`package.json`), and prints the bundle's path (`{"path", "module",
+"donor", "sdkVersion"}` with `--json`). The updater hands the bundle to a
+repository's own build as `MGU_SDK_DONOR`, and the module to a build that
+asks for it (`build.sdk`, docs/PUBLISHING.md). No lock, no snapshot; exit
+2 when no donor holds the core.
 
 ### Internet for selected components
 
