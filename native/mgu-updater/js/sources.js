@@ -16,9 +16,12 @@
  *              (the community App Manager's), each read for its own
  *              package.json: apps, and root-service packages (mguService)
  *              as the tools the deploy tool makes of them;
- *  - index     an https URL serving IterioDev's App Manager index,
- *              {"packages": [{url, sha256}]}: each package downloaded once
- *              (kept by its sha256) and read like a loose one.
+ *  - index     an https URL serving IterioDev's App Manager index:
+ *              version 2 lists each package's id, kind, version, title,
+ *              author, description and icon, read as they are (a package is
+ *              downloaded on install); version 1, {"packages": [{url,
+ *              sha256}]}, has each package downloaded once (kept by its
+ *              sha256) and read like a loose one.
  *
  * Network reads go through `net` (the updater's Fetcher: fetch.js as the
  * fetch uid). A GitHub source is read with the token the updater picked for
@@ -39,6 +42,9 @@ const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
 const PACKAGE = /^([a-z0-9][a-z0-9_-]{0,63})@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\.(tgz|mgu)$/;
 const CHANNEL = /^(releases|tags|branch|branch:[A-Za-z0-9._][A-Za-z0-9._\/-]{0,199})$/;
 const SMALL = 1 << 20; // a JSON file of a source: catalog part, mgu-repo.json, component.json
+const ICON_BYTES = 128 << 10; // a component's icon (PNG)
+// a root-service package's mguService: the capability the tool made of it provides
+const SERVICE_KINDS = ['renderer', 'tether'];
 // Packed components carry one fixed mtime: the same tree gives the same bytes.
 const MTIME = Math.floor(Date.UTC(2026, 9, 18) / 1000);
 
@@ -371,7 +377,8 @@ function missing(err) {
 
 /* Every reader has: network (it needs the internet); catalog() -> { mode,
  * channel, commit, components, skipped }; artifact(entry, onProgress) -> a
- * catalog or releases entry's bytes; files(commit, onProgress, under) -> the
+ * catalog or releases entry's bytes; icon(entry) -> its icon's bytes (at most
+ * ICON_BYTES); files(commit, onProgress, under) -> the
  * repo's files ({ name relative to the repo root, data, mode }) for a
  * repo-tree entry, those under the folder `under` when it is given. */
 
@@ -390,7 +397,11 @@ function folderReader(root, ctx) {
                 return readFile('catalog.json').then((b) => Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8'))));
             }
             if (isFileInside(root, 'mgu-repo.json')) {
-                return repoCatalog(readFile, null, null);
+                return repoCatalog(readFile, null, null).then((cat) => {
+                    // a repo tree's icons are not read
+                    cat.components.forEach((c) => { c.icon = null; });
+                    return cat;
+                });
             }
             throw new Error('no catalog.json or mgu-repo.json');
         }),
@@ -402,12 +413,49 @@ function folderReader(root, ctx) {
             return Promise.resolve().then(() => readInside(root, url.replace(/^\.\//, ''), entry.artifact.size));
         },
         files: (commit, onProgress, under) => Promise.resolve().then(() => walkInside(root, under || '', ctx.maxBuildBytes)
-            .map((f) => (under ? Object.assign(f, { name: `${under}/${f.name}` }) : f)))
+            .map((f) => (under ? Object.assign(f, { name: `${under}/${f.name}` }) : f))),
+        // an https URL, else a path in the folder
+        icon: (entry) => (/^https:\/\//.test(entry.icon.ref) ? ctx.net.get(entry.icon.ref, ua(ctx.version), 'icon.png', ICON_BYTES)
+            : Promise.resolve().then(() => {
+                if (!safeRel(entry.icon.ref)) {
+                    throw new Error('an icon path stays inside the folder');
+                }
+                return readInside(root, entry.icon.ref, ICON_BYTES);
+            }))
     };
 }
 
 const INDEX_PACKAGES = 50;
 const INDEX_PACKAGE_BYTES = 32 << 20;
+// an index version 2 kind: an app, or a root-service package (packageEntry)
+const INDEX_KINDS = ['app'].concat(SERVICE_KINDS);
+const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : undefined);
+
+/* An index version 2 package's catalog entry, from the index alone. An app
+ * that names no mguHmi is for iDrive 8, the App Manager's head unit. */
+function indexEntry(item, url) {
+    const kind = item.kind;
+    if (!ID.test(item.id || '') || !catalogLib.SEMVER.test(item.version || '')) {
+        throw new Error('needs an id and an x.y.z version');
+    }
+    if (INDEX_KINDS.indexOf(kind) < 0) {
+        throw new Error(`unknown kind ${String(kind).slice(0, 40)}`);
+    }
+    if (!(item.size > 0 && item.size <= INDEX_PACKAGE_BYTES)) {
+        throw new Error(`needs a size of at most ${INDEX_PACKAGE_BYTES} bytes`);
+    }
+    const service = kind === 'app' ? null : kind;
+    return catalogLib.checkExtras({
+        id: item.id, kind: service ? 'tool' : 'app', version: item.version,
+        title: text(item.title, 80), description: text(item.description, 1000), author: text(item.author, 80),
+        mguHmi: item.mguHmi !== undefined ? item.mguHmi : service ? undefined : ['ID8'],
+        mguProvides: service || undefined, service,
+        requires: service ? { 'mgu-deploy': '0.3.0' } : undefined,
+        icon: item.icon, iconSha256: item.iconSha256,
+        artifact: { name: `${item.id}@${item.version}.tgz`, size: item.size, sha256: String(item.sha256).toLowerCase(), url, index: 2 },
+        uninstallable: true
+    });
+}
 
 /* An https source: catalog.json at a URL, artifacts absolute or relative
  * to it; or an App Manager index there, {"packages": [{url, sha256}]}
@@ -419,6 +467,33 @@ function httpsReader(s, ctx) {
     const cache = ctx.cacheDir ? path.join(ctx.cacheDir, s.id) : null;
     const cached = (sha) => (cache ? path.join(cache, `${sha}.tgz`) : null);
     const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+    // a version 2 index: one entry per package from the index itself; the
+    // packages kept from an earlier read that it still lists stay
+    const fromIndex2 = (doc) => {
+        const skipped = [];
+        const newest = new Map();
+        doc.packages.slice(0, INDEX_PACKAGES).forEach((item) => {
+            const name = String((item && (item.id || item.url)) || '?').slice(0, 100);
+            try {
+                const url = new URL(String((item && item.url) || ''), s.url).toString();
+                if (!/^https:\/\//.test(url) || !catalogLib.SHA256.test(String(item.sha256).toLowerCase())) {
+                    throw new Error('needs an https url and a sha256');
+                }
+                const entry = indexEntry(item, url);
+                const have = newest.get(entry.id);
+                if (!have || catalogLib.compareVersions(entry.version, have.version) > 0) {
+                    newest.set(entry.id, entry);
+                }
+            } catch (err) {
+                skipped.push(`${name}: ${err.message}`);
+            }
+        });
+        const keep = Array.from(newest.values()).map((e) => `${e.artifact.sha256}.tgz`);
+        if (cache && fs.existsSync(cache)) {
+            fs.readdirSync(cache).filter((n) => keep.indexOf(n) < 0).forEach((n) => fs.unlinkSync(path.join(cache, n)));
+        }
+        return { mode: 'index', commit: null, skipped, components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) };
+    };
     const fromIndex = (doc) => {
         const skipped = [];
         const newest = new Map();
@@ -480,7 +555,7 @@ function httpsReader(s, ctx) {
                 doc = JSON.parse(text);
             } catch (e) { /* parse says so */ }
             if (doc && doc.schema === undefined && Array.isArray(doc.packages)) {
-                return fromIndex(doc);
+                return doc.version === 2 ? fromIndex2(doc) : fromIndex(doc);
             }
             return Object.assign({ mode: 'catalog' }, catalogLib.parse(text));
         }),
@@ -493,7 +568,34 @@ function httpsReader(s, ctx) {
                 }
             }
             const url = new URL(entry.artifact.url || entry.artifact.name, s.url).toString();
-            return ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress);
+            const got = ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress);
+            if (entry.artifact.index !== 2) {
+                return got;
+            }
+            // what a version 2 index says of a package is the package's own word
+            return got.then((b) => {
+                if (sha256(b) !== entry.artifact.sha256) {
+                    throw new Error('download does not match the catalog (size or sha256)');
+                }
+                return tar.untgz(b, ctx.maxBuildBytes).then((members) => {
+                    const own = packageEntry(members, b, {}, 'tgz');
+                    if (own.id !== entry.id || own.version !== entry.version || own.service !== entry.service) {
+                        throw new Error(`the package is ${own.id}@${own.version}${own.service ? ` (${own.service})` : ''}, not what the index says`);
+                    }
+                    if (file) {
+                        mkdirPrivate(cache);
+                        writePrivate(file, b);
+                    }
+                    return b;
+                });
+            });
+        },
+        icon: (entry) => {
+            const url = new URL(entry.icon.ref, s.url).toString();
+            if (!/^https:\/\//.test(url)) {
+                return Promise.reject(new Error('an icon needs an https url'));
+            }
+            return ctx.net.get(url, ua(ctx.version), 'icon.png', ICON_BYTES);
         },
         files: () => Promise.reject(new Error('an https source has no repo tree'))
     };
@@ -527,20 +629,34 @@ function githubReader(s, ctx) {
     // a file's own bytes from the contents API (else it answers with JSON around them)
     const content = (url, name, max) => ctx.net.get(url, headers(url, 'application/vnd.github.raw+json'), name, max);
     const encode = (rel) => rel.split('/').map(encodeURIComponent).join('/');
+    // an icon named by a release asset's name is that asset; an https URL stays
+    const assetIcon = (c, assets) => {
+        if (c.icon && !/^https:\/\//.test(c.icon.ref)) {
+            const a = assets.find((x) => x && x.name === c.icon.ref && typeof x.url === 'string');
+            c.icon = a ? Object.assign(c.icon, { ref: a.url }) : null;
+        }
+        return c;
+    };
 
     const fromCatalog = (release) => {
         const asset = (release.assets || []).find((a) => a.name === 'catalog.json');
         if (!asset) {
             throw new Error('the catalog release has no catalog.json');
         }
-        return raw(asset.url, 'catalog.json', 4 << 20).then((b) => Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8'))));
+        return raw(asset.url, 'catalog.json', 4 << 20).then((b) => {
+            const cat = Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8')));
+            cat.components.forEach((c) => assetIcon(c, release.assets || []));
+            return cat;
+        });
     };
 
     const fromReleases = (releases) => {
         const newest = new Map();
         let meta = null;
+        const assets = [];
         releases.filter((r) => r && !r.draft && !r.prerelease).forEach((r) => {
             (r.assets || []).forEach((a) => {
+                assets.push(a);
                 if (a.name === 'mgu-store.json' && !meta) {
                     meta = a;
                 }
@@ -566,14 +682,15 @@ function githubReader(s, ctx) {
             commit: null,
             components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)).map((n) => {
                 const t = apps && typeof apps[n.id] === 'object' && apps[n.id] ? apps[n.id] : {};
-                return catalogLib.checkExtras({
+                return assetIcon(catalogLib.checkExtras({
                     id: n.id, kind: 'app', version: n.version,
                     title: typeof t.title === 'string' ? t.title : undefined,
                     description: typeof t.description === 'string' ? t.description : undefined,
+                    author: t.author, icon: t.icon, iconSha256: t.iconSha256,
                     artifact: { name: n.asset.name, size: n.asset.size, sha256: null, url: n.asset.url },
                     // nothing in this layout can say so: the owner removes what it installed
                     uninstallable: true
-                });
+                }), assets);
             })
         }));
     };
@@ -588,7 +705,11 @@ function githubReader(s, ctx) {
             .catch((e) => {
                 throw Object.assign(e, { missing: e.status === 404 });
             });
-        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null).catch((e) => {
+        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null).then((cat) => {
+            // a repo tree's icons are not read
+            cat.components.forEach((c) => { c.icon = null; });
+            return cat;
+        }, (e) => {
             throw e.missing ? new Error(`no mgu-repo.json at ${sha.slice(0, 7)}`) : e;
         });
     };
@@ -636,6 +757,8 @@ function githubReader(s, ctx) {
                     .then((channel) => onChannel(channel).then((c) => Object.assign(c, { channel, public: repo.private === false })));
             }),
         artifact: (entry, onProgress) => raw(entry.artifact.url, entry.artifact.name, entry.artifact.size, onProgress),
+        icon: (entry) => (/^https:\/\//.test(entry.icon.ref) ? raw(entry.icon.ref, 'icon.png', ICON_BYTES)
+            : Promise.reject(new Error('an icon is a release asset or an https url'))),
         files: (commit, onProgress, under) => tarball(commit, onProgress)
             .then((buf) => tar.untgz(buf, ctx.maxBuildBytes))
             // the tarball's one top folder (<owner>-<repo>-<sha>/) is left off
@@ -762,7 +885,6 @@ function packageInfo(members) {
     return { pkg, title, hmi: hmi.length ? hmi.sort() : null };
 }
 
-const SERVICE_KINDS = ['renderer', 'tether'];
 
 /* A package's catalog entry from its own members: an app, or a root-service
  * package (mguService: renderer or tether) as the tool the deploy tool
@@ -822,7 +944,8 @@ function looseReader(root, ctx) {
             components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) }));
     };
     const folder = folderReader(root, ctx);
-    return { network: false, catalog: list, artifact: folder.artifact, files: folder.files };
+    return { network: false, catalog: list, artifact: folder.artifact, files: folder.files,
+        icon: () => Promise.reject(new Error('a loose package has no icon')) };
 }
 
 /* ---- one source --------------------------------------------------------------------- */
@@ -849,5 +972,5 @@ function label(s) {
 
 module.exports = {
     load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
-    repoCatalog, packComponent, subtree, packageInfo, packageEntry, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE
+    repoCatalog, packComponent, subtree, packageInfo, packageEntry, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE, ICON_BYTES
 };

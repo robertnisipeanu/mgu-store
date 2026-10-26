@@ -23,7 +23,10 @@
  *    sources.json, and the Store 0.3's view of the state;
  *  - the head unit and compatibility (mguHmi), root-service packages and
  *    apps from an App Manager index (https), and two tools providing one
- *    capability (refused, replaced with the secret, uninstalled).
+ *    capability (refused, replaced with the secret, uninstalled);
+ *  - an App Manager index version 2 listed without downloads, its packages
+ *    checked on install, and the icons it, a folder catalog and a repo's
+ *    mgu-store.json name.
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -2211,6 +2214,152 @@ function testUnitServices(certs, pubDir) {
         });
 }
 
+/* An App Manager index version 2 (listed from the index alone, icons kept by
+ * the updater), and icons a catalog in a folder and a repo's mgu-store.json
+ * name (an updater in this process; the index served from pubDir). */
+function testIndexV2(certs, pubDir) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'v2');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const state = path.join(M, 'state');
+    const cat = path.join(M, 'cat');
+    [M, opt, oap, state, cat, path.join(M, 'shm'), path.join(M, 'media'), path.join(M, 'empty')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog });
+    delete process.env.FAKE_LEASE;
+    delete process.env.FAKE_PENDING;
+    delete process.env.FAKE_UNIT_HMI;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    const deployed = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^(install|uninstall)/.test(l));
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.3.0' }));
+    fs.symlinkSync('versions/0.3.0', path.join(opt, 'mgu-deploy', 'current'));
+    const png = (n, fill) => Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(n, fill)]);
+    const pkg = (file, pj) => {
+        const d = path.join(T, 'src', `v2-${file}`);
+        mkdirp(path.join(d, 'package'));
+        fs.writeFileSync(path.join(d, 'package', 'package.json'), JSON.stringify(pj));
+        const out = path.join(pubDir, file);
+        cp.execFileSync('tar', ['-czf', out, '-C', d, 'package']);
+        const data = fs.readFileSync(out);
+        return { url: file, sha256: sha256(data), size: data.length };
+    };
+    const icon = (name, data) => {
+        fs.writeFileSync(path.join(pubDir, name), data);
+        return { icon: `icons/${name}`, iconSha256: sha256(data) };
+    };
+    const appIcon = png(300, 1);
+    const item = (file, pj, meta) => Object.assign(pkg(file, pj), { id: pj.name, version: pj.version, kind: pj.mguService || 'app',
+        title: pj.productName, author: 'IterioDev', description: `About ${pj.name}`, updated: '2026-10-26', renderer: false }, meta);
+    const index = { version: 2, name: 'car-apps', packages: [
+        item('v2app@1.0.0.tgz', { name: 'v2app', version: '1.0.0', productName: 'V2 App' }, Object.assign({ renderer: true }, icon('v2app.png', appIcon))),
+        item('v2render@1.1.1.tgz', { name: 'v2render', version: '1.1.1', productName: 'GPU renderer', mguService: 'renderer' },
+            { icon: 'icons/v2render.png' }),
+        item('v2both@1.0.0.tgz', { name: 'v2both', version: '1.0.0', productName: 'Both' },
+            Object.assign({ mguHmi: ['ID7', 'ID8'] }, icon('v2both.png', png(10, 2)), { iconSha256: 'f'.repeat(64) })),
+        item('v2liar@1.0.0.tgz', { name: 'someone-else', version: '1.0.0', productName: 'Liar' }, { id: 'v2liar', mguHmi: ['ID7'] }),
+        item('v2big@1.0.0.tgz', { name: 'v2big', version: '1.0.0', productName: 'Big' }, icon('v2big.png', png(200 << 10, 3))),
+        item('v2odd@1.0.0.tgz', { name: 'v2odd', version: '1.0.0', productName: 'Odd' }, { kind: 'widget' })] };
+    fs.writeFileSync(path.join(pubDir, 'v2render.png'), png(40, 4));
+    fs.writeFileSync(path.join(pubDir, 'v2-index.json'), JSON.stringify(index));
+    // a catalog in a folder, its icon beside it
+    publish(cat, [Object.assign(entry(appTgz(cat, 'cat_app', '1.0.0'), 'app', 'Catalog App'), { icon: 'cat_app.png', author: 'Me' })], { schema: 2 });
+    fs.writeFileSync(path.join(cat, 'cat_app.png'), png(20, 5));
+    // a repo's releases, mgu-store.json naming an asset as the icon
+    const relIcon = png(30, 6);
+    ghRepo('pub/v2rel', { releases: [{ assets: [{ name: 'rel2@1.0.0.tgz', data: fs.readFileSync(appTgz(path.join(M, 'empty'), 'rel2', '1.0.0')) },
+        { name: 'rel2.png', data: relIcon },
+        { name: 'mgu-store.json', data: Buffer.from(JSON.stringify({ apps: { rel2: { title: 'Release Two', author: 'Pub', icon: 'rel2.png', iconSha256: sha256(relIcon) } } })) }] }] });
+    publish(path.join(M, 'empty'), []);
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [
+        { id: 'mgu-store', type: 'file', path: path.join(M, 'empty'), builtin: true },
+        { id: 'car-apps', type: 'https', url: `https://updates.test:${HTTPS_PORT}/v2-index.json` },
+        { id: 'cat', type: 'file', path: cat },
+        { id: 'rel', type: 'github', repo: 'pub/v2rel', channel: 'releases' }
+    ] }));
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
+        github_api: API, github_web: GH_WEB, github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    fs.writeFileSync(conf.mounts, '');
+    const u = new Updater(conf);
+    const st = () => u.state();
+    const comp = (id) => st().components.find((c) => c.id === id) || {};
+    const sock = conf.socket;
+    const asked = (re) => seen.filter((x) => re.test(x.url)).length;
+    const from = seen.length;
+    const iconDir = path.join(state, 'icons');
+    let iconAsks = 0;
+    return u.serve()
+        .then(() => u.check())
+        .then(() => {
+            const s = st();
+            const src = s.sources.find((x) => x.id === 'car-apps');
+            ok('index v2: listed from the index alone, no package downloaded', src.status === 'ok' && src.components === 5 &&
+                !seen.slice(from).some((x) => /^\/v2[a-z]*@/.test(x.url)), JSON.stringify(src));
+            ok('index v2: an unknown kind is left out, said why', /v2odd: unknown kind widget/.test(src.error || '') && !comp('v2odd').id, src.error);
+            const a = comp('v2app');
+            ok('index v2: an app with title, author, description; no mguHmi: iDrive 8, not for this iDrive 7',
+                a.kind === 'app' && a.title === 'V2 App' && a.author === 'IterioDev' && a.description === 'About v2app' && a.version === '1.0.0' &&
+                a.size === index.packages[0].size && JSON.stringify(a.mguHmi) === '["ID8"]' && a.compat === 'no' && a.uninstallable === true, JSON.stringify(a));
+            const r = comp('v2render');
+            ok('index v2: kind renderer is a tool providing renderer, needing the deploy tool that installs service packages',
+                r.kind === 'tool' && r.provides === 'renderer' && r.service === 'renderer' && r.compat === 'unknown' &&
+                u.src.get('car-apps').components.find((c) => c.id === 'v2render').requires['mgu-deploy'] === '0.3.0', JSON.stringify(r));
+            ok('index v2: mguHmi in an entry counts', comp('v2both').compat === 'yes');
+            ok('icons: kept by their sha256 under the state folder, readable by anyone, the bytes the index names',
+                a.icon === path.join(iconDir, `${sha256(appIcon)}.png`) && fs.readFileSync(a.icon).equals(appIcon) &&
+                (fs.statSync(a.icon).mode & 0o777) === 0o644 && (fs.statSync(iconDir).mode & 0o777) === 0o755, a.icon);
+            ok('icons: one without a sha256 is kept too', r.icon && fs.readFileSync(r.icon).equals(png(40, 4)), r.icon);
+            ok('icons: one that does not match its sha256, or is too big, is not kept', comp('v2both').icon === null && comp('v2big').icon === null &&
+                fs.readdirSync(iconDir).length === 4, fs.readdirSync(iconDir).join());
+            ok('icons: a folder catalog\'s icon beside it, with its author', comp('cat_app').icon && fs.readFileSync(comp('cat_app').icon).equals(png(20, 5)) &&
+                comp('cat_app').author === 'Me', JSON.stringify(comp('cat_app')));
+            ok('icons: a release asset mgu-store.json names', comp('rel2').icon && fs.readFileSync(comp('rel2').icon).equals(relIcon) &&
+                comp('rel2').title === 'Release Two' && comp('rel2').author === 'Pub', JSON.stringify(comp('rel2')));
+            ok('icons: none for a component that names none', comp('v2liar').icon === null && comp('v2liar').author === 'IterioDev');
+            iconAsks = asked(/\.png$/);
+            return u.check();
+        })
+        .then(() => {
+            ok('icons: kept ones are not fetched again', asked(/\.png$/) === iconAsks + 2, `${asked(/\.png$/)} ${iconAsks}`);
+            return ask(sock, { op: 'install', id: 'v2both' });
+        })
+        .then((err) => until(st, () => !st().busy && comp('v2both').status !== 'available', 30000, 'v2both installed').then(() => err))
+        .then((err) => {
+            const b = index.packages[2];
+            ok('index v2: an install downloads the package, checks it and keeps it by its sha256',
+                err === null && comp('v2both').status === 'installed' && /v2both@1\.0\.0\.tgz --yes/.test(deployed()[0] || '') &&
+                fs.existsSync(path.join(state, 'index', 'car-apps', `${b.sha256}.tgz`)), `${err} ${deployed()} ${JSON.stringify(comp('v2both'))}`);
+            return ask(sock, { op: 'install', id: 'v2liar' });
+        })
+        .then(() => until(st, () => !st().busy && !comp('v2liar').queued, 30000, 'v2liar refused'))
+        .then(() => {
+            ok('index v2: a package that is not what the index says is not installed', /someone-else@1\.0\.0, not what the index says/.test(comp('v2liar').error || '') &&
+                deployed().length === 1, `${comp('v2liar').error} ${deployed()}`);
+            index.packages = index.packages.filter((p) => p.id !== 'v2app');
+            fs.writeFileSync(path.join(pubDir, 'v2-index.json'), JSON.stringify(index));
+            return u.check();
+        })
+        .then(() => {
+            ok('icons: one no component names any more goes', !fs.existsSync(path.join(iconDir, `${sha256(appIcon)}.png`)) && !comp('v2app').id &&
+                comp('v2render').icon, fs.readdirSync(iconDir).join());
+            u.server.close();
+        });
+}
+
 /* A first start without sources.json, and one this version cannot read. */
 function testFirstStart() {
     const { Updater } = require('../js/updater');
@@ -2302,6 +2451,7 @@ function main() {
         .then(([dnsSrv, httpsSrv]) => testFetch(certs, pubDir)
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
+            .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
             .then(() => testDaemon(certs, pubDir))
             .then(() => {
                 dnsSrv.close();

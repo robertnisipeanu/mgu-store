@@ -75,7 +75,20 @@ them:
 | catalog | a `catalog` release's `catalog.json` asset (`release/README.md`), the https URL, `catalog.json` in a folder | schema 1 or 2 entries; artifact URLs absolute or relative to the catalog |
 | releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description"}}}`), else the installed app's en_GB entry-point text, else the id; always apps, each `uninstallable` |
 | repo tree | `mgu-repo.json` at a repo's or folder's root, at one commit | see below |
-| index | an https URL answering IterioDev's App Manager index, `{"packages": [{"url", "sha256"}]}` | each package (https, absolute or relative to the index; 50 at most, 32 MiB each) downloaded once, checked against its sha256 and kept in `state/index/<source id>/<sha256>.tgz` (root, 0600) while the index lists it, then read like a stick's `oap/` package (below); a package that is missing or does not match is left out, named in the source's `error` |
+| index | an https URL answering IterioDev's App Manager index: version 2, `{"version": 2, "packages": [{"url", "sha256", "size", "id", "kind", "version", "title", "author", "description", "icon", "iconSha256", …}]}`, or version 1, `{"packages": [{"url", "sha256"}]}` | version 2: each entry as it stands, no package downloaded (50 at most, 32 MiB each); `kind` `app`, or `renderer` / `tether`: a tool providing that kind, as a stick's service package (below); an app without `mguHmi` is for iDrive 8, the App Manager's head unit; an entry of another kind or without an https `url`, a sha256 and a size is left out, named in the source's `error`. An install downloads the package, checks its sha256 and that its `package.json` is the id, version and service its entry names, and keeps it in `state/index/<source id>/<sha256>.tgz` (root, 0600) while the index lists it. Version 1: each package (https, absolute or relative to the index) downloaded once, checked against its sha256, kept the same way, then read like a stick's `oap/` package; a package that is missing or does not match is left out, named in the source's `error` |
+
+**Icons.** A catalog entry's `icon` (absolute https, or relative to the
+catalog; in a GitHub `catalog` release one of its assets), the asset an
+`mgu-store.json` entry's `icon` names, and an index version 2 entry's
+`icon` (absolute or relative to the index), each with an optional
+`iconSha256`, are fetched after the source is read: a PNG of at most
+128 KiB, matching its sha256 when one is given, kept in
+`state/icons/<sha256>.png` (named by the source's sha256, else by source,
+id, version and URL; 0644, the folder 0755, for the Store to read) and
+fetched again only when no kept file has that name. A component's
+`icon` in the state is that file, null without one; an icon that cannot
+be fetched or is not such a PNG is logged and left out. Kept icons no
+component names go after each check. A repo tree's components have none.
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog
 release, else the releases layout), `branch:<name>` (`mgu-repo.json` at
@@ -499,6 +512,7 @@ each request, and whenever it changes (at most every 250 ms):
   "components": [ { "id": "doom", "kind": "app", "title": "DOOM", "version": "1.0.1",
     "installed": "1.0.0", "size": 2080457, "status": "update", "source": "idrive7-apps",
     "build": null, "optional": false, "uninstallable": true, "revision": null,
+    "description": "…", "author": "…", "icon": "/var/opt/mgu-updater/state/icons/…png",
     "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null, "replaces": null,
     "pendingReboot": false, "queued": false, "error": null } ] }
 ```
@@ -506,7 +520,9 @@ each request, and whenever it changes (at most every 250 ms):
 - `components`: each id once (Sources, "Ids"). `status` is `installed`,
   `update`, `available` or `newer` (a local build ahead of its source);
   `build` is `"unit"` for what is built on the unit; `revision` the short
-  commit a branch would install; `size` null where the source states none.
+  commit a branch would install; `size` null where the source states none;
+  `description` and `author` its source's (`''` when it gives none);
+  `icon` the kept icon's path, or null (Sources, "Icons").
 - `unit`: the head unit (`hmi` `ID7`, `ID8` or null, `firmware` its build
   string), null until the deploy tool says. `providers`: the installed tool
   providing each capability. A component's `mguHmi`, `compat`, `provides`
@@ -638,6 +654,12 @@ releases, branches, tags, contents, tarballs, the device flow), with
   removed); a renderer package listed and installed as a tool providing
   `renderer`, a second renderer refused, refused to replace without the
   secret, replacing with it, and none left after its uninstall;
+- an App Manager index version 2: listed with no package downloaded, an
+  unknown kind left out, an app without `mguHmi` for iDrive 8, a renderer
+  as a tool, an install that downloads and keeps the package, one whose
+  package is another id refused; icons from it, a folder catalog and a
+  repo's `mgu-store.json`, kept by sha256 (0644), one that does not match
+  or is too big left out, not fetched again, removed once unnamed;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a

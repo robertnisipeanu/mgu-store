@@ -48,7 +48,9 @@ function compareVersions(a, b) {
 }
 
 /* Checks one entry's schema-2 fields (requires, build, optional,
- * uninstallable) and gives them their defaults; throws with a reason. */
+ * uninstallable) and gives them their defaults; throws with a reason. An
+ * icon (a PNG: a URL or path its source resolves, with an optional
+ * iconSha256) becomes { ref, sha256 }, or null when it is not usable. */
 function checkExtras(c) {
     const where = `catalog entry ${c.id}`;
     if (c.build !== undefined && c.build !== null && !(c.build === 'unit' && c.kind === 'app')) {
@@ -73,7 +75,12 @@ function checkExtras(c) {
     if (c.mguProvides !== undefined && c.mguProvides !== null && !(c.kind === 'tool' && PROVIDES.test(c.mguProvides))) {
         throw new Error(`${where}: mguProvides is one lower-case name, for a tool`);
     }
+    const ref = typeof c.icon === 'string' ? c.icon : c.icon && typeof c.icon.ref === 'string' ? c.icon.ref : null;
+    const isha = c.icon && c.icon.sha256 !== undefined ? c.icon.sha256 : c.iconSha256;
+    delete c.iconSha256;
     return Object.assign(c, {
+        icon: ref && ref.length <= 500 && (isha === undefined || isha === null || SHA256.test(isha)) ? { ref, sha256: isha || null } : null,
+        author: typeof c.author === 'string' ? c.author.slice(0, 80) : '',
         mguHmi: hmi,
         mguProvides: c.mguProvides || null,
         service: c.service || null,
@@ -141,6 +148,8 @@ function plan(entries, installed) {
             build: c.build,
             optional: c.optional,
             uninstallable: c.uninstallable,
+            description: c.description || '',
+            author: c.author || '',
             mguHmi: c.mguHmi,
             provides: c.mguProvides,
             service: c.service
