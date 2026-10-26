@@ -60,7 +60,8 @@ its releases unless the owner adds it with a branch.
   and online.
 - **No signing.** The owner trusts a source by adding it. The head unit
   fetches over HTTPS (with a token for a private repository) and checks
-  every download against its size and sha256.
+  a download against the size and sha256 its catalog or index lists;
+  release assets and repo trees list no hash.
 - The deploy tool marks every app it installs as local
   (`"mguLocalOnly": true` in its `package.json`); you need not.
 

@@ -162,8 +162,9 @@ joined to the car's hotspot. The page (port 8470 on the head unit) shows the
 sources, components, installs in progress, errors and logs, and lets you add
 and remove sources and accounts with the phone's keyboard. When adding a
 repository there, pick its channel: **Releases** (the default), **Branch**
-or **Tags**; a repository with only `mgu-repo.json` needs **Branch**. Every time phone
-access is turned on, it gets a new access code; turn it off when done.
+or **Tags**; a repository with only `mgu-repo.json` needs **Branch**.
+Every time phone access is turned on, it gets a new access code; turn it
+off when done.
 
 ### Internet: the uplink
 
