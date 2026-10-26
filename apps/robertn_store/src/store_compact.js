@@ -158,8 +158,10 @@ function compact(W, H) {
     const accounts = screen('accounts', 3, [
         back(),
         title('Accounts', titleX),
+        status('status', titleX + 260, CW - 360),
         list('list', X, HEAD + 14, Math.min(1100, CW), B - BTN_H - 16 - HEAD - 14, { empty: 'None' }),
-        button('signIn', X, B - BTN_H, 520, BTN_H, 'Sign in with GitHub', 'primary', 29, { vicon: 'plus', color: BLUE })
+        button('signIn', X, B - BTN_H, 520, BTN_H, 'Sign in with GitHub', 'primary', 29, { vicon: 'plus', color: BLUE }),
+        button('addToken', X + 544, B - BTN_H, 360, BTN_H, 'Add token', 'outline', 29, { vicon: 'plus' })
     ]);
     const QR = Math.min(B - HEAD - 10, 520);
     const login = screen('login', 3, [
@@ -181,16 +183,7 @@ function compact(W, H) {
         text('error', X, HEAD + 264, phoneW, 130, '', 26, 'label', AMBER, { wrap: true }),
         el('qr', 'qr', R - PQR, M, PQR, PQR, { text: '' })
     ]);
-    const CB = 360;
-    const channel = screen('channel', 3, [
-        back(),
-        title('Channel', titleX),
-        status('repo', titleX + 240, CW - 340),
-        button('releases', X, HEAD + 40, CB, 90, 'Releases', 'outline', 31),
-        button('tags', X + CB + 24, HEAD + 40, CB, 90, 'Tags', 'outline', 31),
-        button('branch', X + 2 * (CB + 24), HEAD + 40, CB, 90, 'Branch', 'outline', 31)
-    ]);
-    return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, login, phone, channel] };
+    return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, login, phone] };
 }
 
 module.exports = { compact };

@@ -1,4 +1,4 @@
-# robertn_store 0.8.1
+# robertn_store 0.8.2
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
@@ -45,8 +45,8 @@ USB, Settings) beside:
   components, error, Remove with a confirm step, and while a sign-in does
   not reach a private one the GitHub App's install page as a QR code and
   its address), Add source, Accounts (each one's Remove with a confirm
-  step; Sign in with GitHub while `state.signin` is true), Phone access, the
-  head unit and versions, Check now, Restart head unit.
+  step; Sign in with GitHub while `state.signin` is true; Add token), Phone
+  access, the head unit and versions, Check now, Restart head unit.
 
 Confirm steps are a sheet over the page, Cancel first. Every page is a host
 state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
@@ -140,11 +140,20 @@ source or a USB source).
 updater reads each source with whichever one reaches it, so one account
 serves every repo it can read and a source added later needs nothing more.
 The row shows the account (one), `<n> accounts` or `None`; hidden with an
-updater that reports no `tokens`. Its page lists each account, its label
-(else its login, else its id) and the sources it reads (`2 sources`,
-`Unused`, `Rejected` when GitHub refuses it), and **Sign in with GitHub**.
-Pressing an account opens *Remove account?*: its name, the sources it
-reads, **Cancel** and **Remove** (`token-remove`).
+updater that reports no `tokens`. Its page has a status line (Add token's:
+`Checking token`, `Added <account>`, `Add token failed: …`; hidden
+otherwise), lists each account, its label (else its login, else its id)
+and the sources it reads (`2 sources`, `Unused`, `Rejected` when GitHub
+refuses it), then **Sign in with GitHub** and **Add token**. Pressing an
+account opens *Remove account?*: its name, the sources it reads, **Cancel**
+and **Remove** (`token-remove`).
+
+**Add token** opens the speller, titled *GitHub token*; the text confirmed
+with OK, trimmed, goes to the updater as `token-add`. The updater asks
+GitHub whose token it is before storing it: the status line says
+`Checking token` meanwhile, then `Added <account>` once the account
+appears, or the updater's refusal. A token the updater already has adds no
+account; the status line clears after 30 s.
 
 **Sign in with GitHub** starts the updater's GitHub device sign-in, which
 adds an account, and opens its page: **Cancel** (first, so its focus
@@ -158,19 +167,19 @@ the free-text speller use case `02076b22-…` that x_call uses; the
 manifest's usecasemanagement proxies let the app open it), titled *Add
 source*. The text confirmed with OK, trimmed, is:
 
-- `owner/repo` (or a `github.com/owner/repo` address): the **Channel**
-  page, showing the repo, with **Releases**, **Tags** and **Branch**.
-  Branch opens the speller again, titled *Branch*; empty is the repo's
-  default branch (`channel: "branch"`). The choice sends `source-add`
-  (`type: "github"`, `repo`, `channel`: `releases`, `tags`, `branch:<name>`
-  or `branch`) and returns to Sources.
-- an `https://host/path` address (the scheme in any case): `source-add`
-  with `type: "https"`, `url`.
-- anything else: `Not owner/repo or https://host/path: …` on the status
-  line.
+- `owner/repo`, or a repo's address on github.com (`github.com/owner/repo`,
+  `https://github.com/owner/repo`, with or without `.git` or a trailing
+  slash): `source-add` with `type: "github"`, `repo`. The updater reads the
+  repo's releases, or its default branch when it has none.
+  `…/tree/<branch>` adds `channel: "branch:<branch>"`.
+- any other `https://host/path` address (the scheme in any case), a
+  catalog: `source-add` with `type: "https"`, `url`.
+- anything else, a github.com address that is not a repo's included:
+  `Not owner/repo or https://host/path: …` on the status line.
 
-Leaving a speller without OK, or OK with nothing typed in *Add source*,
-returns to Sources and sends nothing. A USB stick holding a catalog or a
+The updater's refusal (`… is already a source`) shows on the status line.
+
+Leaving the speller without OK, or OK with nothing typed, sends nothing. A USB stick holding a catalog or a
 repo tree appears in the list by itself
 ([mgu-updater](../../native/mgu-updater/README.md)).
 
@@ -231,15 +240,15 @@ tools/test_screens.js      every drawn screen in iDrive 7's and 8's boxes: in th
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.8.1/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.8.2/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.8.1.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.8.1.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.8.2.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.8.2.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js
 (cd ../../native/mgu-render && make test) && node tools/shots.js <out dir>     # screenshots

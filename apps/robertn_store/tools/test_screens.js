@@ -170,19 +170,20 @@ eq([f.values.appLabel.text, f.values.appQr.text], ['Install on GitHub', 'https:/
 eq(screen('source-install-app', {}, { signinApp: null }).values.appQr.text, '', 'none without the App');
 eq(screen('source-install-app', {}, { tokens: [] }).values.appQr.text, '', 'none before a sign-in');
 
-// Accounts: Sign in with GitHub only with state.signin
-eq(own(screen('accounts')), ['robertn', '0badc0de', 'Sign in with GitHub', 'Back']);
-eq(own(screen('accounts', {}, { signin: false })), ['robertn', '0badc0de', 'Back']);
+// Accounts: Sign in with GitHub only with state.signin; Add token; Add token's status line
+eq(own(screen('accounts')), ['robertn', '0badc0de', 'Sign in with GitHub', 'Add token', 'Back']);
+eq(own(screen('accounts', {}, { signin: false })), ['robertn', '0badc0de', 'Add token', 'Back']);
+eq(screen('accounts').items[3].act, { do: 'add-token' });
+f = screen('accounts-token-refused');
+eq([text(f, 'status'), f.values.status.color], ['Add token failed: GitHub does not accept this token', '#ffb020']);
 
-// sign-in, phone, channel, no updater
+// sign-in, phone, no updater
 f = screen('login');
 eq([text(f, 'code'), text(f, 'status'), f.values.qr.text], ['WDJB-MJHT', 'Waiting for sign-in', 'https://github.com/login/device']);
 eq(own(f), ['Cancel', 'Back']);
 f = screen('phone');
 eq(own(f), ['Phone access', 'Back']);
 ok(/#t=6f1c/.test(f.values.qr.text), 'the access URL as QR code');
-eq(screen('channel').items.slice(0, 3).map((i) => i.act), [{ do: 'channel', channel: 'releases' },
-    { do: 'channel', channel: 'tags' }, { do: 'channel', channel: 'branch' }]);
 eq(text(screen('offline'), 'subtitle'), 'Restart the head unit to finish setup');
 
 // package pictures: components[].icon is drawn from that file

@@ -70,8 +70,10 @@ screens.append(st)
 st = base('accounts')
 st['components'] += [copy.deepcopy(BACK),
     text('title', 610, 138, 1200, 90, 'Accounts', 72, 'bold'),
+    text('status', 610, 227, 1600, 43, '', 34, 'label', 'dim'),
     comp('list', 'appList', 610, 292, 1500, 400, {'items': [], 'rowH': 120, 'empty': 'None'}),
     comp('signIn', 'vbutton', 610, 724, 760, 106, {'text': 'Sign in with GitHub', 'vicon': 'plus', 'style': 'primary', 'color': '#3d9bff'}, 'event:signIn'),
+    comp('addToken', 'vbutton', 1400, 724, 560, 106, {'text': 'Add token', 'vicon': 'plus', 'style': 'outline'}, 'event:addToken'),
 ]
 screens.append(st)
 # GitHub sign-in
@@ -95,26 +97,17 @@ st['components'] += [copy.deepcopy(BACK),
     comp('qr', 'qr', 1900, 220, 600, 600, {'text': ''}),
 ]
 screens.append(st)
-# a new source's channel
-st = base('channel')
-st['components'] += [copy.deepcopy(BACK),
-    text('title', 610, 138, 1200, 90, 'Channel', 72, 'bold'),
-    text('repo', 610, 227, 1600, 43, '', 34, 'label', 'dim'),
-    comp('releases', 'vbutton', 610, 340, 560, 120, {'text': 'Releases', 'style': 'outline'}, 'event:releases'),
-    comp('tags', 'vbutton', 1200, 340, 560, 120, {'text': 'Tags', 'style': 'outline'}, 'event:tags'),
-    comp('branch', 'vbutton', 1790, 340, 560, 120, {'text': 'Branch', 'style': 'outline'}, 'event:branch'),
-]
-screens.append(st)
 body = json.dumps({'design': d['design'], 'screens': screens}, indent=1)
 open(out, 'w').write("""'use strict';
 /**
  * The Store's renderer screens, in iDrive 8 design pixels (2880 x 960; the
- * Store scales them into the renderer's box on either head unit). store,
+ * Store scales them into iDrive 8's box, src/store_compact.js lays the same
+ * screens out for iDrive 7's). store,
  * app, confirm (the sheet), installed, usb and settings are IterioDev's App
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
  * @ %s, the HMI UI builder's export of projects/app-manager.json, reused with
- * his permission) with the Store's labels; source, accounts, login, phone and
- * channel are the Store's own in the same frame. Each element is drawn by
+ * his permission) with the Store's labels; source, accounts, login and phone
+ * are the Store's own in the same frame. Each element is drawn by
  * am_gpu.js; src/store_ui.js gives their values.
  */
 module.exports = %s;

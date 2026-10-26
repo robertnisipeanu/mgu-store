@@ -60,15 +60,35 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Check for updates",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
         },
         "22": {
-          "type": "progressBar",
+          "type": "button",
           "name": "storeProgress",
           "properties": {
             "Visible": {
@@ -82,13 +102,29 @@
           },
           "rows": [
             {
-              "TextLeft": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
               },
-              "TextRight": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -108,13 +144,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Apps",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -134,13 +186,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Head-unit tools",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -160,9 +228,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Restart head unit",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -182,13 +270,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Sources",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -208,11 +312,49 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Phone access",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
+              }
+            }
+          ]
+        },
+        "70": {
+          "type": "label",
+          "name": "storeHmiID8",
+          "properties": {
+            "Visible": {
+              "value": 0,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 0,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
                 "value": "",
                 "type": "Text"
               }
@@ -264,13 +406,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -320,13 +478,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -376,9 +550,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Cancel",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -398,9 +592,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Restart",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -472,9 +686,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Phone access",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -494,13 +728,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -520,9 +770,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Add source",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -542,13 +812,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Accounts",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -598,13 +884,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Channel",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -685,13 +987,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Source",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -711,13 +1029,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Account",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -737,13 +1071,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Components",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -763,9 +1113,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Remove",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -898,9 +1268,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Cancel",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -972,9 +1362,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Cancel",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -994,9 +1404,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Remove",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1068,9 +1498,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Cancel",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1090,9 +1540,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Remove",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1142,13 +1612,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "Phone access",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1216,124 +1702,6 @@
         }
       }
     },
-    "31": {
-      "type": "state",
-      "name": "ST_OnlineApps_StoreChannel",
-      "properties": {
-        "ParentState": {
-          "value": 5,
-          "type": "UInt"
-        }
-      },
-      "components": {
-        "34": {
-          "type": "title",
-          "name": "ST_OnlineApps_StoreChannel_Title",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "Channel",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "35": {
-          "type": "label",
-          "name": "storeAddRepo",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 0,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "36": {
-          "type": "button",
-          "name": "storeChannelReleases",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "Releases",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "37": {
-          "type": "button",
-          "name": "storeChannelTags",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "Tags",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "38": {
-          "type": "button",
-          "name": "storeChannelBranch",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "Branch",
-                "type": "Text"
-              }
-            }
-          ]
-        }
-      }
-    },
     "32": {
       "type": "state",
       "name": "ST_OnlineApps_StoreAccounts",
@@ -1377,13 +1745,29 @@
           },
           "rows": [
             {
-              "Text1stCol": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
               },
-              "Text2ndCol": {
+              "FrequencyText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": true,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1403,9 +1787,93 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Sign in with GitHub",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
+              }
+            }
+          ]
+        },
+        "141": {
+          "type": "label",
+          "name": "storeAccountsStatus",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 0,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "Text": {
+                "value": "",
+                "type": "Text"
+              }
+            }
+          ]
+        },
+        "142": {
+          "type": "button",
+          "name": "storeAccountAddToken",
+          "properties": {
+            "Visible": {
+              "value": 1,
+              "type": "UInt"
+            },
+            "Focusable": {
+              "value": 3,
+              "type": "UInt"
+            }
+          },
+          "rows": [
+            {
+              "PrimaryText": {
+                "value": "Add token",
+                "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1499,9 +1967,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Cancel",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1521,9 +2009,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "Remove",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1567,9 +2075,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1589,9 +2117,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1611,9 +2159,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1633,9 +2201,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1655,9 +2243,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1677,9 +2285,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1699,9 +2327,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1721,9 +2369,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1743,9 +2411,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1765,9 +2453,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1787,9 +2495,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1809,9 +2537,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1831,9 +2579,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1853,9 +2621,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1875,9 +2663,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1897,9 +2705,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1919,9 +2747,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1941,9 +2789,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1963,9 +2831,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -1985,9 +2873,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2007,9 +2915,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2029,9 +2957,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2051,9 +2999,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2073,9 +3041,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2095,9 +3083,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2117,9 +3125,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2139,9 +3167,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2161,9 +3209,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2183,9 +3251,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2205,9 +3293,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2227,9 +3335,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2249,9 +3377,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2271,9 +3419,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2293,9 +3461,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2315,9 +3503,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2337,9 +3545,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2359,9 +3587,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2381,9 +3629,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2403,9 +3671,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2425,9 +3713,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2447,9 +3755,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2469,9 +3797,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2491,9 +3839,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2513,9 +3881,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2535,9 +3923,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2557,9 +3965,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2579,9 +4007,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2601,9 +4049,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2653,9 +4121,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2675,9 +4163,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2697,9 +4205,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2719,9 +4247,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2741,9 +4289,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2763,9 +4331,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2785,9 +4373,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2807,9 +4415,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2829,9 +4457,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2851,9 +4499,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2873,9 +4541,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2895,9 +4583,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2917,9 +4625,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2939,9 +4667,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2961,9 +4709,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -2983,9 +4751,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3005,9 +4793,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3027,9 +4835,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3049,9 +4877,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3071,9 +4919,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3093,9 +4961,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3115,9 +5003,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3137,9 +5045,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3159,9 +5087,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3211,9 +5159,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3233,9 +5201,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3255,9 +5243,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3277,9 +5285,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3299,9 +5327,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3321,9 +5369,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3343,9 +5411,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3365,9 +5453,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3387,9 +5495,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3409,9 +5537,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3431,9 +5579,29 @@
           },
           "rows": [
             {
-              "Text": {
+              "PrimaryText": {
                 "value": "",
                 "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]
@@ -3453,1941 +5621,29 @@
           },
           "rows": [
             {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        }
-      }
-    },
-    "54": {
-      "type": "state",
-      "name": "ST_OnlineApps_StoreEmbed1",
-      "components": {
-        "64": {
-          "type": "title",
-          "name": "ST_OnlineApps_StoreEmbed1_Title",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "SID_STORE_TITLE",
-                "type": "StringId"
-              }
-            }
-          ]
-        },
-        "1300": {
-          "type": "button",
-          "name": "storeEmbed1P0",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1301": {
-          "type": "button",
-          "name": "storeEmbed1P1",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1302": {
-          "type": "button",
-          "name": "storeEmbed1P2",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1303": {
-          "type": "button",
-          "name": "storeEmbed1P3",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1304": {
-          "type": "button",
-          "name": "storeEmbed1P4",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1305": {
-          "type": "button",
-          "name": "storeEmbed1P5",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1306": {
-          "type": "button",
-          "name": "storeEmbed1P6",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1307": {
-          "type": "button",
-          "name": "storeEmbed1P7",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1308": {
-          "type": "button",
-          "name": "storeEmbed1P8",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1309": {
-          "type": "button",
-          "name": "storeEmbed1P9",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1310": {
-          "type": "button",
-          "name": "storeEmbed1P10",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1311": {
-          "type": "button",
-          "name": "storeEmbed1P11",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1312": {
-          "type": "button",
-          "name": "storeEmbed1P12",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1313": {
-          "type": "button",
-          "name": "storeEmbed1P13",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1314": {
-          "type": "button",
-          "name": "storeEmbed1P14",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1315": {
-          "type": "button",
-          "name": "storeEmbed1P15",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1316": {
-          "type": "button",
-          "name": "storeEmbed1P16",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1317": {
-          "type": "button",
-          "name": "storeEmbed1P17",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1318": {
-          "type": "button",
-          "name": "storeEmbed1P18",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1319": {
-          "type": "button",
-          "name": "storeEmbed1P19",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1320": {
-          "type": "button",
-          "name": "storeEmbed1P20",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1321": {
-          "type": "button",
-          "name": "storeEmbed1P21",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1322": {
-          "type": "button",
-          "name": "storeEmbed1P22",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1323": {
-          "type": "button",
-          "name": "storeEmbed1P23",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1324": {
-          "type": "button",
-          "name": "storeEmbed1P24",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1325": {
-          "type": "button",
-          "name": "storeEmbed1P25",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1326": {
-          "type": "button",
-          "name": "storeEmbed1P26",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1327": {
-          "type": "button",
-          "name": "storeEmbed1P27",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1328": {
-          "type": "button",
-          "name": "storeEmbed1P28",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1329": {
-          "type": "button",
-          "name": "storeEmbed1P29",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1330": {
-          "type": "button",
-          "name": "storeEmbed1P30",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1331": {
-          "type": "button",
-          "name": "storeEmbed1P31",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1332": {
-          "type": "button",
-          "name": "storeEmbed1P32",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1333": {
-          "type": "button",
-          "name": "storeEmbed1P33",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1334": {
-          "type": "button",
-          "name": "storeEmbed1P34",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1335": {
-          "type": "button",
-          "name": "storeEmbed1P35",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1336": {
-          "type": "button",
-          "name": "storeEmbed1P36",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1337": {
-          "type": "button",
-          "name": "storeEmbed1P37",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1338": {
-          "type": "button",
-          "name": "storeEmbed1P38",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1339": {
-          "type": "button",
-          "name": "storeEmbed1P39",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1340": {
-          "type": "button",
-          "name": "storeEmbed1P40",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1341": {
-          "type": "button",
-          "name": "storeEmbed1P41",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1342": {
-          "type": "button",
-          "name": "storeEmbed1P42",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1343": {
-          "type": "button",
-          "name": "storeEmbed1P43",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1344": {
-          "type": "button",
-          "name": "storeEmbed1P44",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1345": {
-          "type": "button",
-          "name": "storeEmbed1P45",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1346": {
-          "type": "button",
-          "name": "storeEmbed1P46",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1347": {
-          "type": "button",
-          "name": "storeEmbed1P47",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        }
-      }
-    },
-    "55": {
-      "type": "state",
-      "name": "ST_OnlineApps_StoreEmbed2",
-      "properties": {
-        "ParentState": {
-          "value": 54,
-          "type": "UInt"
-        }
-      },
-      "components": {
-        "65": {
-          "type": "title",
-          "name": "ST_OnlineApps_StoreEmbed2_Title",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "SID_STORE_TITLE",
-                "type": "StringId"
-              }
-            }
-          ]
-        },
-        "1400": {
-          "type": "button",
-          "name": "storeEmbed2P0",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1401": {
-          "type": "button",
-          "name": "storeEmbed2P1",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1402": {
-          "type": "button",
-          "name": "storeEmbed2P2",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1403": {
-          "type": "button",
-          "name": "storeEmbed2P3",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1404": {
-          "type": "button",
-          "name": "storeEmbed2P4",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1405": {
-          "type": "button",
-          "name": "storeEmbed2P5",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1406": {
-          "type": "button",
-          "name": "storeEmbed2P6",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1407": {
-          "type": "button",
-          "name": "storeEmbed2P7",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1408": {
-          "type": "button",
-          "name": "storeEmbed2P8",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1409": {
-          "type": "button",
-          "name": "storeEmbed2P9",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1410": {
-          "type": "button",
-          "name": "storeEmbed2P10",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1411": {
-          "type": "button",
-          "name": "storeEmbed2P11",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1412": {
-          "type": "button",
-          "name": "storeEmbed2P12",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1413": {
-          "type": "button",
-          "name": "storeEmbed2P13",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1414": {
-          "type": "button",
-          "name": "storeEmbed2P14",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1415": {
-          "type": "button",
-          "name": "storeEmbed2P15",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1416": {
-          "type": "button",
-          "name": "storeEmbed2P16",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1417": {
-          "type": "button",
-          "name": "storeEmbed2P17",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1418": {
-          "type": "button",
-          "name": "storeEmbed2P18",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1419": {
-          "type": "button",
-          "name": "storeEmbed2P19",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1420": {
-          "type": "button",
-          "name": "storeEmbed2P20",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1421": {
-          "type": "button",
-          "name": "storeEmbed2P21",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1422": {
-          "type": "button",
-          "name": "storeEmbed2P22",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1423": {
-          "type": "button",
-          "name": "storeEmbed2P23",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        }
-      }
-    },
-    "56": {
-      "type": "state",
-      "name": "ST_OnlineApps_StoreEmbed3",
-      "properties": {
-        "ParentState": {
-          "value": 55,
-          "type": "UInt"
-        }
-      },
-      "components": {
-        "66": {
-          "type": "title",
-          "name": "ST_OnlineApps_StoreEmbed3_Title",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "SID_STORE_TITLE",
-                "type": "StringId"
-              }
-            }
-          ]
-        },
-        "1500": {
-          "type": "button",
-          "name": "storeEmbed3P0",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1501": {
-          "type": "button",
-          "name": "storeEmbed3P1",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1502": {
-          "type": "button",
-          "name": "storeEmbed3P2",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1503": {
-          "type": "button",
-          "name": "storeEmbed3P3",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1504": {
-          "type": "button",
-          "name": "storeEmbed3P4",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1505": {
-          "type": "button",
-          "name": "storeEmbed3P5",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1506": {
-          "type": "button",
-          "name": "storeEmbed3P6",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1507": {
-          "type": "button",
-          "name": "storeEmbed3P7",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1508": {
-          "type": "button",
-          "name": "storeEmbed3P8",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1509": {
-          "type": "button",
-          "name": "storeEmbed3P9",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1510": {
-          "type": "button",
-          "name": "storeEmbed3P10",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
-              }
-            }
-          ]
-        },
-        "1511": {
-          "type": "button",
-          "name": "storeEmbed3P11",
-          "properties": {
-            "Visible": {
-              "value": 1,
-              "type": "UInt"
-            },
-            "Focusable": {
-              "value": 3,
-              "type": "UInt"
-            }
-          },
-          "rows": [
-            {
-              "Text": {
-                "value": "",
-                "type": "Text"
+              "PrimaryText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyText": {
+                "value": "",
+                "type": "Text"
+              },
+              "FrequencyVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IconVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "ProgressVisible": {
+                "value": false,
+                "type": "Bool"
+              },
+              "IsPlaying": {
+                "value": false,
+                "type": "Bool"
               }
             }
           ]

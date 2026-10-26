@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Writes robertn_store@0.8.1's application.xml and uiDescription.json for
+ * Writes robertn_store@0.8.2's application.xml and uiDescription.json for
  * iDrive 7 (uiDescriptions/ID7) and iDrive 8 (uiDescriptions/ID8) from the
  * tables below, so container and component ids, names, widgets and cells
  * stay in lockstep.
@@ -27,9 +27,10 @@
  *                                      Account, Components, its error, Remove,
  *                                      and the GitHub App's install page (QR
  *                                      code and address) while it needs one
- *  32  ST_OnlineApps_StoreAccounts     the updater's tokens: one list, a row
+ *  32  ST_OnlineApps_StoreAccounts     a status line (Add token's), the
+ *                                      updater's tokens: one list, a row
  *                                      (name | sources) per account, Sign in
- *                                      with GitHub
+ *                                      with GitHub, Add token (the speller)
  *  33  ST_OnlineApps_StoreAccountRemove the confirm step of an account's
  *                                      Remove: its name, its sources, Cancel,
  *                                      Remove
@@ -41,8 +42,6 @@
  *   8  ST_OnlineApps_StoreSourceRemove the confirm step of a source's Remove
  *   9  ST_OnlineApps_StoreRemove       the confirm step of a component's Remove:
  *                                      its name, Cancel, Remove
- *  31  ST_OnlineApps_StoreChannel      the channel of a GitHub source being
- *                                      added: its repo, Releases, Tags, Branch
  *  30  ST_OnlineApps_StorePhone        Phone access: On/Off, the page's QR code,
  *                                      its address, its error
  *
@@ -67,7 +66,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PKG = path.join(__dirname, '..', 'robertn_store@0.8.1');
+const PKG = path.join(__dirname, '..', 'robertn_store@0.8.2');
 const DIR = (hmi) => path.join(PKG, 'rhmiData', 'uiDescriptions', hmi);
 const ID7 = DIR('ID7');
 const ID8 = DIR('ID8');
@@ -142,8 +141,10 @@ const SOURCE = state(6, 'ST_OnlineApps_StoreSource', 15, 'Source', SOURCES.id, [
 ]);
 
 const ACCOUNTS = state(32, 'ST_OnlineApps_StoreAccounts', 41, 'Accounts', SOURCES.id, [
+    label(141, 'storeAccountsStatus'),
     list(134, 'storeAccountList'),
-    button(135, 'storeAccountSignIn', 'Sign in with GitHub')
+    button(135, 'storeAccountSignIn', 'Sign in with GitHub'),
+    button(142, 'storeAccountAddToken', 'Add token')
 ]);
 
 const WIDGET_STATES = [
@@ -178,12 +179,6 @@ const WIDGET_STATES = [
         label(97, 'storeRemoveName'),
         button(98, 'storeRemoveCancel', 'Cancel'),
         button(99, 'storeRemoveConfirm', 'Remove')
-    ]),
-    state(31, 'ST_OnlineApps_StoreChannel', 34, 'Channel', SOURCES.id, [
-        label(35, 'storeAddRepo'),
-        button(36, 'storeChannelReleases', 'Releases'),
-        button(37, 'storeChannelTags', 'Tags'),
-        button(38, 'storeChannelBranch', 'Branch')
     ]),
     state(30, 'ST_OnlineApps_StorePhone', 19, 'Phone access', MAIN.id, [
         row(130, 'storePhoneToggle', 'Phone access'),

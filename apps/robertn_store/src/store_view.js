@@ -240,15 +240,41 @@ function phoneAddress(web, fileText) {
 const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
 const BRANCH = /^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$/;
 const HTTPS = /^https:\/\/[^/\s]+\/\S*$/;
-const GITHUB_URL = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i;
+const GITHUB_HOST = /^(?:https?:\/\/)?(?:www\.)?github\.com(?:\/|$)/i;
+const GITHUB_REPO = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?(?:\/tree\/(\S+?))?\/?$/i;
 
-/* The source typed in the speller: { type: 'github', repo } for owner/repo
- * (or a github.com address of a repo), { type: 'https', url } for an https
- * address with a path (the scheme in lower case), null for anything else. */
+/* A branch name as git takes it, or null. */
+function branchName(text) {
+    let b;
+    try {
+        b = decodeURIComponent(String(text || '')).trim();
+    } catch (e) {
+        return null;
+    }
+    return BRANCH.test(b) && b.indexOf('..') < 0 && !/\/$|\.lock$/.test(b) ? b : null;
+}
+
+/* The source typed in the speller: { type: 'github', repo, channel? } for
+ * owner/repo or a github.com address of a repo (with or without https://,
+ * .git or a trailing slash; .../tree/<branch> gives the channel
+ * branch:<branch>), { type: 'https', url } for any other https address with
+ * a path (the scheme in lower case), null for anything else. Without a
+ * channel the updater reads the repo's releases, or its default branch when
+ * it has none. */
 function parseSource(text) {
     const t = String(text || '').trim();
-    const gh = GITHUB_URL.exec(t);
-    const repo = gh ? gh[1] : t;
+    const gh = GITHUB_REPO.exec(t);
+    if (gh) {
+        const branch = gh[2] === undefined ? '' : branchName(gh[2]);
+        if (!REPO.test(gh[1]) || branch === null) {
+            return null;
+        }
+        return Object.assign({ type: 'github', repo: gh[1] }, branch ? { channel: `branch:${branch}` } : {});
+    }
+    if (GITHUB_HOST.test(t)) {
+        return null;
+    }
+    const repo = t.replace(/\/$/, '').replace(/\.git$/i, '');
     if (REPO.test(repo)) {
         return { type: 'github', repo };
     }
@@ -256,31 +282,27 @@ function parseSource(text) {
     return HTTPS.test(url) && url.length <= 2048 ? { type: 'https', url } : null;
 }
 
-/* The channel for the chooser's Releases / Tags / Branch; a branch typed
- * empty is the repo's default branch ("branch"), one that is not a branch
- * name is null. */
-function channelOf(choice, branchText) {
-    if (choice !== 'branch') {
-        return choice;
+/* The Accounts page's status line: Add token's progress or refusal. */
+function tokenMessage(m) {
+    switch (m.kind) {
+    case 'checking': return 'Checking token';
+    case 'added': return `Added ${m.label}`;
+    case 'speller': return `Text entry failed: ${m.error}`;
+    case 'refused': return `Add token failed: ${m.error}`;
+    default: return '';
     }
-    const b = String(branchText || '').trim();
-    if (!b) {
-        return 'branch';
-    }
-    return BRANCH.test(b) && b.indexOf('..') < 0 && !/\/$|\.lock$/.test(b) ? `branch:${b}` : null;
 }
 
 /* The Sources page's status line. */
 function sourcesMessage(m) {
     switch (m.kind) {
     case 'invalid-source': return `Not owner/repo or https://host/path: ${m.text}`;
-    case 'invalid-branch': return `Not a branch name: ${m.text}`;
     case 'speller': return `Text entry failed: ${m.error}`;
     case 'refused': return `${m.op === 'source-remove' ? 'Remove' : 'Add source'} failed: ${m.error}`;
     default: return '';
     }
 }
 
-module.exports = { removable, hmiNames, notForUnit, parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { removable, hmiNames, notForUnit, parseSource, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };
