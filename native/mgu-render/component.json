@@ -5,6 +5,7 @@
   "title": "Renderer",
   "description": "Draws apps' screens on the GPU, over the HMI or inside the app's page",
   "mguProvides": "renderer",
+  "mguHmi": ["ID7", "ID8"],
   "optional": true,
   "uninstallable": true,
   "build": ["make", "check-target"],
