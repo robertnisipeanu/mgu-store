@@ -1,4 +1,4 @@
-# robertn_store 0.7.1
+# robertn_store 0.8.0
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
@@ -13,7 +13,8 @@ and iDrive 8 (`mguHmi`).
 ## Two sets of screens
 
 **Drawn by [mgu-render](../../native/mgu-render/README.md)** while it runs
-and speaks its own protocol (mgu-render/1): IterioDev's App Manager 2
+and speaks its own protocol (mgu-render/1), through its own socket (beside
+any other renderer installed, which draws its own apps): IterioDev's App Manager 2
 screens (his [mgu-app-store](https://github.com/IterioDev/mgu-app-store)
 `apps/oap-appmanager`, reused with his permission: the screens, their
 widgets and the kit they are drawn with, `src/am_*.js` and `src/kit_*.js`,
@@ -34,10 +35,9 @@ USB, Settings) beside:
   Available; the running phase (Downloading, Verifying, Building,
   Installing, Removing) with its progress; `Not installable` and why (a package of an id another source's app
   holds; installed, it shows as installed, with Remove and no update), `Not for this head unit` / `For
-  iDrive 8` (that version is not offered), the failure, `Replaces <tool>`, `Restart pending`; and
-  what can be done: Install, Update to, Try again, Replace <tool> (a
-  confirm step, then the privileged install with `replace`), Restart head
-  unit, Remove (a confirm step).
+  iDrive 8` (that version is not offered), the failure, `Restart pending`; and what can be done:
+  Install, Update to, Try again, Restart head unit, Remove (a confirm step). A second renderer
+  installs beside the first.
 - **Installed**: apps and head-unit tools, each with its update (a press on
   Update installs it) or state, and Update all.
 - **USB**: the components of the sticks' sources.
@@ -95,7 +95,7 @@ through it once. iDrive 8 has its own widget layout
 | `Display bridge` · `Restart pending` | nothing (installed; active after the next reboot) |
 | `Car Data` · `Not for this head unit` | nothing (the updater marks that version `compat: "no"`); *Remove?* for an installed, `uninstallable` one |
 | `DOOM` · `Failed, retry` | try again (the status line names the error) |
-| `Renderer` · `Install 0.1.1` | *Replace?* when another installed tool provides the same capability |
+| `Renderer` · `Install 0.2.0` | install it (beside another installed renderer) |
 
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,
 `Checking for updates`, `Restarting`, the last error; `Restart the head
@@ -228,15 +228,15 @@ tools/test_screens.js      every drawn screen at both scales: values, presses, f
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.7.1/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.8.0/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.7.1.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.7.1.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.8.0.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.8.0.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js
 (cd ../../native/mgu-render && make test) && node tools/shots.js <out dir>     # screenshots

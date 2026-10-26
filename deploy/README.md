@@ -190,8 +190,9 @@ tool itself):
   naming the build command;
 - the artifact's `component.json` is `{id, kind, version, title,
   description, files[{path, mode, sha256}], units[{name}], enable, recmgr,
-  restart}`, `dropins[{unit, name}]` (each read from `from`) and `internet`
-  with `uids` when the tool declares them;
+  restart}`, `dropins[{unit, name}]` (each read from `from`), and `internet`
+  with `uids`, `mguHmi`, `mguProvides` and `keepRunning` when the tool
+  declares them;
 - members are sorted, owned 0:0, with the listed modes (`component.json` and
   units 0644) and one mtime: `SOURCE_DATE_EPOCH` when set, else the packer's
   fixed one (`tools/oap_pack.js`, which also writes the gzip header's OS byte
@@ -241,8 +242,8 @@ node .\mgu-install.js usb-repo E:\ github:robertnisipeanu/mgu-store
 optional ones, and of those the renderer `mgu-render` (the Store draws its
 screens with it) and the internet uplink `mgu-uplink` (`--no-renderer`,
 `--no-uplink` leave them out; one the catalog does not list is skipped,
-saying so, and one the deploy tool refuses, such as a second renderer, is
-left out after the rest installs), downloads each
+saying so, and one the deploy tool refuses is left out after the rest
+installs), downloads each
 artifact and checks its size and sha256 against the catalog; a mismatch
 stops it before it connects. The deploy tool's own files come from the
 published `mgu-deploy` artifact, each checked against its manifest; nothing
@@ -307,7 +308,7 @@ and the stick's other files stay. A root-service package of another
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--replace] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--yes]
 mgu-deploy.sh status [--json]
 mgu-deploy.sh uninstall <id> [--yes]
 mgu-deploy.sh rollback <id> [--yes]
@@ -441,7 +442,8 @@ The program and its `package.json` go to `versions/<version>/`, the unit
 is the one his App Manager writes (root, `Restart=always`, the renderer
 waiting for `/run/wayland/wayland-0`), and the name goes into recmgr's
 lists. A fresh renderer starts once recmgr has loaded its entry, so at the
-next boot on a unit with the list. The tool provides its kind
+next boot on a unit with the list; a running one is not restarted by an
+update (`keepRunning`, as his App Manager does). The tool provides its kind
 ("Capabilities"). Any other `mguService`, a name that does not match its
 kind, a version that is not x.y.z, or a program that is not a 64-bit x86-64
 ELF of at most 16 MiB is refused.
@@ -452,25 +454,16 @@ restart and stop at once.
 
 ### Capabilities
 
-A tool may provide a capability only one installed tool can hold,
-`"mguProvides": "<name>"` in its `component.json` (`deploy/hu artifact`
-keeps it): every renderer binds `/run/mgu-renderd/renderd.sock` and the
-same ivi layer and surface ids, so `renderer` is one. A service package
-provides its kind. Installing a second provider is refused (exit 2:
-`... provides renderer, which mgu-renderd 1.1.0 provides; only one can be
-installed: install with --replace to replace mgu-renderd`), as are two in
-one install. A service package, or a tool providing a capability, whose
-unit file is on the unit but listed by no installed tool of ours (IterioDev's
-App Manager writes `mgu-renderd.service` for its own renderer) is refused,
-`--replace` or not: the other manager would write its unit back. With `--replace`, in one transaction with one snapshot of
-both: the installed provider is uninstalled (its running units stopped
-when recmgr has them, its units, links and recmgr names removed, its
-folder moved aside as `/var/opt/<id>.replaced-<pid>`), then the new one
-installs; once it is up the old folder goes. When the new one fails
-(refused, a failed health check), its units stop, its files go, the old
-folder comes back, the snapshot puts both tools' units, links and the
-recmgr list back, and the units the replace stopped start again (exit 1).
-`status --json` gives each tool's `provides`.
+A tool may say which capability it provides, `"mguProvides": "<name>"` in
+its `component.json` (`deploy/hu artifact` keeps it); a service package
+provides its kind. Providers of one capability install side by side:
+renderers keep to their own sockets and ivi ids, and mgu-render leaves the
+community socket to another installed renderer
+(`native/mgu-render/README.md`, "Beside other renderers"). A service
+package, or a tool providing a capability, whose unit file is on the unit
+but listed by no installed tool of ours (IterioDev's App Manager writes
+`mgu-renderd.service` for its own renderer) is refused: the other manager
+would write its unit back. `status --json` gives each tool's `provides`.
 
 ### The deploy tool as a tool
 
@@ -538,13 +531,21 @@ in a boot, the copy it saved first, `recmgr-at-boot.json`). For each unit in
 
 - running: restarted when recmgr has loaded its entry; otherwise it keeps
   running the previous version and `status` reports the tool under
-  `pending_reboot` until the next boot;
+  `pending_reboot` until the next boot. With `"keepRunning": true` in the
+  `component.json` (a renderer: stopping one with apps' surfaces up can
+  restart the head unit) it is never restarted by an update or a rollback:
+  it keeps the version it started with, reported pending with reason `the
+  new version runs from its next start`;
 - not running, on a fresh install: started under the same rule; otherwise
   left stopped and reported pending with reason `starts at the next boot`.
 
 A unit enabled as a `.socket` starts under the same rule, when recmgr has
 loaded its entry, else at the next boot (pending): the service it activates
-can stop like any other. That service is left to the socket. `restart: []`
+can stop like any other. That service is left to the socket. A running
+socket whose unit changed listens as the new unit says only once it
+restarts, which systemd refuses while its service runs: it is restarted
+when its service is stopped (and recmgr has its entry), else it changes
+with the next boot (pending). `restart: []`
 starts or restarts nothing. `oapcontroller` is never stopped or restarted: an
 artifact naming it is refused.
 
@@ -1080,10 +1081,11 @@ both or neither, unknown), compatibility (rhmiData, a declared `mguHmi`,
 a tool's, a malformed one), service packages (the renderer as a tool with
 its unit, link and recmgr entry, starting at the next boot; refusals; the
 tether on demand; uninstall; on an iDrive 8 without a recmgr list started
-at once with touch routing), capabilities (a second renderer refused, a
-replace that fails its health check rolled back with the renderer started
-again, a replace, an update of the provider itself, none left after an
-uninstall), iDrive 8 apps against made-up das files (queued, the boot unit,
+at once with touch routing), capabilities (a second renderer installed
+beside the first, two in one call, one left after the other's uninstall),
+`keepRunning` (a running service and its changed socket left as they are,
+pending the next start; with the service stopped the socket restarted; a
+renderer package not restarted), iDrive 8 apps against made-up das files (queued, the boot unit,
 `apply-pending` refused while MainApp runs, applied, an update and a
 removal with everything moved to the trash, a flat package repacked, a
 queued install dropped, refusals; with `MGU_TEST_ID8_PROV=<folder>` also

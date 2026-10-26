@@ -55,15 +55,14 @@ function rowState(row, busy) {
     }
 }
 
-/* What a press on the row does: install, replace (an installed tool that
- * provides the same capability, after a confirm step), remove (after a
- * confirm step), or nothing. */
+/* What a press on the row does: install, remove (after a confirm step), or
+ * nothing. */
 function rowAction(row, busy) {
     if ((busy && busy.id === row.id) || row.queued) {
         return null;
     }
     if (!notForUnit(row) && !row.blocked && (row.status === 'update' || row.status === 'available' || row.error)) {
-        return row.replaces ? 'replace' : 'install';
+        return 'install';
     }
     return row.uninstallable === true && row.installed ? 'remove' : null;
 }
@@ -71,12 +70,6 @@ function rowAction(row, busy) {
 /* Whether the component can be removed now (after a confirm step). */
 function removable(row, busy) {
     return row.uninstallable === true && !!row.installed && !row.queued && !(busy && busy.id === row.id);
-}
-
-/* The installed component a replace removes, by title. */
-function replacedTitle(row, components) {
-    const holder = (components || []).find((c) => c.id === row.replaces);
-    return holder ? holder.title : row.replaces;
 }
 
 /* The second column of the start screen's Apps and Head-unit tools rows,
@@ -288,6 +281,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { removable, hmiNames, notForUnit, replacedTitle, parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { removable, hmiNames, notForUnit, parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

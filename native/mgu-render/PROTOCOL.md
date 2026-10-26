@@ -1,10 +1,13 @@
 # mgu-render protocol
 
-Apps talk to mgu-render over the stream socket `/run/mgu-renderd/renderd.sock`
-(mode 0660, group `tm_oap_app`). Two renderers used that socket before
-mgu-render, with protocols that agree on most messages and clash on a few;
-mgu-render speaks both, unchanged, and a third dialect of its own that a
-client asks for explicitly.
+Apps talk to mgu-render over the stream socket `/run/mgu-render/render.sock`
+(mode 0660, group `tm_oap_app`), or over the community renderers' socket
+`/run/mgu-renderd/renderd.sock` while that is a link to it (README.md,
+"Beside other renderers"). Two renderers serve that socket themselves, with
+protocols that agree on most messages and clash on a few; mgu-render speaks
+both, unchanged, and a third dialect of its own that a client asks for
+explicitly. `js/mgu_render_client.js` connects to mgu-render's own socket and,
+when nothing listens there, to the community one.
 
 | Dialect | Who sends it | Reference |
 |---|---|---|
@@ -116,7 +119,7 @@ Daemon to client:
 
 | Type | Name | Payload |
 |---|---|---|
-| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI, 4 front gate, 8 pixmaps), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
+| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
 | 0x4d520102 | X_STATE | u32 mode, on screen, in front (the HMI shows the app's screen); sent whenever one changes |
 | 0x4d520103 | X_CCU | as upstream's CCU |
 
@@ -127,7 +130,8 @@ towards 32 MiB per app. An upload past them gets an ERROR and draws nothing.
 ## Placement
 
 - **layer** (every legacy client): the app's own Winston surface on its own
-  ivi layer (`0x4d470000 + slot`, surface `0x4d470100 + slot`) on top of the
+  ivi layer (`0x4d520000 + slot`, surface `0x4d520100 + slot`; the community
+  renderers use `0x4d47…`) on top of the
   centre screen, input region empty, placed by PLACE in screen pixels. Shown
   while: SHOW, at least one frame drawn, not silent for 3 s, in front (below),
   and no camera or video surface (`yield_surfaces`) visible.
@@ -150,8 +154,8 @@ nothing leaves them as they would be without it.
 ## Touch and controller
 
 - **Touch** is IterioDev's divert (`src/touch.c`): while a shown app claims
-  areas, one nftables rule sends the display's touch PDUs (UDP 30567) to the
-  daemon; a gesture that starts in a claim goes to that app as TOUCH, every
+  areas, one nftables rule (table `ip mgu_render`) sends the display's touch
+  PDUs (UDP 30567) to the daemon on port 30570; a gesture that starts in a claim goes to that app as TOUCH, every
   other PDU goes on to the HMI unchanged. A layer app that claims is hidden
   and gets CLOSED when the HMI is touched outside its claims; an embed app's
   page is the HMI's to leave, so it is not closed. A guard process removes the
@@ -159,9 +163,10 @@ nothing leaves them as they would be without it.
 - **Controller**: GRAB / X_GRAB keeps `/run/mgu-renderd/inputgate` fresh
   while the grabbing app is shown, and forwards what arrives on the abstract
   socket `@mgu-renderd-ccu` as CCU / X_CCU: the interface of upstream's
-  `mgu-inputgate.so`, which a separate install loads into the HMI. Without it
-  the HMI keeps the controller; apps read FrontCCU over SOME/IP themselves and
-  keep their RHMI focus proxies.
+  `mgu-inputgate.so`, which a separate install loads into the HMI. The socket
+  is bound only while an app grabs, and is upstream's renderer's when that one
+  holds it. Without the gate the HMI keeps the controller; apps read FrontCCU
+  over SOME/IP themselves and keep their RHMI focus proxies.
 
 ## Draw ops
 

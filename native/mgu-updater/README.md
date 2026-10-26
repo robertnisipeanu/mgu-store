@@ -132,9 +132,10 @@ commit). Without one: `releases` when the repo has a release, else
   (`sources.js` `serviceUnit`: `ExecStart=/var/opt/<id>/current/<exec>
   <args>`, root or `DynamicUser` with its groups, environment, runtime
   folder, `After=`, `Restart=always`), enabled for `wantedBy`, its recmgr
-  entry, restarted on install, and `mguProvides` from `provides`; such a
-  tool is optional and removable, and with `provides` requires `mgu-deploy`
-  0.3.0. A value that is not one plain word leaves the tool out.
+  entry, restarted on install (a renderer, `provides: renderer`, is not:
+  `keepRunning`), and `mguProvides` from `provides`; such a tool is
+  optional and removable, and with `provides` requires `mgu-deploy` 0.4.0.
+  A value that is not one plain word leaves the tool out.
 - A tool in `tools` with `preload` (`{library, unit, process, strikes: 2,
   checkAfterSeconds: 120, healthySeconds: 60}`) is a committed library the
   unit's process loads from the next head-unit start (`sources.js`
@@ -320,7 +321,7 @@ entry-point text, else its `productName`, else its name; the newest of an
 id wins, and its sha256 is taken as it is listed. A package whose
 `package.json` has `mguService` `renderer` or `tether` (IterioDev's root
 services) is a tool: the deploy tool installs it as one (deploy/README.md,
-"Service packages"), so it provides its kind and needs `mgu-deploy` 0.3.0
+"Service packages"), so it provides its kind and needs `mgu-deploy` 0.4.0
 or newer; another `mguService` is left out. An app without `mguHmi` is
 for the HMIs its rhmiData has a UI for. Each can be removed
 (`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`).
@@ -339,13 +340,12 @@ own manifest, docs/PUBLISHING.md). The unit is the one the deploy tool's
 listed, and its install is refused with the reason (`<title> is for
 iDrive 8; this head unit is iDrive 7`), as a requirement too.
 
-**Capabilities.** A tool may provide a capability only one installed tool
-holds (`mguProvides`; a renderer package provides `renderer`, a tether
-package `tether`). The installed provider of each is in `providers`, from
-the deploy tool's `status --json`; a component providing what another
-installed tool provides names it in `replaces`, and its install is refused
-unless it carries `"replace": true`, which is privileged: the deploy tool
-then installs it with `--replace`, which removes the other one first.
+**Capabilities.** A tool may say which capability it provides
+(`mguProvides`; a renderer package provides `renderer`, a tether package
+`tether`). The installed providers of each are in `providers`, from the
+deploy tool's `status --json`. Providers of one capability install side by
+side, renderers among them (`native/mgu-render/README.md`, "Beside other
+renderers").
 
 **First start.** The installers seed `sources.json` (the deploy tool's
 `updater-sources`, from `deploy/sources.json`) and never replace
@@ -491,9 +491,7 @@ removes one; each source shows the account that reads it, or *Sign-in
 needed*. Its Tokens list each token (label, account, the sources it reads)
 with Remove; a token is added by pasting it, or by Sign in with GitHub (shown
 while the state's `signin` is true; the code and the link show on the page). A component not for this head unit
-says so; one providing what another installed tool provides (a second
-renderer) has Replace, which asks *Replace <installed> with <it>?* and
-installs it with `replace`. Off by default; the Store turns it
+says so, and one providing a capability names it. Off by default; the Store turns it
 on and off (privileged `web` op) and shows its QR code.
 
 - **Server.** A child of the daemon, `node web.js serve`, as `web_uid`
@@ -524,8 +522,8 @@ on and off (privileged `web` op) and shows its QR code.
 - **Requests.** The server talks to the socket with the web secret
   (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
   `source-add` (`github` or `https` only), `source-remove`, `token-add`,
-  `token-remove`, `login-start`, `login-cancel` and `install` with
-  `"replace": true` (no other install), each with only its own fields; the daemon checks their values.
+  `token-remove`, `login-start` and `login-cancel`, each with only its own
+  fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
   is the daemon's own regular file; the journals of `mgu-updater`,
   `mgu-uplink` and `mgu-app-fallback` (the deploy tool's unit; its own
@@ -585,7 +583,7 @@ each request, and whenever it changes (at most every 250 ms):
 ```json
 { "type": "state", "updater": { "version": "0.4.0" }, "online": true, "privacy": "patched",
   "unit": { "hmi": "ID7", "firmware": "BMW MGU P18_23w44.2-1-3 mgu-high" },
-  "providers": { "renderer": { "id": "mgu-renderd", "version": "1.1.0" } },
+  "providers": { "renderer": [ { "id": "mgu-render", "version": "0.2.0" }, { "id": "mgu-renderd", "version": "1.1.2" } ] },
   "catalog": { "commit": "…", "checkedAt": 1792620000000, "checking": false, "error": null },
   "sources": [ { "id": "idrive7-apps", "type": "github", "label": "someone/idrive7-apps",
     "builtin": false, "usb": false, "channel": "releases", "status": "ok", "error": null,
@@ -602,7 +600,7 @@ each request, and whenever it changes (at most every 250 ms):
     "installed": "1.0.0", "size": 2080457, "status": "update", "source": "idrive7-apps",
     "build": null, "optional": false, "uninstallable": true, "revision": null,
     "description": "…", "author": "…", "icon": "/var/opt/mgu-updater/state/icons/…png",
-    "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null, "replaces": null,
+    "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null,
     "listedId": null, "blocked": null, "pendingReboot": false, "queued": false, "error": null } ] }
 ```
 
@@ -615,10 +613,10 @@ each request, and whenever it changes (at most every 250 ms):
   `description` and `author` its source's (`''` when it gives none);
   `icon` the kept icon's path, or null (Sources, "Icons").
 - `unit`: the head unit (`hmi` `ID7`, `ID8` or null, `firmware` its build
-  string), null until the deploy tool says. `providers`: the installed tool
+  string), null until the deploy tool says. `providers`: the installed tools
   providing each capability. A component's `mguHmi`, `compat`, `provides`
-  (its capability), `service` (`renderer` or `tether` for a service
-  package) and `replaces` ("Head units", "Capabilities").
+  (its capability) and `service` (`renderer` or `tether` for a service
+  package) ("Head units", "Capabilities").
 - `busy.phase`: `download`, `build` (a source package or a repo's build
   script), `verify`, `install`, `uninstall`, or `check` (a tool the
   updater runs on, "Tools the updater runs on"); `busy.op`: `install` or
@@ -650,7 +648,6 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 
 | Request | Does |
 |---|---|
-| `{"op":"install","id","replace":true}` | installs a tool that replaces the installed one providing the same capability |
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one) and its records in `origins.json`; the ids `aliases.json` keeps for it stay with the apps installed under them |
@@ -673,7 +670,7 @@ and the apps' group of `oap_root`; written again within 15 s when the Store's
 uid changes or the file is gone, as after MainApp's crash recovery reinstalls
 the Store) and to `web_secret` for the phone page (`web_uid`).
 Every OAP app can reach the socket; only these two can change sources or
-tokens, sign in, remove or replace components or read journals. While the
+tokens, sign in, remove components or read journals. While the
 phone page is on, `web-url` beside `updater-secret` holds its hotspot
 address with the access token (one line, the Store's own 0400 file) for the
 Store's QR code; it is removed when the page goes off, rewritten when the
@@ -752,8 +749,8 @@ releases, branches, tags, contents, tarballs, the device flow), with
   index (packages kept by sha256, one that does not match left out, a kept
   one installed after the server dropped it, one no longer listed
   removed); a renderer package listed and installed as a tool providing
-  `renderer`, a second renderer refused, refused to replace without the
-  secret, replacing with it, and none left after its uninstall;
+  `renderer`, a second renderer installed beside it, one left after the
+  second's uninstall and none after both;
 - an App Manager index version 2: listed with no package downloaded, an
   unknown kind left out, an app without `mguHmi` for iDrive 8, a renderer
   as a tool, an install that downloads and keeps the package, one whose

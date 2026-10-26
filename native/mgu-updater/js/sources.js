@@ -239,7 +239,7 @@ function safeRel(p) {
 const PYTHON_TOOL = 'mgu-python';
 const PYTHON_MIN = '1.0.0';
 const DEPLOY_SDK_MIN = '0.3.2';
-const DEPLOY_PROVIDES_MIN = '0.3.0';
+const DEPLOY_PROVIDES_MIN = '0.4.0';
 
 /* {id}, {version} and {dir} (the app's folder) in a build's strings; any
  * other brace is refused. */
@@ -432,14 +432,14 @@ function repoCatalog(readFile, commit, revision, listDir) {
                     if (script && script.python) {
                         needs[PYTHON_TOOL] = PYTHON_MIN;
                     }
-                    if (script && script.sdk) {
+                    if (provides) {
+                        // the deploy tool that installs providers side by side (and all the below)
+                        needs['mgu-deploy'] = DEPLOY_PROVIDES_MIN;
+                    } else if (script && script.sdk) {
                         needs['mgu-deploy'] = DEPLOY_SDK_MIN;
                     } else if (rc.kind === 'tool' && (rc.preload !== undefined || (!service && c.dropins !== undefined))) {
                         // the deploy tool that installs a drop-in
                         needs['mgu-deploy'] = DEPLOY_SDK_MIN;
-                    } else if (provides) {
-                        // the deploy tool that knows capabilities
-                        needs['mgu-deploy'] = DEPLOY_PROVIDES_MIN;
                     }
                     const requires = Object.assign(needs, pick('requires') || {});
                     return list.concat([catalogLib.checkExtras({
@@ -569,6 +569,10 @@ function packService(entry, byPath) {
     };
     if (entry.mguProvides) {
         manifest.mguProvides = entry.mguProvides;
+    }
+    // an update leaves a running renderer running (native/mgu-render/README.md)
+    if (entry.mguProvides === 'renderer') {
+        manifest.keepRunning = true;
     }
     if (entry.mguHmi) {
         manifest.mguHmi = entry.mguHmi;
@@ -926,7 +930,7 @@ function indexEntry(item, url) {
         title: text(item.title, 80), description: text(item.description, 1000), author: text(item.author, 80),
         mguHmi: item.mguHmi !== undefined ? item.mguHmi : service ? undefined : ['ID8'],
         mguProvides: service || undefined, service,
-        requires: service ? { 'mgu-deploy': '0.3.0' } : undefined,
+        requires: service ? { 'mgu-deploy': '0.4.0' } : undefined,
         icon: item.icon, iconSha256: item.iconSha256,
         artifact: { name: `${item.id}@${item.version}.tgz`, size: item.size, sha256: String(item.sha256).toLowerCase(), url, index: 2 },
         uninstallable: true
@@ -1384,7 +1388,7 @@ function packageInfo(members) {
 
 /* A package's catalog entry from its own members: an app, or a root-service
  * package (mguService: renderer or tether) as the tool the deploy tool
- * makes of it, which provides its kind and needs mgu-deploy 0.3.0 or
+ * makes of it, which provides its kind and needs mgu-deploy 0.4.0 or
  * newer to install. An app that names no mguHmi is
  * for the HMIs its rhmiData has a UI for. */
 function packageEntry(members, data, artifact, ext) {
@@ -1406,7 +1410,7 @@ function packageEntry(members, data, artifact, ext) {
         mguHmi: pkg.mguHmi !== undefined ? pkg.mguHmi : service ? undefined : hmi,
         mguProvides: service || undefined, service,
         // the deploy tool that installs a service package as a tool
-        requires: service ? { 'mgu-deploy': '0.3.0' } : undefined,
+        requires: service ? { 'mgu-deploy': '0.4.0' } : undefined,
         artifact: Object.assign({ name: `${pkg.name}@${pkg.version}.${ext}`, size: data.length,
             sha256: crypto.createHash('sha256').update(data).digest('hex') }, artifact),
         uninstallable: true

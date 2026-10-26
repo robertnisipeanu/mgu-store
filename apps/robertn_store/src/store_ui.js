@@ -18,14 +18,14 @@
  * each nav, grid and list item, on each filter cell (acts). The acts:
  * { do: 'tab', tab }, { do: 'filter', filter }, { do: 'open', page },
  * { do: 'back' }, { do: 'check' }, { do: 'install', id }, { do: 'update-all' },
- * { do: 'remove', id }, { do: 'replace', id }, { do: 'restart' },
+ * { do: 'remove', id }, { do: 'restart' },
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
  * { do: 'channel', channel }, { do: 'sign-in' }, { do: 'sign-in-cancel' },
  * { do: 'phone' }.
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    notForUnit, replacedTitle, removable } = require('./store_view.js');
+    notForUnit, removable } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -209,7 +209,7 @@ function settingsView(m) {
             right: 'chevron', act: { do: 'open', page: { name: 'phone' } } });
     }
     const unit = st && st.unit;
-    const renderer = st && st.providers && st.providers.renderer;
+    const renderers = st && st.providers && Array.isArray(st.providers.renderer) ? st.providers.renderer : [];
     return {
         note: { text: m.note || '' },
         repos: srcs ? { items: srcs.map(sourceRow), empty: 'None' } : { items: [], empty: '' },
@@ -218,7 +218,7 @@ function settingsView(m) {
         connLabel: { text: access.length ? 'ACCESS' : 'HEAD UNIT' },
         unit: { text: unit && unit.hmi ? [hmiNames([unit.hmi]), unit.firmware].filter(Boolean).join(' · ') : '' },
         versions: { text: [st && st.updater ? `Updater ${st.updater.version}` : '', m.version ? `Store ${m.version}` : '',
-            renderer ? `Renderer ${renderer.id} ${renderer.version}` : ''].filter(Boolean).join(' · ') },
+            renderers.length ? `Renderer ${renderers.map((r) => `${r.id} ${r.version}`).join(', ')}` : ''].filter(Boolean).join(' · ') },
         checkNow: m.connected ? button(st.catalog && st.catalog.checking ? 'Checking' : 'Check now', { do: 'check' },
             { vicon: 'refresh', style: 'outline', size: 26 }) : hidden,
         restart: canRestart(m) ? button('Restart head unit', { do: 'open', page: { name: 'confirm', kind: 'restart' } },
@@ -268,9 +268,6 @@ function appView(m, id) {
     if (c.error && !mine) {
         notes.push([`Failed: ${c.error}`, RED]);
     }
-    if (c.replaces && avail && !notForUnit(c)) {
-        notes.push([`Replaces ${replacedTitle(c, comps(m))}`, DIM]);
-    }
     if (c.pendingReboot) {
         notes.push(['Restart pending', AMBER]);
     }
@@ -285,9 +282,6 @@ function appView(m, id) {
     if (action === 'install') {
         v.primary = button(c.error ? 'Try again' : c.status === 'update' ? `Update to ${target(c)}` : 'Install', { do: 'install', id: c.id },
             { vicon: c.error ? 'refresh' : 'arrowDown', style: 'primary', color: BLUE });
-    } else if (action === 'replace') {
-        v.primary = button(`Replace ${replacedTitle(c, comps(m))}`, { do: 'open', page: { name: 'confirm', kind: 'replace', id: c.id } },
-            { vicon: 'arrowDown', style: 'primary', color: BLUE });
     } else if (c.pendingReboot && canRestart(m)) {
         v.primary = button('Restart head unit', { do: 'open', page: { name: 'confirm', kind: 'restart' } },
             { vicon: 'refresh', style: 'primary', color: BLUE });
@@ -310,9 +304,6 @@ function confirmView(m, page) {
     if (page.kind === 'remove') {
         title = c ? `Remove ${c.title} ${c.installed || ''}?`.replace(' ?', '?') : 'Remove?';
         now = button('Remove', { do: 'remove', id: page.id }, { vicon: 'trash', style: 'primary', color: RED });
-    } else if (page.kind === 'replace') {
-        title = c ? `Replace ${replacedTitle(c, all)} with ${c.title} ${c.version}?` : 'Replace?';
-        now = button('Replace', { do: 'replace', id: page.id }, { vicon: 'arrowDown', style: 'primary', color: BLUE });
     } else if (page.kind === 'restart') {
         title = 'Restart head unit?';
         now = button('Restart', { do: 'restart' }, { vicon: 'refresh', style: 'primary', color: BLUE });

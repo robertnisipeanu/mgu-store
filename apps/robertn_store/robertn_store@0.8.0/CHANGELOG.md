@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+
+A component providing what another installed tool provides installs
+beside it, as any other: no Replace step (renderers run side by side,
+mgu-render 0.2.0). Settings names every installed renderer. The drawn
+screens connect to mgu-render's own socket, and to the community one when
+nothing listens there. Needs mgu-updater 0.6.0.
+
 ## 0.7.1
 
 An app another source's app holds the id of shows `Id <id>` on its page:

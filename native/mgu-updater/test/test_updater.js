@@ -23,7 +23,7 @@
  *    sources.json, and the Store 0.3's view of the state;
  *  - the head unit and compatibility (mguHmi), root-service packages and
  *    apps from an App Manager index (https), and two tools providing one
- *    capability (refused, replaced with the secret, uninstalled);
+ *    capability (installed side by side, uninstalled one after the other);
  *  - an App Manager index version 2 listed without downloads, its packages
  *    checked on install, and the icons it, a folder catalog and a repo's
  *    mgu-store.json name, and those a package carries (a stick, a version 1 index);
@@ -2101,9 +2101,9 @@ function testUnitServices(certs, pubDir) {
     fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
     const deployed = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^(install|uninstall)/.test(l));
     // the deploy tool that installs service packages
-    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.0'));
-    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.3.0' }));
-    fs.symlinkSync('versions/0.3.0', path.join(opt, 'mgu-deploy', 'current'));
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.4.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.4.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.4.0' }));
+    fs.symlinkSync('versions/0.4.0', path.join(opt, 'mgu-deploy', 'current'));
     // npm-format packages the App Manager's way
     const npmPkg = (name, pkg, files) => {
         const d = path.join(T, 'src', `idx-${name}`);
@@ -2174,7 +2174,7 @@ function testUnitServices(certs, pubDir) {
             ok('service: a renderer package is listed as a tool providing renderer, compatibility unknown',
                 comp('mgu-renderd').kind === 'tool' && comp('mgu-renderd').provides === 'renderer' && comp('mgu-renderd').service === 'renderer' &&
                 comp('mgu-renderd').compat === 'unknown' && comp('mgu-renderd').uninstallable === true && comp('mgu-renderd').title === 'GPU renderer' &&
-                u.src.get('idx').components.find((c) => c.id === 'mgu-renderd').requires['mgu-deploy'] === '0.3.0',
+                u.src.get('idx').components.find((c) => c.id === 'mgu-renderd').requires['mgu-deploy'] === '0.4.0',
                 JSON.stringify(comp('mgu-renderd')));
             ok('compat: an app whose rhmiData is iDrive 8 only is not for this iDrive 7; one declaring both is',
                 JSON.stringify(comp('oap-cardash').mguHmi) === '["ID8"]' && comp('oap-cardash').compat === 'no' && comp('both_app').compat === 'yes',
@@ -2191,33 +2191,31 @@ function testUnitServices(certs, pubDir) {
         .then((err) => {
             ok('service: it installs from the kept package (no longer served) through the deploy tool',
                 err === null && /mgu-renderd@1\.1\.0\.tgz --yes/.test(deployed()[0]), `${err} ${deployed()}`);
-            ok('provides: the state names the installed provider, and the tool that would replace it',
-                JSON.stringify(st().providers) === '{"renderer":{"id":"mgu-renderd","version":"1.1.0"}}' &&
-                comp('my-render').provides === 'renderer' && comp('my-render').replaces === 'mgu-renderd' && comp('mgu-renderd').replaces === null,
+            ok('provides: the state names the installed provider',
+                JSON.stringify(st().providers) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"}]}' &&
+                comp('my-render').provides === 'renderer' && !('replaces' in comp('my-render')),
                 JSON.stringify([st().providers, comp('my-render')]));
-            return ask(sock, { op: 'install', id: 'my-render' });
-        })
-        .then((err) => {
-            ok('provides: a second provider is refused unless replacing', err === 'My renderer provides renderer, which mgu-renderd provides: replace mgu-renderd to install it' &&
-                deployed().length === 1, err);
             ok('requires: a requirement providing what another installed tool provides counts as met, another one not',
                 u.requirementMet('my-render', '0.1.0') && !u.requirementMet('both_app', '9.0.0'));
-            return ask(sock, { op: 'install', id: 'my-render', replace: true });
+            return ask(sock, { op: 'install', id: 'my-render' });
         })
+        .then((err) => until(st, () => !st().busy && comp('my-render').status === 'installed', 30000, 'my-render installed').then(() => err))
         .then((err) => {
-            ok('provides: replacing is privileged', err === 'forbidden', err);
-            return priv({ op: 'install', id: 'my-render', replace: true });
-        })
-        .then(() => until(st, () => !st().busy && comp('my-render').status === 'installed', 30000, 'my-render installed'))
-        .then(() => {
-            ok('provides: with the secret the deploy tool replaces it', /^install --artifact .*my-render@0\.1\.0\.tgz --replace --yes$/.test(deployed()[1]) &&
-                comp('mgu-renderd').status === 'available' && JSON.stringify(st().providers) === '{"renderer":{"id":"my-render","version":"0.1.0"}}' &&
-                !u.origins['mgu-renderd'] && u.origins['my-render'].source === 'cat', `${deployed()} ${JSON.stringify(st().providers)}`);
+            ok('provides: a second renderer installs beside the first, without --replace', err === null &&
+                /^install --artifact .*my-render@0\.1\.0\.tgz --yes$/.test(deployed()[1]) && comp('mgu-renderd').status === 'installed' &&
+                JSON.stringify(st().providers) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"},{"id":"my-render","version":"0.1.0"}]}' &&
+                u.origins['mgu-renderd'] && u.origins['my-render'].source === 'cat', `${err} ${deployed()} ${JSON.stringify(st().providers)}`);
             return priv({ op: 'uninstall', id: 'my-render' });
         })
         .then(() => until(st, () => !st().busy && comp('my-render').status === 'available', 30000, 'my-render removed'))
         .then(() => {
-            ok('provides: after the uninstall no tool provides it', JSON.stringify(st().providers) === '{}' && comp('my-render').replaces === null);
+            ok('provides: after its uninstall the first renderer is the one provider',
+                JSON.stringify(st().providers) === '{"renderer":[{"id":"mgu-renderd","version":"1.1.0"}]}', JSON.stringify(st().providers));
+            return priv({ op: 'uninstall', id: 'mgu-renderd' });
+        })
+        .then(() => until(st, () => !st().busy && comp('mgu-renderd').status === 'available', 30000, 'mgu-renderd removed'))
+        .then(() => {
+            ok('provides: after both uninstalls no tool provides it', JSON.stringify(st().providers) === '{}');
             process.env.FAKE_UNIT_HMI = 'ID8';
             return u.refresh();
         })
@@ -2257,9 +2255,9 @@ function testIndexV2(certs, pubDir) {
     fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
     fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
     const deployed = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^(install|uninstall)/.test(l));
-    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.0'));
-    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.3.0' }));
-    fs.symlinkSync('versions/0.3.0', path.join(opt, 'mgu-deploy', 'current'));
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.4.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.4.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.4.0' }));
+    fs.symlinkSync('versions/0.4.0', path.join(opt, 'mgu-deploy', 'current'));
     const png = (n, fill) => Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(n, fill)]);
     const pkg = (file, pj) => {
         const d = path.join(T, 'src', `v2-${file}`);
@@ -2365,7 +2363,7 @@ function testIndexV2(certs, pubDir) {
             const r = comp('v2render');
             ok('index v2: kind renderer is a tool providing renderer, needing the deploy tool that installs service packages',
                 r.kind === 'tool' && r.provides === 'renderer' && r.service === 'renderer' && r.compat === 'unknown' &&
-                u.src.get('car-apps').components.find((c) => c.id === 'v2render').requires['mgu-deploy'] === '0.3.0', JSON.stringify(r));
+                u.src.get('car-apps').components.find((c) => c.id === 'v2render').requires['mgu-deploy'] === '0.4.0', JSON.stringify(r));
             ok('index v2: mguHmi in an entry counts', comp('v2both').compat === 'yes');
             ok('icons: kept by their sha256 under the state folder, readable by anyone, the bytes the index names',
                 a.icon === path.join(iconDir, `${sha256(appIcon)}.png`) && fs.readFileSync(a.icon).equals(appIcon) &&
@@ -2450,10 +2448,10 @@ function testPythonRepo() {
     fs.writeFileSync(path.join(sdkDir, 'package.json'), '{"name":"oap-sdk","version":"9.8.7"}\n');
     const deploySh = path.join(M, 'mgu-deploy.sh');
     fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
-    // the deploy tool that hands out the module is installed
-    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.2'));
-    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.2', 'component.json'), JSON.stringify({ id: 'mgu-deploy', version: '0.3.2' }));
-    fs.symlinkSync('versions/0.3.2', path.join(opt, 'mgu-deploy', 'current'));
+    // the deploy tool that hands out the module and installs providers side by side is installed
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.4.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.4.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', version: '0.4.0' }));
+    fs.symlinkSync('versions/0.4.0', path.join(opt, 'mgu-deploy', 'current'));
     const lease = path.join(M, 'lease.json');
     const leaseText = JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] });
     fs.writeFileSync(path.join(T, 'pub', 'py-asset.txt'), 'downloaded data\n');
@@ -2574,7 +2572,7 @@ function testPythonRepo() {
                 entryOf('netapp').script.network === true, JSON.stringify(entryOf('a1')));
             ok('service: listed as an optional, removable tool providing its capability; a unit field with a line break is refused',
                 comp('svc').kind === 'tool' && comp('svc').optional === true && comp('svc').uninstallable === true &&
-                entryOf('svc').mguProvides === 'renderer' && !comp('evil_svc').id && /evil_svc: service must be/.test(src('pyrepo').error || ''),
+                entryOf('svc').mguProvides === 'renderer' && JSON.stringify(entryOf('svc').requires) === '{"mgu-deploy":"0.4.0"}' && !comp('evil_svc').id && /evil_svc: service must be/.test(src('pyrepo').error || ''),
                 JSON.stringify([comp('svc'), src('pyrepo').error]));
             const titled = sourcesLib.serviceUnit(entryOf('title_svc'));
             const gated = sourcesLib.preloadFiles(Object.assign({}, entryOf('gate'), { title: 'G\nExecStartPre=/bin/evil' }));
@@ -2638,8 +2636,8 @@ function testPythonRepo() {
             try {
                 c = JSON.parse(fs.readFileSync(path.join(opt, 'svc', 'current', 'component.json'), 'utf8'));
             } catch (e) { /* checked below */ }
-            ok('service: installed as a tool kit: its program, unit, recmgr entry, restart and capability', comp('svc').status === 'installed' &&
-                c.mguProvides === 'renderer' && JSON.stringify(c.units) === '[{"name":"svc.service"}]' &&
+            ok('service: installed as a tool kit: its program, unit, recmgr entry, restart, capability, kept running by updates', comp('svc').status === 'installed' &&
+                c.mguProvides === 'renderer' && c.keepRunning === true && JSON.stringify(c.units) === '[{"name":"svc.service"}]' &&
                 JSON.stringify(c.enable) === '[{"unit":"svc.service","target":"oapcontroller.service"}]' &&
                 JSON.stringify(c.recmgr) === '["svc"]' && JSON.stringify(c.restart) === '["svc.service"]' &&
                 fs.statSync(path.join(opt, 'svc', 'current', 'svc-bin')).mode & 0o100, JSON.stringify([comp('svc'), c]));

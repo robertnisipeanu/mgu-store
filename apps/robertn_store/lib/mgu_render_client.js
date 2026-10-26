@@ -34,7 +34,10 @@ const net = require('net');
 const fs = require('fs');
 const EventEmitter = require('events');
 
-const SOCKET = process.env.MGU_RENDERD_SOCKET || '/run/mgu-renderd/renderd.sock';
+// mgu-render's own socket, then the community renderers' one: an mgu-render before 0.2.0, or one still running on
+// the socket unit it started with, listens only there (a renderer that is not mgu-render answers READY alone)
+const SOCKETS = process.env.MGU_RENDERD_SOCKET ? [process.env.MGU_RENDERD_SOCKET] :
+    ['/run/mgu-render/render.sock', '/run/mgu-renderd/renderd.sock'];
 const M = { HELLO: 1, PLACE: 2, SHOW: 3, ATLAS: 4, RAMP: 5, LAYER: 6, FRAME: 7, DROP_LAYER: 8, CLAIM: 9, IMAGE: 10, DROP_IMAGE: 11, FPS: 12 };
 const X = { MODE: 0x4d520001, GRAB: 0x4d520002, PIXMAP: 0x4d520003, PIXELS: 0x4d520004, PALETTE: 0x4d520005,
     READY: 0x4d520101, STATE: 0x4d520102, CCU: 0x4d520103 };
@@ -104,9 +107,11 @@ class RenderClient extends EventEmitter {
         this.fd = null;               // file sink (opts.file): every message, for mgu-render --replay
     }
 
-    static available(path) { try { return fs.statSync(path || SOCKET).isSocket(); } catch (e) { return false; } }
+    static available(path) {
+        return (path ? [path] : SOCKETS).some((p) => { try { return fs.statSync(p).isSocket(); } catch (e) { return false; } });
+    }
 
-    connect() {
+    connect(at) {
         const hello = msg(M.HELLO, Buffer.concat([Buffer.from(this.appId), Buffer.from([0]), Buffer.from('proto=mgu-render/1')]));
         if (this.opts.file) {
             this.fd = fs.openSync(this.opts.file, 'w');
@@ -116,7 +121,9 @@ class RenderClient extends EventEmitter {
             setImmediate(() => this.emit('ready', this.screen, null));
             return this;
         }
-        const s = net.createConnection(this.opts.socket || SOCKET);
+        const paths = this.opts.socket ? [this.opts.socket] : SOCKETS, i = at || 0;
+        let next = false;           // this path has no renderer: the next one is tried at once
+        const s = net.createConnection(paths[i]);
         this.sock = s;
         s.on('connect', () => {
             this.connected = true;
@@ -125,12 +132,17 @@ class RenderClient extends EventEmitter {
             this._write(hello);
         });
         s.on('data', (d) => this._data(d));
-        s.on('error', (e) => { if (!this.errLogged) { this.errLogged = true; this.log.warn('mgu-render: ' + e.message); } });
+        s.on('error', (e) => {
+            if (!this.connected && i + 1 < paths.length) { next = true; return; }
+            if (!this.errLogged) { this.errLogged = true; this.log.warn('mgu-render: ' + e.message); }
+        });
         s.on('close', () => {
             const was = this.ready;
             this.connected = this.ready = this.native = false; this.sock = null; this.waiting = false;
             if (was) { this.log.warn('mgu-render: connection closed'); this.emit('close'); }
-            if (!this.closed) this.retry = setTimeout(() => { this.retry = null; this.connect(); }, 3000);
+            if (this.closed) return;
+            if (next) this.connect(i + 1);
+            else this.retry = setTimeout(() => { this.retry = null; this.connect(); }, 3000);
         });
         return this;
     }
@@ -395,4 +407,4 @@ class RenderClient extends EventEmitter {
     }
 }
 
-module.exports = { RenderClient, SOCKET, imageOp, OP_IMAGE };
+module.exports = { RenderClient, SOCKETS, imageOp, OP_IMAGE };

@@ -22,9 +22,8 @@
  * status --json says the head unit is $FAKE_UNIT_HMI (ID7 without it) and
  * lists every installed tool with what it provides (component.json
  * mguProvides). A root-service package (package.json with mguService) is
- * installed as the tool of its name, providing its kind; a tool providing
- * what another installed tool provides is refused (exit 2) without
- * --replace, which removes that tool first.
+ * installed as the tool of its name, providing its kind; providers of one
+ * capability install side by side.
  * mgu-uplink stands for the internet: once its current version runs, the
  * lease at $FAKE_LEASE exists ($FAKE_LEASE.good copied) unless that
  * version's component.json says "test_broken": true.
@@ -153,15 +152,6 @@ if (svc) {
 }
 if (fs.existsSync(path.join(tmp, 'component.json'))) {
     const c = JSON.parse(fs.readFileSync(path.join(tmp, 'component.json'), 'utf8'));
-    const holder = c.mguProvides && tools().find((t) => t.id !== c.id && t.mguProvides === c.mguProvides);
-    if (holder && process.argv.indexOf('--replace') < 0) {
-        process.stderr.write(`mgu-deploy: ${c.id} provides ${c.mguProvides}, which ${holder.id} provides\n`);
-        process.exit(2);
-    }
-    if (holder) {
-        cp.execFileSync('rm', ['-rf', path.join(process.env.TOOL_ROOT, holder.id)]);
-        console.log(`${holder.id} replaced`);
-    }
     const root = path.join(process.env.TOOL_ROOT, c.id);
     const dest = path.join(root, 'versions', c.version);
     mkdirp(dest);

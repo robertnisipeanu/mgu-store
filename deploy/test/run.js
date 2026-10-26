@@ -2656,16 +2656,15 @@ function testMguInstall() {
             ['mgu-uplink', 'mgu-render'].every((id) => root.status().components.some((x) => x.id === id)) &&
             r.stdout.endsWith('Restart the head unit to finish setup (a normal ignition cycle does it): the renderer and the uplink start then.\n'),
             r.out.slice(-2000));
-        // another renderer on a second unit: the renderer is left out, the rest installs
+        // another renderer on a second unit: the renderer installs beside it
         const unit2 = donorRoot();
         const otherOpts = { bin: installBin(unit2), api: gh.api };
         r = unit2.run(['install', '--artifact', namedTool('other-render', '1.0.0', (c) => { c.mguProvides = 'renderer'; }), '--yes']);
         r = r.status === 0 ? mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, otherOpts)) : r;
         const os2 = unit2.status();
-        check('mgu-install first-install: beside another renderer the renderer is left out, the rest installs', r.status === 0 &&
-            ['robertn_store', 'mgu-uplink', 'other-render'].every((id) => os2.components.some((x) => x.id === id)) &&
-            !os2.components.some((x) => x.id === 'mgu-render') && r.out.includes('mgu-render@0.1.0.tgz left out') &&
-            !/the renderer/.test(r.stdout), r.out.slice(-3000));
+        check('mgu-install first-install: beside another renderer the renderer installs too', r.status === 0 &&
+            ['robertn_store', 'mgu-uplink', 'other-render', 'mgu-render'].every((id) => os2.components.some((x) => x.id === id)) &&
+            !r.out.includes('left out'), r.out.slice(-3000));
         const noRender = JSON.parse(fs.readFileSync(rel.files[rel.catalogIndex], 'utf8'));
         noRender.components = noRender.components.filter((c) => c.id !== 'mgu-render');
         const noRenderFile = path.join(rel.dir, 'no-render-catalog.json');
@@ -2835,7 +2834,7 @@ function testMguInstallUsb() {
         const svcEntry = (readJson(path.join(svcStick, 'mgu-repo', 'local', 'catalog.json')).components || [])[0] || {};
         check('mgu-install usb-repo: a renderer package is listed as the tool it installs as, providing renderer', rs.status === 0 &&
             svcEntry.id === 'mgu-renderd' && svcEntry.kind === 'tool' && svcEntry.mguProvides === 'renderer' && svcEntry.uninstallable === true &&
-            JSON.stringify(svcEntry.requires) === '{"mgu-deploy":"0.3.0"}',
+            JSON.stringify(svcEntry.requires) === '{"mgu-deploy":"0.4.0"}',
             `${rs.out}\n${JSON.stringify(svcEntry)}`);
         const badHmi = mguInstall(['usb-repo', svcStick, rhmiApp('badhmi', '1.0.0', null, { pkg: { mguHmi: 'ID7' } })], opts);
         check('mgu-install usb-repo: a malformed mguHmi is refused', badHmi.status === 2 && badHmi.stderr.includes('mguHmi must list'), badHmi.out);
@@ -3041,10 +3040,9 @@ function testServices() {
     write(his.p('etc/systemd/system/mgu-renderd.service'), '[Service]\nExecStart=/var/opt/appmanager/renderer/mgu-renderd\n');
     const h0 = his.hash();
     const fr = his.run(['install', '--artifact', art, '--yes']);
-    const fr2 = his.run(['install', '--artifact', art, '--replace', '--yes']);
-    check('service: a renderer whose unit another manager installed is refused, --replace or not, nothing changed',
-        fr.status === 2 && fr2.status === 2 && fr.out.includes('mgu-renderd 1.1.0: mgu-renderd.service is installed, but by no tool of ours') &&
-        his.hash().hash === h0.hash, fr.out + fr2.out);
+    check('service: a renderer whose unit another manager installed is refused, nothing changed',
+        fr.status === 2 && fr.out.includes('mgu-renderd 1.1.0: mgu-renderd.service is installed, but by no tool of ours') &&
+        his.hash().hash === h0.hash, fr.out);
     const u = root.run(['uninstall', 'mgu-renderd', '--yes']);
     check('service: uninstall removes the tool, its unit, link and recmgr entry', u.status === 0 &&
         !fs.existsSync(root.p('var/opt/mgu-renderd')) && !fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
@@ -3153,40 +3151,84 @@ function testProvides() {
     const root = fakeRoot(opts);
     const ren = root.run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--yes']);
     const prov = providerArtifact('0.2.0');
-    const h0 = root.hash((rel) => rel.startsWith('var/opt/mgu-deploy/backups'));
     const r = root.run(['install', '--artifact', prov, '--yes']);
-    check('provides: a second renderer is refused while one is installed, nothing changed', ren.status === 0 && r.status === 2 &&
-        r.out.includes('fixture-tool 0.2.0 provides renderer, which mgu-renderd 1.1.0 provides; only one can be installed: ' +
-        'install with --replace to replace mgu-renderd') && root.hash((rel) => rel.startsWith('var/opt/mgu-deploy/backups')).hash === h0.hash, r.out);
-    const two = fakeRoot().run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--artifact', prov, '--yes']);
-    check('provides: two providers in one install are refused', two.status === 2 && two.out.includes('both provide renderer'), two.out);
-
-    // the replacement crash-loops: the renderer comes back
-    write(root.unitFile('fixture-tool.service.crash'), `${root.p('var/opt/fixture-tool/current')} versions/0.2.0`);
-    const n = root.systemctlCalls().length;
-    const bad = root.run(['install', '--artifact', prov, '--replace', '--yes']);
-    const calls = root.systemctlCalls().slice(n);
-    check('provides: a failed replace rolls back: the renderer is back and running, the new tool gone', bad.status === 1 &&
-        fs.existsSync(root.p('var/opt/mgu-renderd/current/mgu-renderd')) && fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
-        fs.existsSync(root.p('etc/systemd/system/late.target.wants/mgu-renderd.service')) &&
-        /mgu-renderd/.test(fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8')) &&
-        !fs.existsSync(root.p('var/opt/fixture-tool')) && !fs.readdirSync(root.p('var/opt')).some((x) => x.includes('.replaced-')) &&
-        calls.indexOf('stop mgu-renderd.service') >= 0 && calls.lastIndexOf('start mgu-renderd.service') > calls.indexOf('stop mgu-renderd.service') &&
-        root.status().components.some((c) => c.id === 'mgu-renderd' && c.provides === 'renderer'), `${bad.out}\n${calls.join('; ')}`);
-    fs.unlinkSync(root.unitFile('fixture-tool.service.crash'));
-    const ok = root.run(['install', '--artifact', prov, '--replace', '--yes']);
     const st = root.status();
-    check('provides: --replace uninstalls the installed provider and installs the new one', ok.status === 0 &&
-        ok.out.includes('mgu-renderd replaced by fixture-tool') && !fs.existsSync(root.p('var/opt/mgu-renderd')) &&
-        !fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
-        !fs.readdirSync(root.p('var/opt')).some((x) => x.includes('.replaced-')) &&
-        st.components.filter((c) => c.provides === 'renderer').map((c) => c.id).join() === 'fixture-tool', `${ok.out}\n${JSON.stringify(st.components)}`);
-    const up = root.run(['install', '--artifact', providerArtifact('0.3.0'), '--yes']);
-    check('provides: the provider itself updates without --replace', up.status === 0, up.out);
+    check('provides: a second renderer installs beside the first, nothing of the first changed; both provide renderer',
+        ren.status === 0 && r.status === 0 && fs.existsSync(root.p('var/opt/mgu-renderd/current/mgu-renderd')) &&
+        fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
+        !root.systemctlCalls().some((c) => /^(stop|restart) mgu-renderd/.test(c)) &&
+        st.components.filter((c) => c.provides === 'renderer').map((c) => c.id).sort().join() === 'fixture-tool,mgu-renderd',
+        `${r.out}\n${JSON.stringify(st.components)}`);
+    const two = fakeRoot().run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--artifact', prov, '--yes']);
+    check('provides: two providers install in one call', two.status === 0, two.out);
     const un = root.run(['uninstall', 'fixture-tool', '--yes']);
-    check('provides: uninstall leaves no provider', un.status === 0 && !root.status().components.some((c) => c.provides), un.out);
-    const again = root.run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--yes']);
-    check('provides: with none installed, a renderer installs without --replace', again.status === 0, again.out);
+    check('provides: uninstalling one leaves the other', un.status === 0 &&
+        root.status().components.filter((c) => c.provides === 'renderer').map((c) => c.id).join() === 'mgu-renderd', un.out);
+}
+
+/* keepRunning (mgu-render, a renderer package): an update leaves the running service running */
+function testKeepRunning() {
+    const root = fakeRoot({ recmgr: ['fixture-tool'] });
+    const art = (version, socketLine) => {
+        const dir = fixtureCopy(version, (c) => { c.keepRunning = true; });
+        if (socketLine) {
+            fs.appendFileSync(path.join(dir, 'systemd', 'fixture-tool.socket'), `# ${socketLine}\n`);
+        }
+        const out = fs.mkdtempSync(path.join(T, 'art-'));
+        const r = hu(['artifact', dir, '--out', out]);
+        if (r.status !== 0) {
+            throw new Error(`deploy/hu artifact failed: ${r.stderr}`);
+        }
+        return path.join(out, `fixture-tool@${version}.tgz`);
+    };
+    const fresh = root.run(['install', '--artifact', art('0.2.0'), '--yes']);
+    check('keepRunning: kept by deploy/hu artifact; a fresh install starts the socket', fresh.status === 0 &&
+        readJson(root.p('var/opt/fixture-tool/current/component.json')).keepRunning === true &&
+        root.systemctlCalls().includes('start fixture-tool.socket'), fresh.out);
+    fs.writeFileSync(root.unitFile('fixture-tool.service.active'), 'active\n');
+    let n = root.systemctlCalls().length;
+    const up = root.run(['install', '--artifact', art('0.3.0', 'changed'), '--yes']);
+    let calls = root.systemctlCalls().slice(n);
+    check('keepRunning: an update leaves the running service and its changed socket as they are, pending the next start',
+        up.status === 0 && fs.readlinkSync(root.p('var/opt/fixture-tool/current')) === 'versions/0.3.0' &&
+        !calls.some((c) => /^(stop|restart|start) fixture-tool/.test(c)) &&
+        root.status().pending_reboot.some((p) => p.id === 'fixture-tool' && p.reason === 'the new version runs from its next start') &&
+        up.out.includes('fixture-tool.service keeps running the version it started with'), `${up.out}\n${calls.join('; ')}`);
+    fs.writeFileSync(root.unitFile('fixture-tool.service.active'), 'inactive\n');
+    n = root.systemctlCalls().length;
+    const idle = root.run(['install', '--artifact', art('0.4.0', 'changed again'), '--yes']);
+    calls = root.systemctlCalls().slice(n);
+    check('keepRunning: with the service stopped, a changed socket restarts at once; the service is left to it',
+        idle.status === 0 && calls.includes('restart fixture-tool.socket') && !calls.some((c) => /fixture-tool\.service$/.test(c) && /^(start|restart|stop)/.test(c)),
+        `${idle.out}\n${calls.join('; ')}`);
+
+    const back = fakeRoot({ recmgr: ['fixture-tool'] });
+    back.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    back.run(['install', '--artifact', art('0.3.0'), '--yes']);
+    fs.writeFileSync(back.unitFile('fixture-tool.service.active'), 'active\n');
+    n = back.systemctlCalls().length;
+    const rb = back.run(['rollback', 'fixture-tool', '--yes']);
+    calls = back.systemctlCalls().slice(n);
+    check('keepRunning: a rollback to a version without it leaves the running service running too', rb.status === 0 &&
+        fs.readlinkSync(back.p('var/opt/fixture-tool/current')) === 'versions/0.2.0' && !calls.some((c) => /^(stop|restart) fixture-tool/.test(c)),
+        `${rb.out}\n${calls.join('; ')}`);
+
+    const svc = fakeRoot({ recmgr: ['mgu-renderd'], active: 'mgu-renderd.service' });
+    svc.run(['install', '--artifact', serviceArtifact('renderer', '1.1.0'), '--yes']);
+    n = svc.systemctlCalls().length;
+    const sup = svc.run(['install', '--artifact', serviceArtifact('renderer', '1.1.2'), '--yes']);
+    calls = svc.systemctlCalls().slice(n);
+    check('keepRunning: a running renderer package is not restarted by its update, as his App Manager does', sup.status === 0 &&
+        fs.readlinkSync(svc.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2' && !calls.some((c) => /^(stop|restart) mgu-renderd/.test(c)) &&
+        svc.status().pending_reboot.some((p) => p.id === 'mgu-renderd' && p.reason === 'the new version runs from its next start'),
+        `${sup.out}\n${calls.join('; ')}`);
+    const bad = root.run(['install', '--artifact', (() => {
+        const dir = fixtureCopy('0.5.0', (c) => { c.keepRunning = 'yes'; });
+        const out = fs.mkdtempSync(path.join(T, 'art-'));
+        hu(['artifact', dir, '--out', out]);
+        return path.join(out, 'fixture-tool@0.5.0.tgz');
+    })(), '--yes']);
+    check('keepRunning: anything but true or false is refused', bad.status === 2 && bad.out.includes('keepRunning is true or false'), bad.out);
 }
 
 function testId8Apps() {
@@ -3327,6 +3369,7 @@ const SUITES = [
     testServices,
     testProvides,
     testDropins,
+    testKeepRunning,
     testId8Apps
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);

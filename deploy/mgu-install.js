@@ -14,7 +14,7 @@
  * deploy tool, app-privacy, the updater, the Store's source package, the
  * renderer the Store draws its screens with and the internet uplink;
  * --no-renderer and --no-uplink leave those two out, and one the deploy tool
- * refuses, such as a second renderer, is left out), checks each file against the
+ * refuses is left out), checks each file against the
  * catalog's size and sha256, sends them to the unit and installs them with
  * the release's own deploy tool, which builds the Store on the unit. Newer
  * installed components are kept; running it again is safe. --token adds a
@@ -478,7 +478,7 @@ function sayList(names) {
 /* On the unit, in the staging folder: the release's deploy tool installs
  * every artifact (itself among them; newer installed ones kept) and seeds
  * the updater's sources when it has none; then each of WITH on its own, so
- * one it refuses (exit 2: another renderer is installed) is left out and the
+ * one it refuses (exit 2) is left out and the
  * rest stays; one that fails fails the run. */
 const RUN_SH = `set -e
 S=$(cd "$(dirname "$0")" && pwd)
@@ -827,7 +827,7 @@ function localFolder(dest, inputs) {
         const entry = { id: d.id, kind: d.kind, title: d.title, description: d.description, version: d.version,
             build: d.build, uninstallable: d.kind === 'app' || d.service ? true : undefined, mguHmi: d.mguHmi, mguProvides: d.mguProvides,
             // the deploy tool that installs a service package as a tool
-            requires: d.service ? { 'mgu-deploy': '0.3.0' } : undefined };
+            requires: d.service ? { 'mgu-deploy': '0.4.0' } : undefined };
         byId.set(d.id, { entry, file: `${d.id}@${d.version}.${d.mgu ? 'mgu' : 'tgz'}`, data });
         say(`  ${d.id} ${d.version}  ${path.basename(file)}`);
     });

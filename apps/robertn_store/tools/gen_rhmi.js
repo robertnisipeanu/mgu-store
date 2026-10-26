@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Writes robertn_store@0.7.1's application.xml and uiDescription.json for
+ * Writes robertn_store@0.8.0's application.xml and uiDescription.json for
  * iDrive 7 (uiDescriptions/ID7) and iDrive 8 (uiDescriptions/ID8) from the
  * tables below, so container and component ids, names, widgets and cells
  * stay in lockstep.
@@ -41,9 +41,6 @@
  *   8  ST_OnlineApps_StoreSourceRemove the confirm step of a source's Remove
  *   9  ST_OnlineApps_StoreRemove       the confirm step of a component's Remove:
  *                                      its name, Cancel, Remove
- *  46  ST_OnlineApps_StoreReplace      the confirm step of a component that
- *                                      replaces an installed tool: the two,
- *                                      Cancel, Replace
  *  31  ST_OnlineApps_StoreChannel      the channel of a GitHub source being
  *                                      added: its repo, Releases, Tags, Branch
  *  30  ST_OnlineApps_StorePhone        Phone access: On/Off, the page's QR code,
@@ -70,7 +67,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PKG = path.join(__dirname, '..', 'robertn_store@0.7.1');
+const PKG = path.join(__dirname, '..', 'robertn_store@0.8.0');
 const DIR = (hmi) => path.join(PKG, 'rhmiData', 'uiDescriptions', hmi);
 const ID7 = DIR('ID7');
 const ID8 = DIR('ID8');
@@ -181,11 +178,6 @@ const WIDGET_STATES = [
         label(97, 'storeRemoveName'),
         button(98, 'storeRemoveCancel', 'Cancel'),
         button(99, 'storeRemoveConfirm', 'Remove')
-    ]),
-    state(46, 'ST_OnlineApps_StoreReplace', 47, 'Replace?', MAIN.id, [
-        label(48, 'storeReplaceName'),
-        button(49, 'storeReplaceCancel', 'Cancel'),
-        button(50, 'storeReplaceConfirm', 'Replace')
     ]),
     state(31, 'ST_OnlineApps_StoreChannel', 34, 'Channel', SOURCES.id, [
         label(35, 'storeAddRepo'),
