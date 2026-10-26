@@ -238,7 +238,7 @@ function safeRel(p) {
  * the one that knows capabilities (mguProvides). */
 const PYTHON_TOOL = 'mgu-python';
 const PYTHON_MIN = '1.0.0';
-const DEPLOY_SDK_MIN = '0.3.1';
+const DEPLOY_SDK_MIN = '0.3.2';
 const DEPLOY_PROVIDES_MIN = '0.3.0';
 
 /* {id}, {version} and {dir} (the app's folder) in a build's strings; any
@@ -293,7 +293,7 @@ function oneLine(text) {
 }
 const WORD = /^[A-Za-z0-9_.@:\/=,+%-]{1,200}$/;
 const UNIT = /^[A-Za-z0-9_.@-]{1,100}\.(service|target|socket|mount|path)$/;
-// a drop-in for a unit the tool does not own (deploy tool 0.3.1)
+// a drop-in for a unit the tool does not own (deploy tool 0.3.2)
 const DROPIN_UNIT = /^[A-Za-z0-9_.@-]{1,100}\.(service|socket|target|mount|path|timer)$/;
 const DROPIN_NAME = /^[A-Za-z0-9_.@-]{1,100}\.conf$/;
 function checkService(sv) {

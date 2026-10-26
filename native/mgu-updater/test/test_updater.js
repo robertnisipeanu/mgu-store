@@ -2451,9 +2451,9 @@ function testPythonRepo() {
     const deploySh = path.join(M, 'mgu-deploy.sh');
     fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
     // the deploy tool that hands out the module is installed
-    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.1'));
-    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.1', 'component.json'), JSON.stringify({ id: 'mgu-deploy', version: '0.3.1' }));
-    fs.symlinkSync('versions/0.3.1', path.join(opt, 'mgu-deploy', 'current'));
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.2'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.2', 'component.json'), JSON.stringify({ id: 'mgu-deploy', version: '0.3.2' }));
+    fs.symlinkSync('versions/0.3.2', path.join(opt, 'mgu-deploy', 'current'));
     const lease = path.join(M, 'lease.json');
     const leaseText = JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] });
     fs.writeFileSync(path.join(T, 'pub', 'py-asset.txt'), 'downloaded data\n');
@@ -2568,7 +2568,7 @@ function testPythonRepo() {
                 a1.version === '1.2.0' && a1.title === 'App one' && a1.build === 'unit' && comp('netapp').version === '2.0.0' &&
                 !st().components.some((c) => c.id === 'skipme' || c.id === 'notanapp'), JSON.stringify(st().components));
             ok('pattern: a python build with sdk requires mgu-python and the deploy tool that hands out the module',
-                JSON.stringify(entryOf('a1').requires) === JSON.stringify({ 'mgu-python': '1.0.0', 'mgu-deploy': '0.3.1' }) &&
+                JSON.stringify(entryOf('a1').requires) === JSON.stringify({ 'mgu-python': '1.0.0', 'mgu-deploy': '0.3.2' }) &&
                 entryOf('a1').script.python === 'kit/build.py' && entryOf('a1').script.args[0] === 'a1' &&
                 entryOf('a1').script.output === 'dist/a1@1.2.0.tgz' && entryOf('a1').script.network === false &&
                 entryOf('netapp').script.network === true, JSON.stringify(entryOf('a1')));
@@ -2629,7 +2629,7 @@ function testPythonRepo() {
         .then((why) => {
             ok('preload: listed with what it needs; refused while no installed tool provides it, naming one that does',
                 comp('gate').kind === 'tool' && JSON.stringify(entryOf('gate').mguNeeds) === '["renderer"]' &&
-                entryOf('gate').requires['mgu-deploy'] === '0.3.1' && why === 'Gate needs a renderer: install Test renderer first',
+                entryOf('gate').requires['mgu-deploy'] === '0.3.2' && why === 'Gate needs a renderer: install Test renderer first',
                 JSON.stringify([why, entryOf('gate')]));
             return ask(conf.socket, { op: 'install', id: 'svc' }).then(() => settle('svc'));
         })

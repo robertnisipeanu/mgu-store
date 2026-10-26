@@ -1273,7 +1273,7 @@ class Updater {
 
     /* The deploy tool's SDK donor (`sdk-donor --json`: { path, module }), for
      * a repo's build script: the donor bundle, and the folder of the oap-sdk
-     * module generated from it (mgu-deploy 0.3.1 and newer; else null). */
+     * module generated from it (mgu-deploy 0.3.2 and newer; else null). */
     sdkDonor() {
         return new Promise((resolve, reject) => {
             cp.execFile(this.conf.deploy, ['sdk-donor', '--json'], { timeout: 300000, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {

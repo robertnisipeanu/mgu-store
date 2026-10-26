@@ -212,7 +212,7 @@ function runBuild(opts) {
             });
             if (entry.script.sdk) {
                 if (!sdk) {
-                    throw new Error('no oap-sdk module for the build (needs mgu-deploy 0.3.1 or newer)');
+                    throw new Error('no oap-sdk module for the build (needs mgu-deploy 0.3.2 or newer)');
                 }
                 const to = path.join(repo, entry.script.sdk);
                 mkdirp(to, 0o755);

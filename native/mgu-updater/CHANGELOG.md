@@ -3,10 +3,10 @@
 ## 0.5.2
 
 - `mgu-repo.json` `apps`: every subfolder of a folder holding the manifest (`app.json`) is an app, its id the subfolder's name.
-- Build scripts in Python (`build.python`), under the `mgu-python` tool, which such an app requires; `build.sdk` puts the oap-sdk module generated from the donor in the repo copy first (needs `mgu-deploy` 0.3.1); `build.output` names the package the build leaves in the repo; `{id}`, `{version}` and `{dir}` are filled in.
+- Build scripts in Python (`build.python`), under the `mgu-python` tool, which such an app requires; `build.sdk` puts the oap-sdk module generated from the donor in the repo copy first (needs `mgu-deploy` 0.3.2); `build.output` names the package the build leaves in the repo; `{id}`, `{version}` and `{dir}` are filled in.
 - `build.network` (true, or app ids): the build downloads through an HTTP proxy run as the fetch uid for it alone, serving the build uid with a per-build password, public addresses on ports 443 (CONNECT) and 80 only; without the uplink the build fails, saying it needs internet.
 - `tools` with `service`: a committed program installed as a tool whose systemd unit the updater writes from the entry, with its recmgr entry and `mguProvides`.
-- `tools` with `preload`: a committed library a stock unit's process loads from the next head-unit start, behind a boot guard (after idrive7-apps' controller gate installer): the guard, its check and the unit's drop-in are written by the updater; it needs `mgu-deploy` 0.3.1.
+- `tools` with `preload`: a committed library a stock unit's process loads from the next head-unit start, behind a boot guard (after idrive7-apps' controller gate installer): the guard, its check and the unit's drop-in are written by the updater; it needs `mgu-deploy` 0.3.2.
 - `needs` / `mguNeeds` (capabilities): an install is refused until an installed tool provides each, naming the ones the sources list; the last installed provider of a capability an installed component needs cannot be removed. State rows carry `needs`.
 
 ## 0.5.1
