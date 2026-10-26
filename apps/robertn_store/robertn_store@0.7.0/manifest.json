@@ -58,7 +58,15 @@
     "de.bmw.infotainment.certification.Certification": "*",
     "de.bmw.infotainment.hmi.usecasemanagement.UseCaseInstance": "*",
     "de.bmw.infotainment.hmi.usecasemanagement.UseCaseProvider": "*",
-    "de.bmw.infotainment.hmi.usecasemanagement.UseCaseRegistry": "*"
+    "de.bmw.infotainment.hmi.usecasemanagement.UseCaseRegistry": "*",
+    "de.bmw.infotainment.controlelements.FrontCCU": {
+      "instances": [
+        "1"
+      ],
+      "attributes": {
+        "statusRotaryEncoderState": "rs"
+      }
+    }
   },
   "services": {
     "de.bmw.infotainment.telematic.oap.AppStatus": {

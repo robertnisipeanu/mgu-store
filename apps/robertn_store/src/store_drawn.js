@@ -19,7 +19,7 @@
  * draws the focus ring there, a press on one presses the item. Touch in the
  * renderer's claimed area hits the items themselves; a drag scrolls. With
  * the HMI's controller gate (the renderer's `controller`), the dial moves
- * the focus and a push presses.
+ * the focus and a push presses; in embed mode without it, FrontCCU does.
  *
  * Emits 'mode' (null, 'layer' or 'embed') when what the renderer offers
  * changes (null: the widget screens show), and 'page-focus' (the page) when
@@ -40,6 +40,10 @@ const FPS = 30;                         // frames a second at most: the screens 
 const KEEPALIVE_MS = 1000;              // the renderer hides an app silent for 3 s
 const CLOSED_RESHOW_MS = 700;           // a touch outside that left the page where it was
 const DRAG_PX = 14;
+// FrontCCU frontRotaryEncoderPushButton pushed (short, long): by name or ordinal
+const PUSHED = ['DREHGEBER_KURZ_GEDRUECKT', 'DREHGEBER_LANG_GEDRUECKT', 1, 2];
+const RELEASED = ['KEINE_BETAETIGUNG', 0];
+const DIAL_MAX_STEP = 24;
 
 class Drawn extends EventEmitter {
     /**
@@ -74,6 +78,8 @@ class Drawn extends EventEmitter {
         this.keepalive = null;
         this.touch = null;
         this.ccu = null;
+        this.fccu = null;
+        this.embedProxies = false;          // the HMI routes presses to embed proxies
         this.pics = new Map();              // picture file -> { img, used }
         this.decoding = new Set();
         this.gpu.on('ready', (screen, info) => this._ready(info));
@@ -253,9 +259,18 @@ class Drawn extends EventEmitter {
     }
 
     proxyPress(depth, i) {
+        this._proxyInput();
         if (depth === this.stack.length && this.items[i]) {
             this.focus = i;
             this.host.act(this.items[i].act);
+        }
+    }
+
+    /* An HMI that presses the page template's buttons drives embed mode
+     * itself: FrontCCU then stands down (frontCcu). */
+    _proxyInput() {
+        if (this.mode === 'embed') {
+            this.embedProxies = true;
         }
     }
 
@@ -396,20 +411,49 @@ class Drawn extends EventEmitter {
         });
     }
 
-    /* The controller gate's events: the dial counter moves the focus, a push
-     * presses the focused item. */
+    /* A FrontCCU.statusRotaryEncoderState sample. In embed mode without the
+     * controller gate the dial and push come from here while the page has
+     * the HMI's focus, until the HMI presses one of the page template's
+     * buttons itself (the emulator's HMI routes them neither focus nor
+     * presses). An invalid counter keeps the last valid
+     * one; a push value other than pushed or released keeps the last state;
+     * a new sequence number while pushed is a new push. */
+    frontCcu(s) {
+        const last = this.fccu;
+        const op = s && s.frontRotaryEncoderOperation;
+        const push = s && s.frontRotaryEncoderPushButton;
+        const seq = s && s.frontSequenceNumberOperatingElement;
+        this.fccu = {
+            knob: typeof op === 'number' && op !== 0xffff ? op : (last ? last.knob : 0xffff),
+            press: PUSHED.indexOf(push) >= 0 ? true : RELEASED.indexOf(push) >= 0 ? false : !!(last && last.press),
+            seq: PUSHED.indexOf(push) >= 0 ? seq : last && last.seq
+        };
+        if (last && this.mode === 'embed' && !this.controller && !this.embedProxies && !this.focusLost) {
+            this._dial(last.knob, this.fccu.knob, PUSHED.indexOf(push) >= 0 &&
+                (!last.press || (seq !== undefined && seq !== last.seq)));
+        }
+    }
+
     _ccu(e) {
         const last = this.ccu;
         this.ccu = e;
-        if (!last || !this.on_) {
+        if (last) {
+            this._dial(last.knob, e.knob, e.press && e.press !== last.press && e.seq !== last.seq);
+        }
+    }
+
+    /* The dial counter moves the focus, a push presses the focused item. A
+     * jump past DIAL_MAX_STEP detents is a stale or garbage sample. */
+    _dial(from, to, pushed) {
+        if (!this.on_) {
             return;
         }
-        if (e.knob !== 0xffff && last.knob !== 0xffff && e.knob !== last.knob) {
-            const steps = ((e.knob - last.knob + 0x18000) % 0x10000) - 0x8000;
+        const steps = ((to - from + 0x18000) % 0x10000) - 0x8000;
+        if (to !== 0xffff && from !== 0xffff && steps !== 0 && Math.abs(steps) <= DIAL_MAX_STEP) {
             this.focus = Math.max(0, Math.min(this.items.length - 1, (this.focus < 0 ? 0 : this.focus + steps)));
             this.render();
         }
-        if (e.press && e.press !== last.press && e.seq !== last.seq && this.items[this.focus]) {
+        if (pushed && this.items[this.focus]) {
             this.host.act(this.items[this.focus].act);
         }
     }

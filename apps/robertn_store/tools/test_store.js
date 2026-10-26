@@ -156,8 +156,19 @@ class RenderClient extends EventEmitter {
     grab(on) { this.grabbing = on; }
     frame(rec) { frames.push(rec); return true; }
 }
+// FrontCCU: the sample callback the app subscribes with
+let frontCcu = null;
+const someipBuilders = {
+    buildTypedProxy: (iface, instance) => Promise.resolve({
+        iface, instance,
+        init: () => Promise.resolve(),
+        waitUntilAvailable: () => Promise.resolve(),
+        statusRotaryEncoderState: { subscribe: (cb) => { frontCcu = cb; return Promise.resolve(); } }
+    })
+};
 const stubs = {
     'oap-sdk/src/core/OnlineApp.js': OnlineApp,
+    'oap-sdk/src/someip/someipBuilders': someipBuilders,
     'oap-sdk/src/logging/logging': { getSDKLogger: () => quiet },
     './client.js': { UpdaterClient: Client },
     './mgu_render_client.js': { RenderClient }
@@ -192,7 +203,7 @@ let checks = 0;
 const eq = (got, want, msg) => { checks += 1; assert.deepStrictEqual(got, want, msg); };
 
 function run() {
-    return app._setupRhmi().then(() => {
+    return app._setupRhmi().then(() => app._setupController()).then(() => {
         app._setVisible(true);
         // no updater yet, and it has not run since this Store was installed: no secret
         app._client.emit('down');
@@ -702,6 +713,59 @@ function runDrawn() {
     }).then(() => {
         eq(sent.map(secretless), [{ channel: 'tags', op: 'source-add', type: 'github', repo: 'o/r' }]);
         eq(drawn.stack.length, 1);
+        // embed: FrontCCU's dial moves the focus and its push presses (the template's buttons get neither)
+        eq(typeof frontCcu, mode === 'embed' ? 'function' : 'object', 'FrontCCU subscribed for embed only');
+        if (mode === 'embed') {
+            const ccu = (op, push, seq) => frontCcu({ frontRotaryEncoderOperation: op, frontSequenceNumberOperatingElement: seq || 0,
+                frontRotaryEncoderPushButton: push || 'KEINE_BETAETIGUNG' });
+            eq(drawn.embedProxies, true, 'the stand-in HMI pressed an embed proxy above');
+            ccu(0);
+            drawn.focus = 5;
+            ccu(2);
+            eq(drawn.focus, 5, 'FrontCCU stands down while the HMI drives the embed proxies');
+            drawn.embedProxies = false;
+            drawn.setTab('store');
+            ccu(65534);
+            drawn.focus = 5;
+            ccu(1);
+            eq(drawn.focus, 8, 'three detents over the counter\'s wrap');
+            ccu(65535);
+            ccu(0);
+            eq(drawn.focus, 7, 'an invalid counter keeps the last valid one');
+            ccu(100);
+            eq(drawn.focus, 7, 'a jump past 24 detents is ignored');
+            ccu(99);
+            eq(drawn.focus, 6);
+            drawn.focusLost = true;
+            ccu(100);
+            eq(drawn.focus, 6, 'nothing while an HMI popup has the focus');
+            drawn.focusLost = false;
+            ccu(101);
+            eq(drawn.focus, 7);
+            reset();
+            ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
+            ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
+            ccu(101, 'SIGNAL_UNGUELTIG', 5);
+            ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
+            eq(drawn.top(), { name: 'app', id: 'doom' }, 'a push presses the focused tile (DOOM)');
+            eq(states.length, 1, 'once while held, an invalid sample in between');
+            ccu(101);
+            drawn.pop();
+            drawn.focus = 7;
+            reset();
+            ccu(101, 'DREHGEBER_KURZ_GEDRUECKT', 1);
+            drawn.pop();
+            drawn.focus = 7;
+            ccu(101, 'DREHGEBER_KURZ_GEDRUECKT', 2);
+            eq(states.filter((x) => x.indexOf('open') === 0).length, 2, 'a new sequence number while pushed is a new push');
+            ccu(101);
+            drawn.pop();
+            drawn.focus = 5;
+            drawn.controller = true;
+            ccu(103);
+            eq(drawn.focus, 5, 'with the controller gate the renderer\'s dial counts instead');
+            drawn.controller = false;
+        }
         // a popup over a layer page hides the layer
         if (mode === 'layer') {
             app._states[host(1)].emit('focus', { focus: false });

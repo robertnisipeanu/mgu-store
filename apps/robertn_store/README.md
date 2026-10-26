@@ -51,7 +51,11 @@ state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
 `ST_OnlineApps_StoreEmbed1..3` on the renderer's page template), so BACK
 leaves it. Each host state's focusable buttons stand for what the page has
 to press, in focus order: the controller moves the HMI's focus over them
-and the drawn page shows it as a ring; a press presses it. A page's focus
+and the drawn page shows it as a ring; a press presses it. In embed mode,
+until the HMI reports a press on one of the page template's buttons (the
+emulator's HMI routes them neither focus nor presses), the dial and push come from
+FrontCCU (`statusRotaryEncoderState`, the manifest's proxy) while the page
+has the HMI's focus, and move the ring themselves. A page's focus
 starts on what it is for, a tab's on the side menu. Touch in the box goes
 to the drawn items; a drag scrolls a grid or list. With the HMI's
 controller gate loaded (the renderer's `controller`), the dial and push
@@ -254,9 +258,9 @@ The Store requires mgu-render (`release.json`), so an install puts it on.
 
 ## Needs the head unit
 
-- iDrive 7: the embed host states on the page template (proxies' focus and
-  touch inside it; the emulator's HMI compositor did not answer the
-  renderer); the drawn screens' scale (0.65) for reading in the car.
+- iDrive 7: whether the HMI routes focus and presses to the page
+  template's buttons, else FrontCCU's dial and push there; touch inside the
+  page template; the drawn screens' scale (0.65) for reading in the car.
 - iDrive 8: the widget layout (`LT_State_Wide_List`, `LT_Button_MediaEntry_1Row`
   cells, the QR picture label), the layer host states' proxies and focus
   events, `mapEntryState` switching, the manifest's proxies under MainApp-21,

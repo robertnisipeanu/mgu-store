@@ -53,6 +53,7 @@ const os = require('os');
 const path = require('path');
 const OnlineApp = require('oap-sdk/src/core/OnlineApp.js');
 const logging = require('oap-sdk/src/logging/logging');
+const someipBuilders = require('oap-sdk/src/someip/someipBuilders');
 const { UpdaterClient } = require('./client.js');
 const { qrPng } = require('./qr.js');
 const { spell } = require('./speller.js');
@@ -78,6 +79,7 @@ const ROW_KEY = 2;                      // a press's row in a raw userEvent's pa
 const VALUE_KEY = 0;                    // a focus event's value
 const QR_PREFIX = 'qr_';
 const RENDERER_WAIT_MS = 1500;          // at start, how long the renderer may take to answer
+const IF_FRONTCCU = 'de.bmw.infotainment.controlelements.FrontCCU';
 
 /* The drawn screens' host states and their proxies (tools/gen_rhmi.js). */
 const PROXIES = [48, 24, 12];
@@ -281,6 +283,7 @@ class Store extends OnlineApp {
         }
         const foregroundStart = this._startedForeground();
         return this._setupRhmi()
+            .then(() => this._setupController())
             .then(() => this._rendererAnswer())
             .then(() => this._registerEntryPoints())
             .then(() => {
@@ -306,6 +309,21 @@ class Store extends OnlineApp {
         const data = this.getVisibilityData && this.getVisibilityData();
         const reason = (data && data.reason) || this.startReason;
         return FOREGROUND_REASONS.includes(reason);
+    }
+
+    /* The controller for the drawn screens in embed mode (src/store_drawn.js
+     * frontCcu). Without it they take touch only. */
+    _setupController() {
+        if (this._hostModes.indexOf('embed') < 0) {
+            return;
+        }
+        let proxy;
+        someipBuilders.buildTypedProxy(IF_FRONTCCU, '1')
+            .then((p) => { proxy = p; return proxy.init(); })
+            .then(() => proxy.waitUntilAvailable())
+            .then(() => proxy.statusRotaryEncoderState.subscribe((s) => this._drawn.frontCcu(s)))
+            .then(() => logger.info('FrontCCU controller subscribed'))
+            .catch((err) => logger.warn(`FrontCCU controller unavailable: ${err && err.message}`));
     }
 
     /* ---- RHMI ---- */
