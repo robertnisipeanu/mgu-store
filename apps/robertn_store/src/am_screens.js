@@ -4,7 +4,7 @@
  * Store scales them into the renderer's box on either head unit). store,
  * app, confirm (the sheet), installed, usb and settings are IterioDev's App
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
- * @ 12aebe3, the HMI UI builder's export of projects/app-manager.json, reused with
+ * @ 4d5f508, the HMI UI builder's export of projects/app-manager.json, reused with
  * his permission) with the Store's labels; source, accounts, login, phone and
  * channel are the Store's own in the same frame. Each element is drawn by
  * am_gpu.js; src/store_ui.js gives their values.
@@ -32,7 +32,7 @@ module.exports = {
      "w": 300,
      "h": 726,
      "opts": {
-      "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear",
+      "items": "",
       "sel": 0
      }
     },
@@ -61,7 +61,7 @@ module.exports = {
      "w": 1300,
      "h": 43,
      "opts": {
-      "text": "IterioDev/car-apps \u00b7 7 apps",
+      "text": "",
       "size": 34,
       "font": "label",
       "align": "left",
@@ -92,7 +92,7 @@ module.exports = {
      "w": 860,
      "h": 84,
      "opts": {
-      "items": "Online via iPhone|#35d07f|dot",
+      "items": "",
       "align": "right"
      }
     },
@@ -105,10 +105,10 @@ module.exports = {
      "w": 2380,
      "h": 548,
      "opts": {
-      "items": "Car Data, Update 1.1.4, gauge, #ff4b55\nFault Codes, Installed, wrench, #ffc24d\nDrag Timer, 1.1.2 \u00b7 0.9 MB, stopwatch, #5fb4ff\nDrive Recorder, 1.0.6 \u00b7 0.2 MB, camera, #b48cff\nGPU renderer, Installed \u00b7 system, display, #36e0c0",
+      "items": "",
       "cols": 5,
       "tileH": 274,
-      "empty": "No apps yet - Settings: Check now"
+      "empty": ""
      }
     }
    ],
@@ -131,7 +131,7 @@ module.exports = {
      "w": 300,
      "h": 726,
      "opts": {
-      "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear",
+      "items": "",
       "sel": 0
      }
     },
@@ -174,7 +174,7 @@ module.exports = {
      "w": 1200,
      "h": 120,
      "opts": {
-      "text": "Car Data",
+      "text": "",
       "size": 96,
       "font": "bold",
       "align": "left",
@@ -190,7 +190,7 @@ module.exports = {
      "w": 1100,
      "h": 50,
      "opts": {
-      "text": "by IterioDev \u00b7 from IterioDev/car-apps",
+      "text": "",
       "size": 40,
       "font": "label",
       "align": "left",
@@ -206,7 +206,7 @@ module.exports = {
      "w": 1080,
      "h": 68,
      "opts": {
-      "items": "Version 1.1.4|text; Updated 25 Oct 2026|text; 0.9 MB|text; App|#3d9bff"
+      "items": ""
      }
     },
     {
@@ -218,7 +218,7 @@ module.exports = {
      "w": 1560,
      "h": 340,
      "opts": {
-      "text": "Live engine and driving data on your iDrive screen.",
+      "text": "",
       "size": 40,
       "wrap": true,
       "color": "text"
@@ -246,7 +246,7 @@ module.exports = {
      "w": 340,
      "h": 43,
      "opts": {
-      "text": "Installed",
+      "text": "",
       "size": 34,
       "font": "label",
       "align": "left",
@@ -262,7 +262,7 @@ module.exports = {
      "w": 340,
      "h": 80,
      "opts": {
-      "text": "1.1.3",
+      "text": "",
       "size": 64,
       "font": "num",
       "align": "left",
@@ -278,7 +278,7 @@ module.exports = {
      "w": 300,
      "h": 43,
      "opts": {
-      "text": "Available",
+      "text": "",
       "size": 34,
       "font": "label",
       "align": "left",
@@ -294,7 +294,7 @@ module.exports = {
      "w": 300,
      "h": 80,
      "opts": {
-      "text": "1.1.4",
+      "text": "",
       "size": 64,
       "font": "num",
       "align": "left",
@@ -310,7 +310,7 @@ module.exports = {
      "w": 660,
      "h": 40,
      "opts": {
-      "text": "Apps update while the car starts:",
+      "text": "",
       "size": 32,
       "font": "label",
       "align": "left",
@@ -326,7 +326,7 @@ module.exports = {
      "w": 660,
      "h": 40,
      "opts": {
-      "text": "restart now or at the next start.",
+      "text": "",
       "size": 32,
       "font": "label",
       "align": "left",
@@ -342,7 +342,7 @@ module.exports = {
      "w": 660,
      "h": 40,
      "opts": {
-      "text": "The update resets its data.",
+      "text": "",
       "size": 32,
       "font": "label",
       "align": "left",
@@ -376,7 +376,7 @@ module.exports = {
      "w": 660,
      "h": 120,
      "opts": {
-      "text": "Update to 1.1.4",
+      "text": "",
       "vicon": "arrowDown",
       "style": "primary",
       "color": "#3d9bff"
@@ -392,7 +392,7 @@ module.exports = {
      "w": 660,
      "h": 106,
      "opts": {
-      "text": "Remove",
+      "text": "",
       "vicon": "trash",
       "style": "outline"
      },
@@ -417,7 +417,7 @@ module.exports = {
      "w": 300,
      "h": 726,
      "opts": {
-      "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear",
+      "items": "",
       "sel": 0
      }
     },
@@ -453,7 +453,7 @@ module.exports = {
      "w": 1200,
      "h": 70,
      "opts": {
-      "text": "Update Car Data to 1.1.4",
+      "text": "",
       "size": 56,
       "font": "bold",
       "align": "left",
@@ -469,7 +469,7 @@ module.exports = {
      "w": 1200,
      "h": 45,
      "opts": {
-      "text": "Apps install while the car starts. Its data is reset.",
+      "text": "",
       "size": 36,
       "font": "label",
       "align": "left",
@@ -516,7 +516,7 @@ module.exports = {
      "w": 1380,
      "h": 38,
      "opts": {
-      "text": "\"Restart now\" is not available while driving.",
+      "text": "",
       "size": 30,
       "font": "label",
       "align": "center",
@@ -542,7 +542,7 @@ module.exports = {
      "w": 300,
      "h": 726,
      "opts": {
-      "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear",
+      "items": "",
       "sel": 1
      }
     },
@@ -571,7 +571,7 @@ module.exports = {
      "w": 1300,
      "h": 43,
      "opts": {
-      "text": "5 apps \u00b7 2 system services",
+      "text": "",
       "size": 34,
       "font": "label",
       "align": "left",
@@ -587,7 +587,7 @@ module.exports = {
      "w": 540,
      "h": 100,
      "opts": {
-      "text": "Update all (2)",
+      "text": "",
       "vicon": "arrowDown",
       "style": "primary",
       "color": "#3d9bff"
@@ -619,7 +619,7 @@ module.exports = {
      "w": 1280,
      "h": 480,
      "opts": {
-      "items": "Car Data, 1.1.3 \u2192 1.1.4, chip:Update, gauge\nFault Codes, 1.1.1, chevron, wrench",
+      "items": "",
       "rowH": 120,
       "empty": "No apps installed"
      }
@@ -649,7 +649,7 @@ module.exports = {
      "w": 1000,
      "h": 480,
      "opts": {
-      "items": "GPU renderer, 1.1.0 \u00b7 system service, chip:Running, display\niPhone tether, 1.0.1 \u00b7 system service, chip:Stopped, phone",
+      "items": "",
       "rowH": 150
      }
     }
@@ -672,7 +672,7 @@ module.exports = {
      "w": 300,
      "h": 726,
      "opts": {
-      "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear",
+      "items": "",
       "sel": 2
      }
     },
@@ -701,7 +701,7 @@ module.exports = {
      "w": 1300,
      "h": 43,
      "opts": {
-      "text": "MY STICK \u00b7 folder oap \u00b7 4 packages",
+      "text": "",
       "size": 34,
       "font": "label",
       "align": "left",
@@ -717,10 +717,10 @@ module.exports = {
      "w": 2380,
      "h": 548,
      "opts": {
-      "items": "Car Data, Update 1.1.4, gauge, #ff4b55\nFault Codes, Installed, wrench, #ffc24d\nDrag Timer, 1.1.2 \u00b7 0.9 MB, stopwatch, #5fb4ff\nDrive Recorder, 1.0.6 \u00b7 0.2 MB, camera, #b48cff\nGPU renderer, Installed \u00b7 system, display, #36e0c0",
+      "items": "",
       "cols": 5,
       "tileH": 274,
-      "empty": "Plug in a USB stick with a folder \"oap\""
+      "empty": ""
      }
     }
    ]
@@ -742,7 +742,7 @@ module.exports = {
      "w": 300,
      "h": 726,
      "opts": {
-      "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear",
+      "items": "",
       "sel": 3
      }
     },
@@ -787,7 +787,7 @@ module.exports = {
      "w": 1260,
      "h": 390,
      "opts": {
-      "items": "IterioDev/car-apps, github.com \u00b7 public \u00b7 7 apps, toggle:on+trash, unlock\nacme/track-tools, private \u00b7 3 apps, toggle:on+trash, lock",
+      "items": "",
       "rowH": 130
      }
     },
