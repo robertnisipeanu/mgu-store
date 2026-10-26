@@ -29,9 +29,9 @@ second one. On the Store's request it also restarts the head unit.
 Two installers put our tools and apps on the car, and both run one install
 core, the deploy tool's on-unit `mgu-deploy.js` (`deploy/README.md`):
 
-- **Local**: `deploy/hu` on the Mac, over SSH or from the USB kit. It
-  bootstraps the car and installs the deploy tool, the uplink and this
-  updater.
+- **Local**: over SSH, `deploy/mgu-install.js` from the published release
+  (`deploy/hu` from a checkout, for development). It bootstraps the car
+  and installs the deploy tool, the uplink and this updater.
 - **Sources**: this updater and the Store. It hands each verified
   artifact to `/var/opt/mgu-deploy/mgu-deploy.sh install --artifact`.
 
@@ -59,8 +59,8 @@ them:
   `catalog.json` URL. `file`: a local folder (tests, the emulator).
 - `builtin`: the Store's own source (`builtin_repo`, id `mgu-store`),
   always there and not removable.
-- Nothing is signed: trust is HTTPS (and the source's credential) to a
-  source the owner added; every download is checked against the size and
+- Nothing is signed: trust is HTTPS (and a token, "Tokens") to a source
+  the owner added; every download is checked against the size and
   sha256 its source lists, or, where the source names none (release
   assets, repo trees), its sha256 is taken on download. A `signature` in a
   catalog is ignored.
@@ -129,9 +129,14 @@ before a build and after it, so nothing a script leaves running reaches
 the next one; its output goes to the log as `build <id>:` lines; the
 folder is emptied as the build uid afterwards.
 
-**Ids.** Component ids are global on the unit. An id two sources list is
-shown once, from the source that installed it (`state/origins.json`), else
-from the first source in order (USB media last). `requires` (`{"<id>":
+**Ids.** Component ids are global on the unit. An id several sources list
+is shown once, at the highest version any of them lists, so a newer
+version on a USB stick is an update of a component installed from GitHub.
+Of equal versions it comes from the source that installed it
+(`state/origins.json`), else a USB stick, else the first source in
+`sources.json` order; the source an install comes from becomes the
+component's origin. Without internet, a network source's last listing
+counts only for ids no other source lists. `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
 same source if it has one at least that version, else from any (a
 newer updater installs alone: it restarts into its new version, which ends
@@ -143,24 +148,53 @@ them. The updater and the deploy tool are never removed. An install asked
 for while a removal of the same component waits or runs (or the other way
 round) is refused.
 
-**Credentials.** `/var/opt/mgu-updater/credentials/<source id>`
-(`credentials_dir`; root, 0600) holds a source's token, and `<id>.json`
-what is known of it (the account, its expiry, a refresh token). A token is
-in no file the Store or the phone page can read and never in the state
-stream. A GitHub token goes only to `api.github.com` (never to
-`github.com`, `codeload.github.com` or the asset storage a download
-redirects to); an https source's token only to its catalog's host. A
-GitHub source that answers 401 or 404 for the repo, and an https source
-that answers 401 or 403, is `auth-needed`.
+**Tokens.** GitHub tokens are the updater's own, not a source's: one
+token that reads all the owner's repos serves every source, and a repo
+added later needs no new token when a stored one reaches it.
+`credentials_dir` (`/var/opt/mgu-updater/credentials`, root, 0700) holds
+each token's text in `token-<id>` (0600; the id is 8 hex digits) and in
+`tokens.json` (0600) what is known of each: `[{ id, kind: "github", label,
+login, scopes, addedAt, expiresAt, checkedAt, rejected }]`, and for a
+sign-in's token its refresh token. A `token-<id>` file is a token whether
+or not `tokens.json` names it yet; the deploy tool writes both too
+(`mgu-deploy.sh updater-token`, deploy/README.md), and the updater reads
+the folder again every `usb_poll_s` and on each check.
+
+- A GitHub source is read with the token that read it last, else each
+  stored token in turn (those GitHub rejects last) until one reaches the
+  repo; the one that does is kept for it (in `state/sources/<id>.json`, a
+  cache) and its downloads use it. A repo whose own answer said it is
+  public is read without a token first; any other repo without one last.
+  A source no token reaches (the repo answers 401 or 404 to each) is
+  `auth-needed`. When the tokens change, the sources that need one, or
+  lost theirs, are read again.
+- `token-add` asks `api.github.com/user` whose the token is: `login`, and
+  a classic token's `X-OAuth-Scopes` as `scopes` (a fine-grained or GitHub
+  App token has none: null). One GitHub rejects (401) is refused; without
+  an answer it is stored and asked about later. The same text again is
+  not stored twice. Each check asks again for every token (`login`,
+  `scopes`, `rejected`), and a new token file at once.
+- A token is in no file the Store or the phone page can read and never in
+  the state stream. It goes only to `api.github.com` (never to
+  `github.com`, `codeload.github.com` or the asset storage a download
+  redirects to). An https source is read without a token; one that answers
+  401 or 403 is an `error`.
+- The per-source files of mgu-updater 0.2.x (`credentials/<source id>`, and
+  `<id>.json`: its account, expiry and refresh token) become tokens at
+  start, one per distinct text, each source keeping its token; an https
+  source's is not a GitHub token and is dropped. The files are removed
+  once this version runs committed ("Updating itself"), so a version the
+  supervisor goes back to still has them.
 
 **Signing in to GitHub.** `login-start` runs GitHub's device flow for a
 GitHub App (`github_client_id`; empty until the App exists, and then
 sign-in is refused while a pasted token still works): the state's `login`
 shows the address and the code, which the owner enters on a phone; the
 updater polls at the interval GitHub gives (5 s more on `slow_down`) until
-the code expires, and keeps the token as the source's credential, with
-the account from `/user`. An expiring token is renewed from its refresh
-token before the source is read. The App: *Enable Device Flow* on,
+the code expires, and stores the token it gets as a token labelled with
+the account from `/user`, in place of an earlier sign-in's token of that
+account. An expiring token is renewed from its refresh token before a
+source is read. The App: *Enable Device Flow* on,
 repository permission *Contents: Read-only* (Metadata comes with it),
 installed on the repos the car reads; its client id goes in
 `github_client_id`. Requests to `github.com` carry the client id with the
@@ -180,7 +214,11 @@ version of its own `package.json` and the title of its en_GB entry-point
 text, else its `productName`, else its name; the newest of an id wins, a
 package whose `package.json` has `mguService` (a root service, not an app)
 is left out, and its sha256 is taken as it is listed. Each can be removed
-(`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`). Sticks
+(`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`).
+`mgu-install.js usb-repo` writes a stick from published repositories,
+catalog URLs, checkouts and package files, one `mgu-repo/<name>/` folder
+each (deploy/README.md, "mgu-install"), so a car without internet installs
+and updates from it alone. Sticks
 are only read: no link is followed (a folder or file reached through one is
 not there), only regular files, every size bounded.
 
@@ -193,8 +231,8 @@ alone and writes nothing; the first change to the sources writes it.
 
 - **Reading the sources.** At start (after `first_check_s`), every
   `check_interval_s`, when the uplink comes up, on a stick, and on request
-  (Store, `updater.js check`); a source added or given a token is read at
-  once. Each source's state: `ok`, `checking`, `error`, `auth-needed` or
+  (Store, `updater.js check`); a source added is read at once, and a token
+  added or removed reads again the sources that need one. Each source's state: `ok`, `checking`, `error`, `auth-needed` or
   `offline` (a network source without the uplink).
 - **Installed versions.** Apps from MainApp's registry
   (`/var/opt/public/oap/oap_12201/data/apps/<id>.json` names the app's uid,
@@ -268,7 +306,8 @@ A version installed from outside (the deploy tool run from the Mac) is
 taken up the same way: the running daemon sees `current` move, writes
 `trial` with its own version, and hands over. That version commits once
 the deploy tool answers, without the sources: the car may have no internet
-while it is set up.
+while it is set up. So does a version installed from a USB stick or a
+folder.
 
 ## Tools the updater runs on
 
@@ -283,7 +322,7 @@ Checking.
 | Tool (`updater.conf`) | Check | On failure |
 |---|---|---|
 | `deploy_tool` (`mgu-deploy`) | the new version (`mgu-deploy.sh`, which runs `current/`) answers `status --json` with JSON within 60 s | the updater switches `/var/opt/mgu-deploy/current` back by rename: a deploy tool that does not run cannot undo itself |
-| `uplink_tool` (`mgu-uplink`) | within `bootstrap_check_s` (90 s) the uplink's lease is back and the first network source answers through it | `mgu-deploy.sh rollback mgu-uplink`, then the internet is waited for again; the previous version cannot be downloaded without it. A rollback the deploy tool reports as failed shows as such |
+| `uplink_tool` (`mgu-uplink`) | within `bootstrap_check_s` (90 s) the uplink's lease is back and the first network source answers through it; not checked when there was no internet before the install | `mgu-deploy.sh rollback mgu-uplink`, then the internet is waited for again; the previous version cannot be downloaded without it. A rollback the deploy tool reports as failed shows as such |
 
 An uplink update the deploy tool leaves for the next boot (`pending_reboot`)
 is not checked: the running version was not restarted. Both tools keep
@@ -322,8 +361,10 @@ A page the car serves to a phone on its hotspot (`js/web.js`): the
 sources with their channel and status, the components with installed and
 catalog versions (and the short commit of a branch build), what is being
 installed, errors, and the logs. On it the owner adds a GitHub source
-(owner/repo with Releases, a branch, the default branch when none is named, or Tags) or a catalog URL, removes
-one, pastes or clears a source's token, and starts a GitHub sign-in (the
+(owner/repo with Releases, a branch, the default branch when none is named, or Tags) or a catalog URL and
+removes one; each source shows the account that reads it, or *Sign-in
+needed*. Its Tokens list each token (label, account, the sources it reads)
+with Remove; a token is added by pasting it, or by Sign in with GitHub (the
 code and the link show on the page). Off by default; the Store turns it
 on and off (privileged `web` op) and shows its QR code.
 
@@ -354,8 +395,8 @@ on and off (privileged `web` op) and shows its QR code.
   Replies leave through the output chain's established accept.
 - **Requests.** The server talks to the socket with the web secret
   (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
-  `source-add` (`github` or `https` only), `source-remove`, `token-set`,
-  `token-clear`, `login-start` and `login-cancel`, each with only its own
+  `source-add` (`github` or `https` only), `source-remove`, `token-add`,
+  `token-remove`, `login-start` and `login-cancel`, each with only its own
   string fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
   is the daemon's own regular file; the journals of `mgu-updater`,
@@ -414,12 +455,14 @@ JSON object per line. The daemon sends the full state on connect, after
 each request, and whenever it changes (at most every 250 ms):
 
 ```json
-{ "type": "state", "updater": { "version": "0.2.0" }, "online": true, "privacy": "patched",
+{ "type": "state", "updater": { "version": "0.3.0" }, "online": true, "privacy": "patched",
   "catalog": { "commit": "…", "checkedAt": 1792620000000, "checking": false, "error": null },
   "sources": [ { "id": "idrive7-apps", "type": "github", "label": "someone/idrive7-apps",
     "builtin": false, "usb": false, "channel": "releases", "status": "ok", "error": null,
-    "auth": { "kind": "github", "login": "someone" }, "checkedAt": 1792620000000, "components": 7 } ],
-  "login": { "source": "idrive7-apps", "url": "https://github.com/login/device", "code": "ABCD-1234",
+    "auth": { "kind": "github", "token": "3f9a01c2", "login": "someone" }, "checkedAt": 1792620000000, "components": 7 } ],
+  "tokens": [ { "id": "3f9a01c2", "kind": "github", "label": "someone", "login": "someone",
+    "addedAt": 1792610000000, "rejected": false, "usedBy": ["mgu-store", "idrive7-apps"] } ],
+  "login": { "url": "https://github.com/login/device", "code": "ABCD-1234",
     "expiresAt": 1792620900000, "status": "pending", "error": null },
   "web": { "enabled": false, "urls": [], "error": null },
   "busy": { "id": "doom", "phase": "download", "progress": 524288, "total": 2080457 },
@@ -439,8 +482,11 @@ each request, and whenever it changes (at most every 250 ms):
   updater runs on, "Tools the updater runs on"); `busy.op`: `install` or
   `uninstall`.
 - `sources`: stored ones in order, then USB media; `channel` is a GitHub
-  source's channel in use; `auth` is null without a credential; `error`
-  of an `ok` source names the components it left out.
+  source's channel in use; `auth` the token that reads it (null: none, or
+  none reaches it); `error` of an `ok` source names the components it left
+  out.
+- `tokens`: the stored tokens ("Tokens"), never their text; `usedBy` the
+  sources each one reads, `rejected` when GitHub refuses it.
 - `login`: the GitHub sign-in in progress (`pending`, `done`, `error`,
   `expired`), or null.
 - `web`: the phone page's state (`js/web.js`), present when the updater has it.
@@ -461,9 +507,10 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 |---|---|
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
-| `{"op":"source-remove","id"}` | removes a source (not the built-in one), its credential and its record in `origins.json` |
-| `{"op":"token-set","source","token"}`, `{"op":"token-clear","source"}` | sets or clears a source's credential, and reads it again |
-| `{"op":"login-start","source"}`, `{"op":"login-cancel"}` | GitHub sign-in for a github source |
+| `{"op":"source-remove","id"}` | removes a source (not the built-in one) and its record in `origins.json` |
+| `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
+| `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
+| `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |
 | `{"op":"web","enable":true\|false}` | the phone page on or off, kept across restarts (`state/web.json`) |
 | `{"op":"logs","unit","lines"}` | `{"type":"logs","unit","text"}`: a journal for the phone page |
 
@@ -480,7 +527,7 @@ and the apps' group of `oap_root`; written again within 15 s when the Store's
 uid changes or the file is gone, as after MainApp's crash recovery reinstalls
 the Store) and to `web_secret` for the phone page (`web_uid`).
 Every OAP app can reach the socket; only these two can change sources or
-credentials, sign in, remove components or read journals. While the
+tokens, sign in, remove components or read journals. While the
 phone page is on, `web-url` beside `updater-secret` holds its hotspot
 address with the access token (one line, the Store's own 0400 file) for the
 Store's QR code; it is removed when the page goes off, rewritten when the
@@ -503,7 +550,8 @@ node /var/opt/mgu-updater/current/updater.js install <id>
 ```
 bin/mgu-updater          supervisor, the service's main process
 js/updater.js            daemon and command line
-js/sources.js            sources.json, credentials, USB media, reading each layout
+js/sources.js            sources.json, USB media, reading each layout
+js/tokens.js             the tokens (credentials/), and the per-source files of 0.2.x converted
 js/catalog.js            catalog parsing (schema 1 and 2), installed-vs-source plan
 js/tar.js                .tar.gz in memory: reading a repo tarball, packing a component
 js/build.js              a repo's build script, as the build uid
@@ -530,10 +578,14 @@ releases, branches, tags, contents, tarballs, the device flow), with
 - downloads through the lease's DNS as uid 12990, a redirect that must not
   carry the token, size limits;
 - sources, in an updater in the test process: several sources and an id
-  two of them list, a private repo without a token, with a wrong one,
-  with one that works, signed in by the device flow (pending, slow_down,
-  denied, renewed by its refresh token), no token anywhere but
-  `api.github.com`, the releases layout, a branch (a new commit of the same
+  two of them list; tokens: a private repo without one, a token GitHub
+  rejects, one that reads two private repos (the second added later, no
+  token asked for), a third repo only a token the deploy tool writes
+  reaches, the same token twice, removal (each source falls back to
+  another token, else needs one), a public repo read without one, a token
+  added by the device flow (pending, slow_down, denied, renewed by its
+  refresh token), no token anywhere but `api.github.com`, and the
+  per-source files of 0.2 converted; the releases layout, a branch (a new commit of the same
   version is an update) and tags, repo-tree apps and tools, build scripts
   that succeed, fail, run too long or write outside their folder,
   requirements installed first, uninstall and its refusals, USB media

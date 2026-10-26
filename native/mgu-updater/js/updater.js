@@ -28,6 +28,7 @@ const { URL } = require('url');
 const catalogLib = require('./catalog');
 const sourcesLib = require('./sources');
 const { DeviceLogin } = require('./login');
+const { Tokens, TOKEN } = require('./tokens');
 const { runBuild, cleanBuilds } = require('./build');
 const { UpdaterClient } = require('./client');
 
@@ -404,8 +405,9 @@ class Fetcher {
         return this.request({ url, headers, name, maxBytes, onProgress });
     }
 
-    /* Downloads url (method GET, or POST with body); resolves with its bytes.
-     * A failure carries the HTTP status as err.status when the server answered. */
+    /* Downloads url (method GET, or POST with body); resolves with its bytes,
+     * the response headers named in job.keep as their .headers. A failure
+     * carries the HTTP status as err.status when the server answered. */
     request(job) {
         const { url, headers, name, maxBytes, onProgress } = job;
         const lease = readLease(this.conf);
@@ -448,7 +450,7 @@ class Fetcher {
             child.on('close', () => {
                 if (result && result.done) {
                     try {
-                        resolve(this.collect(dest, maxBytes));
+                        resolve(Object.assign(this.collect(dest, maxBytes), { headers: result.headers || {} }));
                     } catch (err) {
                         reject(err);
                     }
@@ -458,7 +460,7 @@ class Fetcher {
                 }
             });
             child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, ca: this.ca,
-                method: job.method || 'GET', body: job.body }));
+                method: job.method || 'GET', body: job.body, keep: job.keep || [] }));
         }).then((bytes) => {
             this.retire(dir);
             return bytes;
@@ -473,7 +475,7 @@ class Fetcher {
 
 const SELF_SOURCE_ID = 'mgu-store';
 // Requests only the Store and the phone page may make (they hold the secret).
-const PRIVILEGED = ['uninstall', 'source-add', 'source-remove', 'login-start', 'login-cancel', 'token-set', 'token-clear', 'web', 'logs'];
+const PRIVILEGED = ['uninstall', 'source-add', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs'];
 
 /* The phone page (web.js, README.md "Phone page"), when this version has it. */
 let web = fs.existsSync(path.join(HERE, 'web.js')) ? require('./web') : null;
@@ -519,10 +521,14 @@ class Updater {
         this.conf = conf;
         this.version = selfVersion();
         this.fetcher = new Fetcher(conf);
-        this.credentials = new sourcesLib.Credentials(conf.credentials_dir || path.join(conf.state_dir, 'credentials'));
+        this.tokens = new Tokens(conf.credentials_dir || path.join(conf.state_dir, 'credentials'));
         this.ctx = {
             net: this.fetcher,
-            credentials: this.credentials,
+            // the token picked for a source (checkSource), its text read when used
+            tokenFor: (id) => {
+                const rt = this.src.get(id);
+                return rt && rt.tokenId ? this.tokens.text(rt.tokenId) : '';
+            },
             version: this.version,
             githubApi: conf.github_api || 'https://api.github.com',
             maxRepoBytes: Number(conf.repo_max_bytes) || 64 << 20,
@@ -554,12 +560,7 @@ class Updater {
             version: this.version,
             changed: () => this.changed(),
             log: (l) => console.log(l),
-            done: (id, token, meta) => {
-                if (this.stored.some((s) => s.id === id)) {
-                    this.credentials.set(id, token, meta);
-                    this.checkSource(id);
-                }
-            }
+            done: (token, meta) => this.signedIn(token, meta)
         });
         try {
             this.origins = readJson(path.join(conf.state_dir, 'origins.json'));
@@ -569,6 +570,14 @@ class Updater {
         } catch (e) { /* off */ }
         if (conf.sources) {
             this.loadSources();
+            // the per-source tokens of an earlier version, as tokens
+            const was = this.tokens.convert(this.stored, (l) => console.log(l));
+            Object.keys(was).forEach((id) => {
+                const rt = this.src.get(id);
+                if (rt && !rt.tokenId) {
+                    rt.tokenId = was[id];
+                }
+            });
         }
     }
 
@@ -600,14 +609,18 @@ class Updater {
         return path.join(this.conf.state_dir, 'sources', `${id}.json`);
     }
 
-    /* A source's runtime state, with the components it listed when last read. */
+    /* A source's runtime state, with the components it listed when last read,
+     * the token that read it (tokenId) and whether its repo said it is
+     * public. */
     addRuntime(def) {
         const rt = { def, reader: sourcesLib.reader(def, this.ctx), status: 'ok', error: null, checkedAt: null,
-            channel: def.channel || null, mode: null, commit: null, components: [], checking: null, answered: false };
+            channel: def.channel || null, mode: null, commit: null, components: [], checking: null, answered: false,
+            tokenId: null, public: false };
         if (def.type !== 'usb') {
             try {
                 const c = readJson(this.cacheFile(def.id));
-                Object.assign(rt, { mode: c.mode, channel: c.channel || rt.channel, commit: c.commit, components: c.components, checkedAt: c.checkedAt });
+                Object.assign(rt, { mode: c.mode, channel: c.channel || rt.channel, commit: c.commit, components: c.components, checkedAt: c.checkedAt,
+                    tokenId: c.token || null, public: c.public === true });
             } catch (e) { /* not read yet */ }
         }
         this.src.set(def.id, rt);
@@ -618,25 +631,31 @@ class Updater {
         return this.stored.concat(this.usb);
     }
 
-    /* Each component id once: from the source that installed it, if it lists
-     * it, else from the first source (sources.json order, then USB media). */
+    /* Each component id once: the highest version a source lists; of equal
+     * versions, the source that installed it (origins.json), then USB media,
+     * then sources.json order. Without internet, a network source's last
+     * listing counts only for ids no other source lists. */
     resolved() {
-        const map = new Map();
-        this.defs().forEach((def) => {
+        const online = readLease(this.conf).online;
+        const found = new Map();
+        this.defs().forEach((def, order) => {
             const rt = this.src.get(def.id);
             (rt ? rt.components : []).forEach((entry) => {
-                if (!map.has(entry.id)) {
-                    map.set(entry.id, { entry, source: def.id });
-                }
+                const list = found.get(entry.id) || [];
+                list.push({ entry, source: def.id, order, usb: def.type === 'usb', reachable: online || !rt.reader.network });
+                found.set(entry.id, list);
             });
         });
-        map.forEach((r, id) => {
+        const map = new Map();
+        found.forEach((list, id) => {
             const o = this.origins[id];
-            const rt = o && this.src.get(o.source);
-            const entry = rt && rt.components.find((c) => c.id === id);
-            if (entry) {
-                map.set(id, { entry, source: o.source });
-            }
+            const rank = (c) => (o && o.source === c.source ? 0 : c.usb ? 1 : 2);
+            const pool = list.some((c) => c.reachable) ? list.filter((c) => c.reachable) : list;
+            const best = pool.reduce((a, c) => {
+                const cmp = catalogLib.compareVersions(c.entry.version, a.entry.version);
+                return cmp > 0 || (cmp === 0 && (rank(c) < rank(a) || (rank(c) === rank(a) && c.order < a.order))) ? c : a;
+            });
+            map.set(id, { entry: best.entry, source: best.source });
         });
         return map;
     }
@@ -653,8 +672,7 @@ class Updater {
 
     sourceState(def) {
         const rt = this.src.get(def.id);
-        const token = def.type !== 'usb' && this.credentials.token(def.id);
-        const meta = token ? this.credentials.meta(def.id) : null;
+        const token = rt.tokenId && rt.status !== 'auth-needed' ? this.tokens.get(rt.tokenId) : null;
         return {
             id: def.id,
             type: def.type,
@@ -664,7 +682,7 @@ class Updater {
             channel: def.type === 'github' ? rt.channel || def.channel || null : null,
             status: rt.status,
             error: rt.error,
-            auth: token ? { kind: meta.kind || (def.type === 'github' ? 'github' : 'token'), login: meta.login || null } : null,
+            auth: token ? { kind: 'github', token: token.id, login: token.login || null } : null,
             checkedAt: rt.checkedAt,
             components: rt.components.length
         };
@@ -688,6 +706,9 @@ class Updater {
             });
         });
         const sources = this.defs().map((d) => this.sourceState(d));
+        const tokens = this.tokens.all().map((t) => ({ id: t.id, kind: t.kind, label: t.label || null, login: t.login || null,
+            addedAt: t.addedAt || null, rejected: t.rejected === true,
+            usedBy: sources.filter((x) => x.auth && x.auth.token === t.id).map((x) => x.id) }));
         const st = {
             type: 'state',
             updater: { version: this.version },
@@ -701,6 +722,7 @@ class Updater {
                 error: this.catalogError()
             },
             sources,
+            tokens,
             login: this.login.state(),
             busy: this.busy,
             rebooting: this.rebooting,
@@ -734,23 +756,63 @@ class Updater {
         }, 250);
     }
 
-    /* A credential whose token has run out gets a new one from its refresh token. */
-    freshToken(id) {
-        const meta = this.credentials.meta(id);
-        if (!meta.expiresAt || meta.expiresAt > Date.now() + 60000 || !this.credentials.token(id)) {
-            return Promise.resolve();
+    /* Tokens that have run out get new ones from their refresh tokens; one
+     * renewal at a time serves every source read meanwhile. */
+    freshTokens() {
+        if (!this.renewing) {
+            const due = this.tokens.all().filter((t) => t.expiresAt && t.expiresAt <= Date.now() + 60000 && t.refreshToken);
+            this.renewing = due.reduce((p, t) => p.then(() => this.login.refresh(t)).then((r) => {
+                if (r) {
+                    this.tokens.setText(t.id, r.token, Object.assign({}, r.meta, { rejected: false }));
+                    console.log(`token ${t.id}: renewed`);
+                }
+            }), Promise.resolve()).catch((e) => console.log(`tokens: ${e.message}`)).then(() => {
+                this.renewing = null;
+            });
         }
-        return this.login.refresh(meta).then((r) => {
-            if (r) {
-                this.credentials.set(id, r.token, r.meta);
-                console.log(`source ${id}: token renewed`);
-            }
-        });
+        return this.renewing;
     }
 
-    /* Reads one source: ok, auth-needed (the repo answers 401/404: no token,
-     * or one without access), offline (no uplink), or error. A source that
-     * cannot be read keeps the components it listed last. */
+    /* The tokens to read a GitHub source with, in order: the one that read it
+     * last, then the others (those GitHub rejects last); no token (null)
+     * first for a repo known to be public, else last. */
+    candidates(rt) {
+        const ids = this.tokens.all().filter((t) => !t.rejected).concat(this.tokens.all().filter((t) => t.rejected)).map((t) => t.id);
+        const order = (ids.indexOf(rt.tokenId) >= 0 ? [rt.tokenId] : []).concat(ids.filter((id) => id !== rt.tokenId));
+        return rt.public ? [null].concat(order) : order.concat([null]);
+    }
+
+    /* A source's listing. A GitHub source is read with each candidate token
+     * in turn (a reader of its own per token) until one reaches the repo;
+     * that one is kept for it (rt.tokenId), and its downloads use it. */
+    readSource(rt) {
+        if (rt.def.type !== 'github') {
+            return rt.reader.catalog();
+        }
+        const cands = this.candidates(rt);
+        const attempt = (i) => {
+            const text = cands[i] ? this.tokens.text(cands[i]) : '';
+            const reader = sourcesLib.reader(rt.def, Object.assign({}, this.ctx, { tokenFor: () => text }));
+            return reader.catalog().then((cat) => {
+                rt.tokenId = cands[i];
+                rt.public = cat.public === true;
+                return cat;
+            }, (err) => {
+                if (err.auth && i + 1 < cands.length) {
+                    return attempt(i + 1);
+                }
+                if (err.auth) {
+                    rt.tokenId = null;
+                }
+                throw err;
+            });
+        };
+        return attempt(0);
+    }
+
+    /* Reads one source: ok, auth-needed (a GitHub repo no stored token
+     * reaches: it answers 401/404), offline (no uplink), or error. A source
+     * that cannot be read keeps the components it listed last. */
     checkSource(id) {
         const rt = this.src.get(id);
         if (!rt) {
@@ -767,8 +829,8 @@ class Updater {
         }
         rt.status = 'checking';
         this.changed();
-        rt.checking = this.freshToken(id)
-            .then(() => rt.reader.catalog())
+        rt.checking = this.freshTokens()
+            .then(() => this.readSource(rt))
             .then((cat) => {
                 Object.assign(rt, { components: cat.components, mode: cat.mode, channel: cat.channel || rt.channel, commit: cat.commit || null,
                     status: 'ok', error: cat.skipped && cat.skipped.length ? `left out: ${cat.skipped.join('; ')}` : null,
@@ -776,9 +838,10 @@ class Updater {
                 if (rt.def.type !== 'usb') {
                     mkdirp(path.dirname(this.cacheFile(id)), 0o700);
                     writeAtomic(this.cacheFile(id), JSON.stringify({ mode: rt.mode, channel: rt.channel, commit: rt.commit,
-                        components: rt.components, checkedAt: rt.checkedAt }));
+                        components: rt.components, checkedAt: rt.checkedAt, token: rt.tokenId, public: rt.public }));
                 }
-                console.log(`source ${id}${rt.channel ? ` (${rt.channel})` : ''}: ${rt.mode}${rt.commit ? ` ${rt.commit.slice(0, 7)}` : ''}, ` +
+                console.log(`source ${id}${rt.channel ? ` (${rt.channel})` : ''}${rt.tokenId ? ` with token ${rt.tokenId}` : ''}: ` +
+                    `${rt.mode}${rt.commit ? ` ${rt.commit.slice(0, 7)}` : ''}, ` +
                     `${cat.components.map((c) => `${c.id}@${c.version}`).join(' ') || 'nothing'}${rt.error ? `; ${rt.error}` : ''}`);
             }, (err) => {
                 rt.status = err.auth ? 'auth-needed' : 'error';
@@ -789,6 +852,13 @@ class Updater {
             .then(() => {
                 rt.checking = null;
                 this.changed();
+                if (rt.tokensChanged) {
+                    rt.tokensChanged = false;
+                    if (rt.status === 'auth-needed' || (rt.tokenId && !this.tokens.get(rt.tokenId))) {
+                        rt.tokenId = this.tokens.get(rt.tokenId) ? rt.tokenId : null;
+                        this.checkSource(id);
+                    }
+                }
             });
         return rt.checking;
     }
@@ -820,6 +890,8 @@ class Updater {
         this.changed();
         this.rebootError = null;
         this.scanUsb();
+        this.scanTokens();
+        this.validateTokens();
         this.checking = Promise.all(this.defs().map((d) => this.checkSource(d.id)))
             .then(() => this.refresh())
             .then(() => {
@@ -1081,6 +1153,8 @@ class Updater {
             this.errors[id] = 'no longer in its source';
             return Promise.resolve(false);
         }
+        // an uplink installed without internet (from a stick) has none to give back
+        const wasOnline = readLease(this.conf).online;
         this.busy = { id, op: 'install', phase: 'download', progress: 0, total: entry.artifact.size || null };
         this.changed();
         console.log(`${id}@${entry.version}: download from ${item.source}${entry.revision ? ` at ${entry.revision}` : ''}` +
@@ -1123,8 +1197,14 @@ class Updater {
                     before = fs.readlinkSync(path.join(toolDir, 'current'));
                 } catch (e) { /* not installed yet */ }
                 if (self) {
-                    // the version to return to if the new one does not come up
-                    rmIfThere(path.join(this.conf.tool_root, SELF, 'trial-local'));
+                    // the version to return to if the new one does not come up; one from
+                    // a stick or a folder needs no internet to be kept (commitTrial)
+                    const local = path.join(this.conf.tool_root, SELF, 'trial-local');
+                    if (rt.reader.network) {
+                        rmIfThere(local);
+                    } else {
+                        writeAtomic(local, '');
+                    }
                     writeAtomic(trial, fs.readlinkSync(path.join(this.conf.tool_root, SELF, 'current')) + '\n');
                 }
                 return this.deploy(verified);
@@ -1138,7 +1218,7 @@ class Updater {
                 console.log(`installed ${id}@${entry.version}`);
                 this.origins[id] = { source: item.source, commit: entry.commit || null };
                 this.saveOrigins();
-                return this.bootstrapCheck(entry, toolDir, before);
+                return this.bootstrapCheck(entry, toolDir, before, wasOnline);
             })
             .then(() => self)
             .catch((err) => {
@@ -1195,10 +1275,11 @@ class Updater {
     /* The tools the updater itself runs on: the deploy tool (every install
      * goes through it) and the uplink (every download goes through it). A
      * new version of either must work before the updater relies on it: the
-     * deploy tool must answer status, the uplink must give internet again.
+     * deploy tool must answer status, the uplink must give internet again
+     * (when there was internet before it).
      * Otherwise the version installed before is put back. The updater
      * itself is checked by commitTrial and its supervisor (bin/mgu-updater). */
-    bootstrapCheck(entry, toolDir, before) {
+    bootstrapCheck(entry, toolDir, before, wasOnline) {
         const kept = before && path.basename(before) !== entry.version ? path.basename(before) : null;
         const failed = (what) => new Error(`${entry.version} ${what}` +
             (kept ? `; ${kept} kept` : '; no earlier version to return to'));
@@ -1217,7 +1298,7 @@ class Updater {
                 throw failed('does not run');
             });
         }
-        if (entry.id === this.conf.uplink_tool) {
+        if (entry.id === this.conf.uplink_tool && wasOnline) {
             return pendingReboot(this.conf).then((pending) => {
                 if (pending.indexOf(entry.id) >= 0) {
                     return undefined; // not restarted: the running version is untouched
@@ -1476,7 +1557,6 @@ class Updater {
         }
         this.saveSources(this.stored.filter((s) => s.id !== id));
         this.src.delete(id);
-        this.credentials.clear(id);
         rmIfThere(this.cacheFile(id));
         Object.keys(this.origins).forEach((c) => {
             if (this.origins[c].source === id) {
@@ -1484,53 +1564,123 @@ class Updater {
             }
         });
         this.saveOrigins();
-        const login = this.login.state();
-        if (login && login.source === id) {
-            this.login.cancel();
-        }
         console.log(`source ${id}: removed`);
         this.changed();
         return null;
     }
 
-    tokenSet(id, token) {
-        const def = this.stored.find((s) => s.id === id);
-        if (!def || def.type === 'file') {
-            return `no source ${id} that takes a token`;
+    /* What GitHub says of each token (login, scopes, rejected), once the
+     * expired ones are renewed; quietly nothing without an answer. only:
+     * those ids alone. */
+    validateTokens(only) {
+        if (!readLease(this.conf).online) {
+            return Promise.resolve();
         }
-        if (typeof token !== 'string' || !sourcesLib.TOKEN.test(token.trim())) {
+        return this.freshTokens().then(() => Promise.all(this.tokens.all().filter((t) => !only || only.indexOf(t.id) >= 0).map((t) => this.login.account(this.tokens.text(t.id)).then((a) => {
+            if (a.status === 'unknown' || !this.tokens.get(t.id)) {
+                return;
+            }
+            const fields = a.status === 'ok' ? { login: a.login, scopes: a.scopes, rejected: false } : { rejected: true };
+            if (t.checkedAt && Object.keys(fields).every((k) => t[k] === fields[k])) {
+                return;
+            }
+            this.tokens.update(t.id, Object.assign(fields, { checkedAt: Date.now() }));
+            console.log(`token ${t.id}: ${fields.rejected ? 'GitHub does not accept it' : `${a.login}${a.scopes ? ` (${a.scopes})` : ''}`}`);
+            this.changed();
+        })))).catch((e) => console.log(`tokens: ${e.message}`));
+    }
+
+    /* Reads the token files again (the deploy tool adds and removes tokens
+     * too); on a change, checks what is new and reads the GitHub sources
+     * that need a token or lost theirs. */
+    scanTokens() {
+        if (!this.tokens.scan()) {
+            return false;
+        }
+        this.tokensChanged();
+        this.validateTokens(this.tokens.all().filter((t) => !t.checkedAt).map((t) => t.id));
+        return true;
+    }
+
+    /* A source being read meanwhile tried the tokens as they were: it is
+     * read again once done, if it then needs one or lost its own. */
+    tokensChanged() {
+        this.stored.filter((d) => d.type === 'github').forEach((d) => {
+            const rt = this.src.get(d.id);
+            if (rt.checking) {
+                rt.tokensChanged = true;
+                return;
+            }
+            const gone = rt.tokenId && !this.tokens.get(rt.tokenId);
+            if (gone) {
+                rt.tokenId = null;
+            }
+            if (gone || rt.status === 'auth-needed') {
+                this.checkSource(d.id);
+            }
+        });
+        this.changed();
+    }
+
+    /* Stores a pasted token once GitHub has said whose it is (one GitHub
+     * rejects is refused; without an answer it is stored and checked on the
+     * next check), then reads the sources that need a token. */
+    tokenAdd(req, reply) {
+        const text = typeof req.token === 'string' ? req.token.trim() : '';
+        if (!TOKEN.test(text)) {
             return 'a token is 1 to 1024 printable characters without spaces';
         }
-        const t = token.trim();
-        this.credentials.set(id, t, { kind: def.type === 'github' ? 'github' : 'token', login: null });
-        console.log(`source ${id}: token set`);
-        const after = def.type === 'github' ? this.login.account(t).then((login) => {
-            if (login && this.credentials.token(id) === t) {
-                this.credentials.setMeta(id, { kind: 'github', login });
+        if (req.label !== undefined && req.label !== null && !(typeof req.label === 'string' && /^[^\x00-\x1f\x7f]{0,64}$/.test(req.label))) {
+            return 'a label is at most 64 characters';
+        }
+        const label = req.label ? req.label.trim() : '';
+        this.login.account(text).then((a) => {
+            if (a.status === 'rejected') {
+                reply({ type: 'error', op: 'token-add', error: 'GitHub does not accept this token' });
+                return;
             }
-        }) : Promise.resolve();
-        after.then(() => this.checkSource(id));
-        this.changed();
+            let r;
+            try {
+                const fields = a.status === 'ok' ? { login: a.login, scopes: a.scopes, rejected: false, checkedAt: Date.now() } : {};
+                if (label || a.login) {
+                    fields.label = label || a.login;
+                }
+                r = this.tokens.add(text, fields);
+            } catch (e) {
+                reply({ type: 'error', op: 'token-add', error: e.message });
+                return;
+            }
+            console.log(`token ${r.id}: ${r.added ? 'added' : 'already stored'}${a.login ? ` (${a.login})` : ''}`);
+            this.tokensChanged();
+            reply(this.state());
+        });
+        return undefined;
+    }
+
+    tokenRemove(id) {
+        this.scanTokens();
+        if (typeof id !== 'string' || !this.tokens.get(id)) {
+            return `no token ${id}`;
+        }
+        this.tokens.remove(id);
+        console.log(`token ${id}: removed`);
+        this.tokensChanged();
         return null;
     }
 
-    tokenClear(id) {
-        if (!this.stored.some((s) => s.id === id)) {
-            return `no source ${id}`;
+    /* A device sign-in's token: it replaces the earlier sign-in's token of
+     * the same account, else it is a new one. */
+    signedIn(token, meta) {
+        const fields = Object.assign({}, meta, { label: meta.login, device: true, rejected: false, checkedAt: Date.now() });
+        const earlier = meta.login && this.tokens.all().find((t) => t.device && t.login === meta.login);
+        if (earlier && this.tokens.text(earlier.id) !== token) {
+            this.tokens.setText(earlier.id, token, fields);
+            console.log(`token ${earlier.id}: renewed by sign-in`);
+        } else {
+            const r = this.tokens.add(token, fields);
+            console.log(`token ${r.id}: added by sign-in`);
         }
-        this.credentials.clear(id);
-        console.log(`source ${id}: token cleared`);
-        this.checkSource(id);
-        this.changed();
-        return null;
-    }
-
-    loginStart(id) {
-        const def = this.stored.find((s) => s.id === id);
-        if (!def || def.type !== 'github') {
-            return `no GitHub source ${id}`;
-        }
-        return this.login.start(id);
+        this.tokensChanged();
     }
 
     setWeb(enabled) {
@@ -1573,10 +1723,10 @@ class Updater {
         case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id) : 'uninstall needs an id';
         case 'source-add': return this.sourceAdd(req);
         case 'source-remove': return this.sourceRemove(req.id);
-        case 'login-start': return this.loginStart(req.source);
+        case 'login-start': return this.login.start();
         case 'login-cancel': this.login.cancel(); return null;
-        case 'token-set': return this.tokenSet(req.source, req.token);
-        case 'token-clear': return this.tokenClear(req.source);
+        case 'token-add': return this.tokenAdd(req, reply);
+        case 'token-remove': return this.tokenRemove(req.id);
         case 'web': return this.setWeb(req.enable === true);
         case 'logs': return this.logs(req, reply);
         default: return `unknown op ${req.op}`;
@@ -1716,6 +1866,7 @@ class Updater {
                     fs.unlinkSync(trial);
                     rmIfThere(local);
                     console.log(`running ${this.version}: update committed`);
+                    this.tokens.removeLegacy((l) => console.log(l));
                     this.busy = null;
                     this.next();
                     return;
@@ -1744,6 +1895,8 @@ class Updater {
             } else {
                 rmIfThere(path.join(this.conf.tool_root, SELF, 'trial-local'));
                 console.log(`running ${this.version}`);
+                // a version on trial keeps them for the one it may go back to
+                this.tokens.removeLegacy((l) => console.log(l));
             }
             // written by the supervisor when a new version did not come up
             const rolledBack = path.join(this.conf.tool_root, SELF, 'rolled-back');
@@ -1762,8 +1915,12 @@ class Updater {
             let wasOnline = readLease(this.conf).online;
             setTimeout(() => this.check(), Number(this.conf.first_check_s) * 1000);
             setInterval(() => this.check(), Number(this.conf.check_interval_s) * 1000);
-            // USB media: nothing announces a stick, so the mounts are looked at
-            setInterval(() => this.scanUsb(), (Number(this.conf.usb_poll_s) || 5) * 1000);
+            // USB media: nothing announces a stick, so the mounts are looked
+            // at; the token files too (the deploy tool changes them)
+            setInterval(() => {
+                this.scanUsb();
+                this.scanTokens();
+            }, (Number(this.conf.usb_poll_s) || 5) * 1000);
             // A version installed from outside (the deploy tool run from the
             // Mac) is taken up on trial too, with this one to return to; it
             // commits without the catalog (trial-local, commitTrial).

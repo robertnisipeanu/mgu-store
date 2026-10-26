@@ -1,7 +1,7 @@
 # app-privacy integration contract
 
 Both channels that install our apps on the head unit follow these rules:
-the deploy tool (`deploy/`, run over SSH from the Mac or from the USB kit,
+the deploy tool (`deploy/`, run over SSH from the owner's computer,
 installed as `/var/opt/mgu-deploy/mgu-deploy.sh`) and the updater
 (`native/mgu-updater`, also behind the Store), which installs through the
 deploy tool. They keep our apps out of oap-mainapp's backend
@@ -79,7 +79,8 @@ The `app-privacy` tool component (`component.json`) installs
 `patch_mainapp.js boot` (apply; always exit 0), listed in recmgr
 `[Whitelist]` and `[WhitelistExitSuccess]` as `app-privacy`. A head-unit
 software update replaces both bundles; the next boot patches them again
-before MainApp starts. The component is installed before any app in a kit.
+before MainApp starts. An install that carries apps installs the component
+before any of them.
 
 Installing or updating the component leaves `app-privacy.service` alone
 (`restart` is empty): the installer's `apply --json` below writes the new

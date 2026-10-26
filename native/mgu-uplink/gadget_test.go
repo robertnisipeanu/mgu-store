@@ -4,28 +4,26 @@ package main
 
 // A fake iPhone on a real USB bus, for testing the iphone uplink end to end
 // in a Linux VM (test/vm-gadget.sh): FunctionFS functions in a configfs
-// gadget with Apple's ids, four configurations like an iPhone in its
-// default mode (PTP in 1-3; PTP, usbmux and the hotspot interface in 4),
-// fakePhone (fakephone_test.go) behind the usbmux endpoints, and the
-// hotspot interface bridged to a TAP device on which the VM runs a DHCP
-// server. Frames from the host are dropped until a lockdown session has
-// started, as on a real iPhone. It runs only when MGU_FAKEPHONE_FFS names
-// the FunctionFS mounts:
+// gadget with Apple's ids, four configurations like an iPhone in its default
+// mode (PTP in 1-3; PTP and the hotspot interface in 4), and the hotspot
+// interface bridged to a TAP device on which the VM runs a DHCP server. The
+// phone needs no host-side pairing; with MGU_FAKEPHONE_SILENT=1 it sends
+// nothing (as if Trust has not been tapped or the hotspot is off), so the
+// uplink reports trust-needed. It runs only when MGU_FAKEPHONE_FFS names the
+// FunctionFS mounts:
 //
 //	MGU_FAKEPHONE_FFS=/dev/ffs-ptp1,/dev/ffs-ptp2,/dev/ffs-ptp3,/dev/ffs-iphone
 //	MGU_FAKEPHONE_TAP=iph0          the TAP device to create
 //	MGU_FAKEPHONE_RX=ncm|legacy     how the phone frames what it sends
-//	MGU_FAKEPHONE_PROMPTS=3         Pair rounds that show the Trust prompt
+//	MGU_FAKEPHONE_SILENT=1          send nothing (untrusted / hotspot off)
 
 import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 	"unsafe"
@@ -83,28 +81,28 @@ func ffsStrings(s string) []byte {
 
 func ptpInterface(mps uint16) [][]byte { return [][]byte{ifaceD(0, 0, 0, 0x06, 0x01, 0x01)} }
 
-// iphoneInterfaces: ep1 usbmux OUT, ep2 usbmux IN, ep3 hotspot OUT, ep4
-// hotspot IN (FunctionFS numbers its endpoint files in this order).
+// iphoneInterfaces: interface 0 a PTP filler, interface 1 the hotspot
+// interface (ff/fd/01) with ep1 OUT and ep2 IN. A real iPhone carries these
+// endpoints on alternate setting 1 with an empty alt 0; FunctionFS cannot
+// model the empty-alt-0 switch, so the fake exposes them on the default
+// setting and the uplink reaches them without a switch.
 func iphoneInterfaces(mps uint16) [][]byte {
 	return [][]byte{
 		ifaceD(0, 0, 0, 0x06, 0x01, 0x01),
-		ifaceD(1, 0, 2, 0xff, 0xfe, 0x02), epD(0x01, mps), epD(0x82, mps),
-		ifaceD(2, 0, 0, 0xff, 0xfd, 0x01),
-		ifaceD(2, 1, 2, 0xff, 0xfd, 0x01), epD(0x03, mps), epD(0x84, mps),
+		ifaceD(1, 0, 2, 0xff, 0xfd, 0x01), epD(0x01, mps), epD(0x82, mps),
 	}
 }
 
 type gadgetPhone struct {
 	t      *testing.T
-	trust  *fakeTrust
 	ncmRx  bool
-	prompt int
+	silent bool
 	mac    []byte
 	tap    *os.File
 
-	mu    sync.Mutex
-	phone *fakePhone // this attachment's
-	eps   []*os.File // ep1-ep4
+	mu  sync.Mutex
+	on  bool       // the hotspot interface is enabled (the host claimed config 4)
+	eps []*os.File // ep1 (OUT, host->phone), ep2 (IN, phone->host)
 }
 
 func TestGadgetFakePhone(t *testing.T) {
@@ -112,9 +110,8 @@ func TestGadgetFakePhone(t *testing.T) {
 	if mounts[0] == "" {
 		t.Skip("MGU_FAKEPHONE_FFS not set")
 	}
-	g := &gadgetPhone{t: t, trust: newFakeTrust("00008110-000A11B22C33D44E"),
-		ncmRx: os.Getenv("MGU_FAKEPHONE_RX") != "legacy", mac: []byte{0x02, 0xac, 0x05, 0x12, 0xa8, 0x01}}
-	g.prompt, _ = strconv.Atoi(os.Getenv("MGU_FAKEPHONE_PROMPTS"))
+	g := &gadgetPhone{t: t, ncmRx: os.Getenv("MGU_FAKEPHONE_RX") != "legacy",
+		silent: os.Getenv("MGU_FAKEPHONE_SILENT") == "1", mac: []byte{0x02, 0xac, 0x05, 0x12, 0xa8, 0x01}}
 	tap, err := openTAP(os.Getenv("MGU_FAKEPHONE_TAP"))
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +140,7 @@ func TestGadgetFakePhone(t *testing.T) {
 			go drainEP0(ep0)
 		}
 	}
-	t.Logf("fake iPhone ready (%s receive, %d Trust prompts)", map[bool]string{true: "NCM", false: "legacy"}[g.ncmRx], g.prompt)
+	t.Logf("fake iPhone ready (%s receive, silent %v)", map[bool]string{true: "NCM", false: "legacy"}[g.ncmRx], g.silent)
 	select {}
 }
 
@@ -160,8 +157,9 @@ func (g *gadgetPhone) logf(format string, a ...interface{}) {
 	fmt.Fprintf(os.Stderr, time.Now().Format("15:04:05.000 ")+format+"\n", a...)
 }
 
-// serve handles the iPhone function's control events: enable starts a new
-// attachment, the vendor requests answer as ipheth expects.
+// serve handles the hotspot function's control events: enable wires the
+// endpoints (the host has claimed config 4), the vendor requests answer as
+// ipheth expects.
 func (g *gadgetPhone) serve(ep0 *os.File, mount string) {
 	buf := make([]byte, 12*8)
 	for {
@@ -195,8 +193,6 @@ func (g *gadgetPhone) setup(ep0 *os.File, req []byte) {
 		}
 		ep0.Write(b)
 	}
-	// Zero-length reads and writes on ep0 acknowledge or stall; os.File
-	// skips the system call for them.
 	fd := int(ep0.Fd())
 	ack := func() { unix.Read(fd, nil) }
 	stall := func() {
@@ -219,27 +215,26 @@ func (g *gadgetPhone) setup(ep0 *os.File, req []byte) {
 			stall()
 		}
 	case typ == 0xc0 && r == iphethCarrier:
-		reply([]byte{0x00, iphethCarrierOn})
+		on := byte(iphethCarrierOn)
+		if g.silent {
+			on = 0
+		}
+		reply([]byte{0x00, on})
 	default:
 		g.logf("control %02x/%02x: stall", typ, r)
 		stall()
 	}
 }
 
-// attach starts a new attachment: a fresh phone session (what it trusts
-// is kept in g.trust). The endpoint files are opened once and read for the
-// life of the process, each transfer going to the attachment of the
-// moment; a SET_INTERFACE re-enables every endpoint and fails transfers in
-// flight, so failed reads are retried.
+// attach wires the hotspot endpoints once the host has selected config 4 and
+// enabled the interface. ep1 is the OUT endpoint (host -> phone), ep2 the IN
+// endpoint (phone -> host).
 func (g *gadgetPhone) attach(mount string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.phone != nil {
-		return
-	}
 	if g.eps == nil {
-		g.eps = make([]*os.File, 5)
-		for n, flag := range map[int]int{1: os.O_RDONLY, 2: os.O_WRONLY, 3: os.O_RDONLY, 4: os.O_WRONLY} {
+		g.eps = make([]*os.File, 3)
+		for n, flag := range map[int]int{1: os.O_RDONLY, 2: os.O_WRONLY} {
 			f, err := os.OpenFile(fmt.Sprintf("%s/ep%d", mount, n), flag, 0)
 			if err != nil {
 				g.logf("ep%d: %v", n, err)
@@ -247,39 +242,23 @@ func (g *gadgetPhone) attach(mount string) {
 			}
 			g.eps[n] = f
 		}
-		go g.readLoop(g.eps[1], func(p *fakePhone, b []byte) { p.fromHost(b) })
-		go g.readLoop(g.eps[3], func(p *fakePhone, b []byte) { // hotspot frames, dropped until trusted
-			if len(b) >= 14 && p.Trusted() {
-				g.tap.Write(b)
-			}
-		})
+		go g.hostToTAP(g.eps[1])
 	}
-	p := newFakePhone(g.trust)
-	p.prompts = g.prompt
-	p.logf = g.logf
-	g.phone = p
-	muxIn := g.eps[2]
-	go func() { // usbmux, phone -> host
-		for b := range p.toHost {
-			for i := 0; i < 50; i++ {
-				if err := writeZLP(muxIn, b); err == nil || g.current() != p {
-					break
-				}
-				time.Sleep(20 * time.Millisecond)
-			}
-		}
-	}()
+	g.on = true
 	// The control frame a real iPhone sends first.
-	go g.eps[4].Write([]byte{0x00, 0x01, 0x00, 0x00})
+	if !g.silent {
+		go g.eps[2].Write([]byte{0x00, 0x01, 0x00, 0x00})
+	}
 }
 
-func (g *gadgetPhone) current() *fakePhone {
+func (g *gadgetPhone) detach() {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.phone
+	g.on = false
+	g.mu.Unlock()
 }
 
-func (g *gadgetPhone) readLoop(ep *os.File, deliver func(*fakePhone, []byte)) {
+// hostToTAP forwards the host's raw Ethernet frames to the phone network.
+func (g *gadgetPhone) hostToTAP(ep *os.File) {
 	buf := make([]byte, 65536)
 	for {
 		n, err := ep.Read(buf)
@@ -287,23 +266,18 @@ func (g *gadgetPhone) readLoop(ep *os.File, deliver func(*fakePhone, []byte)) {
 			time.Sleep(20 * time.Millisecond)
 			continue
 		}
-		if p := g.current(); p != nil && n > 0 {
-			deliver(p, append([]byte{}, buf[:n]...))
+		g.mu.Lock()
+		on := g.on && !g.silent
+		g.mu.Unlock()
+		if on && n >= 14 {
+			g.tap.Write(buf[:n])
 		}
 	}
 }
 
-func (g *gadgetPhone) detach() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.phone != nil {
-		g.phone.unplug()
-		g.phone = nil
-	}
-}
-
-// tapToHost frames what the phone's network sends: two bytes of padding
-// per frame (legacy) or an iOS-style NTB, dropped until trusted.
+// tapToHost frames what the phone's network sends: two bytes of padding per
+// frame (legacy) or an iOS-style NTB, sent only while the interface is up and
+// not silent.
 func (g *gadgetPhone) tapToHost() {
 	buf := make([]byte, 2048)
 	var seq uint16
@@ -314,13 +288,12 @@ func (g *gadgetPhone) tapToHost() {
 			return
 		}
 		g.mu.Lock()
-		p := g.phone
 		var ep *os.File
-		if g.eps != nil {
-			ep = g.eps[4]
+		if g.on && !g.silent && g.eps != nil {
+			ep = g.eps[2]
 		}
 		g.mu.Unlock()
-		if p == nil || ep == nil || !p.Trusted() {
+		if ep == nil {
 			continue
 		}
 		var out []byte
@@ -381,5 +354,3 @@ func openTAP(name string) (*os.File, error) {
 	}
 	return os.NewFile(uintptr(fd), "tap"), nil
 }
-
-var _ = syscall.EIO

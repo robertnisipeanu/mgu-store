@@ -2,7 +2,7 @@
 /**
  * The Store's texts, from mgu-updater's state (native/mgu-updater/js/updater.js
  * state()): the status line, each row's second column, what a press on a
- * row does, and the Sources, sign-in and Phone access pages. No I/O, so
+ * row does, and the Sources, Accounts, sign-in and Phone access pages. No I/O, so
  * tools/test_view.js runs it offline. A field an older updater does not
  * report hides what depends on it.
  */
@@ -66,7 +66,7 @@ function groupState(rows, busy) {
 
 /* The start screen's status line. Unreachable, the updater has either run
  * since this Store was installed (it left its secret here: secret true) or
- * not yet, which after the kit's install is until the next start. */
+ * not yet, which after the first install over SSH is until the next start. */
 function statusLine(st, connected, secret) {
     if (!connected) {
         return secret ? 'Updater not running' : 'Restart the head unit to finish setup';
@@ -106,9 +106,10 @@ function sourceLabel(src) {
     return src.label || src.id;
 }
 
-/* The second column of a source's row. */
+/* The second column of a source's row: what needs the owner, else the
+ * account that reads it. */
 function sourceState(src) {
-    return SOURCE_STATE[src.status] || (src.usb ? 'USB' : 'OK');
+    return SOURCE_STATE[src.status] || (src.usb ? 'USB' : sourceAccount(src) || 'OK');
 }
 
 /* The second column of the start screen's Sources row: what needs the
@@ -121,10 +122,7 @@ function sourcesState(sources) {
 }
 
 function sourceActions(src) {
-    return {
-        signIn: src.type === 'github' && !src.usb,
-        remove: !src.builtin && !src.usb
-    };
+    return { remove: !src.builtin && !src.usb };
 }
 
 /* A GitHub source's channel: releases, a branch's head, or the newest tag. */
@@ -140,13 +138,43 @@ function sourceAccount(src) {
     return (src.auth && src.auth.login) || '';
 }
 
-/* The sign-in page's status line for the GitHub login of `sourceId`, or the
- * updater's refusal to start it. */
-function loginStatus(login, sourceId, refusal) {
+/* ---- accounts (the updater's tokens) ---- */
+
+function tokenLabel(token) {
+    return token.label || token.login || token.id;
+}
+
+/* The second column of an account's row. */
+function tokenState(token) {
+    if (token.rejected) {
+        return 'Rejected';
+    }
+    const n = (token.usedBy || []).length;
+    return n ? `${n} source${n > 1 ? 's' : ''}` : 'Unused';
+}
+
+/* The sources an account reads, by label. */
+function tokenSources(token, sources) {
+    return (token.usedBy || []).map((id) => {
+        const src = (sources || []).find((s) => s.id === id);
+        return src ? sourceLabel(src) : id;
+    }).join(', ');
+}
+
+/* The second column of the Sources page's Accounts row. */
+function accountsState(tokens) {
+    if (tokens.length === 1) {
+        return tokenLabel(tokens[0]);
+    }
+    return tokens.length ? `${tokens.length} accounts` : 'None';
+}
+
+/* The sign-in page's status line, or the updater's refusal to start it. */
+function loginStatus(login, refusal) {
     if (refusal) {
         return `Sign-in failed: ${refusal}`;
     }
-    if (!login || login.source !== sourceId) {
+    if (!login) {
         return 'Starting';
     }
     switch (login.status) {
@@ -158,8 +186,8 @@ function loginStatus(login, sourceId, refusal) {
 }
 
 /* The login's code while it can still be entered. */
-function loginCode(login, sourceId) {
-    return login && login.source === sourceId && login.status === 'pending' && login.code ? login.code : '';
+function loginCode(login) {
+    return login && login.status === 'pending' && login.code ? login.code : '';
 }
 
 /* ---- phone access ---- */
@@ -231,4 +259,5 @@ function sourcesMessage(m) {
 }
 
 module.exports = { parseSource, channelOf, sourcesMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
-    sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState, phoneAddress };
+    sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
+    phoneState, phoneAddress };

@@ -1,4 +1,4 @@
-module mgu-apps/native/mgu-uplink
+module mgu-store/native/mgu-uplink
 
 go 1.22
 

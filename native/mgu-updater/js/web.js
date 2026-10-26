@@ -328,10 +328,11 @@ const OPS = {
         return null;
     },
     'source-remove': (b) => (str(b.id, 256) ? { id: b.id } : null),
-    'login-start': (b) => (str(b.source, 256) ? { source: b.source } : null),
+    'login-start': () => ({}),
     'login-cancel': () => ({}),
-    'token-set': (b) => (str(b.source, 256) && str(b.token, 4096) ? { source: b.source, token: b.token.trim() } : null),
-    'token-clear': (b) => (str(b.source, 256) ? { source: b.source } : null)
+    'token-add': (b) => (str(b.token, 4096) && (b.label === undefined || str(b.label, 64)) ?
+        Object.assign({ token: b.token.trim() }, b.label ? { label: b.label.trim() } : {}) : null),
+    'token-remove': (b) => (str(b.id, 64) ? { id: b.id } : null)
 };
 
 function serve() {
@@ -715,6 +716,10 @@ function channelLabel(c) {
 function confirmRemove(s) {
   if (confirm('Remove ' + s.label + '?')) { op({ op: 'source-remove', id: s.id }); }
 }
+function tokenName(t) { return t.label || t.login || t.id; }
+function confirmRemoveToken(t) {
+  if (confirm('Remove token ' + tokenName(t) + '?')) { op({ op: 'token-remove', id: t.id }); }
+}
 
 var last = {};
 function changed(key, value) {
@@ -733,32 +738,37 @@ function renderSources(sources) {
     var meta = [s.type];
     if (s.channel) { meta.push(channelLabel(s.channel)); }
     meta.push(STATUS[s.status] || s.status);
-    if (s.auth && s.auth.login) { meta.push(s.auth.login); }
+    if (s.auth) { meta.push(s.auth.login || s.auth.token); }
     if (s.components !== undefined && s.components !== null) { meta.push(s.components + ' components'); }
     main.appendChild(el('div', 'mut', meta.join(' · ')));
     if (s.error) { main.appendChild(el('div', 'bad', s.error)); }
     row.appendChild(main);
-    if (s.type === 'github' && !s.usb) {
-      row.appendChild(button('Sign in', function () { op({ op: 'login-start', source: s.id }); }));
-    }
-    if (s.auth) {
-      row.appendChild(button('Clear token', function () { op({ op: 'token-clear', source: s.id }); }));
-    }
     if (!s.builtin && !s.usb) {
       row.appendChild(button('Remove', function () { confirmRemove(s); }));
     }
     box.appendChild(row);
   });
-  var sel = $('tokenSource');
-  var keep = sel.value;
-  sel.textContent = '';
-  sources.filter(function (s) { return !s.usb; }).forEach(function (s) {
-    var o = el('option', null, s.label || s.id);
-    o.value = s.id;
-    sel.appendChild(o);
+}
+function renderTokens(tokens, sources) {
+  var box = $('tokens');
+  box.textContent = '';
+  tokens.forEach(function (t) {
+    var row = el('div', 'row');
+    var main = el('div', 'grow');
+    main.appendChild(el('div', null, tokenName(t)));
+    var meta = [t.id];
+    if (t.login && t.login !== t.label) { meta.push(t.login); }
+    var used = (t.usedBy || []).map(function (id) {
+      var s = sources.filter(function (x) { return x.id === id; })[0];
+      return s ? (s.label || s.id) : id;
+    });
+    meta.push(used.length ? used.join(', ') : 'Unused');
+    main.appendChild(el('div', 'mut', meta.join(' · ')));
+    if (t.rejected) { main.appendChild(el('div', 'bad', 'Rejected by GitHub')); }
+    row.appendChild(main);
+    row.appendChild(button('Remove', function () { confirmRemoveToken(t); }));
+    box.appendChild(row);
   });
-  if (keep) { sel.value = keep; }
-  $('tokenForm').hidden = !sel.options.length;
 }
 function renderComponents(list) {
   var box = $('components');
@@ -808,6 +818,7 @@ function render(st) {
     if (b.total) { bar.max = b.total; bar.value = b.progress || 0; } else { bar.removeAttribute('value'); }
   }
   if (changed('sources', st.sources || [])) { renderSources(st.sources || []); }
+  if (changed('tokens', [st.tokens || [], st.sources || []])) { renderTokens(st.tokens || [], st.sources || []); }
   if (changed('components', st.components || [])) { renderComponents(st.components || []); }
   renderLogin(st.login);
 }
@@ -852,8 +863,9 @@ $('tokenForm').onsubmit = function (ev) {
   ev.preventDefault();
   var v = $('tokenValue').value.trim();
   if (!v) { return; }
-  op({ op: 'token-set', source: $('tokenSource').value, token: v }).then(function () { $('tokenValue').value = ''; });
+  op({ op: 'token-add', token: v }).then(function () { $('tokenValue').value = ''; });
 };
+$('loginStart').onclick = function () { op({ op: 'login-start' }); };
 $('loginCancel').onclick = function () { op({ op: 'login-cancel' }); };
 $('logForm').onsubmit = function (ev) {
   ev.preventDefault();
@@ -919,7 +931,9 @@ a{color:var(--acc)}
 <h2>Sources</h2>
 <div id="sources"></div>
 <form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel"><option value="releases">Releases</option><option value="branch">Branch</option><option value="tags">Tags</option></select><input id="addBranch" aria-label="Branch" placeholder="Default branch" autocapitalize="off" autocorrect="off" spellcheck="false" hidden><button class="pri">Add</button></form>
-<form id="tokenForm" hidden><select id="tokenSource" aria-label="Source"></select><input id="tokenValue" type="password" aria-label="Token" placeholder="Token" autocomplete="off"><button>Save token</button></form>
+<h2>Tokens</h2>
+<div id="tokens"></div>
+<form id="tokenForm"><input id="tokenValue" type="password" aria-label="Token" placeholder="Token" autocomplete="off"><button class="pri">Add token</button><button id="loginStart" type="button">Sign in with GitHub</button></form>
 <h2>Components</h2>
 <div id="components"></div>
 <h2>Logs</h2>

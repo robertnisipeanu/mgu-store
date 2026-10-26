@@ -6,9 +6,7 @@ package main
 // firewall and the lease files see the same kernel interface as with every
 // other uplink. A framer wraps and unwraps the device's framing; the relay
 // moves plain Ethernet frames. Nothing here loads or changes kernel code:
-// usbfs claims, a veth pair and a packet socket are the whole mechanism,
-// the one mgu-tether (luigiwidmore/bmw_project tools/tether) runs on the
-// unit for RNDIS phones.
+// usbfs claims, a veth pair and a packet socket are the whole mechanism.
 
 import (
 	"encoding/binary"
@@ -52,8 +50,9 @@ type haltFramer interface {
 	halt()
 }
 
-// busyError is a device another driver or process holds, which this
-// service leaves alone.
+// busyError is a device this service could not take: a CDC device a driver
+// or process holds (reported busy and left alone), or an iPhone the media
+// daemon kept reclaiming before the uplink could.
 type busyError struct{ msg string }
 
 func (e *busyError) Error() string { return e.msg }

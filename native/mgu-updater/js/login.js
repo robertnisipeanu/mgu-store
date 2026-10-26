@@ -1,13 +1,13 @@
 'use strict';
 /**
- * GitHub sign-in for a github source, by GitHub's device flow (a GitHub App's
- * user token; README.md, "Signing in to GitHub"). The Store shows the code
- * and the address; the owner enters the code on a phone; the token the flow
- * ends with becomes the source's credential. Every request goes through the
+ * GitHub sign-in by GitHub's device flow (a GitHub App's user token;
+ * README.md, "Signing in to GitHub"). The Store shows the code and the
+ * address; the owner enters the code on a phone; the token the flow ends
+ * with becomes one of the updater's tokens. Every request goes through the
  * updater's fetcher (fetch.js as the fetch uid). github.com gets the client
  * id with the device code, or with the refresh token when an expired token
- * is renewed; the access token goes to the API host only (/user).
- * Node 8.
+ * is renewed; a token goes to the API host only (/user, which also checks a
+ * pasted one). Node 8.
  */
 const { URL } = require('url');
 
@@ -18,7 +18,7 @@ function form(fields) {
 }
 
 /* opts: { net, clientId, web (https://github.com), api (https://api.github.com),
- *         version, changed(), done(sourceId, token, meta), log(line) } */
+ *         version, changed(), done(token, meta), log(line) } */
 class DeviceLogin {
     constructor(opts) {
         this.o = opts;
@@ -37,24 +37,27 @@ class DeviceLogin {
             .then((buf) => JSON.parse(buf.toString('utf8')));
     }
 
-    /* The account the token belongs to, or null. */
+    /* What GitHub says of token (/user): { status: "ok", login, scopes } (a
+     * classic token's X-OAuth-Scopes; null for one without, as a
+     * fine-grained or GitHub App token), { status: "rejected" } (401), or
+     * { status: "unknown" } (no answer). */
     account(token) {
         const url = `${this.o.api.replace(/\/+$/, '')}/user`;
         if (new URL(url).hostname !== 'api.github.com') {
-            return Promise.resolve(null);
+            return Promise.resolve({ status: 'unknown' });
         }
-        return this.o.net.request({ url, name: 'user.json', maxBytes: 1 << 20,
+        return this.o.net.request({ url, name: 'user.json', maxBytes: 1 << 20, keep: ['x-oauth-scopes'],
             headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': `mgu-updater/${this.o.version}` } })
             .then((buf) => {
                 const login = JSON.parse(buf.toString('utf8')).login;
-                return typeof login === 'string' ? login : null;
-            }, () => null);
+                const scopes = buf.headers && buf.headers['x-oauth-scopes'];
+                return { status: 'ok', login: typeof login === 'string' ? login : null, scopes: typeof scopes === 'string' ? scopes : null };
+            }, (err) => ({ status: err.status === 401 ? 'rejected' : 'unknown' }));
     }
 
-    /* What the credential's metadata keeps of a token answer. */
+    /* What the token's entry keeps of a token answer. */
     static meta(answer, login, now) {
         return {
-            kind: 'github',
             login: login || null,
             expiresAt: answer.expires_in ? now + answer.expires_in * 1000 : null,
             refreshToken: answer.refresh_token || null,
@@ -71,17 +74,17 @@ class DeviceLogin {
         this.o.changed();
     }
 
-    /* Starts a sign-in for sourceId (a github source); returns a reason it cannot. */
-    start(sourceId) {
+    /* Starts a sign-in; returns a reason it cannot. */
+    start() {
         if (!this.o.clientId) {
             return 'no GitHub App client id configured (github_client_id)';
         }
         this.cancel();
         const run = ++this.run;
         const live = () => run === this.run;
-        this.current = { source: sourceId, url: null, code: null, expiresAt: null, status: 'pending', error: null };
+        this.current = { url: null, code: null, expiresAt: null, status: 'pending', error: null };
         this.o.changed();
-        this.o.log(`login ${sourceId}: requesting a device code`);
+        this.o.log('login: requesting a device code');
         this.post('/login/device/code', { client_id: this.o.clientId })
             .then((d) => {
                 if (!live()) {
@@ -96,7 +99,7 @@ class DeviceLogin {
             })
             .catch((err) => {
                 if (live()) {
-                    this.o.log(`login ${sourceId}: ${err.message}`);
+                    this.o.log(`login: ${err.message}`);
                     this.set({ status: 'error', error: err.message });
                 }
             });
@@ -105,7 +108,6 @@ class DeviceLogin {
 
     poll(run, deviceCode, interval, expiresAt) {
         const live = () => run === this.run;
-        const sourceId = this.current.source;
         this.timer = setTimeout(() => {
             if (!live()) {
                 return;
@@ -121,12 +123,13 @@ class DeviceLogin {
                         return undefined;
                     }
                     if (a.access_token) {
-                        return this.account(a.access_token).then((login) => {
+                        return this.account(a.access_token).then((acct) => {
                             if (!live()) {
                                 return;
                             }
-                            this.o.done(sourceId, a.access_token, DeviceLogin.meta(a, login, now));
-                            this.o.log(`login ${sourceId}: signed in${login ? ` as ${login}` : ''}`);
+                            const login = acct.login || null;
+                            this.o.done(a.access_token, Object.assign(DeviceLogin.meta(a, login, now), { scopes: acct.scopes || null }));
+                            this.o.log(`login: signed in${login ? ` as ${login}` : ''}`);
                             this.set({ status: 'done' });
                         });
                     }
@@ -150,7 +153,7 @@ class DeviceLogin {
                         this.poll(run, deviceCode, interval, expiresAt);
                         return;
                     }
-                    this.o.log(`login ${sourceId}: ${err.message}`);
+                    this.o.log(`login: ${err.message}`);
                     this.set({ status: 'error', error: err.message });
                 });
         }, interval * 1000);
@@ -166,8 +169,8 @@ class DeviceLogin {
         }
     }
 
-    /* A new token for a credential whose token has expired, from its refresh
-     * token; resolves with { token, meta }, or null when there is none to use. */
+    /* A new token for one that has expired, from its refresh token (meta: its
+     * entry); resolves with { token, meta }, or null when there is none to use. */
     refresh(meta) {
         if (!meta || !meta.refreshToken || !this.o.clientId ||
             (meta.refreshExpiresAt && meta.refreshExpiresAt <= Date.now())) {

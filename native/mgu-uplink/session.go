@@ -139,6 +139,7 @@ func runService(c config, up Uplink) error {
 			logf("uplink down: %s: %v", s.link, s.link.Err())
 			s.detach()
 			setLinkNote("")
+			setLinkTrust(false, "")
 			setStatus(nil, stateSearching, "")
 			linkDone, dhcpDone, restartDHCP = nil, nil, nil
 			reopen = time.After(2 * time.Second)
@@ -319,6 +320,8 @@ func (s *service) publishStatus() {
 	}
 	if s.lease != nil {
 		setStatus(dev, stateOnline, "")
+	} else if trust, msg := linkTrust(); trust {
+		setStatus(dev, stateTrustNeeded, msg)
 	} else {
 		setStatus(dev, stateConnecting, "")
 	}

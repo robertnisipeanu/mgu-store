@@ -1,12 +1,12 @@
-# robertn_store 0.5.0
+# robertn_store 0.6.0
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
 It is the screen of [mgu-updater](../../native/mgu-updater/README.md),
 which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
-privileged ones (uninstall, source-add, source-remove, login-start,
-login-cancel, web), which carry the secret the updater leaves in the app's data folder
+privileged ones (uninstall, source-add, source-remove, token-remove,
+login-start, login-cancel, web), which carry the secret the updater leaves in the app's data folder
 (`data/updater-secret`, read again for every request).
 
 | Row (`LT_Button_1Row_2Col7030_2Text`) | Press |
@@ -24,7 +24,7 @@ login-cancel, web), which carry the secret the updater leaves in the app's data 
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,
 `Checking for updates`, `Restarting`, the last error; `Restart the head
 unit to finish setup` while the updater has not run since the Store was
-installed, which after the install kit is until the next start; `Updater
+installed, which after the first install is until the next start; `Updater
 not running` once it has), a **Check for updates** button, a progress bar for the running
 install (hidden when none runs), the rows **Apps** and **Head-unit tools**,
 each showing its running install, `Failed` or its number of updates,
@@ -48,21 +48,31 @@ already restarting the unit, and with an updater older than 0.1.4.
 
 **Sources** has a status line (a source typed wrong, the updater's refusal
 to add or remove one, a speller that could not open; hidden otherwise),
-one row per source, its label and status: `OK`, `USB` (a source on a
-plugged-in USB stick), `Checking`, `Sign in`, `Error`, `Offline`; then
-**Add source** and **Phone access** (the phone page, for tokens and logs).
-A source's page shows its label and
-status, **Channel** (`Releases`, `Branch <name>`, `Tags`), **Account**
-(the signed-in GitHub login), **Components** (how many it lists), its
-error, **Sign in with GitHub** (GitHub sources) and **Remove** (with a
-confirm step, *Remove source?*; not for the Store's own source or a USB
-source).
+one row per source, its label and the account that reads it (a GitHub
+login), else its status: `OK`, `USB` (a source on a plugged-in USB stick),
+`Checking`, `Sign in` (no account reaches it), `Error`, `Offline`; then
+**Add source**, **Accounts** and **Phone access** (the phone page, for
+pasting tokens and for logs). A source's page shows its label and status,
+**Channel** (`Releases`, `Branch <name>`, `Tags`), **Account** (the GitHub
+login that reads it), **Components** (how many it lists), its error and
+**Remove** (with a confirm step, *Remove source?*; not for the Store's own
+source or a USB source).
 
-**Sign in with GitHub** starts the updater's GitHub device sign-in and opens
-its page: the QR code of the sign-in page with the code drawn large beside
-it, the code and the page's address as text, the status (`Waiting for
-sign-in`, `Code expired`, `Sign-in failed: …`) and **Cancel**. The page
-closes itself once signed in.
+**Accounts** are the updater's tokens, which belong to no source: the
+updater reads each source with whichever one reaches it, so one account
+serves every repo it can read and a source added later needs nothing more.
+The row shows the account (one), `<n> accounts` or `None`; hidden with an
+updater that reports no `tokens`. Its page lists each account, its label
+(else its login, else its id) and the sources it reads (`2 sources`,
+`Unused`, `Rejected` when GitHub refuses it), and **Sign in with GitHub**.
+Pressing an account opens *Remove account?*: its name, the sources it
+reads, **Cancel** and **Remove** (`token-remove`).
+
+**Sign in with GitHub** starts the updater's GitHub device sign-in, which
+adds an account, and opens its page: the QR code of the sign-in page with
+the code drawn large beside it, the code and the page's address as text,
+the status (`Waiting for sign-in`, `Code expired`, `Sign-in failed: …`) and
+**Cancel**. The page closes itself once signed in.
 
 **Add source** opens the HMI's own full-screen speller (`src/speller.js`,
 the free-text speller use case `02076b22-…` that x_call uses; the
@@ -120,21 +130,21 @@ src/qrcodegen.js           Project Nayuki's QR Code generator 1.5.0 (10004, src/
 src/speller.js             the HMI's free-text speller (10005)
 tools/gen_rhmi.js          application.xml + uiDescription.json from one table
 tools/build.js             RHMI, lib/client.js, the source package, and given a donor the OAP tgz
-tools/test_view.js         the texts for every row, source, sign-in and phone state, offline
+tools/test_view.js         the texts for every row, source, account, sign-in and phone state, offline
 tools/test_rhmi.js         the generated RHMI files' structure and the names src/store.js binds
 tools/test_qr.js           the QR pictures (decoded back with zbarimg when installed)
 tools/test_speller.js      src/speller.js against a fake use case factory
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater and speller
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.5.0/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.6.0/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.5.0.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.5.0.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.6.0.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.6.0.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js &&
     node tools/test_speller.js && node tools/test_store.js
 ```

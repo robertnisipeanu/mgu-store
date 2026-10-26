@@ -10,9 +10,9 @@
  * installed, has an update, or failed), "reboot" (Restart head unit, once
  * confirmed), and the privileged ones, which carry the secret the updater
  * leaves in this app's data folder: "uninstall" (a removable installed
- * component, once confirmed), "source-add", "source-remove", "login-start" /
- * "login-cancel" (GitHub sign-in of a source) and "web" (Phone access on or
- * off).
+ * component, once confirmed), "source-add", "source-remove", "token-remove"
+ * (an account, once confirmed), "login-start" / "login-cancel" (GitHub
+ * sign-in, which adds an account) and "web" (Phone access on or off).
  *
  * The start screen has the status line, Check for updates, the progress of
  * the running install, the rows Apps and Head-unit tools, which open their
@@ -25,13 +25,15 @@
  *   Extended dashboard          42%               (downloading)
  *
  * Sources has a status line (a source typed wrong, the updater's refusal to
- * add or remove one), lists each source with its status and opens its page
- * (Channel, Account, Components, Sign in with GitHub, Remove). Add source
- * opens the HMI's speller (src/speller.js) for owner/repo or an https
+ * add or remove one), lists each source with its status or the account that
+ * reads it and opens its page (Channel, Account, Components, Remove). Add
+ * source opens the HMI's speller (src/speller.js) for owner/repo or an https
  * address; a GitHub repo then gets its channel (Releases, Tags, or Branch,
  * whose name is typed in the speller too; empty: the default branch). A USB
- * stick's sources the updater lists by itself. Phone access is linked from
- * Sources too.
+ * stick's sources the updater lists by itself. Accounts lists the updater's
+ * tokens, each with the sources it reads; a press opens its Remove confirm
+ * step, and Sign in with GitHub adds one. The updater picks the account for
+ * each source itself. Phone access is linked from Sources too.
  *
  * An app install runs in place, or else restarts MainApp's app processes,
  * this one included; the updater carries on, and the Store shows the result
@@ -48,8 +50,8 @@ const { UpdaterClient } = require('./client.js');
 const { qrPng } = require('./qr.js');
 const { spell } = require('./speller.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
-    sourcesState, sourceActions, sourceChannel, sourceAccount, loginStatus, loginCode, phoneState,
-    phoneAddress, parseSource, channelOf, sourcesMessage } = require('./store_view.js');
+    sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
+    loginStatus, loginCode, phoneState, phoneAddress, parseSource, channelOf, sourcesMessage } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 
@@ -73,6 +75,8 @@ const S = {
     restart: 'ST_OnlineApps_StoreRestart',
     sources: 'ST_OnlineApps_StoreSources',
     source: 'ST_OnlineApps_StoreSource',
+    accounts: 'ST_OnlineApps_StoreAccounts',
+    accountRemove: 'ST_OnlineApps_StoreAccountRemove',
     login: 'ST_OnlineApps_StoreLogin',
     sourceRemove: 'ST_OnlineApps_StoreSourceRemove',
     remove: 'ST_OnlineApps_StoreRemove',
@@ -88,10 +92,12 @@ const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress
     navSources: 'storeNavSources', navPhone: 'storeNavPhone',
     restartCancel: 'storeRestartCancel', restartConfirm: 'storeRestartConfirm',
     sourcesStatus: 'storeSourcesStatus', sourceList: 'storeSourceList', sourceAdd: 'storeSourceAdd',
-    sourcePhone: 'storeSourcePhone', addRepo: 'storeAddRepo', channelReleases: 'storeChannelReleases',
+    sourcePhone: 'storeSourcePhone', sourceAccounts: 'storeSourceAccounts', addRepo: 'storeAddRepo', channelReleases: 'storeChannelReleases',
     channelTags: 'storeChannelTags', channelBranch: 'storeChannelBranch',
     srcStatus: 'storeSrcStatus', srcChannel: 'storeSrcChannel', srcAccount: 'storeSrcAccount', srcComponents: 'storeSrcComponents',
-    srcError: 'storeSrcError', srcSignIn: 'storeSrcSignIn', srcRemove: 'storeSrcRemove',
+    srcError: 'storeSrcError', srcRemove: 'storeSrcRemove',
+    accountList: 'storeAccountList', accountSignIn: 'storeAccountSignIn', accountName: 'storeAccountName',
+    accountSources: 'storeAccountSources', accountRemoveCancel: 'storeAccountRemoveCancel', accountRemoveConfirm: 'storeAccountRemoveConfirm',
     loginQr: 'storeLoginQr', loginCode: 'storeLoginCode', loginUrl: 'storeLoginUrl',
     loginStatus: 'storeLoginStatus', loginCancel: 'storeLoginCancel',
     srcRemoveCancel: 'storeSrcRemoveCancel', srcRemoveConfirm: 'storeSrcRemoveConfirm',
@@ -116,7 +122,7 @@ function readSecret() {
 }
 
 /* The HMI reads pictures as another user: QR codes live in a world-readable
- * folder in RAM (docs/OAP_APP_DEV_GUIDE.md §10 in mgu-apps). */
+ * folder in RAM. */
 function qrDir() {
     const uid = typeof process.getuid === 'function' ? process.getuid() : 'x';
     return path.join(fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir(), `robertn_store_qr_${uid}`);
@@ -147,12 +153,13 @@ class Store extends OnlineApp {
         this._actionById = {};
         this._lastPress = {};
         this._written = {};
-        this._rows = { app: [], tool: [], source: [] };
+        this._rows = { app: [], tool: [], source: [], token: [] };
         this._sizing = {};              // lists whose row count is being set
         this._sourceId = null;          // the source whose page is open
         this._removingSource = null;    // the source this Store asked the updater to remove
         this._removalRefused = false;
         this._removeId = null;          // the component the Remove confirm step names
+        this._tokenId = null;           // the account the Remove account confirm step names
         /* The sign-in this app started: waiting until the updater reports it
          * pending, or the updater's refusal. */
         this._login = { waiting: false, refusal: null };
@@ -282,8 +289,12 @@ class Store extends OnlineApp {
         this._bind(C.channelReleases, () => this._chooseChannel('releases'));
         this._bind(C.channelTags, () => this._chooseChannel('tags'));
         this._bind(C.channelBranch, () => this._chooseChannel('branch'));
-        this._bind(C.srcSignIn, () => this._signIn());
         this._bind(C.srcRemove, () => this._openState(S.sourceRemove));
+        this._bind(C.sourceAccounts, () => this._openState(S.accounts));
+        this._bind(C.accountList, (row) => this._onAccount(row));
+        this._bind(C.accountSignIn, () => this._signIn());
+        this._bind(C.accountRemoveCancel, () => this._closeState(S.accountRemove));
+        this._bind(C.accountRemoveConfirm, () => this._removeAccount());
         this._bind(C.srcRemoveCancel, () => this._closeState(S.sourceRemove));
         this._bind(C.srcRemoveConfirm, () => this._removeSource());
         this._bind(C.loginCancel, () => this._cancelSignIn());
@@ -415,6 +426,11 @@ class Store extends OnlineApp {
         return (Array.isArray(sources) && id && sources.find((s) => s.id === id)) || null;
     }
 
+    _token(id) {
+        const tokens = this._connected && this._st && this._st.tokens;
+        return (Array.isArray(tokens) && id && tokens.find((t) => t.id === id)) || null;
+    }
+
     _onRow(kind, i) {
         const row = this._component(this._rows[kind][i]);
         if (!row) {
@@ -450,16 +466,31 @@ class Store extends OnlineApp {
     }
 
     _signIn() {
-        const src = this._source(this._sourceId);
-        if (!src || !sourceActions(src).signIn) {
-            return;
-        }
         this._login = { waiting: true, refusal: null };
-        if (this._privileged({ op: 'login-start', source: src.id })) {
-            logger.info(`GitHub sign-in for ${src.id}`);
+        if (this._privileged({ op: 'login-start' })) {
+            logger.info('GitHub sign-in');
             this._openState(S.login);
         } else {
             this._login.waiting = false;
+        }
+    }
+
+    _onAccount(i) {
+        const token = this._token(this._rows.token[i]);
+        if (token) {
+            this._tokenId = token.id;
+            this._openState(S.accountRemove);
+        }
+    }
+
+    /* The Remove account confirm step's Remove; the updater reads the
+     * account's sources again with the accounts left. */
+    _removeAccount() {
+        this._closeState(S.accountRemove);
+        const token = this._token(this._tokenId);
+        if (token) {
+            logger.info(`remove account ${token.id}`);
+            this._privileged({ op: 'token-remove', id: token.id });
         }
     }
 
@@ -682,8 +713,8 @@ class Store extends OnlineApp {
             this._renderList(LISTS[kind].list, rows.map((r) => [r.title, rowState(r, busy)]));
             this._rows[kind] = rows.map((r) => r.id);
         });
-        const removing = this._component(this._removeId);
-        this._text(C.removeName, removing ? `${removing.title} ${removing.installed}` : '');
+        const removingComponent = this._component(this._removeId);
+        this._text(C.removeName, removingComponent ? `${removingComponent.title} ${removingComponent.installed}` : '');
 
         // an updater that reports no sources or web hides Sources and Phone access
         const sources = connected && Array.isArray(st.sources) ? st.sources : null;
@@ -701,6 +732,17 @@ class Store extends OnlineApp {
         this._text(C.sourcesStatus, this._sourcesNote);
         this._show(C.sourceAdd, !!sources);
         this._show(C.sourcePhone, !!web);
+        // an updater that reports no tokens hides Accounts
+        const tokens = connected && Array.isArray(st.tokens) ? st.tokens : null;
+        if (tokens) {
+            this._set(C.sourceAccounts, 'Text2ndCol', accountsState(tokens), 'Text');
+        }
+        this._show(C.sourceAccounts, !!tokens);
+        this._renderList(C.accountList, (tokens || []).map((t) => [tokenLabel(t), tokenState(t)]));
+        this._rows.token = (tokens || []).map((t) => t.id);
+        const removing = this._token(this._tokenId);
+        this._text(C.accountName, removing ? tokenLabel(removing) : '');
+        this._text(C.accountSources, removing ? tokenSources(removing, sources) : '');
         this._text(C.addRepo, this._adding ? this._adding.repo : '');
         this._renderSource(this._source(this._sourceId));
         this._renderLogin(connected ? st.login : null);
@@ -725,25 +767,23 @@ class Store extends OnlineApp {
         this._show(C.srcAccount, !!(src && sourceAccount(src)));
         this._show(C.srcComponents, !!src);
         this._text(C.srcError, src && src.error ? String(src.error) : '');
-        this._show(C.srcSignIn, !!actions.signIn);
         this._show(C.srcRemove, !!actions.remove);
     }
 
-    /* The sign-in page of the open source; it closes itself once the sign-in
-     * it started is done. A login the updater reports before it has taken
-     * the new one up is an earlier one. */
+    /* The sign-in page; it closes itself once the sign-in it started is
+     * done. A login the updater reports before it has taken the new one up
+     * is an earlier one. */
     _renderLogin(reported) {
-        const source = this._sourceId;
-        if (this._login.waiting && reported && reported.source === source && reported.status === 'pending') {
+        if (this._login.waiting && reported && reported.status === 'pending') {
             this._login.waiting = false;
         }
         const login = this._login.waiting ? null : reported;
-        const code = loginCode(login, source);
-        this._set(C.loginStatus, 'Text', loginStatus(login, source, this._login.refusal), 'Text');
+        const code = loginCode(login);
+        this._set(C.loginStatus, 'Text', loginStatus(login, this._login.refusal), 'Text');
         this._text(C.loginCode, code);
         this._text(C.loginUrl, code ? login.url : '');
         this._showQr('login', C.loginQr, code ? login.url : '', code);
-        if (login && login.source === source && login.status === 'done' && this._visibleStates.has(S.login)) {
+        if (login && login.status === 'done' && this._visibleStates.has(S.login)) {
             this._visibleStates.delete(S.login);
             this._closeState(S.login);
         }

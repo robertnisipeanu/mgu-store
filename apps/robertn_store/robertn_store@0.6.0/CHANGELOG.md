@@ -1,10 +1,20 @@
 # Changelog
 
-## 0.5.0
+## 0.6.0
 
 The package ships no entry point of its own: the build supplies
 `javascript/runner.js` from the SDK donor's package, so the Store needs
-mgu-deploy 0.2.3 or later to build on the head unit.
+mgu-deploy 0.2.4 or later to build on the head unit.
+
+## 0.5.0
+
+Accounts are the updater's tokens, not a source's: Sources has an
+**Accounts** row, whose page lists each account with the sources it reads
+(`2 sources`, `Unused`, `Rejected`); pressing one opens *Remove account?*
+with its name and sources, and **Sign in with GitHub** adds one. The updater
+reads each source with whichever account reaches it: a source's row shows
+that account (or `Sign in` when none does), and a source's page has no
+sign-in of its own. Needs mgu-updater 0.3.0.
 
 ## 0.4.1
 

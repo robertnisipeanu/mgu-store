@@ -32,9 +32,10 @@ const (
 	oidPermanentAddress = 0x01010101 // OID_802_3_PERMANENT_ADDRESS
 	oidPacketFilter     = 0x0001010e // OID_GEN_CURRENT_PACKET_FILTER
 
-	// NDIS_PACKET_TYPE_DIRECTED | ALL_MULTICAST | BROADCAST | PROMISCUOUS,
-	// rndis_host's RNDIS_DEFAULT_FILTER.
-	rndisFilter = 0x2d
+	// NDIS_PACKET_TYPE_DIRECTED | MULTICAST | BROADCAST: the phone passes
+	// frames for the host MAC (which vethuplink carries), broadcast and
+	// multicast, the filter proven with Android phones on the car.
+	rndisFilter = 0x0b
 
 	rndisMediaConnect    = 0x4001000b
 	rndisMediaDisconnect = 0x4001000c

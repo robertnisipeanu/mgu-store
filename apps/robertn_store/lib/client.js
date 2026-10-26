@@ -14,8 +14,8 @@
  * from /run/mgu-updater/web-secret; without the right one the updater
  * answers "forbidden" (README.md, "The socket").
  *   c.uninstall(id);  c.sourceAdd({ type: 'github', repo, channel });  c.sourceAdd({ type: 'https', url });
- *   c.sourceRemove(id);  c.loginStart(sourceId);  c.loginCancel();
- *   c.tokenSet(sourceId, token);  c.tokenClear(sourceId);  c.web(true | false);
+ *   c.sourceRemove(id);  c.loginStart();  c.loginCancel();
+ *   c.tokenAdd(token, label?);  c.tokenRemove(tokenId);  c.web(true | false);
  *
  * With reconnectMs the client keeps reconnecting after the updater goes
  * away (it restarts when it updates itself) and emits 'down' while it is
@@ -125,20 +125,20 @@ class UpdaterClient extends EventEmitter {
         return this.privileged({ op: 'source-remove', id });
     }
 
-    loginStart(source) {
-        return this.privileged({ op: 'login-start', source });
+    loginStart() {
+        return this.privileged({ op: 'login-start' });
     }
 
     loginCancel() {
         return this.privileged({ op: 'login-cancel' });
     }
 
-    tokenSet(source, token) {
-        return this.privileged({ op: 'token-set', source, token });
+    tokenAdd(token, label) {
+        return this.privileged(Object.assign({ op: 'token-add', token }, label ? { label } : {}));
     }
 
-    tokenClear(source) {
-        return this.privileged({ op: 'token-clear', source });
+    tokenRemove(id) {
+        return this.privileged({ op: 'token-remove', id });
     }
 
     web(enable) {

@@ -12,8 +12,10 @@
  *  - the reboot request: refused while an install runs or waits, the
  *    command run once, its failure and a unit that stays up reported;
  *  - sources (an updater in this process, against a fake GitHub on the same
- *    HTTPS server): several sources and id collisions, a private repo that
- *    needs a token, GitHub device sign-in, catalog / releases / repo-tree
+ *    HTTPS server): several sources and id collisions, tokens of their own
+ *    (one reaching two private repos, a second for a third, a public repo
+ *    read without one, removal, tokens the deploy tool writes, per-source
+ *    files of 0.2 converted), GitHub device sign-in, catalog / releases / repo-tree
  *    layouts on the releases, branch and tags channels, a branch commit
  *    that moves, repo build scripts (built, failing, too slow, writing
  *    outside), requirements installed first, uninstall, USB media, the
@@ -110,7 +112,8 @@ const seen = [];
 
 const API = `https://api.github.com:${HTTPS_PORT}`;
 const GH_WEB = `https://github.com:${HTTPS_PORT}`;
-const gh = { repos: {}, users: { 'tok-private': 'tester', 'tok-device': 'tester' }, polls: 0, refreshes: 0, device: null };
+const gh = { repos: {}, users: { 'tok-all': 'tester', 'tok-third': 'other-acct', 'tok-device': 'tester' }, polls: 0, refreshes: 0, device: null,
+    deviceExpired: false };
 
 /* A repo: private ones answer only to one of their tokens (404 without, 401
  * with a wrong one). trees: commit sha -> { path: [data, mode] }. */
@@ -158,8 +161,11 @@ function ghApi(req, res, auth) {
         res.end(data);
     };
     if (u.pathname === '/user') {
-        const login = auth && gh.users[auth.replace(/^Bearer /, '')];
-        send(login ? 200 : 401, login ? { login } : { message: 'Bad credentials' });
+        const token = auth && auth.replace(/^Bearer /, '');
+        // an expired sign-in token is refused until it is renewed
+        const login = token && !(token === 'tok-device' && gh.deviceExpired) && gh.users[token];
+        // a classic token's scopes; a GitHub App's (device flow) has none
+        send(login ? 200 : 401, login ? { login } : { message: 'Bad credentials' }, login && token !== 'tok-device' ? { 'X-OAuth-Scopes': 'repo' } : {});
         return;
     }
     const m = /^\/repos\/([^/]+\/[^/]+)(\/.*)?$/.exec(u.pathname);
@@ -168,14 +174,20 @@ function ghApi(req, res, auth) {
         send(404, { message: 'Not Found' });
         return;
     }
+    // a token GitHub does not know: 401; one without access to a private repo: 404, as GitHub answers
+    const known = auth && gh.users[auth.replace(/^Bearer /, '')];
+    if (auth && !known) {
+        send(401, { message: 'Bad credentials' });
+        return;
+    }
     if (repo.private && !(auth && repo.tokens.indexOf(auth.replace(/^Bearer /, '')) >= 0)) {
-        send(auth ? 401 : 404, { message: auth ? 'Bad credentials' : 'Not Found' });
+        send(404, { message: 'Not Found' });
         return;
     }
     const rest = m[2] || '';
     const assetUrl = (name) => `${API}/repos/${m[1]}/releases/assets/${encodeURIComponent(name)}`;
     if (!rest) {
-        send(200, { full_name: m[1], default_branch: repo.default_branch });
+        send(200, { full_name: m[1], default_branch: repo.default_branch, private: repo.private });
     } else if (rest === '/releases/tags/catalog') {
         if (repo.catalog) {
             send(200, { assets: [{ name: 'catalog.json', url: assetUrl('catalog.json'), size: repo.catalog.length }] });
@@ -242,6 +254,7 @@ function ghWeb(req, res, body) {
             { access_token: 'tok-device', token_type: 'bearer', expires_in: 28800, refresh_token: 'refresh-1', refresh_token_expires_in: 15811200 });
     } else if (req.method === 'POST' && req.url === '/login/oauth/access_token' && f.grant_type === 'refresh_token' && f.refresh_token === 'refresh-1') {
         gh.refreshes += 1;
+        gh.deviceExpired = false;
         out = { access_token: 'tok-device', expires_in: 28800, refresh_token: 'refresh-1' };
     } else {
         out = { error: 'bad_request' };
@@ -261,7 +274,9 @@ function startHttps(certs, dir) {
             const auth = req.headers.authorization || null;
             seen.push({ host: req.headers.host, url: req.url, auth, method: req.method });
             if (host === 'api.github.com') {
-                ghApi(req, res, auth);
+                // a repo's delayMs holds its answers back: a read stays under way
+                const m = /^\/repos\/([^/]+\/[^/?]+)/.exec(req.url);
+                setTimeout(() => ghApi(req, res, auth), (m && gh.repos[m[1]] && gh.repos[m[1]].delayMs) || 0);
                 return;
             }
             if (host === 'github.com') {
@@ -1000,7 +1015,26 @@ function testDaemon(certs, pubDir) {
         .then(() => {
             ok('trial: a version the local installer puts there is kept without internet',
                 current() === 'versions/0.7.0' && !fs.existsSync(path.join(opt, 'mgu-updater', 'trial-local')));
-            fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
+            // still offline: a newer version on a USB stick
+            const stick = path.join('/media', 'SELFSTICK');
+            mkdirp(stick);
+            publish(stick, [entry(updaterKit(stick, '0.8.0'), 'tool', 'Updater')]);
+            fs.writeFileSync(path.join(T, 'no-mounts'), `/dev/sdz1 ${stick} vfat ro 0 0\n`);
+            return waitFor(client, (s) => row(s, 'mgu-updater').version === '0.8.0' && row(s, 'mgu-updater').status === 'update' &&
+                row(s, 'mgu-updater').source === 'usb:SELFSTICK', 20000, 'the stick\'s updater offered offline')
+                .then(() => {
+                    restarting();
+                    client.install('mgu-updater');
+                    return sleep(3000).then(() => waitFor(client, (s) => version(s) === '0.8.0' && !fs.existsSync(trialFile) && settled(s), 60000,
+                        'the stick\'s updater kept offline'));
+                })
+                .then(() => {
+                    ok('trial: a version from a USB stick is kept without internet',
+                        current() === 'versions/0.8.0' && !fs.existsSync(path.join(opt, 'mgu-updater', 'trial-local')));
+                    fs.unlinkSync(path.join(T, 'no-mounts'));
+                    cp.execFileSync('rm', ['-rf', stick]);
+                    fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
+                });
         })
         .then(() => {
             // a download that does not match the catalog
@@ -1128,6 +1162,24 @@ function testDaemon(certs, pubDir) {
                         /0\.2\.3 gives no internet; going back to 0\.2\.2 failed \(exit 1\)/.test(row(st, 'mgu-uplink').error),
                         row(st, 'mgu-uplink').error);
                     fs.unlinkSync(`${log}.rollbackfail`);
+                    // still without internet: an uplink from a USB stick has none to give back, and is kept
+                    const stick = path.join('/media', 'UPLSTICK');
+                    mkdirp(stick);
+                    publish(stick, [entry(toolKit(stick, 'mgu-uplink', '0.2.4', { 'mgu-uplink': ['#!/bin/sh\n', 0o755] }, { test_broken: true }),
+                        'tool', 'Internet uplink')]);
+                    fs.writeFileSync(path.join(T, 'no-mounts'), `/dev/sdz1 ${stick} vfat ro 0 0\n`);
+                    return waitFor(client, (x) => x.online === false && row(x, 'mgu-uplink').source === 'usb:UPLSTICK', 30000, 'the stick\'s uplink offered offline');
+                })
+                .then(() => {
+                    client.install('mgu-uplink');
+                    return sleep(500).then(() => waitFor(client, (x) => row(x, 'mgu-uplink').installed === '0.2.4' && !x.busy, 60000, 'the stick\'s uplink'));
+                })
+                .then((st) => {
+                    ok('bootstrap: an uplink installed from a stick without internet is kept, not checked',
+                        uplinkLink() === 'versions/0.2.4' && !row(st, 'mgu-uplink').error &&
+                        (fs.readFileSync(log, 'utf8').match(/rollback mgu-uplink/g) || []).length === 2, JSON.stringify(row(st, 'mgu-uplink')));
+                    fs.unlinkSync(path.join(T, 'no-mounts'));
+                    cp.execFileSync('rm', ['-rf', '/media/UPLSTICK']);
                     fs.copyFileSync(path.join(T, 'lease.json.good'), path.join(T, 'lease.json'));
                 });
         })
@@ -1332,9 +1384,14 @@ function testSources(certs) {
     mkdirp(second);
     publish(second, [entry(appTgz(second, 'dup_app', '2.0.0'), 'app', 'Dup two')]);
     // a private repo with its own catalog
-    ghRepo('owner/private', { private: true, tokens: ['tok-private', 'tok-device'] });
+    ghRepo('owner/private', { private: true, tokens: ['tok-all', 'tok-device'] });
     gh.repos['owner/private'].catalog = Buffer.from(JSON.stringify({ schema: 1, components:
         assetsOf('owner/private', [{ file: appTgz(pub, 'priv_app', '1.0.0'), kind: 'app', title: 'Private' }]) }));
+    // a second private repo the same token reaches, and a third only another token reaches
+    ghRepo('owner/private2', { private: true, tokens: ['tok-all'] });
+    gh.repos['owner/private2'].catalog = Buffer.from(JSON.stringify({ schema: 1, components: [] }));
+    ghRepo('other/third', { private: true, tokens: ['tok-third'] });
+    gh.repos['other/third'].catalog = Buffer.from(JSON.stringify({ schema: 1, components: [] }));
     // releases layout: packages attached to releases, the newest of each id
     const relDir = path.join(M, 'rel');
     mkdirp(relDir);
@@ -1474,11 +1531,11 @@ function testSources(certs) {
             ok('secret: written again, the same', fs.readFileSync(file, 'utf8') === secret && !u.storeSecretGone());
             return Promise.all([ask(sock, { op: 'source-add', type: 'github', repo: 'a/b' }),
                 ask(sock, { op: 'source-remove', id: 'second', secret: 'f'.repeat(64) }),
-                ask(sock, { op: 'token-set', source: 'private', token: 'x', secret: secret.slice(1) })]);
+                ask(sock, { op: 'token-add', token: 'tok-all', secret: secret.slice(1) })]);
         })
         .then((errs) => {
             ok('privileged: without the secret, or with a wrong one, a request is forbidden',
-                errs.every((e) => e === 'forbidden') && u.stored.length === 6 && !fs.existsSync(path.join(M, 'cred', 'private')), JSON.stringify(errs));
+                errs.every((e) => e === 'forbidden') && u.stored.length === 6 && u.tokens.all().length === 0, JSON.stringify(errs));
             return u.check();
         })
         .then(() => {
@@ -1488,9 +1545,11 @@ function testSources(certs) {
                 src('mgu-store').builtin && !src('second').builtin && src('second').label === second, JSON.stringify(s.sources));
             ok('sources: a private repo without a token needs auth', src('private').status === 'auth-needed' && src('private').auth === null,
                 JSON.stringify(src('private')));
-            ok('sources: an https source answering 401 needs auth', src('hp').status === 'auth-needed', JSON.stringify(src('hp')));
-            ok('collision: an id two sources list is shown once, from the first source',
-                s.components.filter((c) => c.id === 'dup_app').length === 1 && comp('dup_app').source === 'mgu-store' && comp('dup_app').version === '1.0.0');
+            ok('sources: a public repo is read without a token', src('mgu-store').auth === null && s.tokens.length === 0);
+            ok('sources: an https source is read without a token; one answering 401 is an error', src('hp').status === 'error' &&
+                /401/.test(src('hp').error) && !seen.some((x) => x.url.indexOf('/private/') === 0 && x.auth), JSON.stringify(src('hp')));
+            ok('collision: an id two sources list is shown once, at the highest version any lists',
+                s.components.filter((c) => c.id === 'dup_app').length === 1 && comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
             ok('state: rows carry their source and schema-2 fields', comp('needs_app').uninstallable === true && comp('opt_tool').optional === true &&
                 comp('robertn_demo').build === null && comp('p_app').build === 'unit' && comp('robertn_demo').revision === null);
             ok('releases: the newest package of each id, drafts and prereleases left out, the .tgz over the .mgu',
@@ -1503,53 +1562,129 @@ function testSources(certs) {
                 JSON.stringify(src('branchy')));
             ok('state: the Store 0.3\'s catalog line names the failing source', /owner\/private|updates\.test/.test(s.catalog.error || ''), s.catalog.error);
             ok('github: no token went anywhere but the API host', authLeaks().length === 0);
-            // a token without access, then one with it
-            return priv({ op: 'token-set', source: 'private', token: 'tok-wrong' });
+            return priv({ op: 'token-add', token: 'tok-wrong' });
         })
         .then((err) => {
-            ok('token: set through the socket with the secret', err === null && fs.readFileSync(path.join(M, 'cred', 'private'), 'utf8').trim() === 'tok-wrong' &&
-                (fs.statSync(path.join(M, 'cred', 'private')).mode & 0o777) === 0o600, err);
-            return until(st, () => src('private').status === 'auth-needed' && /401/.test(src('private').error || ''), 20000, 'a wrong token refused');
+            ok('token-add: a token GitHub rejects is refused, nothing stored', /does not accept/.test(err || '') && u.tokens.all().length === 0 &&
+                !fs.existsSync(path.join(M, 'cred', 'tokens.json')), err);
+            return priv({ op: 'token-add', token: ' tok-all\n', label: '' });
         })
-        .then(() => priv({ op: 'token-set', source: 'private', token: 'tok-private' }))
-        .then(() => until(st, () => src('private').status === 'ok', 20000, 'the private repo read'))
-        .then(() => {
-            ok('token: a token with access reads the private repo, and the account shows', src('private').auth &&
-                src('private').auth.login === 'tester' && comp('priv_app').version === '1.0.0', JSON.stringify(src('private')));
-            ok('token: never in the state', JSON.stringify(st()).indexOf('tok-private') < 0);
-            return priv({ op: 'token-clear', source: 'private' });
-        })
-        .then(() => until(st, () => src('private').status === 'auth-needed', 20000, 'token cleared'))
-        .then(() => {
-            ok('token: cleared, the repo needs auth again', !fs.existsSync(path.join(M, 'cred', 'private')));
+        .then((err) => until(st, () => src('private').status === 'ok', 20000, 'the private repo read').then(() => err))
+        .then((err) => {
+            const t = st().tokens;
+            const id = t[0] && t[0].id;
+            const list = JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8'));
+            ok('token-add: stored as its own token, labelled with its account', err === null && t.length === 1 && t[0].login === 'tester' &&
+                t[0].label === 'tester' && t[0].kind === 'github' && /^[0-9a-f]{8}$/.test(id) &&
+                fs.readFileSync(path.join(M, 'cred', `token-${id}`), 'utf8') === 'tok-all\n' &&
+                (fs.statSync(path.join(M, 'cred', `token-${id}`)).mode & 0o777) === 0o600 && (fs.statSync(path.join(M, 'cred', 'tokens.json')).mode & 0o777) === 0o600 &&
+                list[0].id === id && list[0].scopes === 'repo', JSON.stringify([err, t, list]));
+            ok('token: the source that needed one is read with it; the account shows', src('private').auth && src('private').auth.token === id &&
+                src('private').auth.login === 'tester' && comp('priv_app').version === '1.0.0' && t[0].usedBy.join() === 'private', JSON.stringify(src('private')));
+            ok('token: a public repo stays read without one', src('mgu-store').auth === null);
+            ok('token: never in the state', JSON.stringify(st()).indexOf('tok-all') < 0);
             seen.length = 0;
-            return priv({ op: 'login-start', source: 'private' });
+            return priv({ op: 'source-add', type: 'github', repo: 'owner/private2' });
+        })
+        .then((err) => until(st, () => src('private2').status === 'ok', 20000, 'the second private repo read').then(() => err))
+        .then((err) => {
+            const id = st().tokens[0].id;
+            ok('token: a repo added later is read with a stored token that reaches it', err === null && src('private2').auth.token === id &&
+                st().tokens[0].usedBy.sort().join() === 'private,private2' && st().tokens.length === 1, JSON.stringify(st().tokens));
+            return priv({ op: 'source-add', type: 'github', repo: 'other/third' });
+        })
+        .then(() => until(st, () => src('third').status === 'auth-needed', 20000, 'the third repo refused'))
+        .then(() => {
+            ok('token: a repo no stored token reaches needs auth', src('third').auth === null);
+            // a token the deploy tool writes (its file and its entry) while the repo is being read with
+            // the tokens there were, and just before a write of the updater's own: picked up without a
+            // request, and the repo read again once that read is done
+            seen.length = 0;
+            gh.repos['other/third'].delayMs = 1500;
+            u.checkSource('third');
+            return until(() => seen.some((x) => /\/repos\/other\/third/.test(x.url)), (x) => x, 10000, 'the read under way');
+        })
+        .then(() => {
+            const list = JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8'));
+            fs.writeFileSync(path.join(M, 'cred', 'token-0badc0de'), 'tok-third\n', { mode: 0o600 });
+            list.push({ id: '0badc0de', kind: 'github', addedAt: Date.now() });
+            fs.writeFileSync(path.join(M, 'cred', 'tokens.json'), JSON.stringify(list));
+            u.tokens.update(list[0].id, { label: 'tester' });
+            ok('token files: a change is noticed, also after a write of the updater\'s own', src('third').status === 'checking' &&
+                u.scanTokens() === true && u.scanTokens() === false);
+            gh.repos['other/third'].delayMs = 0;
+            return until(st, () => src('third').status === 'ok' && (st().tokens.find((t) => t.id === '0badc0de') || {}).login === 'other-acct',
+                20000, 'the third repo read with the new token');
+        })
+        .then(() => {
+            ok('token files: a token the deploy tool adds reads the repo that needed it, and is checked with GitHub',
+                src('third').auth.token === '0badc0de' && src('private').auth.token !== '0badc0de' && st().tokens.length === 2);
+            return priv({ op: 'token-add', token: 'tok-all' });
+        })
+        .then((err) => {
+            ok('token-add: the same token again is not stored twice', err === null && st().tokens.length === 2 &&
+                fs.readdirSync(path.join(M, 'cred')).filter((n) => /^token-/.test(n)).length === 2);
+            return Promise.all([priv({ op: 'token-remove', id: '0badc0de' }), priv({ op: 'token-remove', id: 'nope' })]);
+        })
+        .then((errs) => until(st, () => src('third').status === 'auth-needed', 20000, 'the third repo without its token').then(() => errs))
+        .then((errs) => {
+            ok('token-remove: the repo only it reached needs auth again; the others keep theirs', errs[0] === null && /no token nope/.test(errs[1]) &&
+                !fs.existsSync(path.join(M, 'cred', 'token-0badc0de')) && src('private').status === 'ok' && src('private2').status === 'ok' &&
+                !JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8')).some((t) => t.id === '0badc0de'), JSON.stringify(errs));
+            return priv({ op: 'source-remove', id: 'third' });
+        })
+        .then(() => {
+            seen.length = 0;
+            return priv({ op: 'login-start' });
         })
         .then((err) => {
             ok('login: started', err === null, err);
             return until(st, (s) => s.login && s.login.code === 'ABCD-1234', 10000, 'a device code');
         })
         .then((s) => {
-            ok('login: the code and address show', s.login.url === 'https://github.com/login/device' && s.login.status === 'pending' && s.login.source === 'private');
-            return until(st, (x) => x.login && x.login.status === 'done' && src('private').status === 'ok', 20000, 'signed in');
+            ok('login: the code and address show', s.login.url === 'https://github.com/login/device' && s.login.status === 'pending' && !('source' in s.login));
+            return until(st, (x) => x.login && x.login.status === 'done', 20000, 'signed in');
         })
         .then(() => {
-            const meta = JSON.parse(fs.readFileSync(path.join(M, 'cred', 'private.json'), 'utf8'));
-            ok('login: the device flow\'s token is the source\'s credential, after pending and slow_down',
-                fs.readFileSync(path.join(M, 'cred', 'private'), 'utf8').trim() === 'tok-device' && gh.polls === 3 &&
-                meta.login === 'tester' && meta.refreshToken === 'refresh-1' && src('private').auth.login === 'tester');
+            const dev = st().tokens.find((t) => t.id !== st().tokens[0].id);
+            const entry = JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8')).find((t) => dev && t.id === dev.id) || {};
+            ok('login: the device flow\'s token is a token of its own, labelled with the account, after pending and slow_down',
+                dev && dev.label === 'tester' && fs.readFileSync(path.join(M, 'cred', `token-${dev.id}`), 'utf8') === 'tok-device\n' && gh.polls === 3 &&
+                entry.refreshToken === 'refresh-1' && entry.device === true && entry.scopes === undefined, JSON.stringify([st().tokens, entry]));
             ok('login: github.com gets no token', seen.filter((x) => /^github\.com/.test(x.host)).every((x) => x.auth === null) &&
                 seen.some((x) => /^github\.com/.test(x.host)) && authLeaks().length === 0);
             // an expired token is renewed with its refresh token before the next read
-            meta.expiresAt = Date.now() - 1000;
-            fs.writeFileSync(path.join(M, 'cred', 'private.json'), JSON.stringify(meta));
-            return u.checkSource('private');
+            const list = JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8'));
+            list.find((t) => t.id === dev.id).expiresAt = Date.now() - 1000;
+            fs.writeFileSync(path.join(M, 'cred', 'tokens.json'), JSON.stringify(list));
+            u.scanTokens();
+            return u.checkSource('private').then(() => dev.id);
         })
-        .then(() => {
+        .then((devId) => {
             ok('login: an expired token is renewed from its refresh token', gh.refreshes === 1 && src('private').status === 'ok' &&
-                JSON.parse(fs.readFileSync(path.join(M, 'cred', 'private.json'), 'utf8')).expiresAt > Date.now());
+                JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8')).find((t) => t.id === devId).expiresAt > Date.now());
+            // checking the tokens with GitHub renews an expired one first
+            const list = JSON.parse(fs.readFileSync(path.join(M, 'cred', 'tokens.json'), 'utf8'));
+            list.find((t) => t.id === devId).expiresAt = Date.now() - 1000;
+            fs.writeFileSync(path.join(M, 'cred', 'tokens.json'), JSON.stringify(list));
+            gh.deviceExpired = true;
+            u.scanTokens();
+            return u.validateTokens().then(() => devId);
+        })
+        .then((devId) => {
+            const t = st().tokens.find((x) => x.id === devId);
+            ok('tokens: an expired sign-in token is renewed before GitHub is asked about it, not rejected', gh.refreshes === 2 &&
+                t.rejected === false && t.login === 'tester', JSON.stringify(t));
+            // the token that reads both private repos goes: the device token reaches one of them
+            return priv({ op: 'token-remove', id: st().tokens.find((t) => t.id !== devId).id }).then(() => devId);
+        })
+        .then((devId) => until(st, () => src('private').status === 'ok' && src('private').auth && src('private').auth.token === devId &&
+            src('private2').status === 'auth-needed', 20000, 'the sources re-read').then(() => devId))
+        .then((devId) => {
+            ok('token-remove: each source falls back to another token that reaches it, else needs auth',
+                st().tokens.length === 1 && st().tokens[0].usedBy.join() === 'private' && src('private2').auth === null);
             gh.device = { error: 'access_denied' };
-            return priv({ op: 'login-start', source: 'private' });
+            return priv({ op: 'login-start' });
         })
         .then(() => until(st, (s) => s.login && s.login.status === 'error', 10000, 'a denied sign-in'))
         .then((s) => {
@@ -1559,10 +1694,9 @@ function testSources(certs) {
         })
         .then(() => {
             ok('login: cancelled, gone from the state', st().login === null);
-            return priv({ op: 'login-start', source: 'second' });
+            return priv({ op: 'source-remove', id: 'private2' });
         })
-        .then((err) => {
-            ok('login: only for a github source', /no GitHub source/.test(err || ''), err);
+        .then(() => {
             // requirements first
             fs.writeFileSync(deployLog, '');
             return ask(sock, { op: 'install', id: 'needs_app' });
@@ -1608,10 +1742,11 @@ function testSources(certs) {
             ok('uninstall: through the deploy tool\'s uninstall; the row is available again', err === null &&
                 /^uninstall needs_app --yes$/m.test(fs.readFileSync(deployLog, 'utf8')) &&
                 !JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).needs_app);
-            // collision: the source that installed an id wins over the order
+            // collision: a higher version wins over the source that installed an id
             fs.writeFileSync(deployLog, '');
-            u.origins.dup_app = { source: 'second', commit: null };
-            ok('collision: the source that installed an id is the one it updates from', comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
+            u.origins.dup_app = { source: 'mgu-store', commit: null };
+            ok('collision: a newer version elsewhere is offered over the source that installed it',
+                comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
             delete u.origins.dup_app;
             return ask(sock, { op: 'install', id: 'rel_app' });
         })
@@ -1744,7 +1879,15 @@ function testSources(certs) {
             fs.symlinkSync('/etc', path.join(stick, 'mgu-repo'));
             const spaced = path.join(media, 'My Stick');
             mkdirp(path.join(spaced, 'mgu-repo', 'one'));
-            publish(path.join(spaced, 'mgu-repo', 'one'), [entry(appTgz(path.join(spaced, 'mgu-repo', 'one'), 'usb_app', '0.1.0'), 'app', 'From USB')]);
+            const one = path.join(spaced, 'mgu-repo', 'one');
+            const copyInto = (dir, file) => {
+                fs.copyFileSync(file, path.join(dir, path.basename(file)));
+                return path.join(dir, path.basename(file));
+            };
+            // besides its own app: a newer base_tool (installed from mgu-store) and robertn_demo at mgu-store's version
+            publish(one, [entry(appTgz(one, 'usb_app', '0.1.0'), 'app', 'From USB'),
+                entry(copyInto(one, toolKit(path.join(T, 'src'), 'base_tool', '1.1.0', { 'base.sh': ['#!/bin/sh\n', 0o755] })), 'tool', 'Base'),
+                entry(appTgz(one, 'robertn_demo', '1.0.0'), 'app', 'Demo')]);
             // the App Manager's folder: packages under any name, npm package/ prefix or flat, .mgu, a root service
             const oapDir = path.join(stick, 'oap');
             mkdirp(oapDir);
@@ -1798,6 +1941,23 @@ function testSources(certs) {
                 .then(() => installed('oap-appmanager'))
                 .then(() => {
                     ok('usb oap/: a package installs under its id and version', /oap-appmanager@1\.0\.9\.tgz --yes/.test(deployed()[0]), deployed()[0]);
+                    ok('usb: a newer version on a stick is an update of a component installed from a GitHub source',
+                        JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'mgu-store' &&
+                        comp('base_tool').status === 'update' && comp('base_tool').version === '1.1.0' &&
+                        comp('base_tool').source === 'usb:My Stick/mgu-repo/one', JSON.stringify(comp('base_tool')));
+                    ok('usb: of equal versions a stick comes before a stored source', comp('robertn_demo').source === 'usb:My Stick/mgu-repo/one');
+                    u.origins.robertn_demo = { source: 'mgu-store', commit: null };
+                    ok('usb: ...and the source that installed it before a stick', comp('robertn_demo').source === 'mgu-store');
+                    delete u.origins.robertn_demo;
+                    fs.writeFileSync(deployLog, '');
+                    return ask(sock, { op: 'install', id: 'base_tool' });
+                })
+                .then(() => installed('base_tool'))
+                .then(() => {
+                    ok('usb: the update installs from the stick, which becomes its origin',
+                        /base_tool@1\.1\.0\.tgz --yes/.test(deployed()[0]) && comp('base_tool').installed === '1.1.0' &&
+                        JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'usb:My Stick/mgu-repo/one',
+                        JSON.stringify(deployed()));
                     return before;
                 });
         })
@@ -1812,6 +1972,9 @@ function testSources(certs) {
             fs.writeFileSync(mounts, 'proc /proc proc rw 0 0\n');
             u.scanUsb();
             ok('usb: a stick taken out is no longer a source', !st().sources.some((x) => x.usb) && !comp('usb_app').id);
+            ok('usb: with the stick out, a component it installed follows the stored source again',
+                comp('base_tool').source === 'mgu-store' && comp('base_tool').installed === '1.1.0' && comp('base_tool').status === 'newer',
+                JSON.stringify(comp('base_tool')));
             return fs.existsSync(path.join(ROOT, 'js', 'web.js')) ? null : priv({ op: 'web', enable: true });
         })
         .then((err) => {
@@ -1918,7 +2081,48 @@ function testFirstStart() {
     u.queue.push({ op: 'install', id: 'foo' });
     ok('queue: a removal of an id with an install queued is refused, not dropped', /an install is queued/.test(u.enqueue({ op: 'uninstall', id: 'foo' }) || '') &&
         u.enqueue({ op: 'install', id: 'foo' }) === null && u.queue.length === 1);
+    testConversion();
     return Promise.resolve();
+}
+
+/* A unit whose sources each had a token file of their own (mgu-updater 0.2):
+ * mgu-store and idrive7-apps with the same token, one from the device flow. */
+function testConversion() {
+    const { Updater } = require('../js/updater');
+    const D = path.join(T, 'convert');
+    const cred = path.join(D, 'cred');
+    mkdirp(cred);
+    fs.writeFileSync(path.join(D, 'sources.json'), JSON.stringify({ schema: 1, sources: [
+        { id: 'mgu-store', type: 'github', repo: 'robertnisipeanu/mgu-store', builtin: true },
+        { id: 'idrive7-apps', type: 'github', repo: 'someone/idrive7-apps' },
+        { id: 'other', type: 'github', repo: 'someone/other' },
+        { id: 'cat', type: 'https', url: 'https://example.org/catalog.json' }] }));
+    const put = (name, text) => fs.writeFileSync(path.join(cred, name), text, { mode: 0o600 });
+    put('mgu-store', 'ghu_same\n');
+    put('mgu-store.json', JSON.stringify({ kind: 'github', login: 'someone', expiresAt: 1, refreshToken: 'ghr_1', refreshExpiresAt: 2 }));
+    put('idrive7-apps', 'ghu_same\n');
+    put('idrive7-apps.json', JSON.stringify({ kind: 'github', login: null }));
+    put('other', 'ghp_other\n');
+    put('cat', 'catalog-secret\n');
+    const conf = { state_dir: path.join(D, 'state'), sources: path.join(D, 'sources.json'), credentials_dir: cred };
+    let u = new Updater(conf);
+    const list = u.tokens.all();
+    const same = list.find((t) => u.tokens.text(t.id) === 'ghu_same');
+    const other = list.find((t) => u.tokens.text(t.id) === 'ghp_other');
+    ok('convert: one token per distinct text, with what was known of it', list.length === 2 && same && other &&
+        same.login === 'someone' && same.label === 'someone' && same.refreshToken === 'ghr_1' && same.expiresAt === 1,
+        JSON.stringify(list));
+    ok('convert: each source starts with its old token', u.src.get('mgu-store').tokenId === same.id && u.src.get('idrive7-apps').tokenId === same.id &&
+        u.src.get('other').tokenId === other.id);
+    ok('convert: an https source\'s token is no GitHub token', !list.some((t) => u.tokens.text(t.id) === 'catalog-secret'));
+    ok('convert: the old files stay until this version is kept', fs.existsSync(path.join(cred, 'mgu-store')) && fs.existsSync(path.join(cred, 'cat')));
+    u = new Updater(conf);
+    ok('convert: a start again (a version on trial) adds nothing twice', u.tokens.all().length === 2);
+    u.tokens.removeLegacy(() => {});
+    ok('convert: then the per-source files go, the tokens stay', fs.readdirSync(cred).sort().join() ===
+        [`token-${same.id}`, `token-${other.id}`, 'tokens.json'].sort().join(), fs.readdirSync(cred).join());
+    u = new Updater(conf);
+    ok('convert: nothing left to convert', u.tokens.all().length === 2 && u.src.get('idrive7-apps').tokenId === null);
 }
 
 /* ---- run ---------------------------------------------------------------------- */

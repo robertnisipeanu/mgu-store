@@ -9,14 +9,16 @@ package main
 //	ncm     an Android phone in NCM tethering (Pixel 6 and later)
 //	iphone  an iPhone's Personal Hotspot
 //
-// "auto" covers all of them and takes only devices no driver or process
-// holds; once on a later kind it ends that link when an earlier kind's
+// "auto" covers all of them. For the kernel-driven and CDC kinds it takes
+// only devices no driver or process holds; an iPhone, the lowest-priority
+// kind, it takes from the media daemon itself (iphone.go), so auto reaches
+// and takes an iPhone only when no wired adapter, stick or Android phone is
+// present. Once on a later kind it ends that link when an earlier kind's
 // device appears, so a stick plugged in next to a phone takes over. An
 // unplugged device ends its link and the next scan finds whatever is
 // there, so devices can be unplugged, replugged and swapped while the
 // service runs. A named uplink (usb, usbecm, rndis, ncm, iphone) covers
-// one kind and lifts kernel drivers off the function it takes (never off
-// an Apple device).
+// one kind and takes the function it names.
 
 import (
 	"context"
@@ -50,22 +52,20 @@ func kindRank(kind string) int {
 }
 
 type scanUplink struct {
-	spec    string   // auto, usb, usbecm, rndis, ncm, iphone
-	kinds   []string // what it covers, in preference order
-	device  string   // usb_device: only this VID:PID
-	record  string   // link.json, for a kernel adapter it renames
-	pairDir string   // iPhone pair records
+	spec   string   // auto, usb, usbecm, rndis, ncm, iphone
+	kinds  []string // what it covers, in preference order
+	device string   // usb_device: only this VID:PID
+	record string   // link.json, for a kernel adapter it renames
 
 	mu       sync.Mutex
 	failed   map[string]time.Time // device key -> last failed open
-	denied   map[string]bool      // iPhones whose owner declined Trust, until replugged
 	switched map[string]time.Time
 	logged   map[string]string // device key -> last message logged
 }
 
 func newScanUplink(spec string, c config) *scanUplink {
-	u := &scanUplink{spec: spec, device: c.USBDevice, record: c.linkFile(), pairDir: c.pairDir(),
-		failed: map[string]time.Time{}, denied: map[string]bool{}, switched: map[string]time.Time{},
+	u := &scanUplink{spec: spec, device: c.USBDevice, record: c.linkFile(),
+		failed: map[string]time.Time{}, switched: map[string]time.Time{},
 		logged: map[string]string{}}
 	if spec == "auto" {
 		u.kinds = autoKinds
@@ -121,12 +121,19 @@ func (u *scanUplink) candidates() []candidate {
 		apple := strings.HasPrefix(info.vidpid, "05ac:")
 		for _, kind := range []string{kindECM, kindRNDIS, kindNCM, kindIPhone} {
 			// An Apple device's own CDC functions (a Mac's, an iPhone's reverse
-			// tethering) are not internet for the unit, and its drivers are
-			// never lifted: Apple devices are taken only as iPhones.
+			// tethering) are not internet for the unit: Apple devices are taken
+			// only as iPhones.
 			if !covers[kind] || apple && kind != kindIPhone {
 				continue
 			}
-			c := candidate{kind: kind, key: kind + ":" + info.key(), info: info,
+			// The iPhone path reauthorizes the device, which changes its
+			// device number, so key its attempt on the stable bus position
+			// instead; otherwise a failed open would never back off.
+			key := kind + ":" + info.key()
+			if kind == kindIPhone {
+				key = kind + ":" + info.sysName
+			}
+			c := candidate{kind: kind, key: key, info: info,
 				dev: statusDevice{Kind: kind, Name: info.name()}}
 			if kind == kindECM && u.switchable(info) {
 				c.toSwitch = true
@@ -147,10 +154,8 @@ func (u *scanUplink) candidates() []candidate {
 			c.fn = fn
 			switch {
 			case kind == kindIPhone:
-				// The configuration the phone is in, before this service changes it.
-				if b := info.boundIfaces(); len(b) > 0 {
-					c.busy = fmt.Sprintf("held by %s", strings.Join(b, ", "))
-				}
+				// The uplink takes the iPhone from the media daemon itself
+				// (iphone.go), so a held device is not left alone.
 			case u.auto():
 				var held []string
 				for _, n := range []int{fn.commIface, fn.dataIface} {
@@ -215,10 +220,6 @@ func (u *scanUplink) Open(ctx context.Context) (Link, error) {
 				setStatus(&dev, stateBusy, c.busy)
 				tried = true
 				continue
-			case u.denied[c.key]:
-				setStatus(&dev, stateError, "Trust was declined; unplug and plug in the iPhone to ask again")
-				tried = true
-				continue
 			case u.recentlyFailed(c.key):
 				tried = true
 				continue
@@ -247,9 +248,6 @@ func (u *scanUplink) Open(ctx context.Context) (Link, error) {
 			}
 			u.mu.Lock()
 			u.failed[c.key] = time.Now()
-			if err == errTrustDenied {
-				u.denied[c.key] = true
-			}
 			u.mu.Unlock()
 			u.say(c.key, fmt.Sprintf("open %s %s: %v", c.kind, c.dev.Name, err))
 			if isBusy(err) {
@@ -287,10 +285,7 @@ func (u *scanUplink) open(ctx context.Context, c candidate) (Link, error) {
 		l.dev = c.dev
 		return l, nil
 	case kindIPhone:
-		dev := c.dev
-		return openIPhoneLink(ctx, c.info, c.fn, u.pairDir, func(msg string) error {
-			u.say(c.key, fmt.Sprintf("%s: %s", c.info, msg))
-			setStatus(&dev, stateTrustNeeded, msg)
+		return openIPhoneLink(ctx, c.info, c.fn, func() error {
 			if p := u.preferred(c); p != nil {
 				return &preferredError{*p}
 			}

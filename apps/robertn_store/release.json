@@ -1,4 +1,7 @@
 {
   "build": "node tools/build.js && node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js && node tools/test_store.js",
-  "requires": { "mgu-deploy": "0.2.3" }
+  "requires": {
+    "mgu-deploy": "0.2.4",
+    "mgu-updater": "0.3.0"
+  }
 }
