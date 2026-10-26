@@ -171,4 +171,4 @@ function hit(items, x, y) {
     return -1;
 }
 
-module.exports = { frame, hit, placement, VIEWPORT };
+module.exports = { frame, hit, placement };

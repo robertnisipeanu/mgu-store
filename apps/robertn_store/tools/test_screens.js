@@ -35,10 +35,10 @@ const text = (f, el) => (f.values[el] || {}).text;
 
 const I8 = UNITS['iDrive 8'];
 ok(I8.scale > 1 && I8.scale < 1.02 && !I8.layout, 'iDrive 8: the design scaled into its box');
-['iDrive 7 embed', 'iDrive 7 layer'].forEach((unit) => {
+[['iDrive 7 embed', 1796, 632], ['iDrive 7 layer', 1790, 638]].forEach(([unit, w, h]) => {
     const p = UNITS[unit];
     const vp = p.viewport;
-    eq([p.scale, p.ox, p.oy, vp.x, vp.y, p.layout.design.w, p.layout.design.h], [1, 0, 0, 0, 0, vp.w, vp.h], `${unit}: its own layout at scale 1`);
+    eq([p.scale, p.ox, p.oy, vp, p.layout.design], [1, 0, 0, { x: 0, y: 0, w, h }, { w, h }], `${unit}: its own layout for the box at scale 1`);
     SCREENS.screens.forEach((def) => {
         const own = p.layout.screens.find((s) => s.name === def.name);
         eq(own.components.map((c) => c.name).sort(), def.components.map((c) => c.name).sort(), `${unit} ${def.name}: the design's elements`);
