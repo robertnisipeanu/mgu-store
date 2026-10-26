@@ -450,6 +450,8 @@ function repoCatalog(readFile, commit, revision, listDir) {
                         mguHmi: pick('mguHmi'), mguProvides: provides || undefined,
                         artifact: { name: `${rc.id}@${c.version}.tgz`, size: null, sha256: null },
                         path: rc.path, script, daemon: rc.kind === 'tool' && rc.service !== undefined ? checkService(rc.service) : null,
+                        // what a build under another id is made from (renameApp)
+                        buildSpec: script ? rc.build : null, manifest: script ? o.name : null,
                         preload: rc.kind === 'tool' && rc.preload !== undefined ? checkPreload(rc.preload) : null,
                         mguNeeds: pick('needs') !== undefined ? pick('needs') : pick('mguNeeds'),
                         commit: commit || null, revision: revision || null
@@ -705,6 +707,117 @@ function packPreload(entry, byPath) {
         { name: `units/${f.check}`, data: Buffer.from(f.checkUnit), mode: 0o644 },
         { name: `dropins/${pl.unit}.d/${f.dropinName}`, data: Buffer.from(f.dropin), mode: 0o644 }
     ].sort(byName), MTIME);
+}
+
+/* ---- an app built under another id ---------------------------------------------------- */
+
+/* Whether a repo-tree app can be built under another id (renameApp): a
+ * source package, or a build script's app whose folder is named for it. */
+function renameable(entry) {
+    return entry.kind === 'app' && !!entry.path && (!entry.script || (entry.path.split('/').pop() === entry.id && !!entry.buildSpec && !!entry.manifest));
+}
+
+const RENAME_NS = Buffer.from('3f6c8e1a2b7d4c5e9a0b1c2d3e4f5a6b', 'hex');
+const UUID = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
+
+/* A name-based (version 5) UUID of name. */
+function uuid5(name) {
+    const h = crypto.createHash('sha1').update(RENAME_NS).update(name).digest();
+    h[6] = (h[6] & 0x0f) | 0x50;
+    h[8] = (h[8] & 0x3f) | 0x80;
+    const x = h.slice(0, 16).toString('hex');
+    return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
+
+const json = (data, what, edit) => {
+    const doc = parseJson(data, what);
+    edit(doc);
+    return Buffer.from(JSON.stringify(doc, null, 2) + '\n');
+};
+
+/* A repo-tree app made over to install as unitId beside another app of its
+ * own id: { entry, files }, the entry with that id and the files to build
+ * or pack. files: the repo's (a build script's app) or the app folder's (a
+ * source package).
+ *  - build script: a copy of the app's folder named unitId beside it, its
+ *    manifest's id (package.json: name) unitId, and the script's {id} and
+ *    {dir} filled in for it; whatever the script derives from the id (the
+ *    package name, the RHMI names and UUIDs of idrive7-apps' build.py)
+ *    follows.
+ *  - source package: mgu-app.json's id (and a tree named <id>@<version>),
+ *    the tree's package.json and npm-shrinkwrap.json name, its
+ *    config/base.json settings key, rhmiData/application.json's name and
+ *    entry-point names, and every UUID that application.json holds, made
+ *    anew from unitId wherever the folder's text files name it. */
+function renameApp(entry, files, unitId) {
+    if (!renameable(entry)) {
+        throw new Error(`${entry.id} cannot be built under another id`);
+    }
+    const version = entry.version;
+    const artifact = Object.assign({}, entry.artifact, { name: `${unitId}@${version}.tgz` });
+    if (entry.script) {
+        const dir = entry.path;
+        const to = `${dir.slice(0, dir.length - entry.id.length)}${unitId}`;
+        if (files.some((f) => f.name.indexOf(`${to}/`) === 0)) {
+            throw new Error(`${to} is already in the repo`);
+        }
+        const manifest = `${to}${entry.manifest.slice(dir.length)}`;
+        const copies = files.filter((f) => f.name.indexOf(`${dir}/`) === 0).map((f) => ({
+            name: `${to}${f.name.slice(dir.length)}`,
+            data: f.name !== entry.manifest ? f.data : json(f.data, entry.manifest, (doc) => {
+                doc[/(^|\/)package\.json$/.test(entry.manifest) ? 'name' : 'id'] = unitId;
+            }),
+            mode: f.mode
+        }));
+        // the script's network is the app's own, named by its id in the repo
+        const script = Object.assign(checkScript(entry.buildSpec, { id: unitId, version, dir: to }), { network: entry.script.network });
+        return { entry: Object.assign({}, entry, { id: unitId, path: to, manifest, script, artifact }), files: files.concat(copies) };
+    }
+    const own = files.find((f) => f.name === 'mgu-app.json');
+    const m = own && parseJson(own.data, 'mgu-app.json');
+    if (!m || m.id !== entry.id || !safeRel(m.tree || '')) {
+        throw new Error(`${entry.path}/mgu-app.json does not name ${entry.id}`);
+    }
+    const tree = m.tree === `${entry.id}@${version}` ? `${unitId}@${version}` : m.tree;
+    const inTree = (name) => (name.indexOf(`${m.tree}/`) === 0 ? `${tree}${name.slice(m.tree.length)}` : name);
+    const rhmi = files.find((f) => f.name === `${m.tree}/rhmiData/application.json`);
+    const uuids = new Map();
+    (rhmi ? rhmi.data.toString('utf8').match(UUID) || [] : []).forEach((u) => uuids.set(u.toLowerCase(), uuid5(`${unitId}:${u.toLowerCase()}`)));
+    const edits = {
+        'mgu-app.json': (doc) => Object.assign(doc, { id: unitId, tree, modules: (doc.modules || []).map(inTree) }),
+        [`${m.tree}/package.json`]: (doc) => { doc.name = unitId; },
+        [`${m.tree}/npm-shrinkwrap.json`]: (doc) => { doc.name = doc.name === entry.id ? unitId : doc.name; },
+        [`${m.tree}/config/base.json`]: (doc) => {
+            if (doc.settings && Object.prototype.hasOwnProperty.call(doc.settings, entry.id)) {
+                doc.settings[unitId] = doc.settings[entry.id];
+                delete doc.settings[entry.id];
+            }
+        },
+        [`${m.tree}/rhmiData/application.json`]: (doc) => {
+            const app = doc.application || {};
+            app.name = app.name === entry.id ? unitId : app.name;
+            (app.entryPoints || []).forEach((ep) => {
+                ep.name = ep && ep.name === entry.id ? unitId : ep.name;
+            });
+        }
+    };
+    const out = files.map((f) => {
+        let data = edits[f.name] ? json(f.data, f.name, edits[f.name]) : f.data;
+        if (uuids.size && /\.(json|js|xml)$/.test(f.name)) {
+            data = Buffer.from(data.toString('utf8').replace(UUID, (u) => uuids.get(u.toLowerCase()) || u));
+        }
+        return { name: inTree(f.name), data, mode: f.mode };
+    });
+    return { entry: Object.assign({}, entry, { id: unitId, artifact }), files: out };
+}
+
+/* The id inside a built package: an OAP package's or an .mgu's
+ * package.json name, a source package's mgu-app.json id. */
+function packageId(bytes, maxBytes) {
+    return tar.untgz(bytes, maxBytes).then((members) => {
+        const own = members.find((x) => x.name.replace(/^\.\//, '') === 'mgu-app.json');
+        return own ? parseJson(own.data, 'mgu-app.json').id : packageInfo(members).pkg.name;
+    });
 }
 
 /* The files under rel of a repo's files, named relative to rel. */
@@ -1361,5 +1474,6 @@ function label(s) {
 
 module.exports = {
     load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
-    repoCatalog, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError, REPO, CHANNEL, PACKAGE, ICON_BYTES
+    repoCatalog, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
+    renameable, renameApp, packageId, uuid5, REPO, CHANNEL, PACKAGE, ICON_BYTES
 };

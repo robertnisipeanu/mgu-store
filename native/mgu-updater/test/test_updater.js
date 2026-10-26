@@ -2703,6 +2703,237 @@ function testPythonRepo() {
         });
 }
 
+/* Ids two origins share (README.md, "Ids"): mgu-apps' doom is installed
+ * from a catalog; a repo laid out as idrive7-apps (an apps pattern, a
+ * Python build taking {id}, deriving the package name and its UUIDs from
+ * it, and downloading for doom) lists its own doom, which builds and
+ * installs as doom2, and updates there; a package built elsewhere of that id
+ * is blocked; a source package installs under another id made over to it. */
+function testIdClash() {
+    const { Updater } = require('../js/updater');
+    const sourcesLib = require('../js/sources');
+    const M = path.join(T, 'clash');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const mguApps = path.join(M, 'mgu-apps');
+    const repo = path.join(M, 'idrive7-apps');
+    const iterio = path.join(M, 'iterio');
+    const tools = path.join(M, 'tools');
+    const sdkDir = path.join(M, 'sdk');
+    [M, opt, oap, mguApps, repo, iterio, tools, sdkDir, path.join(M, 'shm')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog, FAKE_DONOR: path.join(M, 'donor.js'),
+        FAKE_SDK_MODULE: sdkDir });
+    delete process.env.FAKE_LEASE;
+    fs.writeFileSync(path.join(M, 'donor.js'), '// the SDK donor bundle\n');
+    fs.writeFileSync(path.join(sdkDir, 'index.js'), '// the generated oap-sdk module\n');
+    fs.writeFileSync(path.join(sdkDir, 'package.json'), '{"name":"oap-sdk","version":"9.8.7"}\n');
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.3.2'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.3.2', 'component.json'), JSON.stringify({ id: 'mgu-deploy', version: '0.3.2' }));
+    fs.symlinkSync('versions/0.3.2', path.join(opt, 'mgu-deploy', 'current'));
+    const lease = path.join(M, 'lease.json');
+    fs.writeFileSync(lease, JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+    const write = (root, files) => Object.keys(files).forEach((rel) => {
+        mkdirp(path.dirname(path.join(root, rel)));
+        const [data, mode] = Array.isArray(files[rel]) ? files[rel] : [files[rel], 0o644];
+        fs.writeFileSync(path.join(root, rel), data, { mode });
+    });
+    // mgu-apps: prebuilt packages in a catalog
+    const pub = (id, version) => entry(appTgz(mguApps, id, version), 'app', id.toUpperCase());
+    publish(mguApps, [pub('doom', '1.1.2'), pub('stubborn', '1.0.0'), pub('shared', '1.0.0')].map((e) => Object.assign(e, { uninstallable: true })),
+        { schema: 2 });
+    // idrive7-apps' layout. Its build.py takes the id as argv, reads apps/<id>/app.json (whose id
+    // must be that one), names the package and derives the RHMI UUIDs from it; doom downloads
+    const buildPy = [
+        "const fs = require('fs'); const path = require('path'); const cp = require('child_process'); const crypto = require('crypto');",
+        'const id = process.argv[2];',
+        "const spec = JSON.parse(fs.readFileSync(path.join('apps', id, 'app.json'), 'utf8'));",
+        "if ((spec.id || id) !== id) { console.log('app.json is ' + spec.id + ', not ' + id); process.exit(3); }",
+        "if (spec.assets && !process.env.https_proxy) { console.log('no proxy for the assets'); process.exit(4); }",
+        "const u = (what) => crypto.createHash('sha1').update(id + ':' + what).digest('hex').slice(0, 32);",
+        "const name = spec.packageName || id; const dir = path.join('dist', id, 'package'); const src = path.join('dist', id);",
+        "fs.mkdirSync('dist'); fs.mkdirSync(src); fs.mkdirSync(dir); fs.mkdirSync(path.join(dir, 'rhmiData'));",
+        "fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version: spec.version, specId: spec.id,",
+        "  folders: fs.readdirSync('apps').sort(), proxied: !!process.env.https_proxy }));",
+        "fs.writeFileSync(path.join(dir, 'rhmiData', 'application.json'), JSON.stringify({ application: { name: id, uuid: u('app'),",
+        "  entryPoints: [{ name: id.toUpperCase() + '_ENTRY', uuid: u('entry') }] } }));",
+        "cp.execFileSync('tar', ['-czf', path.join('dist', `${id}@${spec.version}.tgz`), '-C', src, 'package']);",
+        "console.log('built ' + name);"
+    ].join('\n');
+    const doomJson = (version) => JSON.stringify({ id: 'doom', title: 'Doom', version, description: 'Freedoom on the iDrive',
+        assets: [{ file: 'freedoom1.wad' }] }, null, 2);
+    write(repo, {
+        'mgu-repo.json': JSON.stringify({ schema: 1, apps: { path: 'apps/*', manifest: 'app.json', mguHmi: ['ID7'], uninstallable: true,
+            build: { python: 'kit/tools/build.py', args: ['{id}'], sdk: 'oap-sdk', output: 'dist/{id}@{version}.tgz', network: ['doom'] } },
+        components: [{ id: 'shared', kind: 'app', path: 'pkgs/shared', uninstallable: true }] }),
+        'apps/doom/app.json': doomJson('1.4.1'),
+        'apps/doom/main.js': '// the game\n',
+        'apps/warmup/app.json': JSON.stringify({ id: 'warmup', title: 'Warm-up', version: '1.0.0' }),
+        'apps/stubborn/app.json': JSON.stringify({ id: 'stubborn', title: 'Stubborn', version: '2.0.0', packageName: 'stubborn' }),
+        'kit/tools/build.py': buildPy,
+        'pkgs/shared/mgu-app.json': JSON.stringify({ schema: 1, id: 'shared', version: '1.0.0', tree: 'shared@1.0.0', modules: ['src/main.js'],
+            sdk: ['oap-sdk'] }),
+        'pkgs/shared/src/main.js': "const ENTRY = '8fe6023a-c19a-498a-8f2a-818806578b4f';\n",
+        'pkgs/shared/shared@1.0.0/package.json': JSON.stringify({ name: 'shared', version: '1.0.0' }),
+        'pkgs/shared/shared@1.0.0/rhmiData/application.json': JSON.stringify({ application: { uuid: '3dadae8f-1b43-46d8-be8a-f1f99ad601e9',
+            name: 'shared', entryPoints: [{ name: 'shared', uuid: '8FE6023A-C19A-498A-8F2A-818806578B4F' }] } })
+    });
+    write(tools, {
+        'mgu-repo.json': JSON.stringify({ schema: 1, components: [{ id: 'mgu-python', kind: 'tool', path: 'py' }] }),
+        'py/component.json': JSON.stringify({ id: 'mgu-python', kind: 'tool', version: '1.0.0', optional: true,
+            files: [{ path: 'bin/python3', mode: '0755' }, { path: 'ssl/cacert.pem', mode: '0644' }] }),
+        'py/bin/python3': [`#!/bin/sh\nexec ${process.execPath} "$@"\n`, 0o755],
+        'py/ssl/cacert.pem': 'roots\n'
+    });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-apps', type: 'file', path: mguApps },
+        { id: 'idrive7-apps', type: 'file', path: repo }, { id: 'iterio', type: 'file', path: iterio }, { id: 'pytools', type: 'file', path: tools }] }));
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: path.join(M, 'state'), tool_root: opt, oap_root: oap,
+        mainapp_uid: '12201', store_app: 'robertn_store', deploy: deploySh, lease, ca_file: '', github_api: API, github_web: GH_WEB,
+        github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store', fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID),
+        build_uid: '12995', build_gid: '12995', build_timeout_s: '20', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        python: path.join(opt, 'mgu-python', 'current', 'bin', 'python3'),
+        mounts: '/nonexistent', usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    // idrive7-apps and the other prebuilt doom come once mgu-apps' doom is installed
+    const later = { 'mgu-repo.json': fs.readFileSync(path.join(repo, 'mgu-repo.json')) };
+    fs.renameSync(path.join(repo, 'mgu-repo.json'), path.join(M, 'held-mgu-repo.json'));
+    const u = new Updater(conf);
+    const st = () => u.state();
+    const comp = (id) => st().components.find((c) => c.id === id) || {};
+    const pkgOf = (id) => {
+        const reg = JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`)));
+        return JSON.parse(fs.readFileSync(path.join(oap, `oap_${reg.userId}`, 'source', 'package.json'), 'utf8'));
+    };
+    const settle = (id) => until(st, (s) => !s.busy && !s.components.some((c) => c.queued) &&
+        (comp(id).status === 'installed' || !!comp(id).error), 60000, `${id} settled`);
+    const deployed = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^(install|uninstall)/.test(l));
+    const aliases = () => JSON.parse(fs.readFileSync(path.join(conf.state_dir, 'aliases.json'), 'utf8'));
+    const priv = (req) => ask(conf.socket, Object.assign(req, { secret: u.secret }));
+
+    // a source package made over to another id, alone
+    const files = [
+        { name: 'mgu-app.json', data: Buffer.from(JSON.stringify({ schema: 1, id: 'shared', version: '1.0.0', tree: 'shared@1.0.0',
+            modules: ['src/main.js'] })), mode: 0o644 },
+        { name: 'src/main.js', data: Buffer.from("const ENTRY = '8fe6023a-c19a-498a-8f2a-818806578b4f';\n"), mode: 0o644 },
+        { name: 'shared@1.0.0/package.json', data: Buffer.from('{"name":"shared","version":"1.0.0"}'), mode: 0o644 },
+        { name: 'shared@1.0.0/npm-shrinkwrap.json', data: Buffer.from('{"name":"shared","version":"1.0.0"}'), mode: 0o644 },
+        { name: 'shared@1.0.0/config/base.json', data: Buffer.from('{"settings":{"shared":{"a":1}}}'), mode: 0o644 },
+        { name: 'shared@1.0.0/rhmiData/application.json', data: Buffer.from(JSON.stringify({ application: {
+            uuid: '3dadae8f-1b43-46d8-be8a-f1f99ad601e9', name: 'shared', stringBundleUuid: '3f03953a-a173-4653-94ec-e1f97cae5c76',
+            entryPoints: [{ name: 'shared', uuid: '8FE6023A-C19A-498A-8F2A-818806578B4F' }] } })), mode: 0o644 }
+    ];
+    const made = sourcesLib.renameApp({ id: 'shared', kind: 'app', version: '1.0.0', path: 'pkgs/shared',
+        artifact: { name: 'shared@1.0.0.tgz' } }, files, 'shared2');
+    const at = (name) => (made.files.find((f) => f.name === name) || { data: Buffer.from('{}') }).data.toString('utf8');
+    const app = JSON.parse(at('shared2@1.0.0/rhmiData/application.json')).application;
+    const entryUuid = sourcesLib.uuid5('shared2:8fe6023a-c19a-498a-8f2a-818806578b4f');
+    ok('rename, source package: id, tree, package and shrinkwrap names, settings key, RHMI names and every UUID, in the code too',
+        made.entry.id === 'shared2' && made.entry.artifact.name === 'shared2@1.0.0.tgz' &&
+        JSON.parse(at('mgu-app.json')).id === 'shared2' && JSON.parse(at('mgu-app.json')).tree === 'shared2@1.0.0' &&
+        JSON.parse(at('shared2@1.0.0/package.json')).name === 'shared2' && JSON.parse(at('shared2@1.0.0/npm-shrinkwrap.json')).name === 'shared2' &&
+        JSON.stringify(JSON.parse(at('shared2@1.0.0/config/base.json'))) === '{"settings":{"shared2":{"a":1}}}' &&
+        app.name === 'shared2' && app.entryPoints[0].name === 'shared2' && app.entryPoints[0].uuid === entryUuid &&
+        app.uuid === sourcesLib.uuid5('shared2:3dadae8f-1b43-46d8-be8a-f1f99ad601e9') && app.stringBundleUuid !== '3f03953a-a173-4653-94ec-e1f97cae5c76' &&
+        at('src/main.js').indexOf(entryUuid) >= 0 && !made.files.some((f) => /^shared@/.test(f.name)),
+        JSON.stringify(made.files.map((f) => [f.name, f.data.toString('utf8')])));
+    ok('uuid5: the name-based UUID form', /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entryUuid) &&
+        entryUuid === sourcesLib.uuid5('shared2:8fe6023a-c19a-498a-8f2a-818806578b4f') && entryUuid !== sourcesLib.uuid5('shared3:8fe6023a-c19a-498a-8f2a-818806578b4f'));
+    return u.serve()
+        .then(() => u.check())
+        .then(() => Promise.all(['doom', 'stubborn', 'shared'].map((id) => ask(conf.socket, { op: 'install', id }))))
+        .then(() => settle('shared'))
+        .then(() => {
+            ok('clash: mgu-apps\' packages install under their ids', ['doom', 'stubborn', 'shared'].every((id) => comp(id).status === 'installed') &&
+                JSON.parse(fs.readFileSync(path.join(conf.state_dir, 'origins.json'), 'utf8')).doom.source === 'mgu-apps',
+                JSON.stringify(st().components));
+            fs.writeFileSync(path.join(repo, 'mgu-repo.json'), later['mgu-repo.json']);
+            publish(iterio, [Object.assign(entry(appTgz(iterio, 'doom', '9.0.0'), 'app', 'DOOM (App Manager)'), { uninstallable: true })]);
+            return u.check();
+        })
+        .then(() => {
+            const d2 = comp('doom2');
+            ok('clash: a repo\'s doom, built here, is listed as doom2 under its own title, its id as listedId',
+                d2.listedId === 'doom' && d2.title === 'Doom' && d2.source === 'idrive7-apps' && d2.status === 'available' && d2.version === '1.4.1' &&
+                d2.blocked === null && comp('doom').source === 'mgu-apps' && comp('doom').listedId === null && comp('doom').status === 'installed',
+                JSON.stringify([d2, comp('doom')]));
+            const other = comp(`doom@iterio`);
+            ok('clash: a package built elsewhere keeps its id and is blocked, and does not stand for the installed doom\'s update',
+                other.blocked === `doom is already installed from ${mguApps}` && other.listedId === 'doom' && other.version === '9.0.0' &&
+                comp('doom').version === '1.1.2', JSON.stringify([other, comp('doom')]));
+            ok('clash: ids nobody else holds are their own', comp('warmup').listedId === null && comp('warmup').source === 'idrive7-apps');
+            return ask(conf.socket, { op: 'install', id: 'doom@iterio' });
+        })
+        .then((why) => {
+            ok('clash: installing the blocked package is refused with its reason', why === `doom is already installed from ${mguApps}`, why);
+            fs.writeFileSync(deployLog, '');
+            return ask(conf.socket, { op: 'install', id: 'doom2' }).then(() => settle('doom2'));
+        })
+        .then(() => {
+            const pkg = comp('doom2').status === 'installed' ? pkgOf('doom2') : {};
+            ok('clash: doom2 is built from a copy of apps/doom made over to doom2 (with its download), and installed as doom2',
+                pkg.name === 'doom2' && pkg.specId === 'doom2' && pkg.version === '1.4.1' && pkg.proxied === true &&
+                JSON.stringify(pkg.folders) === '["doom","doom2","stubborn","warmup"]' &&
+                deployed().length === 2 && /mgu-python@1\.0\.0/.test(deployed()[0]) && /doom2@1\.4\.1\.tgz --yes/.test(deployed()[1]),
+                JSON.stringify([comp('doom2'), pkg, deployed()]));
+            const reg = (id) => JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`))).userId;
+            ok('clash: mgu-apps\' doom is untouched, beside it', pkgOf('doom').version === '1.1.2' && reg('doom') !== reg('doom2') &&
+                comp('doom').status === 'installed');
+            ok('clash: the id it installed under is kept for its source, and the source as its origin',
+                aliases()['idrive7-apps:doom'] === 'doom2' && JSON.parse(fs.readFileSync(path.join(conf.state_dir, 'origins.json'), 'utf8')).doom2.source === 'idrive7-apps',
+                JSON.stringify(aliases()));
+            const again = new Updater(conf);
+            again.src = u.src;
+            ok('clash: a later start places it there again', again.resolved().get('doom2').entry.listedId === 'doom' && !again.resolved().get('doom3'));
+            fs.writeFileSync(path.join(repo, 'apps', 'doom', 'app.json'), doomJson('1.4.2'));
+            return u.check();
+        })
+        .then(() => {
+            ok('clash: a new version of the repo\'s doom is an update of doom2', comp('doom2').status === 'update' && comp('doom2').version === '1.4.2' &&
+                !comp('doom3').id, JSON.stringify(comp('doom2')));
+            fs.writeFileSync(deployLog, '');
+            return ask(conf.socket, { op: 'install', id: 'doom2' }).then(() => until(st, () => !u.busy && comp('doom2').installed === '1.4.2' || !!comp('doom2').error,
+                60000, 'doom2 updated'));
+        })
+        .then(() => {
+            ok('clash: the update lands on doom2', /doom2@1\.4\.2\.tgz --yes/.test(deployed()[0]) && deployed().length === 1 && pkgOf('doom2').version === '1.4.2' &&
+                pkgOf('doom').version === '1.1.2', JSON.stringify([deployed(), comp('doom2')]));
+            return ask(conf.socket, { op: 'install', id: 'stubborn2' }).then(() => settle('stubborn2'));
+        })
+        .then(() => {
+            ok('clash: a build that comes out under the id it was not to have is refused, nothing installed',
+                /the build of stubborn as stubborn2 made stubborn: it cannot install beside stubborn/.test(comp('stubborn2').error || '') &&
+                !deployed().some((l) => /stubborn/.test(l)) && pkgOf('stubborn').version === '1.0.0', JSON.stringify(comp('stubborn2')));
+            return ask(conf.socket, { op: 'install', id: 'shared2' }).then(() => settle('shared2'));
+        })
+        .then(() => {
+            ok('clash: a source package installs as shared2 beside shared', comp('shared2').listedId === 'shared' &&
+                comp('shared2').status === 'installed' && pkgOf('shared2').built === true && pkgOf('shared').version === '1.0.0' &&
+                deployed().some((l) => /shared2@1\.0\.0\.tgz --yes/.test(l)), JSON.stringify([comp('shared2'), deployed()]));
+            u.origins.doom.source = 'iterio';
+            ok('clash: the origin of an installed id updates it as usual; another origin\'s package is the one blocked',
+                comp('doom').source === 'iterio' && comp('doom').status === 'update' && comp('doom').version === '9.0.0' &&
+                comp('doom@mgu-apps').blocked === `doom is already installed from ${iterio}` && comp('doom2').listedId === 'doom',
+                JSON.stringify(st().components.map((c) => [c.id, c.source, c.blocked])));
+            u.origins.doom.source = 'mgu-apps';
+            return priv({ op: 'uninstall', id: 'doom2' }).then(() => until(st, () => !u.busy && comp('doom2').status === 'available', 30000, 'doom2 removed'));
+        })
+        .then(() => {
+            ok('clash: removing doom2 removes it alone, and the id kept for it',
+                deployed().some((l) => /^uninstall doom2 --yes$/.test(l)) && !aliases()['idrive7-apps:doom'] && pkgOf('doom').version === '1.1.2' &&
+                comp('doom2').listedId === 'doom', JSON.stringify([deployed(), aliases()]));
+            u.server.close();
+            delete process.env.FAKE_SDK_MODULE;
+            return null;
+        });
+}
+
 /* A first start without sources.json, and one this version cannot read. */
 function testFirstStart() {
     const { Updater } = require('../js/updater');
@@ -2796,6 +3027,7 @@ function main() {
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
             .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
+            .then(() => testIdClash().catch((e) => ok('id clash scenario', false, e.stack)))
             .then(() => testDaemon(certs, pubDir))
             .then(() => {
                 dnsSrv.close();

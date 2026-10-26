@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1
+
+An app another source's app holds the id of shows `Id <id>` on its page:
+the id it installs under (mgu-updater 0.5.3). A package that cannot
+install beside it says `Not installable` and why, with nothing to press.
+
 ## 0.7.0
 
 The Store's screens are drawn by mgu-render: IterioDev's App Manager 2

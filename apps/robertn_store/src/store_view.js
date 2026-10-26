@@ -42,6 +42,9 @@ function rowState(row, busy) {
     if (notForUnit(row)) {
         return 'Not for this head unit';
     }
+    if (row.blocked) {
+        return 'Not installable';
+    }
     if (row.error) {
         return 'Failed, retry';
     }
@@ -56,7 +59,7 @@ function rowState(row, busy) {
  * provides the same capability, after a confirm step), remove (after a
  * confirm step), or nothing. */
 function rowAction(row, busy) {
-    if ((busy && busy.id === row.id) || row.queued) {
+    if ((busy && busy.id === row.id) || row.queued || row.blocked) {
         return null;
     }
     if (!notForUnit(row) && (row.status === 'update' || row.status === 'available' || row.error)) {

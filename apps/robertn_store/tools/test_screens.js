@@ -84,6 +84,23 @@ eq([f.items.map((i) => i.label).slice(0, -4), text(f, 'note1')], [['Remove', 'Ba
 f = frame(fixture.model({}, st), { textScale: 1, focus: 0, scroll: {} });
 eq([f.values.grid.items[0].sub, f.values.grid.items[0].badge, f.values.nav.items[1].badge], ['Not for this head unit', 'installed', ''],
     'says so, installed, not counted as an update');
+// an app installed beside another source's app of its id shows the id it has; one built elsewhere cannot install
+const two = Object.assign(fixture.state(), { busy: null });
+two.components = [Object.assign({}, two.components[1], { id: 'doom2', listedId: 'doom', status: 'available', installed: null, error: null }),
+    Object.assign({}, two.components[1], { id: 'doom@iterio', listedId: 'doom', status: 'available', installed: null, error: null,
+        blocked: 'doom is already installed from robertnisipeanu/mgu-apps' })];
+const page = (id) => {
+    const p = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id }] }, two), { textScale: 1, focus: 0, scroll: {} });
+    p.labels = p.items.map((i) => i.label);
+    return p;
+};
+f = page('doom2');
+ok(f.values.facts.items.some((c) => c.text === 'Id doom2') && own(f)[0] === 'Install', 'doom2: its id, and Install');
+f = page('doom@iterio');
+eq([own(f), text(f, 'note1')], [['Back'], 'doom is already installed from robertnisipeanu/mgu-apps'], 'blocked: why, nothing to press');
+ok(!f.values.facts.items.some((c) => /^Id /.test(c.text)), 'blocked: no id of its own');
+f = frame(fixture.model({}, two), { textScale: 1, focus: 0, scroll: {} });
+eq(f.values.grid.items[1].sub, 'Not installable');
 f = screen('app-replace');
 eq(own(f), ['Replace GPU renderer', 'Back']);
 eq(f.items[0].act, { do: 'open', page: { name: 'confirm', kind: 'replace', id: 'mgu-render' } });
