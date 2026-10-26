@@ -109,6 +109,6 @@ node native/app-privacy/patch_mainapp.js check-apps apps
 The tests cover the check/apply/revert state machine, fail-closed
 behaviour on a mismatched bundle, composition with other edits, the
 runtime marker and override decision, build-time stamping, `check-apps`
-over this repository's apps, and — when a decoded oap-mainapp is
-available — patching, parsing and exactly reverting the reference firmware
+over this repository's apps, and — when `FIRMWARE_MAINAPP_DIR` names a decoded oap-mainapp —
+patching, parsing and exactly reverting the reference firmware
 bundles.

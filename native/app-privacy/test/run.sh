@@ -3,8 +3,8 @@
 # with the repository's apps and, when present, the decoded oap-mainapp.
 set -e
 cd "$(dirname "$0")/../../.."
-FIRMWARE=${FIRMWARE_MAINAPP_DIR:-$HOME/workspaces/personal/claude-bmw-ecu/mgu18/decoded/oap-mainapp}
-if [ -d "$FIRMWARE/src" ]; then
+FIRMWARE=${FIRMWARE_MAINAPP_DIR:-}
+if [ -n "$FIRMWARE" ] && [ -d "$FIRMWARE/src" ]; then
     set -- -v "$FIRMWARE:/firmware:ro" -e FIRMWARE_MAINAPP_DIR=/firmware
 fi
 docker run --rm -v "$PWD:/w:ro" -w /w "$@" node:8.16.2-stretch \
