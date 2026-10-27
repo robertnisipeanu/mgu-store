@@ -147,6 +147,7 @@ function uplinkDropIns(id) {
 
 function fail(msg) { var e = new Error(msg); e.code = 1; return e; }
 function refuse(msg) { var e = new Error(msg); e.code = 2; return e; }
+function isRefusal(e) { return !!e && e.code === 2; }
 function say(m) { process.stdout.write(m + '\n'); }
 function warn(m) { process.stdout.write('warning: ' + m + '\n'); }
 
@@ -899,7 +900,8 @@ function validateArtifact(file, stage) {
     var dir = path.join(stage, 'a' + Math.floor(Math.random() * 1e9));
     mkdirp(dir);
     var x = run(CFG.tar, ['-xzf', file, '-C', dir], { allowFail: true });
-    if (x.status !== 0) throw refuse('cannot extract ' + file + ': ' + (x.stderr || '').trim());
+    // its listing read the whole archive: this is the unit's failure (space, I/O)
+    if (x.status !== 0) throw fail('cannot extract ' + file + ': ' + (x.stderr || '').trim());
     walk(dir, '', []).forEach(function (e) {
         if (e.stat.isSymbolicLink()) throw refuse('symlink in artifact: ' + e.rel);
         if (!e.stat.isFile() && !e.stat.isDirectory()) throw refuse('special file in artifact: ' + e.rel);
@@ -1218,22 +1220,25 @@ function unitDonors() {
  * Nothing outside the staging folder changes; a package that cannot be
  * prepared (no donor holds the oap-sdk it needs, a module that does not
  * compile) is refused. */
+/* System errors that are the unit's (space, I/O, limits), not a package's. */
+var ENV_ERRORS = ['ENOSPC', 'EDQUOT', 'EIO', 'EROFS', 'EMFILE', 'ENFILE', 'ENOMEM', 'EACCES', 'EPERM', 'EBUSY'];
 function prepareApp(a, stage) {
     if (!a.prepare) return a;
-    var out = path.join(stage, 'built-' + a.id + '@' + a.version + '.tgz'), r;
+    var out = path.join(stage, 'built-' + a.id + '@' + a.version + '.tgz'), r, link = linker();
     try {
         if (a.prepare === 'build') {
-            r = linker().build(a.dir, out, { donors: unitDonors(), workDir: stage });
+            r = link.build(a.dir, out, { donors: unitDonors(), workDir: stage });
             say('built ' + a.id + ' ' + a.version + ' from its source package (' + r.moduleCount +
                 ' modules, oap-sdk from ' + r.donor + (r.entry ? ', main from ' + r.entry : '') + ')');
         } else {
-            r = linker().preparePackage(a.pkgDir, out, { donors: unitDonors() });
+            r = link.preparePackage(a.pkgDir, out, { donors: unitDonors() });
             say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +
                 (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : '') +
                 (r.shrinkwrap ? ', npm-shrinkwrap.json added' : '') +
                 (r.permissions.length ? ', ' + r.permissions.join(' and ') + ' added to permissions.json' : ''));
         }
     } catch (e) {
+        if (ENV_ERRORS.indexOf(e.code) >= 0) throw e;
         throw refuse(a.file + ': cannot ' + (a.prepare === 'build' ? 'build ' : 'prepare ') + a.id + ' ' + a.version +
             ' on this unit: ' + e.message);
     }
@@ -2327,10 +2332,13 @@ function ensureApplyUnit(state) {
  * the HMI at appletId + 1000, its start widget at + 2000 and its own RHMI
  * application at + 0 or + 3000 (by its oap-sdk); Hmi8 takes these in
  * 20000..29999, each once. Two apps clash when their appletIds are 0, 1000,
- * 2000 or 3000 apart. Stock apps hold 20000..20004, IterioDev's
- * 20097..20199, the Store 20601; a package without an appletId gets the one
- * its installed version has, else the lowest free one of ID8_APPLET_IDS. */
+ * 2000 or 3000 apart. Stock apps hold 20000..20004 (FeatureTour's 20000 is
+ * no OAP app's), IterioDev's 20097..20199, the Store 20601. A package keeps
+ * the appletId it declares while that clashes with no other app's on the
+ * unit; else, or without one, it gets the one its installed version has,
+ * else the lowest free one of ID8_APPLET_IDS. */
 var ID8_APPLET_IDS = [20602, 20999];
+var ID8_RESERVED = [20000];
 var id8Assigned = {}; // appletIds given in this run, by app id
 function appletIdOf(appJson) {
     var a = appJson && appJson.application;
@@ -2366,10 +2374,11 @@ function id8AppletIds(id) {
     Object.keys(id8Assigned).forEach(function (k) { if (k !== id) add(id8Assigned[k], false); });
     return { others: others, own: own };
 }
-function freeAppletId(id) {
-    var ids = id8AppletIds(id), free = function (v) {
-        return v + 3000 <= 29999 && ids.others.every(function (o) { return [0, 1000, 2000, 3000].indexOf(Math.abs(v - o)) < 0; });
+function freeAppletId(id, declared) {
+    var ids = id8AppletIds(id), others = ids.others.concat(ID8_RESERVED), free = function (v) {
+        return v >= 20000 && v + 3000 <= 29999 && others.every(function (o) { return [0, 1000, 2000, 3000].indexOf(Math.abs(v - o)) < 0; });
     };
+    if (declared !== null && free(declared)) return declared;
     if (ids.own !== null && free(ids.own)) return ids.own;
     for (var v = ID8_APPLET_IDS[0]; v <= ID8_APPLET_IDS[1]; v++) if (free(v)) return v;
     throw refuse(id + ': no free appletId in ' + ID8_APPLET_IDS.join('..'));
@@ -2380,10 +2389,14 @@ function freeAppletId(id) {
 function id8Complete(a) {
     var added = linker().completePermissions(a.pkgDir).map(function (t) { return t + ' added to permissions.json'; });
     var f = path.join(a.pkgDir, 'rhmiData', 'application.json'), j = readJsonOrNull(f);
-    if (j && j.application && typeof j.application === 'object' && j.application.appletId === undefined) {
-        j.application.appletId = id8Assigned[a.id] = freeAppletId(a.id);
-        fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
-        added.push('appletId ' + j.application.appletId + ' added to rhmiData/application.json');
+    if (j && j.application && typeof j.application === 'object') {
+        var declared = appletIdOf(j), v = id8Assigned[a.id] = freeAppletId(a.id, declared);
+        if (v !== declared) {
+            j.application.appletId = v;
+            fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
+            added.push(declared === null ? 'appletId ' + v + ' added to rhmiData/application.json' :
+                'appletId ' + v + ' in rhmiData/application.json in place of ' + declared + ', which clashes with another app\'s on this unit');
+        }
     }
     return added;
 }
@@ -2727,11 +2740,15 @@ function amMoveQueue(state, stage) {
                 say('his queued install of ' + c.appId + ' is dropped: its staged package is missing or changed');
                 return;
             }
+            // a package that is refused is dropped; the unit's failure rolls the whole command back
             var a = null, why = 'its staged package is not that app';
             try {
                 a = validateArtifact(staged, stage);
                 a = a.kind === 'app' && a.id === c.appId && a.version === c.version ? id8Package(a, stage) : null;
-            } catch (e) { a = null; why = e.message; }
+            } catch (e) {
+                if (!isRefusal(e)) throw e;
+                a = null; why = e.message;
+            }
             if (!a) { say('his queued install of ' + c.appId + ' is dropped: ' + why); return; }
             ensureApplyUnit(state);
             var file = path.join(ID8_QUEUE, c.appId + '@' + c.version + '.tgz');

@@ -88,7 +88,8 @@ registers with Hmi8 at 21601, a start widget at 22601 and the Store's RHMI
 application at 20601 or 23601 (by the donor's oap-sdk); Hmi8 takes
 20000..29999, each once. Stock apps hold 20000..20004 and IterioDev's
 20097..20199, so these are clear of all of them; the deploy tool gives
-packages without an `appletId` one from 20602 up. The manifest names the
+a package without an `appletId`, or with one that clashes, one from 20602
+up. The manifest names the
 iDrive 8 SDK's interfaces (`EntryPoint2`, `RemoteHmi2`, `ResourceManager2`,
 `UseCaseContext`, `PrivateEntryPoint2`, ...) beside iDrive 7's; both units'
 interface databases define them all. On iDrive 8 no state has a parent

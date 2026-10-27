@@ -3644,6 +3644,34 @@ function testAppManager() {
             r.out.includes(`his queued install of oap-driverecorder-next is dropped: ${why}`) &&
             !fs.existsSync(odd.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')), r.out);
     });
+    // the unit's failure while his queued install is moved rolls the whole adopt back, his queue kept for the next try:
+    // no space to extract the package, the linker not loadable, no space to write the repacked package
+    const unitCopy = (files) => {
+        const d = fs.mkdtempSync(path.join(T, 'unit-'));
+        fs.readdirSync(path.join(HERE, '..', 'unit')).forEach((n) => fs.copyFileSync(path.join(HERE, '..', 'unit', n), path.join(d, n)));
+        LINK_FILES.forEach((n) => fs.copyFileSync(path.join(HERE, '..', '..', 'tools', n), path.join(d, n)));
+        Object.keys(files).forEach((n) => fs.writeFileSync(path.join(d, n), files[n]));
+        return path.join(d, 'mgu-deploy.js');
+    };
+    const fullTar = path.join(fs.mkdtempSync(path.join(T, 'tar-')), 'tar');
+    fs.writeFileSync(fullTar, '#!/bin/sh\ncase "$1" in -x*) echo "tar: write error: No space left on device" >&2; exit 2;; esac\nexec tar "$@"\n',
+        { mode: 0o755 });
+    const realPack = fs.readFileSync(path.join(HERE, '..', '..', 'tools', 'oap_pack.js'), 'utf8');
+    [['no space to extract', null, { MGU_DEPLOY_TAR: fullTar }],
+        ['the linker not loadable', unitCopy({ 'oap_link.js': "throw new Error('oap_link.js: cannot load');\n" }), {}],
+        ['no space to write the repacked package', unitCopy({ 'oap_pack.js': `${realPack}\nconst tgz = module.exports.tgz;\n` +
+            "module.exports.tgz = (entries, mtime) => { if (entries.some((e) => e.name.indexOf('package/') === 0)) { " +
+            "const e = new Error('ENOSPC: no space left on device, write'); e.code = 'ENOSPC'; throw e; } return tgz(entries, mtime); };\n" }), {}]]
+        .forEach(([what, js, env]) => {
+            const env8 = amRoot();
+            const r = js ? cp.spawnSync(UNIT_NODE, [js, 'appmanager', 'adopt', '--yes'], { encoding: 'utf8', env: Object.assign({}, env8.env, env), input: '' })
+                : env8.run(['appmanager', 'adopt', '--yes'], env);
+            const out = `${r.stdout}${r.stderr}`;
+            check(`appmanager: ${what} while his queued install moves: adopt rolled back, his queue kept`, r.status !== 0 &&
+                out.includes('rolling back') && !out.includes('is dropped') && fs.existsSync(env8.H('pending.json')) &&
+                fs.existsSync(env8.H('staged/oap-driverecorder-next@1.0.8.tgz')) &&
+                !fs.existsSync(env8.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')) && env8.status().appmanager.record === null, out);
+        });
 }
 
 /* iDrive 8: what MainApp-21 needs and a package lacks, added before it is
@@ -3665,8 +3693,19 @@ function testId8Complete() {
         '--artifact', rhmiApp('a2', '1.0.0', ['ID8'], { acl: ACL }), '--yes']);
     check('id8: apps without one get appletIds the queue and each other do not hold', two.status === 0 &&
         appletId(queued('a1', '1.0.0')) === 20603 && appletId(queued('a2', '1.0.0')) === 20604, two.out);
-    const decl = root.run(['install', '--artifact', rhmiApp('decl', '1.0.0', ['ID8'], { npm: true, acl: ACL, appletId: 20602 }), '--yes']);
-    check('id8: a declared appletId is kept', decl.status === 0 && appletId(queued('decl', '1.0.0')) === 20602, decl.out);
+    const declare = (id, v) => root.run(['install', '--artifact', rhmiApp(id, '1.0.0', ['ID8'], { npm: true, acl: ACL, appletId: v }), '--yes']);
+    const kept = declare('kept', 20650);
+    check('id8: a declared appletId that clashes with no other app\'s is kept', kept.status === 0 && appletId(queued('kept', '1.0.0')) === 20650 &&
+        !kept.out.includes('repacked'), kept.out);
+    const clash = declare('clash', 20602);
+    check('id8: a declared appletId another app holds is replaced by a free one, saying so', clash.status === 0 &&
+        appletId(queued('clash', '1.0.0')) === 20605 &&
+        clash.out.includes('appletId 20605 in rhmiData/application.json in place of 20602, which clashes with another app\'s on this unit'), clash.out);
+    // FeatureTour's 20000 (1000 below), and the ends of what Hmi8 takes with + 3000
+    const fixed = [['ft', 21000, 20606], ['high', 27100, 20607], ['low', 19900, 20608]].map(([id, v, want]) =>
+        [declare(id, v), appletId(queued(id, '1.0.0')) === want]);
+    check('id8: a declared appletId 0..3000 from FeatureTour\'s, or outside 20000..26999, is replaced',
+        fixed.every(([x, ok]) => x.status === 0 && ok), fixed.map(([x]) => x.out).join('\n'));
 
     // installed at 20602, 21603 (1000 above 20603), 23605 (3000 above 20605) and 20650 (mine); a package waiting in
     // preinstalled_apps at 20604
@@ -3685,6 +3724,11 @@ function testId8Complete() {
     const u = r2.run(['install', '--artifact', rhmiApp('mine', '1.0.0', ['ID8'], { npm: true, acl: ACL }), '--yes']);
     check('id8: an update without one keeps the installed version\'s (its package named <id>-<version>.tgz)',
         u.status === 0 && appletId(q2('mine')) === 20650, u.out);
+    write(r2.entry('lowapp'), JSON.stringify({ userId: 13005 }));
+    home(13005, 19500);
+    write(r2.p('var/opt/public/oap/oap_13005/source/package.json'), JSON.stringify({ name: 'lowapp', version: '0.9.0' }));
+    const lo = r2.run(['install', '--artifact', rhmiApp('lowapp', '1.0.0', ['ID8'], { npm: true, acl: ACL }), '--yes']);
+    check('id8: an installed version\'s appletId below 20000 is not reused', lo.status === 0 && appletId(q2('lowapp')) === 20607, lo.out);
 }
 
 // MGU_TEST_ONLY=<name>,...: only those test functions

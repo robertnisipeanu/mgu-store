@@ -415,9 +415,11 @@ whose das edits and removal steps it follows:
   tables `permissions.json` lacks (`masterAccessTable`,
   `masterRegistrationTable`), empty, and an `appletId` in
   `rhmiData/application.json`, without which MainApp-21 gives the app no
-  tile and does not start it: the installed version's, else the lowest
-  from 20602 up that is not 0, 1000, 2000 or 3000 apart from another app's
-  on the unit (installed, in `preinstalled_apps` or queued). Hmi8
+  tile and does not start it: its own while that is in 20000..26999 and
+  not 0, 1000, 2000 or 3000 apart from another app's on the unit
+  (installed, in `preinstalled_apps` or queued, and FeatureTour's 20000),
+  else the installed version's, else the lowest such from 20602 up; the
+  output names an `appletId` it replaced. Hmi8
   registers an app's tile at its `appletId` + 1000, its start widget at
   + 2000 and its RHMI application at + 0 or + 3000 (by its oap-sdk), in
   20000..29999, each once; stock apps hold 20000..20004, IterioDev's
@@ -500,7 +502,9 @@ reinstalled:
   staged package while that matches its sha256 and is that app, queued as
   an install of ours queues it (the ACL tables and `appletId` it lacks
   added), a removal as it is; its own app is not carried over;
-  `pending.json` goes;
+  `pending.json` goes. A package that is refused is dropped, saying why;
+  a failure of the unit's own (space, I/O) rolls the adopt back, its
+  queue kept;
 - its renderer becomes the tool `mgu-renderd` (`versions/<its version>/`
   from the program it runs), our unit written over its unit; a running
   renderer keeps running and runs ours from its next start. With our
