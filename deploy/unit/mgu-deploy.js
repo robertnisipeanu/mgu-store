@@ -2362,11 +2362,13 @@ function tgzAppletId(file) {
     return appletIdOf(j);
 }
 /* Hmi8's built-in applets' appletIds: <appletId> of each RHMI applet's
- * manifest under its data's applet/, AppletId of each native applet. */
+ * manifest under its data's applet/, AppletId of each native applet. A
+ * folder a unit does not have holds none; one that cannot be read refuses. */
 function builtinAppletIds() {
     var ids = [], dir = path.join(CFG.hmi8Data, 'applet'), read = function (f) {
         try { return fs.readFileSync(f, 'utf8'); } catch (e) { throw refuse('cannot read ' + f + ' for the appletIds in use: ' + e.message); }
     }, list = function (d) {
+        if (!lstatOrNull(d)) return [];
         try { return walk(d, '', []); } catch (e) { throw refuse('cannot read the HMI\'s applets in ' + d + ': ' + e.message); }
     };
     list(dir).forEach(function (e) {

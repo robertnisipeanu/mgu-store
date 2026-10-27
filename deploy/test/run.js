@@ -3743,17 +3743,28 @@ function testId8Complete() {
     const lo = install(r2, 'lowapp');
     check('id8: an installed version\'s appletId outside what Hmi8 takes is not kept', lo.status === 0 && appletId(q2('lowapp')) === 20008, lo.out);
 
-    // what cannot be read refuses the install, nothing queued
+    // a unit without native applets has none of their ids
+    const none = id8Root({ native: [] });
+    fs.rmSync(none.p('usr/lib/hmi8/applet'), { recursive: true, force: true });
+    const nn = install(none, 'nonative');
+    check('id8: a unit without the native applets\' folder has no ids there', nn.status === 0 && appletId(queuedIn(none)('nonative')) === 20001, nn.out);
+
+    // what cannot be read refuses the install, nothing queued: an app's application.json that does not parse, an applets
+    // folder that is no folder, a manifest whose appletId is no number
     const bad = id8Root();
     write(bad.p('var/opt/public/oap/oap_13009/rhmiData/application.json'), '{ not json');
     const b1 = install(bad, 'b1');
-    fs.rmSync(bad.p('usr/lib/hmi8/applet'), { recursive: true });
     fs.rmSync(bad.p('var/opt/public/oap/oap_13009'), { recursive: true });
+    fs.rmSync(bad.p('usr/lib/hmi8/applet'), { recursive: true });
+    write(bad.p('usr/lib/hmi8/applet'), 'not a folder\n');
     const b2 = install(bad, 'b2');
-    check('id8: an id source that cannot be read refuses the install: an app\'s application.json, the HMI\'s applets', b1.status === 2 &&
+    fs.rmSync(bad.p('usr/lib/hmi8/applet'));
+    write(bad.p('mnt/dataro/data/hmi8/applet/rhmi9/X/X.manifest'), '<plugin><appletId>twenty</appletId></plugin>\n');
+    const b3 = install(bad, 'b3');
+    check('id8: an id source that cannot be read refuses the install', b1.status === 2 &&
         b1.out.includes('rhmiData/application.json for the appletIds in use') && b2.status === 2 && b2.out.includes('cannot read the HMI\'s applets') &&
-        !fs.existsSync(bad.p('var/opt/mgu-deploy/id8/queue/b1@1.0.0.tgz')) && !fs.existsSync(bad.p('var/opt/mgu-deploy/id8/queue/b2@1.0.0.tgz')),
-    `${b1.out}\n${b2.out}`);
+        b3.status === 2 && b3.out.includes('appletId twenty is not a number') &&
+        ['b1', 'b2', 'b3'].every((id) => !fs.existsSync(bad.p(`var/opt/mgu-deploy/id8/queue/${id}@1.0.0.tgz`))), `${b1.out}\n${b2.out}\n${b3.out}`);
 }
 
 // MGU_TEST_ONLY=<name>,...: only those test functions
