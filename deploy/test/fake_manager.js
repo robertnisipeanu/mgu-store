@@ -21,7 +21,10 @@
  * respawned child's pid is 900000 above it rather than the next one,
  * which the deploy tool's own process often has.
  * With $FAKE_MGR_HOOK set, the respawned child is fake_inplace.js on the
- * fallback copy when the fallback is active and its copy has the hook.
+ * fallback copy when the fallback is active and its copy has the hook, and
+ * $FAKE_MGR_PASS_MS (default 300) after its start it runs the start-up
+ * provisioning pass (startupPass) on its own, as MainApp does once
+ * provisioning reaches it.
  * With $FAKE_MGR_STAY_DOWN_AT set to n, the n-th kill respawns nothing.
  * With $FAKE_MGR_NO_KEYCHAIN set, a fresh install writes no keychain. The
  * JSON object in $FAKE_MGR_SECTIONS, when that file exists, holds
@@ -132,6 +135,16 @@ function uninstall(id, how) {
     return true;
 }
 
+/* MainApp's start-up provisioning pass: every app marked PREINSTALLED that
+ * the fallback lists is updated from a newer preinstalled package. */
+function startupPass() {
+    log('start-up pass');
+    const custom = customApps();
+    entries().forEach(({ id, entry }) => {
+        if (entry && entry.installationSource === 'PREINSTALLED' && id in custom) update(id, ' at start');
+    });
+}
+
 function bounce() {
     const old = Number(fs.readFileSync(env.FAKE_MGR_PIDFILE, 'utf8'));
     const killsBefore = () => (fs.existsSync(env.FAKE_MGR_LOG) ? fs.readFileSync(env.FAKE_MGR_LOG, 'utf8') : '')
@@ -207,7 +220,8 @@ function bounce() {
     // $FAKE_MGR_HOOK: the respawned child runs the fallback copy's in-place hook, as on the unit
     const copy = path.join(env.MGU_DEPLOY_VAR_OPT, 'mgu-deploy', 'main.js');
     if (env.FAKE_MGR_HOOK && fallbackActive() && fs.readFileSync(copy, 'utf8').includes('mgu-deploy in-place install')) {
-        cp.spawn(process.execPath, [path.join(__dirname, 'fake_inplace.js'), copy], { detached: true, stdio: 'ignore' }).unref();
+        cp.spawn(process.execPath, [path.join(__dirname, 'fake_inplace.js'), copy], { detached: true, stdio: 'ignore',
+            env: Object.assign({}, env, { FAKE_MGR_PASS_MS: env.FAKE_MGR_PASS_MS || '300' }) }).unref();
         const t0 = Date.now();
         while (fs.readFileSync(env.FAKE_MGR_PIDFILE, 'utf8') === String(pid) && Date.now() - t0 < 10000) {
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
@@ -215,5 +229,5 @@ function bounce() {
     }
 }
 
-module.exports = { install, update, uninstall, log };
+module.exports = { install, update, uninstall, startupPass, log };
 if (require.main === module) bounce();

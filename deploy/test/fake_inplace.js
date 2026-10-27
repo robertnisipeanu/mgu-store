@@ -20,6 +20,8 @@
  * the start of each install or update (oapcontroller respawned the
  * manager) and never settles it, "deaf" announces the hook but never reads
  * a request, "late" announces it 1.5 s after the start.
+ * $FAKE_MGR_PASS_MS: the start-up provisioning pass that many ms after the
+ * start (fake_manager.js startupPass).
  */
 const fs = require('fs');
 const path = require('path');
@@ -132,6 +134,7 @@ const appManager = {
 };
 const logger = { info: (m) => fake.log(`hook ${m}`) };
 setInterval(() => {}, 1 << 30);
+if (env.FAKE_MGR_PASS_MS) setTimeout(fake.startupPass, Number(env.FAKE_MGR_PASS_MS));
 if (mode === 'deaf') global.setInterval = () => null;
 setTimeout(() => require(path.resolve(process.argv[2])).start(appManager, appRegistry, logger),
     mode === 'late' ? 1500 : 0);

@@ -44,7 +44,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.5.1';
+var VERSION = '0.5.2';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -1902,10 +1902,11 @@ function bundlesWritten() {
         try { return Math.max(newest, fs.statSync(p).mtime.getTime() / 1000); } catch (e) { return newest; }
     }, 0);
 }
-/* Whether the manager pid, started at started, announced its in-place hook. */
-function hookAnnounced(pid, started) {
-    var st = readJsonOrNull(inplaceStatusFile());
-    return !!(st && st.pid === pid && typeof st.start === 'number' && Math.abs(st.start / 1000 - started) < 5);
+/* The running manager's pid and start in epoch seconds (null when
+ * unreadable), or null when none runs. */
+function managerStart() {
+    var pid = managerPid();
+    return pid ? { pid: pid, started: processStart(pid) } : null;
 }
 /* The in-place hook's code in a fallback copy's text, or null without one. */
 function inplaceHookOf(text) {
@@ -1915,8 +1916,20 @@ function inplaceHookOf(text) {
 /* A running manager that started before its bundles were last written: it
  * runs older code than the files hold. */
 function managerStale() {
-    var pid = managerPid(), started = pid ? processStart(pid) : null;
-    return started !== null && bundlesWritten() > started;
+    var m = managerStart();
+    return !!m && m.started !== null && bundlesWritten() > m.started;
+}
+/* A restarted manager's start-up runs a provisioning pass, whenever
+ * provisioning reaches it, that updates an app marked PREINSTALLED from a
+ * newer package while the app's tile may still be going in; it is over once
+ * the manager has been up the bounce minimum. */
+function waitStartedUp(what) {
+    var m = managerStart();
+    if (!m) return;
+    var left = m.started === null ? CFG.bounceMinUpS : m.started + CFG.bounceMinUpS - nowS();
+    if (left <= 0) return;
+    say('waiting ' + Math.ceil(left) + 's for the app manager (pid ' + m.pid + ') to finish starting before ' + what);
+    sleepMs(Math.ceil(left * 1000));
 }
 /* The running manager, when it runs the hook: it announced itself with its
  * pid and start, and started after the bundles were last written, so it
@@ -1925,12 +1938,14 @@ function managerStale() {
 function inplaceManager() {
     var told = false;
     for (;;) {
-        var pid = managerPid();
-        if (!pid) return { why: 'no app manager is running' };
-        var started = processStart(pid);
+        var m = managerStart(), st = readJsonOrNull(inplaceStatusFile());
+        if (!m) return { why: 'no app manager is running' };
+        var pid = m.pid, started = m.started;
         if (started === null) return { why: 'its start time is unreadable' };
         if (bundlesWritten() > started) return { why: 'its main.js or AppManagement.js was written after it started' };
-        if (hookAnnounced(pid, started)) return { pid: pid };
+        if (st && st.pid === pid && typeof st.start === 'number' && Math.abs(st.start / 1000 - started) < 5) {
+            return { pid: pid };
+        }
         var left = started + CFG.bounceMinUpS - nowS();
         if (left <= 0) return { why: 'the running app manager has no in-place hook' };
         if (!told) {
@@ -2061,11 +2076,11 @@ function installedAlready(a, why) {
  *
  * An update the running manager cannot make in place, as it runs older
  * bundles than the files hold, bounces the manager before the new package
- * is there: the restarted manager starts the app as it is, and updates it
- * in place. The manager's own update at its start removes and inserts the
- * app's tile again while its start-up insert of that tile may still be
- * under way, which can leave the HMI without the tile until the head unit
- * restarts. */
+ * is there: the restarted manager starts the app as it is, and once it has
+ * finished starting, updates it in place. The manager's own update at its
+ * start removes and inserts the app's tile again while its start-up insert
+ * of that tile may still be under way, which can leave the HMI without the
+ * tile until the head unit restarts. */
 function installApp(a, state, decision) {
     var existing = decision.existing || null, entry;
     say('installing app ' + a.id + ' ' + a.version + (existing ? ' (update of ' + existing.version + ')' : ''));
@@ -2076,6 +2091,7 @@ function installApp(a, state, decision) {
         say('the app manager runs older code than its main.js or AppManagement.js: restarting it before the update, ' +
             'which it then makes in place');
         bounceManager();
+        waitStartedUp('placing ' + a.id + ' ' + a.version);
     }
     entry = existing ? readJsonOrNull(appEntryFile(a.id)) : null;
     var kc = existing ? lstatOrNull(keychainFile(existing.uid)) : null;
@@ -2917,10 +2933,11 @@ function rebuildFallback(keepRunning) {
     return kept;
 }
 /* Whether the running manager runs the fallback copy in place now, with
- * its in-place hook announced, and that hook is the one in built. */
+ * its in-place hook announced (a young one given until the bounce minimum),
+ * and that hook is the one in built. */
 function runsCopyWithHook(built) {
-    var pid = managerPid(), started = pid ? processStart(pid) : null, cur;
-    if (started === null || bundlesWritten() > started || !hookAnnounced(pid, started)) return false;
+    var cur;
+    if (!inplaceManager().pid) return false;
     try { cur = fs.readFileSync(FALLBACK_COPY, 'utf8'); } catch (e) { return false; }
     var hook = inplaceHookOf(cur);
     return hook !== null && hook === inplaceHookOf(built);

@@ -1114,7 +1114,20 @@ function testInplaceKeepCopy() {
     check('keep copy: the bounce came before the new package was there',
         log.slice(killAt).every((l) => !/^update fixture_app [\d.]+ uid \d+$/.test(l)) &&
         readJson(b.root.entry('fixture_app')).userId === 13001, log.join('\n'));
+    check('keep copy: the package waits until the restarted manager has started: its start-up pass does not update the app',
+        r.out.includes('to finish starting before placing fixture_app 1.1.0') && log.indexOf('start-up pass', killAt) > killAt &&
+        !log.some((l) => l.startsWith('update fixture_app') && l.endsWith(' at start')), `${r.out}\n${log.join('\n')}`);
     stopHooked(b.root);
+
+    // a young manager, as after app-privacy's bounce, gets until the bounce minimum to announce its hook
+    const young = inplaceRoot('late', { minUp: 4 });
+    older(young.root, (t) => `/* an earlier build */\n${t}`);
+    const k1 = young.root.kills().length;
+    const y = young.root.run(['install', '--artifact', appArtifact('fixture_app', '1.1.0', true), '--yes']);
+    check('keep copy: a young manager that announces its hook late keeps its copy, no bounce',
+        y.status === 0 && young.root.kills().length === k1 && y.out.includes('keeps the provisioning fallback it runs') &&
+        y.out.includes('updated in place') && fs.readFileSync(copyOf(young.root), 'utf8').startsWith('/* an earlier build */'),
+    `${y.out}\n${young.root.managerLog().join('\n')}`);
 }
 
 /* Uninstall through the running manager's own uninstall (its tile goes at
@@ -2233,7 +2246,8 @@ function testRetiredEdges() {
     const before = bad.hash(notBackups);
     const c = bad.run(['check']);
     const fm = bad.run(['fallback', 'migrate', '--yes']);
-    const i = bad.run(['install', '--artifact', appArtifact('old_app', '1.1.0', true), '--yes'], { FAKE_MGR_HOOK: '1' });
+    const i = bad.run(['install', '--artifact', appArtifact('old_app', '1.1.0', true), '--yes'],
+        { FAKE_MGR_HOOK: '1', MGU_DEPLOY_BOUNCE_MIN_UP_S: '1' });
     check('retired: backups that are not the stock bundle are reported and left; the install goes ahead alone',
         c.out.includes('(not the stock main.js)') && !c.out.includes('migrates them') && fm.status === 0 &&
         fm.out.includes("none of the retired installer's backups is a stock bundle") && i.status === 0 &&
