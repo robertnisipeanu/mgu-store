@@ -58,8 +58,8 @@
  * Each holds focusable buttons, the proxies of what the drawn page has to
  * press in focus order (48, 24, 12 by depth): the HMI moves its focus over
  * them with the controller and reports focus and presses; BACK closes the
- * state. Each depth's state has the one below as its parent; depth 1 is the
- * entry state while its mode is in use.
+ * state. Each depth's state has the one below as its parent (on iDrive 8
+ * none, statesFor); depth 1 is the entry state while its mode is in use.
  *
  * A list is one button component; the app sets its row count at runtime.
  * Ids share one space across containers, layout groups (100 + 2 * state
@@ -236,9 +236,14 @@ function hostStates(modes) {
     return out;
 }
 
+/* On iDrive 8 no state has a ParentState: Hmi8 refuses a description
+ * (initialize: INVALID_PARAMETER) with a parent that has a parent of its
+ * own, and its BACK closes a state's parent with it. Its history takes the
+ * Store's states back one at a time. */
 function statesFor(hmi) {
-    const states = WIDGET_STATES.concat(hostStates(hmi === 'ID7' ? ['layer', 'embed'] : ['layer']));
+    let states = WIDGET_STATES.concat(hostStates(hmi === 'ID7' ? ['layer', 'embed'] : ['layer']));
     if (hmi === 'ID8') {
+        states = states.map((s) => Object.assign({}, s, { parent: null }));
         states[0] = Object.assign({}, states[0], { components: states[0].components.concat([
             Object.assign(label(70, 'storeHmiID8'), { visible: 0 })]) });
     }

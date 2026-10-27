@@ -5,8 +5,9 @@
  * containers and components with the same types, widgets' cells and
  * Focusable, ids are unique across containers, layout groups and
  * components, every ParentState chain ends at an entry state (the widget
- * screens' or a drawn screens' depth 1), each component has one row, the
- * host states have their proxies, and every state and component name
+ * screens' or a drawn screens' depth 1), no state has a ParentState on
+ * iDrive 8, each component has one row, the host states have their
+ * proxies, and every state and component name
  * src/store.js binds exists. Node 8+.
  *
  *   node tools/gen_rhmi.js && node tools/test_rhmi.js
@@ -75,12 +76,16 @@ function checkHmi(hmi, dir) {
         names.add(c.name);
         const parent = c.properties && c.properties.ParentState ? String(c.properties.ParentState.value) : null;
         ok(parent === x.parent, `${c.name} ParentState matches the XML`);
-        let at = id;
-        for (let hops = 0; xmlContainers[at].parent; hops += 1) {
-            ok(hops < 10 && xmlContainers[xmlContainers[at].parent], `${c.name} ParentState chain`);
-            at = xmlContainers[at].parent;
+        if (hmi === 'ID8') {
+            ok(x.parent === null, `${c.name} has no ParentState (Hmi8)`);
+        } else {
+            let at = id;
+            for (let hops = 0; xmlContainers[at].parent; hops += 1) {
+                ok(hops < 10 && xmlContainers[xmlContainers[at].parent], `${c.name} ParentState chain`);
+                at = xmlContainers[at].parent;
+            }
+            ok(roots.indexOf(at) >= 0, `${hmi} ${c.name} chains to an entry state`);
         }
-        ok(roots.indexOf(at) >= 0, `${hmi} ${c.name} chains to an entry state`);
         ok(Object.keys(c.components).sort().join() === Object.keys(x.components).sort().join(),
             `${c.name} has the same components`);
         Object.keys(c.components).forEach((cid) => {
@@ -117,6 +122,7 @@ function checkHmi(hmi, dir) {
 const counts = [checkHmi('ID7', ID7), checkHmi('ID8', ID8)];
 const app = JSON.parse(fs.readFileSync(path.join(ID7, '..', '..', 'application.json'), 'utf8')).application;
 ok(app.uiDescriptions.map((u) => u.hmi.join()).join() === 'ID7,ID8', 'application.json names both descriptions');
+ok(app.appletId === 20601, 'application.json has the appletId MainApp-21 gives the tile by');
 const pkg = JSON.parse(fs.readFileSync(path.join(ID7, '..', '..', '..', 'package.json'), 'utf8'));
 ok(JSON.stringify(pkg.mguHmi) === '["ID7","ID8"]', 'package.json: mguHmi ID7 and ID8');
 console.log(`rhmi: ${counts[0]} states (iDrive 7), ${counts[1]} (iDrive 8), ${checks} checks pass`);

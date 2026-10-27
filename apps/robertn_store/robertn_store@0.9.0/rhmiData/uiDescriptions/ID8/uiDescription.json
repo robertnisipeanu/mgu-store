@@ -366,12 +366,6 @@
     "2": {
       "type": "state",
       "name": "ST_OnlineApps_StoreApps",
-      "properties": {
-        "ParentState": {
-          "value": 1,
-          "type": "UInt"
-        }
-      },
       "components": {
         "11": {
           "type": "title",
@@ -438,12 +432,6 @@
     "3": {
       "type": "state",
       "name": "ST_OnlineApps_StoreTools",
-      "properties": {
-        "ParentState": {
-          "value": 1,
-          "type": "UInt"
-        }
-      },
       "components": {
         "12": {
           "type": "title",
@@ -510,12 +498,6 @@
     "4": {
       "type": "state",
       "name": "ST_OnlineApps_StoreRestart",
-      "properties": {
-        "ParentState": {
-          "value": 1,
-          "type": "UInt"
-        }
-      },
       "components": {
         "13": {
           "type": "title",
@@ -624,12 +606,6 @@
     "5": {
       "type": "state",
       "name": "ST_OnlineApps_StoreSources",
-      "properties": {
-        "ParentState": {
-          "value": 1,
-          "type": "UInt"
-        }
-      },
       "components": {
         "14": {
           "type": "title",
@@ -844,12 +820,6 @@
     "6": {
       "type": "state",
       "name": "ST_OnlineApps_StoreSource",
-      "properties": {
-        "ParentState": {
-          "value": 5,
-          "type": "UInt"
-        }
-      },
       "components": {
         "15": {
           "type": "title",
@@ -1167,12 +1137,6 @@
     "7": {
       "type": "state",
       "name": "ST_OnlineApps_StoreLogin",
-      "properties": {
-        "ParentState": {
-          "value": 32,
-          "type": "UInt"
-        }
-      },
       "components": {
         "16": {
           "type": "title",
@@ -1322,12 +1286,6 @@
     "8": {
       "type": "state",
       "name": "ST_OnlineApps_StoreSourceRemove",
-      "properties": {
-        "ParentState": {
-          "value": 6,
-          "type": "UInt"
-        }
-      },
       "components": {
         "17": {
           "type": "title",
@@ -1436,12 +1394,6 @@
     "9": {
       "type": "state",
       "name": "ST_OnlineApps_StoreRemove",
-      "properties": {
-        "ParentState": {
-          "value": 1,
-          "type": "UInt"
-        }
-      },
       "components": {
         "18": {
           "type": "title",
@@ -1572,12 +1524,6 @@
     "30": {
       "type": "state",
       "name": "ST_OnlineApps_StorePhone",
-      "properties": {
-        "ParentState": {
-          "value": 1,
-          "type": "UInt"
-        }
-      },
       "components": {
         "19": {
           "type": "title",
@@ -1705,12 +1651,6 @@
     "32": {
       "type": "state",
       "name": "ST_OnlineApps_StoreAccounts",
-      "properties": {
-        "ParentState": {
-          "value": 5,
-          "type": "UInt"
-        }
-      },
       "components": {
         "41": {
           "type": "title",
@@ -1883,12 +1823,6 @@
     "33": {
       "type": "state",
       "name": "ST_OnlineApps_StoreAccountRemove",
-      "properties": {
-        "ParentState": {
-          "value": 32,
-          "type": "UInt"
-        }
-      },
       "components": {
         "42": {
           "type": "title",
@@ -2041,12 +1975,6 @@
     "34": {
       "type": "state",
       "name": "ST_OnlineApps_StoreSourcePick",
-      "properties": {
-        "ParentState": {
-          "value": 5,
-          "type": "UInt"
-        }
-      },
       "components": {
         "43": {
           "type": "title",
@@ -4301,12 +4229,6 @@
     "52": {
       "type": "state",
       "name": "ST_OnlineApps_StoreLayer2",
-      "properties": {
-        "ParentState": {
-          "value": 51,
-          "type": "UInt"
-        }
-      },
       "components": {
         "62": {
           "type": "title",
@@ -5339,12 +5261,6 @@
     "53": {
       "type": "state",
       "name": "ST_OnlineApps_StoreLayer3",
-      "properties": {
-        "ParentState": {
-          "value": 52,
-          "type": "UInt"
-        }
-      },
       "components": {
         "63": {
           "type": "title",

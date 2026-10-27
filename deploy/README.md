@@ -410,7 +410,18 @@ whose das edits and removal steps it follows:
   unit's own donor (MainApp-21's `preinstalled_apps`, then the installed
   stock apps; the apps provisioning lists as preinstalled custom apps
   excluded), any other one repacked with its files under `package/`), and
-  reports the app `pending_reboot` with `installs at the next start`.
+  reports the app `pending_reboot` with `installs at the next start`. A
+  package is repacked with what MainApp-21 needs and it lacks: the ACL
+  tables `permissions.json` lacks (`masterAccessTable`,
+  `masterRegistrationTable`), empty, and an `appletId` in
+  `rhmiData/application.json`, without which MainApp-21 gives the app no
+  tile and does not start it: the installed version's, else the lowest
+  from 20602 up that is not 0, 1000, 2000 or 3000 apart from another app's
+  on the unit (installed, in `preinstalled_apps` or queued). Hmi8
+  registers an app's tile at its `appletId` + 1000, its start widget at
+  + 2000 and its RHMI application at + 0 or + 3000 (by its oap-sdk), in
+  20000..29999, each once; stock apps hold 20000..20004, IterioDev's
+  20097..20199, the Store 20601.
   Neither app-privacy nor the provisioning fallback is used there (`fallback
   on|off|migrate` is refused).
 - `uninstall` queues the removal (`removed at the next start`); for an app
@@ -486,8 +497,10 @@ reinstalled:
   pending, `adopted at the next boot`; `uninstall oap-appmanager` is
   refused until then);
 - its queued app changes go into ours (iDrive 8): an install with its
-  staged package while that matches its sha256, a removal as it is; its
-  own app is not carried over; `pending.json` goes;
+  staged package while that matches its sha256 and is that app, queued as
+  an install of ours queues it (the ACL tables and `appletId` it lacks
+  added), a removal as it is; its own app is not carried over;
+  `pending.json` goes;
 - its renderer becomes the tool `mgu-renderd` (`versions/<its version>/`
   from the program it runs), our unit written over its unit; a running
   renderer keeps running and runs ours from its next start. With our

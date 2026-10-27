@@ -113,7 +113,8 @@ class OnlineApp extends EventEmitter {
         super();
         app = this;
         this.rhmiApplication = new Rhmi();
-        this._packageJson = { version: 'test' };
+        // where the oap-sdk keeps package.json on that HMI
+        this[HMI === 'ID8' ? 'packageJson' : '_packageJson'] = { version: 'test' };
     }
     getAppId() { return 'robertn_store'; }
     start() { return Promise.resolve(); }
@@ -877,6 +878,7 @@ function runDrawn() {
         eq(gpu.visible, true, 'shown with its host state');
         eq(gpu.claims, [mode === 'embed' ? { x: 0, y: 0, w: 1796, h: 632 } : { x: 0, y: 0, w: 1790, h: 638 }], 'touch claimed: the box');
         eq(frames.length > 0 && drawn.items.some((i) => i.label === 'DOOM'), true, 'the Store tab drawn');
+        eq(app._drawnModel().version, 'test', 'the Store\'s version, from where this HMI\'s oap-sdk keeps package.json');
         eq([lastText(proxy(1, 0)), lastText(proxy(1, 3)), lastText(proxy(1, 4)), lastText(proxy(1, 7))],
             ['Store', 'Settings', 'All', 'DOOM'], 'proxies in focus order: side menu, filters, tiles');
         eq(last(new RegExp(`^${proxy(1, 12)}\\.Visible`)), `${proxy(1, 12)}.Visible=0`, 'unused proxies hidden');

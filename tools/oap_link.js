@@ -49,6 +49,7 @@
  *   link.packSource(appDir, outFile)                           -> the packed paths
  *   link.preparePackage(pkgDir, outFile, { donors })           -> { file, sdk: null | { donor, api } }
  *   link.needsSdk(pkgDir)                                      -> whether preparePackage generates oap-sdk
+ *   link.completePermissions(pkgDir)                           -> the ACL tables added to permissions.json
  *   link.sdkModule(donors)                                     -> module mode's donor and the oap-sdk module made from it
  *   link.unitDonors(mainappDir, oapDir, opts)                   -> the head unit's donors, in search order
  */
@@ -796,7 +797,7 @@ function rmrf(p) {
     }
 }
 
-module.exports = { build, packSource, readManifest, preparePackage, needsSdk, needsShrinkwrap, sdkModule, unitDonors, untar, SDK_API, ENTRY_ID,
+module.exports = { build, packSource, readManifest, preparePackage, completePermissions, needsSdk, needsShrinkwrap, sdkModule, unitDonors, untar, SDK_API, ENTRY_ID,
     LOADER };
 
 /* Private worker protocol: no donor code runs here with root privileges. */

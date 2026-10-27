@@ -2253,8 +2253,8 @@ function touchedForUninstall(id) {
  *              policy folder, uids.txt line and diag status entries; then
  *              its packages and das lines.
  * What goes is moved to id8/trash/<time>/ (the 3 newest kept). The
- * package is installed in npm format (files under package/), as published
- * when it is one. */
+ * package is installed in npm format (files under package/), with what
+ * MainApp-21 needs and it lacks added (id8Complete). */
 var ID8_DIR = path.join(DEPLOY_DIR, 'id8');
 var ID8_PENDING = path.join(ID8_DIR, 'pending.json');
 var ID8_QUEUE = path.join(ID8_DIR, 'queue');
@@ -2322,19 +2322,86 @@ function ensureApplyUnit(state) {
         say(APPLY_UNIT + ' installed: queued app changes apply at the next start');
     }
 }
-/* The package MainApp-21 installs: an npm-format package as published; a
- * source package built here; any other one (flat, .mgu) repacked with its
- * files under package/. */
+/* MainApp-21 gives an app a tile, and lets it start, only when its
+ * rhmiData/application.json has an appletId. The app's tile registers with
+ * the HMI at appletId + 1000, its start widget at + 2000 and its own RHMI
+ * application at + 0 or + 3000 (by its oap-sdk); Hmi8 takes these in
+ * 20000..29999, each once. Two apps clash when their appletIds are 0, 1000,
+ * 2000 or 3000 apart. Stock apps hold 20000..20004, IterioDev's
+ * 20097..20199, the Store 20601; a package without an appletId gets the one
+ * its installed version has, else the lowest free one of ID8_APPLET_IDS. */
+var ID8_APPLET_IDS = [20602, 20999];
+var id8Assigned = {}; // appletIds given in this run, by app id
+function appletIdOf(appJson) {
+    var a = appJson && appJson.application;
+    return a && typeof a.appletId === 'number' ? a.appletId : null;
+}
+function tgzAppletId(file) {
+    var j = null;
+    try {
+        linker().untar(fs.readFileSync(file)).forEach(function (m) {
+            if (/^(\.\/)?(package\/)?rhmiData\/application\.json$/.test(m.name)) j = JSON.parse(m.data.toString('utf8'));
+        });
+    } catch (e) { return null; }
+    return appletIdOf(j);
+}
+/* The appletIds on this unit, as { others: [...], own: id's or null }:
+ * installed apps' (their homes), packages waiting in preinstalled_apps,
+ * queued and given in this run. */
+function id8AppletIds(id) {
+    var entry = readJsonOrNull(appEntryFile(id)), ownHome = entry && entry.userId ? 'oap_' + entry.userId : null;
+    var others = [], own = null, add = function (v, mine) {
+        if (v === null) return;
+        if (mine) own = v; else others.push(v);
+    };
+    (fs.existsSync(CFG.oap) ? fs.readdirSync(CFG.oap) : []).forEach(function (n) {
+        if (/^oap_\d+$/.test(n)) add(appletIdOf(readJsonOrNull(path.join(CFG.oap, n, 'rhmiData', 'application.json'))), n === ownHome);
+    });
+    var mine = preinstalledFor(id);
+    (fs.existsSync(preinstalledDir()) ? fs.readdirSync(preinstalledDir()) : []).forEach(function (n) {
+        var f = path.join(preinstalledDir(), n);
+        if (/\.tgz$/.test(n)) add(tgzAppletId(f), mine.indexOf(f) >= 0);
+    });
+    readPending().forEach(function (c) { if (c.file && c.id !== id) add(tgzAppletId(c.file), false); });
+    Object.keys(id8Assigned).forEach(function (k) { if (k !== id) add(id8Assigned[k], false); });
+    return { others: others, own: own };
+}
+function freeAppletId(id) {
+    var ids = id8AppletIds(id), free = function (v) {
+        return v + 3000 <= 29999 && ids.others.every(function (o) { return [0, 1000, 2000, 3000].indexOf(Math.abs(v - o)) < 0; });
+    };
+    if (ids.own !== null && free(ids.own)) return ids.own;
+    for (var v = ID8_APPLET_IDS[0]; v <= ID8_APPLET_IDS[1]; v++) if (free(v)) return v;
+    throw refuse(id + ': no free appletId in ' + ID8_APPLET_IDS.join('..'));
+}
+/* What MainApp-21 needs of a package and it may lack, added in pkgDir: the
+ * ACL tables permissions.json lacks (aclManager.js fails the install
+ * without either), empty, and an appletId. Returns what was added. */
+function id8Complete(a) {
+    var added = linker().completePermissions(a.pkgDir).map(function (t) { return t + ' added to permissions.json'; });
+    var f = path.join(a.pkgDir, 'rhmiData', 'application.json'), j = readJsonOrNull(f);
+    if (j && j.application && typeof j.application === 'object' && j.application.appletId === undefined) {
+        j.application.appletId = id8Assigned[a.id] = freeAppletId(a.id);
+        fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
+        added.push('appletId ' + j.application.appletId + ' added to rhmiData/application.json');
+    }
+    return added;
+}
+/* The package MainApp-21 installs, in npm format (files under package/):
+ * one published so, as it is unless id8Complete adds to it; a source
+ * package built here; any other one (flat, .mgu) repacked. */
 function id8Package(a, stage) {
     if (a.prepare === 'build') a = prepareApp(a, stage);
-    else if (a.pkgDir === path.join(a.dir, 'package')) return a;
+    var npm = a.pkgDir === path.join(a.dir, 'package'), added = id8Complete(a);
+    if (npm && !added.length) return a;
     var out = path.join(stage, 'id8-' + a.id + '@' + a.version + '.tgz');
     var entries = walk(a.pkgDir, '', []).filter(function (e) { return e.stat.isFile(); }).map(function (e) {
         return { name: 'package/' + e.rel, data: fs.readFileSync(e.path), mode: e.stat.mode & 0o777 };
     });
     var pack = require(selfFile('oap_pack.js'));
     fs.writeFileSync(out, pack.tgz(entries, pack.MTIME));
-    say('repacked ' + a.id + ' ' + a.version + ' in npm format (files under package/)');
+    say('repacked ' + a.id + ' ' + a.version + (npm ? '' : ' in npm format (files under package/)') +
+        (added.length ? ': ' + added.join(', ') : ''));
     return Object.assign({}, a, { file: out, from: a.from || a.file });
 }
 function queueId8(change) {
@@ -2646,9 +2713,10 @@ function amTouched() {
 }
 /* His queued app changes, into our queue (iDrive 8, where his apply step
  * installs): an install with its staged package while that still
- * matches, a removal as it is; his own app is not carried over.
+ * matches, as our install queues it (id8Package), a removal as it is; his
+ * own app is not carried over.
  * -> [{ id, version }] of the installs moved */
-function amMoveQueue(state) {
+function amMoveQueue(state, stage) {
     var changes = (readJsonOrNull(amFile('pending.json')) || {}).changes, moved = [];
     if (!isId8() || !Array.isArray(changes) || !changes.length) return moved;
     changes.forEach(function (c) {
@@ -2659,10 +2727,16 @@ function amMoveQueue(state) {
                 say('his queued install of ' + c.appId + ' is dropped: its staged package is missing or changed');
                 return;
             }
+            var a = null, why = 'its staged package is not that app';
+            try {
+                a = validateArtifact(staged, stage);
+                a = a.kind === 'app' && a.id === c.appId && a.version === c.version ? id8Package(a, stage) : null;
+            } catch (e) { a = null; why = e.message; }
+            if (!a) { say('his queued install of ' + c.appId + ' is dropped: ' + why); return; }
             ensureApplyUnit(state);
             var file = path.join(ID8_QUEUE, c.appId + '@' + c.version + '.tgz');
             mkdirp(ID8_QUEUE, 0o700);
-            copyFileMode(staged, file, 0o600);
+            copyFileMode(a.file, file, 0o600);
             queueId8({ action: 'install', id: c.appId, version: c.version, file: file, sha256: sha256File(file) });
             moved.push({ id: c.appId, version: c.version });
             say(c.appId + ' ' + c.version + ' ' + ID8_INSTALLS + ' (queued by the App Manager)');
@@ -2725,7 +2799,7 @@ function amAdopt(state, stage) {
     var t = amService('tether', 'ipheth-tether');
     if (t) rec.tether = t.version;
     var from = (readJsonOrNull(amFile('state.json')) || {}).installedFrom || {};
-    amMoveQueue(state).forEach(function (q) {
+    amMoveQueue(state, stage).forEach(function (q) {
         rec.apps = rec.apps.filter(function (x) { return x.id !== q.id; })
             .concat([{ id: q.id, version: q.version, from: typeof from[q.id] === 'string' ? from[q.id] : null }]);
     });
