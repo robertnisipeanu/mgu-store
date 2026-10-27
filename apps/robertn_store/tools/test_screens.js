@@ -177,6 +177,25 @@ eq(screen('accounts').items[3].act, { do: 'add-token' });
 f = screen('accounts-token-refused');
 eq([text(f, 'status'), f.values.status.color], ['Add token failed: GitHub does not accept this token', '#ffb020']);
 
+// a repo being added: only what it has, then Back; Sign in and Add token while no account reaches it, Try again after a failure
+f = screen('pick');
+eq(own(f), ['Releases', 'main', 'develop', 'feature/gauges', 'redline', 'Back']);
+eq([text(f, 'title'), text(f, 'status')], ['cauliflowermossgrape/idrive7-apps', '']);
+eq(f.items[2].act, { do: 'pick', channel: 'branch:develop' });
+f = screen('pick-private');
+eq(own(f), ['Sign in with GitHub', 'Add token', 'Back']);
+eq(text(f, 'status'), 'Not found or private');
+eq(text(screen('pick-private', { accountsNote: { text: 'Checking token', error: false },
+    pick: { repo: 'someone/private-apps', probe: { status: 'auth-needed' }, tokenNote: true } }), 'status'), 'Checking token',
+'Add token pressed on the page: its status there');
+eq(text(screen('pick-private', { accountsNote: { text: 'Added octo', error: false } }), 'status'), 'Not found or private',
+    'an Add token from elsewhere: not');
+eq(screen('pick-private').items[1].act, { do: 'pick-add-token' });
+f = screen('pick-offline');
+eq([own(f), text(f, 'status')], [['Try again', 'Back'], 'Offline']);
+eq(f.items[0].act, { do: 'pick-retry' });
+eq(text(screen('pick', { pick: { repo: 'o/r', probe: null } }), 'status'), 'Checking');
+
 // sign-in, phone, no updater
 f = screen('login');
 eq([text(f, 'code'), text(f, 'status'), f.values.qr.text], ['WDJB-MJHT', 'Waiting for sign-in', 'https://github.com/login/device']);

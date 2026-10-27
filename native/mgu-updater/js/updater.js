@@ -489,7 +489,7 @@ class Fetcher {
                     }
                 } else {
                     reject(Object.assign(new Error(result && result.error || 'download failed'),
-                        result && result.status ? { status: result.status } : {}));
+                        result && result.status ? { status: result.status } : {}, result && result.rateLimited ? { rateLimited: true } : {}));
                 }
             });
             child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, ca: this.ca,
@@ -531,7 +531,7 @@ function under(entry, id) {
     return Object.assign({}, entry, { id, listedId: entry.id, artifact: Object.assign({}, entry.artifact, { name: `${id}@${entry.version}.tgz` }) });
 }
 // Requests only the Store and the phone page may make (they hold the secret).
-const PRIVILEGED = ['uninstall', 'source-add', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs'];
+const PRIVILEGED = ['uninstall', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs'];
 
 /* The phone page (web.js, README.md "Phone page"), when this version has it. */
 let web = fs.existsSync(path.join(HERE, 'web.js')) ? require('./web') : null;
@@ -2072,6 +2072,39 @@ class Updater {
         return null;
     }
 
+    /* What a GitHub repo offers to be added on, read with each token in
+     * turn (as a source is, readSource), then without one:
+     * {type:"probe", repo, status} with status ok (and name, releases, tags,
+     * defaultBranch, branches, more), auth-needed (no token reaches it, or it
+     * is not there), offline, rate-limited or error (and error). */
+    sourceProbe(req, reply) {
+        if (!sourcesLib.REPO.test(req.repo || '')) {
+            return 'repo must be <owner>/<repo>';
+        }
+        if (this.stored.some((s) => s.type === 'github' && s.repo.toLowerCase() === req.repo.toLowerCase())) {
+            return `${req.repo} is already a source`;
+        }
+        const answer = (fields) => reply(Object.assign({ type: 'probe', repo: req.repo }, fields));
+        if (!readLease(this.conf).online) {
+            answer({ status: 'offline' });
+            return undefined;
+        }
+        const def = { id: null, type: 'github', repo: req.repo };
+        const attempt = (cands, i) => {
+            const text = cands[i] ? this.tokens.text(cands[i]) : '';
+            return sourcesLib.reader(def, Object.assign({}, this.ctx, { tokenFor: () => text })).probe()
+                .catch((err) => (err.auth && i + 1 < cands.length ? attempt(cands, i + 1) : Promise.reject(err)));
+        };
+        this.freshTokens()
+            .then(() => attempt(this.candidates({ tokenId: null, public: false }), 0))
+            .then((p) => answer(Object.assign({ status: 'ok' }, p)), (err) => {
+                console.log(`probe ${req.repo}: ${err.message}`);
+                answer(err.auth ? { status: 'auth-needed' } : err.rateLimited ? { status: 'rate-limited' }
+                    : { status: 'error', error: err.message });
+            });
+        return undefined;
+    }
+
     sourceRemove(id) {
         const def = this.stored.find((s) => s.id === id);
         if (!def) {
@@ -2248,6 +2281,7 @@ class Updater {
         case 'reboot': return this.reboot();
         case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id) : 'uninstall needs an id';
         case 'source-add': return this.sourceAdd(req);
+        case 'source-probe': return this.sourceProbe(req, reply);
         case 'source-remove': return this.sourceRemove(req.id);
         case 'login-start': return this.login.start();
         case 'login-cancel': this.login.cancel(); return null;

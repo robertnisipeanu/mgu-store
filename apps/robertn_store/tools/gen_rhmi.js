@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Writes robertn_store@0.8.2's application.xml and uiDescription.json for
+ * Writes robertn_store@0.9.0's application.xml and uiDescription.json for
  * iDrive 7 (uiDescriptions/ID7) and iDrive 8 (uiDescriptions/ID8) from the
  * tables below, so container and component ids, names, widgets and cells
  * stay in lockstep.
@@ -27,6 +27,12 @@
  *                                      Account, Components, its error, Remove,
  *                                      and the GitHub App's install page (QR
  *                                      code and address) while it needs one
+ *  34  ST_OnlineApps_StoreSourcePick   a GitHub repo being added: a status line
+ *                                      (the repo, Checking, Not found or
+ *                                      private, ...), one list, a row (name |
+ *                                      kind) per channel it has (Releases,
+ *                                      Tags, each branch), Sign in with
+ *                                      GitHub, Add token, Try again
  *  32  ST_OnlineApps_StoreAccounts     a status line (Add token's), the
  *                                      updater's tokens: one list, a row
  *                                      (name | sources) per account, Sign in
@@ -66,7 +72,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PKG = path.join(__dirname, '..', 'robertn_store@0.8.2');
+const PKG = path.join(__dirname, '..', 'robertn_store@0.9.0');
 const DIR = (hmi) => path.join(PKG, 'rhmiData', 'uiDescriptions', hmi);
 const ID7 = DIR('ID7');
 const ID8 = DIR('ID8');
@@ -140,6 +146,14 @@ const SOURCE = state(6, 'ST_OnlineApps_StoreSource', 15, 'Source', SOURCES.id, [
     label(69, 'storeSrcAppUrl')
 ]);
 
+const PICK = state(34, 'ST_OnlineApps_StoreSourcePick', 43, 'Add source', SOURCES.id, [
+    label(143, 'storePickStatus'),
+    list(144, 'storePickList'),
+    button(145, 'storePickSignIn', 'Sign in with GitHub'),
+    button(146, 'storePickAddToken', 'Add token'),
+    button(147, 'storePickRetry', 'Try again')
+]);
+
 const ACCOUNTS = state(32, 'ST_OnlineApps_StoreAccounts', 41, 'Accounts', SOURCES.id, [
     label(141, 'storeAccountsStatus'),
     list(134, 'storeAccountList'),
@@ -157,6 +171,7 @@ const WIDGET_STATES = [
     ]),
     SOURCES,
     SOURCE,
+    PICK,
     ACCOUNTS,
     state(33, 'ST_OnlineApps_StoreAccountRemove', 42, 'Remove account?', ACCOUNTS.id, [
         label(136, 'storeAccountName'),

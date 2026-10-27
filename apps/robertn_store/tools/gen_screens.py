@@ -76,6 +76,17 @@ st['components'] += [copy.deepcopy(BACK),
     comp('addToken', 'vbutton', 1400, 724, 560, 106, {'text': 'Add token', 'vicon': 'plus', 'style': 'outline'}, 'event:addToken'),
 ]
 screens.append(st)
+# a GitHub repo being added: what it has to add it on
+st = base('pick')
+st['components'] += [copy.deepcopy(BACK),
+    text('title', 610, 138, 1600, 90, '', 72, 'bold'),
+    text('status', 610, 227, 1600, 43, '', 34, 'label', 'dim'),
+    comp('list', 'appList', 610, 292, 1500, 400, {'items': [], 'rowH': 120, 'empty': ''}),
+    comp('signIn', 'vbutton', 610, 724, 760, 106, {'text': 'Sign in with GitHub', 'vicon': 'plus', 'style': 'primary', 'color': '#3d9bff'}, 'event:signIn'),
+    comp('addToken', 'vbutton', 1400, 724, 560, 106, {'text': 'Add token', 'vicon': 'plus', 'style': 'outline'}, 'event:addToken'),
+    comp('retry', 'vbutton', 610, 724, 560, 106, {'text': 'Try again', 'vicon': 'refresh', 'style': 'outline'}, 'event:retry'),
+]
+screens.append(st)
 # GitHub sign-in
 st = base('login')
 st['components'] += [copy.deepcopy(BACK),
@@ -105,7 +116,7 @@ open(out, 'w').write("""'use strict';
  * screens out for iDrive 7's). store,
  * app, confirm (the sheet), installed, usb and settings are IterioDev's App
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
- * @ %s, the HMI UI builder's export of projects/app-manager.json) with the Store's labels; source, accounts, login and phone
+ * @ %s, the HMI UI builder's export of projects/app-manager.json) with the Store's labels; source, pick, accounts, login and phone
  * are the Store's own in the same frame. Each element is drawn by
  * am_gpu.js; src/store_ui.js gives their values.
  */

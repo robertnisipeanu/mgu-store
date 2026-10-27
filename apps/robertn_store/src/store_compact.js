@@ -163,6 +163,16 @@ function compact(W, H) {
         button('signIn', X, B - BTN_H, 520, BTN_H, 'Sign in with GitHub', 'primary', 29, { vicon: 'plus', color: BLUE }),
         button('addToken', X + 544, B - BTN_H, 360, BTN_H, 'Add token', 'outline', 29, { vicon: 'plus' })
     ]);
+    const pick = screen('pick', 3, [
+        back(),
+        // a repo's name takes what the status leaves
+        text('title', titleX, M + 2, CW - 84 - 440, 60, '', 50, 'bold'),
+        status('status', R - 420, 420),
+        list('list', X, HEAD + 14, Math.min(1100, CW), B - BTN_H - 16 - HEAD - 14, { empty: '' }),
+        button('signIn', X, B - BTN_H, 520, BTN_H, 'Sign in with GitHub', 'primary', 29, { vicon: 'plus', color: BLUE }),
+        button('addToken', X + 544, B - BTN_H, 360, BTN_H, 'Add token', 'outline', 29, { vicon: 'plus' }),
+        button('retry', X, B - BTN_H, 360, BTN_H, 'Try again', 'outline', 29, { vicon: 'refresh' })
+    ]);
     const QR = Math.min(B - HEAD - 10, 520);
     const login = screen('login', 3, [
         back(),
@@ -183,7 +193,7 @@ function compact(W, H) {
         text('error', X, HEAD + 264, phoneW, 130, '', 26, 'label', AMBER, { wrap: true }),
         el('qr', 'qr', R - PQR, M, PQR, PQR, { text: '' })
     ]);
-    return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, login, phone] };
+    return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, pick, login, phone] };
 }
 
 module.exports = { compact };

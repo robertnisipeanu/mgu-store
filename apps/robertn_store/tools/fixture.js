@@ -98,6 +98,11 @@ function screens() {
             webText: 'http://172.16.222.97:8470/#t=6f1c0e3d9a2b4c5d8e7f6a5b4c3d2e1f\n' }, webOn],
         ['accounts-token-refused', { tab: 'settings', stack: main.concat([{ name: 'accounts' }]),
             accountsNote: { text: 'Add token failed: GitHub does not accept this token', error: true } }],
+        ['pick', { tab: 'settings', stack: main.concat([{ name: 'pick' }]), pick: { repo: 'cauliflowermossgrape/idrive7-apps',
+            probe: { status: 'ok', releases: true, tags: false, defaultBranch: 'develop', branches: ['main', 'develop', 'feature/gauges', 'redline'] } } }],
+        ['pick-private', { tab: 'settings', stack: main.concat([{ name: 'pick' }]), pick: { repo: 'someone/private-apps',
+            probe: { status: 'auth-needed' } } }],
+        ['pick-offline', { tab: 'settings', stack: main.concat([{ name: 'pick' }]), pick: { repo: 'someone/apps', probe: { status: 'offline' } } }],
         ['offline', { tab: 'store', stack: main, connected: false, st: null, secret: false }]
     ];
 }

@@ -8,7 +8,7 @@
 const assert = require('assert');
 const { rowState, rowAction, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
     sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress,
-    parseSource, sourcesMessage, tokenMessage } = require('../src/store_view.js');
+    parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
@@ -212,7 +212,22 @@ const cases = [
     [statusLine(st({ privacy: 'patched', components: [row({})] }), true), '1 update, checked 14:02'],
     [statusLine(st({ rebooting: true, components: [row({ error: 'x' })] }), true), 'Restarting'],
     [statusLine(st({ rebootError: 'the head unit did not restart', components: [row({})] }), true),
-        'Restart failed: the head unit did not restart']
+        'Restart failed: the head unit did not restart'],
+    // a repo being added: only what it has, in the updater's branch order
+    [pickOptions({ status: 'ok', releases: true, tags: true, defaultBranch: 'dev', branches: ['main', 'master', 'dev', 'x'] })
+        .map((o) => `${o.label}|${o.sub}|${o.channel}`).join(' '),
+        'Releases||releases Tags||tags main|Branch|branch:main master|Branch|branch:master dev|Default branch|branch:dev x|Branch|branch:x'],
+    [pickOptions({ status: 'ok', releases: false, tags: false, defaultBranch: 'main', branches: ['main', 'bad name'] })
+        .map((o) => o.channel).join(' '), 'branch:main'],
+    [pickOptions({ status: 'auth-needed' }).length, 0],
+    [probeStatus(null), 'Checking'],
+    [probeStatus({ status: 'ok', releases: true, branches: [] }), ''],
+    [probeStatus({ status: 'ok', releases: false, tags: false, branches: [] }), ''],
+    [probeStatus({ status: 'auth-needed' }), 'Not found or private'],
+    [probeStatus({ status: 'offline' }), 'Offline'],
+    [probeStatus({ status: 'rate-limited' }), 'GitHub rate limit reached'],
+    [probeStatus({ status: 'error', error: 'HTTP 500 from api.github.com' }), 'HTTP 500 from api.github.com'],
+    [sourcesMessage({ kind: 'checking', repo: 'o/r' }), 'Checking o/r']
 ];
 cases.forEach(([got, want], i) => assert.strictEqual(got, want, `case ${i}: ${JSON.stringify(got)} != ${JSON.stringify(want)}`));
 console.log(`store_view: ${cases.length} cases pass`);

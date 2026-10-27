@@ -15,8 +15,10 @@
  * stdout: one JSON line per event
  *   { progress: <bytes>, total: <bytes|null> }  while downloading
  *   { done: true, bytes, status, headers }      dest complete (headers: those kept)
- *   { error: "<reason>", status }               nothing usable at dest
- *                                               (status: the HTTP answer, if any)
+ *   { error: "<reason>", status, rateLimited }  nothing usable at dest
+ *                                               (status: the HTTP answer, if any;
+ *                                               rateLimited: a 429, or a 403 with
+ *                                               x-ratelimit-remaining 0 or retry-after)
  *
  * Redirects of a GET are followed (up to 5, https only); the request headers
  * go to the first host only, so a token never reaches a redirect target such
@@ -86,7 +88,10 @@ function get(job, url, headers, hops) {
         }
         if (res.statusCode !== 200) {
             res.resume();
-            emit({ error: `HTTP ${res.statusCode} from ${target.hostname}`, status: res.statusCode });
+            const limited = res.statusCode === 429 || (res.statusCode === 403 &&
+                (res.headers['x-ratelimit-remaining'] === '0' || res.headers['retry-after'] !== undefined));
+            emit(Object.assign({ error: `HTTP ${res.statusCode} from ${target.hostname}`, status: res.statusCode },
+                limited ? { rateLimited: true } : {}));
             process.exitCode = 1;
             return;
         }

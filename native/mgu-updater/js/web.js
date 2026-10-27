@@ -50,7 +50,8 @@
  *   GET  /api/state            the updater's last state
  *   GET  /api/logs?src=<s>     {text}; s: "updater" (log_file) or one of UNITS
  *   POST /api/op               {op,...}: one of OPS, sent to the updater with
- *                              the web secret; {ok:true} or {error}
+ *                              the web secret; {ok:true}, the probe's answer
+ *                              (source-probe), or {error}
  * A client with 10 wrong tokens in a minute gets 429 for the rest of it.
  *
  * Updater socket requests carry "rid"; the updater's direct reply to a
@@ -319,14 +320,15 @@ const ASK_MS = 20000;
 const str = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max;
 const OPS = {
     'source-add': (b) => {
-        if (b.type === 'github' && str(b.repo, 256) && str(b.channel, 256)) {
-            return { type: 'github', repo: b.repo, channel: b.channel };
+        if (b.type === 'github' && str(b.repo, 256) && (b.channel === undefined || str(b.channel, 256))) {
+            return Object.assign({ type: 'github', repo: b.repo }, b.channel ? { channel: b.channel } : {});
         }
         if (b.type === 'https' && str(b.url, 2048)) {
             return { type: 'https', url: b.url };
         }
         return null;
     },
+    'source-probe': (b) => (str(b.repo, 256) ? { repo: b.repo } : null),
     'source-remove': (b) => (str(b.id, 256) ? { id: b.id } : null),
     'login-start': () => ({}),
     'login-cancel': () => ({}),
@@ -561,8 +563,16 @@ function serve() {
                     json(res, 400, { error: 'not a request the page can make' });
                     return;
                 }
-                ask(Object.assign({ op: body.op }, fields)).then((msg) => (msg.type === 'error' ?
-                    json(res, 422, { error: msg.error || 'refused' }) : json(res, 200, { ok: true })), fail);
+                ask(Object.assign({ op: body.op }, fields)).then((msg) => {
+                    if (msg.type === 'error') {
+                        json(res, 422, { error: msg.error || 'refused' });
+                    } else if (msg.type === 'probe') {
+                        json(res, 200, { repo: msg.repo, name: msg.name, status: msg.status, error: msg.error, releases: msg.releases, tags: msg.tags,
+                            defaultBranch: msg.defaultBranch, branches: msg.branches, more: msg.more });
+                    } else {
+                        json(res, 200, { ok: true });
+                    }
+                }, fail);
             });
         } else {
             json(res, 405, { error: 'method not allowed' });
@@ -824,6 +834,13 @@ function render(st) {
   $('loginStart').hidden = !st.signin;
   if (changed('sources', st.sources || [])) { renderSources(st.sources || []); }
   if (changed('tokens', [st.tokens || [], st.sources || []])) { renderTokens(st.tokens || [], st.sources || []); }
+  // a token added for a repository no token reached: look again
+  var toks = (st.tokens || []).map(function (t) { return t.id; }).join(',');
+  if (toks !== probe.tokens) {
+    var again = probe.status === 'auth-needed';
+    probe.tokens = toks;
+    if (again) { probeRepo(true); }
+  }
   if (changed('components', st.components || [])) { renderComponents(st.components || []); }
   renderLogin(st.login);
 }
@@ -842,27 +859,105 @@ function poll() {
   });
 }
 
+/* owner/repo or a repository's github.com address: { repo, branch } (branch: from .../tree/<branch>), or null */
+function ghRepo(v) {
+  var m = /^(?:https?:\\/\\/)?(?:www\\.)?github\\.com\\/([^\\/\\s]+\\/[^\\/\\s]+?)(?:\\.git)?(?:\\/tree\\/(\\S+?))?\\/?$/i.exec(v) ||
+    /^([^\\/\\s:]+\\/[^\\/\\s]+?)(?:\\.git)?\\/?$/.exec(v);
+  if (!m) { return null; }
+  try { return { repo: m[1], branch: m[2] ? decodeURIComponent(m[2]) : '' }; } catch (e) { return null; }
+}
+/* What the typed repository offers (source-probe): the channel list shows only that. */
+var probe = { key: null, seq: 0, status: null, tokens: '' };
+var PROBE_NOTE = { 'auth-needed': 'Not found or private', offline: 'Offline', 'rate-limited': 'GitHub rate limit reached' };
+function setChannels(list) {
+  var sel = $('addChannel');
+  sel.textContent = '';
+  list.forEach(function (o) {
+    var opt = el('option', null, o[1]);
+    opt.value = o[0];
+    sel.appendChild(opt);
+  });
+  sel.hidden = !list.length;
+}
+function addNote(text) {
+  $('addNote').textContent = text;
+  $('addNote').hidden = !text;
+}
+function typedRepo() {
+  return $('addType').value === 'github' ? ghRepo($('addValue').value.trim()) : null;
+}
+function keyOf(g) { return g ? g.repo + '#' + g.branch : null; }
+/* The typed repository asked about (on leaving the box, or the first Add); Add waits for the answer. */
+function probeRepo(force) {
+  var g = typedRepo();
+  var key = keyOf(g);
+  if (key === probe.key && !force) { return; }
+  probe = { key: key, seq: probe.seq + 1, status: g && !g.branch ? null : 'none', tokens: probe.tokens };
+  setChannels(g && g.branch ? [['branch:' + g.branch, g.branch]] : []);
+  addNote('');
+  $('addSubmit').disabled = false;
+  if (!g || g.branch) { return; }
+  var seq = probe.seq;
+  addNote('Checking');
+  $('addSubmit').disabled = true;
+  var done = function () { if (seq === probe.seq) { $('addSubmit').disabled = false; } };
+  api('POST', '/api/op', { op: 'source-probe', repo: g.repo }).then(function (p) {
+    if (seq !== probe.seq) { return; }
+    done();
+    probe.status = p.status;
+    probe.name = p.name;
+    var list = [];
+    if (p.status === 'ok') {
+      if (p.releases) { list.push(['releases', 'Releases']); }
+      if (p.tags) { list.push(['tags', 'Tags']); }
+      (p.branches || []).forEach(function (b) { list.push(['branch:' + b, b === p.defaultBranch ? b + ' (default)' : b]); });
+    }
+    setChannels(list);
+    // nothing listed: added with no channel, and the updater picks
+    addNote(p.status === 'ok' ? '' : PROBE_NOTE[p.status] || p.error || p.status);
+  }, function (e) {
+    if (seq !== probe.seq) { return; }
+    done();
+    probe.status = 'error';
+    addNote(e.message);
+  });
+}
 function addFields() {
-  var gh = $('addType').value === 'github';
-  $('addValue').placeholder = gh ? 'owner/repo' : 'https://…/catalog.json';
-  $('addChannel').hidden = !gh;
-  $('addBranch').hidden = !gh || $('addChannel').value !== 'branch';
+  $('addValue').placeholder = $('addType').value === 'github' ? 'owner/repo' : 'https://…/catalog.json';
+  probeRepo(false);
 }
 $('addType').onchange = addFields;
-$('addChannel').onchange = addFields;
+$('addValue').oninput = function () {
+  if (keyOf(typedRepo()) !== probe.key) {
+    probe = { key: null, seq: probe.seq + 1, status: null, tokens: probe.tokens };
+    setChannels([]);
+    addNote('');
+    $('addSubmit').disabled = false;
+  }
+};
+$('addValue').onchange = function () { probeRepo(false); };
 $('addForm').onsubmit = function (ev) {
   ev.preventDefault();
   var v = $('addValue').value.trim();
   if (!v) { return; }
   var body = { op: 'source-add', type: 'https', url: v };
   if ($('addType').value === 'github') {
-    var ch = $('addChannel').value;
-    var br = $('addBranch').value.trim();
-    // no name: the repository's default branch
-    if (ch === 'branch' && br) { ch = 'branch:' + br; }
-    body = { op: 'source-add', type: 'github', repo: v, channel: ch };
+    var g = ghRepo(v);
+    // the first Add for a repository lists what it has
+    if (g && keyOf(g) !== probe.key) {
+      probeRepo(false);
+      if (!g.branch) { return; }
+    }
+    if (g && !g.branch && probe.status === null) { return; }
+    // the repo as GitHub spells it, once listed
+    body = { op: 'source-add', type: 'github', repo: probe.name && g && probe.key === g.repo + '#' + g.branch ? probe.name : g ? g.repo : v };
+    // without a listed channel the updater picks: releases, else the default branch
+    if (!$('addChannel').hidden && $('addChannel').value) { body.channel = $('addChannel').value; }
   }
-  op(body).then(function () { $('addValue').value = ''; $('addBranch').value = ''; });
+  op(body).then(function () {
+    $('addValue').value = '';
+    probeRepo(false);
+  });
 };
 $('tokenForm').onsubmit = function (ev) {
   ev.preventDefault();
@@ -935,7 +1030,8 @@ a{color:var(--acc)}
 </div>
 <h2>Sources</h2>
 <div id="sources"></div>
-<form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel"><option value="releases">Releases</option><option value="branch">Branch</option><option value="tags">Tags</option></select><input id="addBranch" aria-label="Branch" placeholder="Default branch" autocapitalize="off" autocorrect="off" spellcheck="false" hidden><button class="pri">Add</button></form>
+<form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel" hidden></select><button id="addSubmit" class="pri">Add</button></form>
+<p id="addNote" class="mut" hidden></p>
 <h2>Tokens</h2>
 <div id="tokens"></div>
 <form id="tokenForm"><input id="tokenValue" type="password" aria-label="Token" placeholder="Token" autocomplete="off"><button class="pri">Add token</button><button id="loginStart" type="button" hidden>Sign in with GitHub</button></form>

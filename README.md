@@ -138,11 +138,17 @@ Settings → **Add source**, then type one of:
 
 | You type | The Store adds |
 |---|---|
-| `owner/repo` or `https://github.com/owner/repo` | a GitHub repository: its releases, or its default branch when it has no releases |
+| `owner/repo` or `https://github.com/owner/repo` | a GitHub repository, on what you pick from what it has |
 | `https://github.com/owner/repo/tree/<branch>` | that branch of the repository |
 | any other `https://…` address | a `catalog.json` at that address, or an App Manager index |
 
-`github.com/owner/repo`, a trailing `/` and `.git` are accepted too. Open a
+`github.com/owner/repo`, a trailing `/` and `.git` are accepted too. For a
+GitHub repository the Store then lists only what it has: **Releases**,
+**Tags** and its branches (main and master first, then the default
+branch). Press one to add it. A repository with only one of these is added
+on it straight away. A private repository no account can read shows
+**Sign in with GitHub** and **Add token** instead, and its list once an
+account can read it. Open a
 source in Settings to see its channel, the account that reads it, its
 components and errors, and to remove it. The Store's own source cannot be
 removed.
@@ -171,8 +177,8 @@ Settings → **Phone access** → On shows a QR code. Scan it with a phone
 joined to the car's hotspot. The page (port 8470 on the head unit) shows the
 sources, components, installs in progress, errors and logs, and lets you add
 and remove sources and accounts with the phone's keyboard. When adding a
-repository there, pick its channel: **Releases** (the default), **Branch**
-or **Tags**; a repository with only `mgu-repo.json` needs **Branch**.
+repository there, its list shows only what it has (Releases, Tags, its
+branches); pick one and press **Add**.
 Every time phone access is turned on, it gets a new access code; turn it
 off when done.
 
@@ -242,8 +248,7 @@ repository uses one of three layouts:
 each id is offered.
 
 **Repo tree**: commit `mgu-repo.json` and the head unit builds each app.
-The Store reads it on the branch you add (`…/tree/main`), or on the
-default branch when the repository has no releases. For a folder of apps
+The Store reads it on the branch picked when adding the repository. For a folder of apps
 built by your own script, as in
 [idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps):
 

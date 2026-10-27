@@ -1,11 +1,11 @@
-# robertn_store 0.8.2
+# robertn_store 0.9.0
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
 It is the screen of [mgu-updater](../../native/mgu-updater/README.md),
 which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
-privileged ones (uninstall, source-add, source-remove, token-add, token-remove,
+privileged ones (uninstall, source-add, source-probe, source-remove, token-add, token-remove,
 login-start, login-cancel, web), which carry the secret the updater leaves in the app's data folder
 (`data/updater-secret`, read again for every request). It is for iDrive 7
 and iDrive 8 (`mguHmi`).
@@ -168,15 +168,37 @@ source*. The text confirmed with OK, trimmed, is:
 
 - `owner/repo`, or a repo's address on github.com (`github.com/owner/repo`,
   `https://github.com/owner/repo`, with or without `.git` or a trailing
-  slash): `source-add` with `type: "github"`, `repo`. The updater reads the
-  repo's releases, or its default branch when it has none.
-  `…/tree/<branch>` adds `channel: "branch:<branch>"`.
+  slash): a GitHub repo. `…/tree/<branch>` adds it at once with `source-add`
+  `type: "github"`, `repo`, `channel: "branch:<branch>"`. Without a branch
+  the status line says `Checking <repo>` while the updater is asked what the
+  repo has (`source-probe`); then the repo's page (below) opens, or a repo
+  with only one choice is added on it, one with none without a channel, or
+  the status line says why not (`Add source failed: Offline`, `GitHub rate
+  limit reached`, `… is already a source`, `the updater did not answer`
+  after 30 s, `updater not running` when it goes away). With an updater before 0.7.0 the repo is added without a
+  channel.
 - any other `https://host/path` address (the scheme in any case), a
   catalog: `source-add` with `type: "https"`, `url`.
 - anything else, a github.com address that is not a repo's included:
   `Not owner/repo or https://host/path: …` on the status line.
 
 The updater's refusal (`… is already a source`) shows on the status line.
+
+**A repo's page** (`ST_OnlineApps_StoreSourcePick`; the drawn `pick`
+page) has the repo as its status line (or title), then one row per
+choice, only those the repo has: `Releases`, `Tags`, then each branch
+(`Branch`, `Default branch`), main and master first, then the default
+branch, then the rest. A press adds the repo on it (`source-add` with
+`channel` `releases`, `tags` or `branch:<name>`, and `repo` as GitHub
+spells it, the probe's `name`) and closes the page. A
+repo no account reaches shows `Not found or private`, **Sign in with
+GitHub** and **Add token** (the status of an Add token pressed there
+shows on the page until the repo's next answer); once the accounts change
+it is asked about again and lists its choices, or, with none, is added
+without a channel. A failure on the page shows with **Try again**. BACK
+from the page ends the adding. The page opens only once the HMI has
+given the focus back from the speller (or 2 s after it closed), since the
+focus coming back below a page opened earlier closes it.
 
 Leaving the speller without OK, or OK with nothing typed, sends nothing. A
 USB stick holding a catalog or a repo tree appears in the list by itself
@@ -239,15 +261,15 @@ tools/test_screens.js      every drawn screen in iDrive 7's and 8's boxes: in th
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.8.2/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.0/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.8.2.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.8.2.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.0.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.0.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js
 (cd ../../native/mgu-render && make test) && node tools/shots.js <out dir>     # screenshots

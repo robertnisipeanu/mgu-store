@@ -124,7 +124,7 @@ const seen = [];
 const API = `https://api.github.com:${HTTPS_PORT}`;
 const GH_WEB = `https://github.com:${HTTPS_PORT}`;
 const gh = { repos: {}, users: { 'tok-all': 'tester', 'tok-third': 'other-acct', 'tok-device': 'tester' }, polls: 0, refreshes: 0, device: null,
-    deviceExpired: false };
+    deviceExpired: false, rateLimited: false };
 
 /* A repo: private ones answer only to one of their tokens (404 without, 401
  * with a wrong one). trees: commit sha -> { path: [data, mode] }. */
@@ -195,6 +195,15 @@ function ghApi(req, res, auth) {
         send(404, { message: 'Not Found' });
         return;
     }
+    if (gh.rateLimited) {
+        send(403, { message: 'API rate limit exceeded' }, { 'X-RateLimit-Remaining': '0' });
+        return;
+    }
+    // a refusal that is no rate limit (an organisation's SSO) for a token
+    if (repo.forbid && auth && repo.forbid.indexOf(auth.replace(/^Bearer /, '')) >= 0) {
+        send(403, { message: 'Resource protected by organization SAML enforcement' });
+        return;
+    }
     const rest = m[2] || '';
     const assetUrl = (name) => `${API}/repos/${m[1]}/releases/assets/${encodeURIComponent(name)}`;
     if (!rest) {
@@ -228,6 +237,11 @@ function ghApi(req, res, auth) {
         send(sha ? 200 : 422, sha ? { sha } : { message: 'No commit found' });
     } else if (rest === '/tags') {
         send(200, repo.tags.map((t) => ({ name: t.name, commit: { sha: t.sha } })));
+    } else if (rest === '/branches') {
+        // sorted by name, as GitHub lists them; per_page at most 100
+        const n = Math.min(100, Number(u.searchParams.get('per_page')) || 30);
+        const page = Number(u.searchParams.get('page')) || 1;
+        send(200, Object.keys(repo.branches).sort().slice((page - 1) * n, page * n).map((name) => ({ name, commit: { sha: repo.branches[name] } })));
     } else if (rest.indexOf('/contents/') === 0) {
         const tree = repo.trees[u.searchParams.get('ref')];
         const f = tree && tree[decodeURIComponent(rest.slice('/contents/'.length))];
@@ -1888,6 +1902,62 @@ function testSources(certs) {
             ok('tags: the highest x.y.z tag (v, plain or <id>@) is read', comp('tag_tool').version === '1.2.0' && comp('tag_tool').revision === null &&
                 src('tagged').channel === 'tags', JSON.stringify(comp('tag_tool')));
             ok('channel: a repo without releases follows its default branch', src('plain').channel === 'branch:trunk' && comp('plain_tool').id === 'plain_tool');
+            // source-probe: what a repo can be added on
+            ghRepo('third/forks', { default_branch: 'dev', branches: { feature: 'a', master: 'b', dev: 'c', main: 'd', 'with space': 'e' } });
+            ghRepo('third/many', { default_branch: 'zz-default' });
+            for (let i = 0; i < 305; i++) {
+                gh.repos['third/many'].branches[`b${String(i).padStart(3, '0')}`] = 'f';
+            }
+            ghRepo('owner/secret', { private: true, branches: { main: 'a' } });
+            // a default branch no channel takes, and nothing else: no choice
+            ghRepo('probe/oddbranch', { default_branch: 'with space', branches: { 'with space': 'a' } });
+            // refused (403, no rate limit) for every stored token, readable without one
+            ghRepo('probe/sso', { forbid: Object.keys(gh.users), branches: { main: 'a' } });
+            ghRepo('probe/rel', { releases: [{ assets: [] }], tags: [{ name: 'nightly', sha: 'a' }], branches: { main: 'a' } });
+            ghRepo('probe/tags', { tags: [{ name: 'nightly', sha: 'a' }, { name: 'v1.0.0', sha: 'a' }], branches: { main: 'a' } });
+            // readable with the token that reads the private source
+            ghRepo('probe/private', { private: true, tokens: [u.tokens.text(src('private').auth.token)], releases: [{ assets: [] }], branches: { main: 'a' } });
+            const probe = (repo) => askRaw(sock, { op: 'source-probe', repo, secret, rid: `p-${repo}` });
+            return Promise.all(['probe/rel', 'probe/tags', 'third/forks', 'third/many', 'probe/private', 'owner/secret', 'no/such']
+                .map(probe).concat([probe('third/plain'), probe('bad repo'), askRaw(sock, { op: 'source-probe', repo: 'third/forks', rid: 'x' }),
+                    probe('probe/oddbranch'), probe('probe/sso')]));
+        })
+        .then((r) => {
+            const [rel, tagged, forks, many, priv2, secretRepo, none, plain, bad, noSecret, odd, sso] = r;
+            ok('source-probe: a default branch no channel takes is left out', odd.status === 'ok' && odd.defaultBranch === null &&
+                JSON.stringify(odd.branches) === '[]', JSON.stringify(odd));
+            ok('source-probe: a 403 that is no rate limit tries the next token, then none', sso.status === 'ok' &&
+                JSON.stringify(sso.branches) === '["main"]', JSON.stringify(sso));
+            ok('source-probe: releases, no x.y.z tag, the default branch', rel.type === 'probe' && rel.repo === 'probe/rel' && rel.name === 'probe/rel' && rel.status === 'ok' &&
+                rel.releases === true && rel.tags === false && rel.defaultBranch === 'main' && JSON.stringify(rel.branches) === '["main"]' && rel.more === false,
+                JSON.stringify(rel));
+            ok('source-probe: x.y.z tags, no release', tagged.status === 'ok' && tagged.releases === false && tagged.tags === true, JSON.stringify(tagged));
+            ok('source-probe: main, master, the default branch, then the rest; a name no channel takes left out',
+                JSON.stringify(forks.branches) === '["main","master","dev","feature"]' && forks.defaultBranch === 'dev' &&
+                forks.releases === false && forks.tags === false, JSON.stringify(forks));
+            ok('source-probe: at most 300 branches, the default one first even past them', many.branches.length === 301 &&
+                many.branches[0] === 'zz-default' && many.branches[1] === 'b000' && many.branches[300] === 'b299' && many.more === true,
+                JSON.stringify(many).slice(0, 200));
+            ok('source-probe: a private repo, with the token that reaches it', priv2.status === 'ok' && priv2.releases === true, JSON.stringify(priv2));
+            ok('source-probe: a private repo no token reaches, or none there: auth-needed', secretRepo.status === 'auth-needed' &&
+                none.status === 'auth-needed', JSON.stringify([secretRepo, none]));
+            ok('source-probe: refused for a source already there, a bad repo, without the secret', plain.type === 'error' &&
+                /already a source/.test(plain.error) && bad.type === 'error' && /owner/.test(bad.error) && noSecret.error === 'forbidden',
+                JSON.stringify([plain, bad, noSecret]));
+            gh.rateLimited = true;
+            return askRaw(sock, { op: 'source-probe', repo: 'third/forks', secret, rid: 'rl' });
+        })
+        .then((rl) => {
+            gh.rateLimited = false;
+            ok('source-probe: a spent rate limit', rl.status === 'rate-limited', JSON.stringify(rl));
+            fs.renameSync(conf.lease, `${conf.lease}.away`);
+            return askRaw(sock, { op: 'source-probe', repo: 'third/forks', secret, rid: 'off' });
+        })
+        .then((off) => {
+            fs.renameSync(`${conf.lease}.away`, conf.lease);
+            ok('source-probe: offline', off.status === 'offline', JSON.stringify(off));
+            ok('source-probe: ordering', JSON.stringify(require('../js/sources').orderBranches(['a', 'master', 'trunk'], 'trunk')) ===
+                '["master","trunk","a"]' && JSON.stringify(require('../js/sources').orderBranches(['x'], null)) === '["x"]');
             return Promise.all([priv({ op: 'source-remove', id: 'mgu-store' }), priv({ op: 'source-remove', id: 'second' })]);
         })
         .then((errs) => {
