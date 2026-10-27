@@ -391,9 +391,8 @@ function readLease(conf) {
     }
 }
 
-// the answers Fetcher.cached() keeps: how many, and the most bytes of one
-const CACHE_ENTRIES = 64;
-const CACHE_BYTES = 1 << 20;
+const CACHE_BYTES = 2 << 20;
+const CACHE_ONE = 256 << 10;
 
 /* Downloads run in a child as the fetch uid, each into a folder of its own
  * that root makes in state_dir and hands to that uid. Root reads the result
@@ -407,8 +406,9 @@ class Fetcher {
         this.uid = Number(conf.fetch_uid);
         this.gid = Number(conf.fetch_gid);
         this.ca = conf.ca_file ? fs.readFileSync(conf.ca_file, 'utf8') : null;
-        // url -> { etag, body }: the answers cached() asks for again
+        // url -> { etag, body }: the answers cached() asks for again, oldest first
         this.etags = new Map();
+        this.etagBytes = 0;
     }
 
     asFetchUid(opts) {
@@ -460,27 +460,31 @@ class Fetcher {
 
     /* get() for an answer that carries an ETag: asked for again with
      * If-None-Match, a 304 (unchanged; GitHub does not count it against a
-     * token's rate limit) gives the body kept from before. The newest
-     * CACHE_ENTRIES answers of at most CACHE_BYTES each are kept. */
+     * token's rate limit) gives the body kept from before. Bodies of at most
+     * CACHE_ONE are kept, CACHE_BYTES in all, the least recently used going
+     * first. */
     cached(url, headers, name, maxBytes) {
         const have = this.etags.get(url);
         const ask = have ? Object.assign({}, headers, { 'If-None-Match': have.etag }) : headers;
         return this.request({ url, headers: ask, name, maxBytes, keep: ['etag'] }).then((b) => {
-            this.etags.delete(url);
-            if (b.notModified) {
-                if (!have) {
-                    throw new Error(`${name}: 304 with nothing kept`);
-                }
-                this.etags.set(url, have);
-                return have.body;
+            if (b.notModified && !have) {
+                throw new Error(`${name}: 304 with nothing kept`);
             }
-            if (b.headers.etag && b.length <= CACHE_BYTES) {
-                this.etags.set(url, { etag: b.headers.etag, body: b });
-                if (this.etags.size > CACHE_ENTRIES) {
-                    this.etags.delete(this.etags.keys().next().value);
+            const keep = b.notModified ? have : b.headers.etag && b.length <= CACHE_ONE ? { etag: b.headers.etag, body: b } : null;
+            if (this.etags.get(url)) {
+                this.etagBytes -= this.etags.get(url).body.length;
+                this.etags.delete(url);
+            }
+            if (keep) {
+                this.etags.set(url, keep);
+                this.etagBytes += keep.body.length;
+                while (this.etagBytes > CACHE_BYTES) {
+                    const oldest = this.etags.keys().next().value;
+                    this.etagBytes -= this.etags.get(oldest).body.length;
+                    this.etags.delete(oldest);
                 }
             }
-            return b;
+            return b.notModified ? have.body : b;
         });
     }
 

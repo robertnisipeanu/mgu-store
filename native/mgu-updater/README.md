@@ -110,11 +110,6 @@ on the repo's default branch), `tags`
 commit). Without one: `releases` when the repo has a release, else
 `branch:<default branch>`. The state shows the channel in use.
 
-**GitHub requests.** A check asks GitHub only whether something changed
-(unchanged answers don't count against a token's rate limit) and reads
-the rest only when it did, so a new version is still found in the same
-check.
-
 **Repo trees.** `mgu-repo.json`:
 
 ```json

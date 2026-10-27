@@ -255,6 +255,12 @@ function ghApi(req, res, auth) {
         const page = Number(u.searchParams.get('page')) || 1;
         send(200, Object.keys(repo.branches).sort().slice((page - 1) * n, page * n).map((name) => ({ name, commit: { sha: repo.branches[name] } })));
     } else if (rest.indexOf('/contents/') === 0) {
+        // a read that fails once (a server error), as a passing outage does
+        if (repo.failOnce === decodeURIComponent(rest.slice('/contents/'.length))) {
+            repo.failOnce = null;
+            send(502, { message: 'Server Error' });
+            return;
+        }
         const tree = repo.trees[u.searchParams.get('ref')];
         const f = tree && tree[decodeURIComponent(rest.slice('/contents/'.length))];
         // the raw media type gets the bytes; anything else the JSON object around them, as GitHub does
@@ -3675,6 +3681,19 @@ function testRequests(certs) {
             ok('requests: a moved branch, a new tag, a new catalog.json are read in the same check',
                 version('branch', 'req_a') === '1.1.0' && version('tags', 'req_a') === '1.1.0' && version('mgu-store', 'req_cat') === '1.1.0' &&
                 n.branch[1] === 4 && n.tags[1] === 4 && n['mgu-store'][1] === 1, JSON.stringify(n));
+            // a component's read fails once: that listing is not kept, the next check reads the commit again
+            gh.repos['req/branch'].branches.main = ghCommit('req/branch', tree('1.2.0'));
+            gh.repos['req/branch'].failOnce = 'b/component.json';
+            return counted('branch');
+        })
+        .then(() => {
+            ok('requests: a component whose read failed is left out, saying why', version('branch', 'req_a') === '1.2.0' &&
+                !version('branch', 'req_b') && /req_b: .*502/.test(rt('branch').error || ''), rt('branch').error);
+            return counted('branch');
+        })
+        .then((n) => {
+            ok('requests: ...and listed by the next check, the unchanged commit read again', version('branch', 'req_b') === '1.0.0' &&
+                rt('branch').error === null && n[1] === 4, JSON.stringify(n));
             // a restart: no ETags kept, the listings are
             u = new Updater(conf);
             return each();
@@ -3682,7 +3701,7 @@ function testRequests(certs) {
         .then((n) => {
             ok('requests: after a restart, an unchanged commit or catalog.json is not read again',
                 JSON.stringify(n) === JSON.stringify({ 'mgu-store': [2, 0], rel: [3, 0], branch: [2, 0], tags: [2, 0] }) &&
-                version('branch', 'req_a') === '1.1.0' && rt('branch').components.length === 3, JSON.stringify(n));
+                version('branch', 'req_a') === '1.2.0' && rt('branch').components.length === 3, JSON.stringify(n));
             ok('requests: a listing an earlier updater version made is read again', (() => {
                 const file = path.join(M, 'state', 'sources', 'branch.json');
                 const c = JSON.parse(fs.readFileSync(file, 'utf8'));

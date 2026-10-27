@@ -1161,8 +1161,10 @@ function githubReader(s, ctx) {
         if (!asset) {
             throw new Error('the catalog release has no catalog.json');
         }
-        // an asset replaced is a new asset (a new url); one edited in place has a new upload time
-        const key = `catalog ${asset.url} ${asset.size} ${asset.updated_at || ''} ${asset.digest || ''}`;
+        // the listing follows from the release's assets: catalog.json and the icons it names. An asset
+        // replaced is a new asset (a new url); one edited in place has a new upload time
+        const key = `catalog ${crypto.createHash('sha256').update((release.assets || [])
+            .map((a) => `${a.name} ${a.url} ${a.size} ${a.updated_at || ''} ${a.digest || ''}`).join('\n')).digest('hex')}`;
         const known = reuse(key);
         if (known) {
             return Promise.resolve(known);
@@ -1233,25 +1235,26 @@ function githubReader(s, ctx) {
         if (!/^[0-9a-f]{40}$/.test(sha || '')) {
             throw new Error('no commit to read');
         }
-        // what a commit holds does not change
+        // a commit's listing is kept and used again for the same commit, unless a read failed for
+        // another reason than the file not being there (a rate limit, a timeout): that one is read again
         const key = `repo ${sha} ${revision ? 'revision' : ''}`;
         const known = reuse(key);
         if (known) {
             return Promise.resolve(known);
         }
-        const readFile = (rel) => content(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, path.posix.basename(rel), SMALL)
-            .catch((e) => {
-                throw Object.assign(e, { missing: e.status === 404 });
-            });
+        let unsure = false;
+        const failed = (e) => {
+            unsure = unsure || e.status !== 404;
+            throw Object.assign(e, { missing: e.status === 404 });
+        };
+        const readFile = (rel) => content(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, path.posix.basename(rel), SMALL).catch(failed);
         const listDir = (rel) => json(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, 'contents.json').then((items) => {
             if (!Array.isArray(items)) {
                 throw new Error(`${rel}: not a folder`);
             }
             return items.filter((i) => i && i.type === 'dir' && typeof i.name === 'string').map((i) => i.name);
-        }, (e) => {
-            throw Object.assign(e, { missing: e.status === 404 });
-        });
-        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null, listDir).then((cat) => Object.assign(cat, { memoKey: key }), (e) => {
+        }, failed);
+        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null, listDir).then((cat) => Object.assign(cat, { memoKey: unsure ? null : key }), (e) => {
             throw e.missing ? new Error(`no mgu-repo.json at ${sha.slice(0, 7)}`) : e;
         });
     };
@@ -1328,7 +1331,6 @@ function githubReader(s, ctx) {
                     const channel = s.channel === 'branch' ? branch : s.channel;
                     return onChannel(channel).then(done(channel));
                 }
-                // no channel: the catalog release, else the releases, else the default branch
                 return json(`${repoUrl}/releases/tags/catalog`, 'release.json').then((r) => fromCatalog(r).then(done('releases')), (err) => {
                     if (!missing(err)) {
                         throw err;
