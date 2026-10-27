@@ -15,6 +15,8 @@
  * stdout: one JSON line per event
  *   { progress: <bytes>, total: <bytes|null> }  while downloading
  *   { done: true, bytes, status, headers }      dest complete (headers: those kept)
+ *   { notModified: true, status: 304, headers } a conditional request's answer:
+ *                                               unchanged, nothing at dest
  *   { error: "<reason>", status, rateLimited }  nothing usable at dest
  *                                               (status: the HTTP answer, if any;
  *                                               rateLimited: a 429, or a 403 with
@@ -56,6 +58,17 @@ function lookupVia(servers) {
     };
 }
 
+/* The response headers job.keep names. */
+function kept(job, res) {
+    const out = {};
+    (job.keep || []).forEach((h) => {
+        if (typeof res.headers[h] === 'string') {
+            out[h] = res.headers[h];
+        }
+    });
+    return out;
+}
+
 function get(job, url, headers, hops) {
     const target = new URL(url);
     if (target.protocol !== 'https:') {
@@ -84,6 +97,11 @@ function get(job, url, headers, hops) {
             // first-host headers stay behind; only a user agent goes along
             get(job, new URL(res.headers.location, url).toString(),
                 { 'User-Agent': headers['User-Agent'] }, hops + 1);
+            return;
+        }
+        if (res.statusCode === 304) {
+            res.resume();
+            emit({ notModified: true, status: 304, headers: kept(job, res) });
             return;
         }
         if (res.statusCode !== 200) {
@@ -127,13 +145,7 @@ function get(job, url, headers, hops) {
         res.pipe(out);
         out.on('finish', () => {
             if (!process.exitCode) {
-                const kept = {};
-                (job.keep || []).forEach((h) => {
-                    if (typeof res.headers[h] === 'string') {
-                        kept[h] = res.headers[h];
-                    }
-                });
-                emit({ done: true, bytes, status: res.statusCode, headers: kept });
+                emit({ done: true, bytes, status: res.statusCode, headers: kept(job, res) });
             }
         });
         out.on('error', (err) => {
