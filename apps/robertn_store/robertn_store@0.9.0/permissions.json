@@ -1,0 +1,75 @@
+{
+  "masterAccessTable": [
+    {
+      "_typeName": "joynr.infrastructure.DacTypes.MasterAccessControlEntry",
+      "uid": "${APPNAME}",
+      "domain": "de.bmw.infotainment.telematic.oap.oapcontroller",
+      "interfaceName": "de/bmw/infotainment/telematic/oapcontroller/OAPController",
+      "defaultRequiredTrustLevel": "HIGH",
+      "possibleRequiredTrustLevels": [],
+      "defaultRequiredControlEntryChangeTrustLevel": "HIGH",
+      "possibleRequiredControlEntryChangeTrustLevels": [],
+      "operation": "*",
+      "defaultConsumerPermission": "YES",
+      "possibleConsumerPermissions": []
+    },
+    {
+      "_typeName": "joynr.infrastructure.DacTypes.MasterAccessControlEntry",
+      "uid": "${APPNAME}",
+      "domain": "de.bmw.infotainment.telematic.oap.appStatus_${APPNAME}",
+      "interfaceName": "de/bmw/infotainment/telematic/oap/appstatus/AppStatus",
+      "defaultRequiredTrustLevel": "HIGH",
+      "possibleRequiredTrustLevels": [],
+      "defaultRequiredControlEntryChangeTrustLevel": "HIGH",
+      "possibleRequiredControlEntryChangeTrustLevels": [],
+      "operation": "*",
+      "defaultConsumerPermission": "YES",
+      "possibleConsumerPermissions": []
+    },
+    {
+      "_typeName": "joynr.infrastructure.DacTypes.MasterAccessControlEntry",
+      "uid": "${APPNAME}",
+      "domain": "de.bmw.infotainment.telematic.oap.appstart",
+      "interfaceName": "de/bmw/infotainment/telematic/oap/appstart/AppStart",
+      "defaultRequiredTrustLevel": "HIGH",
+      "possibleRequiredTrustLevels": [],
+      "defaultRequiredControlEntryChangeTrustLevel": "HIGH",
+      "possibleRequiredControlEntryChangeTrustLevels": [],
+      "operation": "*",
+      "defaultConsumerPermission": "YES",
+      "possibleConsumerPermissions": []
+    },
+    {
+      "_typeName": "joynr.infrastructure.DacTypes.MasterAccessControlEntry",
+      "uid": "${APPNAME}",
+      "domain": "de.bmw.infotainment.telematic.oap.privateEntryPoint_${APPNAME}",
+      "interfaceName": "de/bmw/infotainment/telematic/oap/privateentrypoint/PrivateEntryPoint",
+      "defaultRequiredTrustLevel": "HIGH",
+      "possibleRequiredTrustLevels": [],
+      "defaultRequiredControlEntryChangeTrustLevel": "HIGH",
+      "possibleRequiredControlEntryChangeTrustLevels": [],
+      "operation": "*",
+      "defaultConsumerPermission": "YES",
+      "possibleConsumerPermissions": []
+    }
+  ],
+  "mediatorAccessTable": [],
+  "ownerAccessTable": [],
+  "masterRegistrationTable": [
+    {
+      "_typeName": "joynr.infrastructure.DacTypes.MasterRegistrationControlEntry",
+      "uid": "${APPNAME}",
+      "domain": "de.bmw.infotainment.telematic.oap.heartbeat_${APPNAME}",
+      "interfaceName": "de/bmw/infotainment/telematic/oap/heartbeat/HeartbeatMonitor",
+      "defaultRequiredTrustLevel": "HIGH",
+      "possibleRequiredTrustLevels": [],
+      "defaultRequiredControlEntryChangeTrustLevel": "HIGH",
+      "possibleRequiredControlEntryChangeTrustLevels": [],
+      "defaultProviderPermission": "YES",
+      "possibleProviderPermissions": []
+    }
+  ],
+  "mediatorRegistrationTable": [],
+  "ownerRegistrationTable": [],
+  "domainRoleTable": []
+}

@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "sources": [
+    { "id": "mgu-store", "type": "github", "repo": "robertnisipeanu/mgu-store", "builtin": true },
+    { "id": "idrive7-apps", "type": "github", "repo": "cauliflowermossgrape/idrive7-apps", "channel": "branch" }
+  ]
+}

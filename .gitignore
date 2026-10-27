@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+._*
+
+# Build artifacts
+native/*/build/
+*.tgz
+
+# Release builds and local publish target (release/README.md)
+release/out/
+release/published/
+

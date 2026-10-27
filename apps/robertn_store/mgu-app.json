@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "id": "robertn_store",
+  "version": "0.9.0",
+  "tree": "robertn_store@0.9.0",
+  "modules": [
+    "src/store.js",
+    "src/store_view.js",
+    "lib/client.js",
+    "src/qr.js",
+    "src/qrcodegen.js",
+    "src/speller.js",
+    "src/store_drawn.js",
+    "src/store_frame.js",
+    "src/store_compact.js",
+    "src/store_ui.js",
+    "src/store_elements.js",
+    "src/am_screens.js",
+    "src/am_gpu.js",
+    "src/am_elements.js",
+    "src/am_widgets.js",
+    "src/am_store_widgets.js",
+    "src/kit_record.js",
+    "src/kit_canvas.js",
+    "src/kit_fonts.js",
+    "src/kit_vicons.js",
+    "src/kit_png.js",
+    "src/kit_themes.js",
+    "src/font_regular.js",
+    "src/font_semibold.js",
+    "lib/mgu_render_client.js"
+  ],
+  "sdk": [
+    "oap-sdk/src/core/OnlineApp.js",
+    "oap-sdk/src/logging/logging",
+    "oap-sdk/src/someip/someipBuilders"
+  ]
+}

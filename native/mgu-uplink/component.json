@@ -1,0 +1,19 @@
+{
+  "id": "mgu-uplink",
+  "kind": "tool",
+  "version": "0.5.2",
+  "title": "Internet uplink",
+  "description": "Internet for selected apps through a USB network adapter, an LTE stick or a USB-tethered phone",
+  "optional": true,
+  "uninstallable": true,
+  "build": ["make", "target"],
+  "files": [
+    { "path": "mgu-uplink", "from": "build/target/mgu-uplink", "mode": "0755" },
+    { "path": "mgu-uplink.conf", "from": "mgu-uplink.conf", "mode": "0644" },
+    { "path": "LICENSES.txt", "from": "LICENSES.txt", "mode": "0644" }
+  ],
+  "units": [{ "name": "mgu-uplink.service", "from": "mgu-uplink.service" }],
+  "enable": [{ "unit": "mgu-uplink.service", "target": "multi-user.target" }],
+  "recmgr": ["mgu-uplink"],
+  "restart": ["mgu-uplink.service"]
+}

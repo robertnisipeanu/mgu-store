@@ -1,0 +1,5 @@
+[Unit]
+Description=fixture tool
+
+[Service]
+ExecStart=/var/opt/fixture-tool/current/bin/fixture-tool

@@ -1,0 +1,137 @@
+"""The leaf certificate that arms the head unit's debug mode (RoutineControl 31 01 A0 FD).
+
+Subject CN = the unit's device id (from the 31 01 A6 71 challenge), public key = the SSH
+enrollment key, issued and signed (SHA256withRSA) by the PMO intermediate CA, whose subject
+(read from its certificate) is the leaf's issuer and, but for CN, its subject. The unit checks
+the chain to its pinned debug-token CA and CN == its device id. The key and certificate
+material comes from the assets folder; it is never kept in this repository.
+
+Needs the `cryptography` package.
+"""
+import base64, hashlib, os
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+
+ENROLL_KEY = "mgu_ssh_key_rsa.pem"  # its public key goes in the leaf; root's SSH key
+PMO_CERT = "asset_03.bin"           # PMO intermediate CA certificate (PEM)
+PMO_KEY = "asset_04.bin"            # PMO intermediate CA private key (PEM)
+ASSETS = (ENROLL_KEY, PMO_CERT, PMO_KEY)
+
+
+# ---- DER ----------------------------------------------------------------------------------
+def _len(n):
+    if n < 128:
+        return bytes([n])
+    b = []
+    while n:
+        b.append(n & 0xFF)
+        n >>= 8
+    b.reverse()
+    return bytes([0x80 | len(b)]) + bytes(b)
+
+
+def TLV(tag, content): return bytes([tag]) + _len(len(content)) + content
+def SEQ(*items): return TLV(0x30, b"".join(items))
+def SET(item): return TLV(0x31, item)
+def OID(hexstr): return TLV(0x06, bytes.fromhex(hexstr.replace(" ", "")))
+def NULL(): return TLV(0x05, b"")
+def BITSTR(content): return TLV(0x03, b"\x00" + content)
+def OCT(content): return TLV(0x04, content)
+def UTCTime(s): return TLV(0x17, s.encode("ascii"))
+def CTX(n, content): return TLV(0xA0 | n, content)    # [n] EXPLICIT
+def CTXP(n, content): return TLV(0x80 | n, content)   # [n] primitive
+
+
+def INT(raw):
+    """Big-endian magnitude -> DER INTEGER."""
+    if not raw:
+        raw = b"\x00"
+    i = 0
+    while i < len(raw) - 1 and raw[i] == 0:
+        i += 1
+    raw = raw[i:]
+    if raw[0] & 0x80:
+        raw = b"\x00" + raw
+    return TLV(0x02, raw)
+
+
+OID_RSA = "2A 86 48 86 F7 0D 01 01 01"          # rsaEncryption
+OID_SHA256RSA = "2A 86 48 86 F7 0D 01 01 0B"    # sha256WithRSAEncryption
+
+
+def OID_DOTTED(dotted):
+    n = [int(x) for x in dotted.split(".")]
+    out = bytes([40 * n[0] + n[1]])
+    for v in n[2:]:
+        b = [v & 0x7F]
+        v >>= 7
+        while v:
+            b.append(0x80 | (v & 0x7F))
+            v >>= 7
+        out += bytes(reversed(b))
+    return TLV(0x06, out)
+
+
+OID_C, OID_CN = "2.5.4.6", "2.5.4.3"
+
+
+def _attr(oid, tag, val): return SET(SEQ(OID_DOTTED(oid), TLV(tag, val.encode("utf-8"))))
+
+
+def _name_subject(issuer, cn):
+    """The issuer's attributes but CN, the country a PrintableString and the rest UTF8Strings,
+    then CN = cn."""
+    attrs = [a for rdn in issuer.rdns for a in rdn if a.oid.dotted_string != OID_CN]
+    return SEQ(*([_attr(a.oid.dotted_string, 0x13 if a.oid.dotted_string == OID_C else 0x0C, a.value)
+                  for a in attrs] + [_attr(OID_CN, 0x0C, cn)]))
+
+
+def _ext(oid, critical, value):
+    return SEQ(OID(oid), TLV(0x01, b"\xff"), OCT(value)) if critical else SEQ(OID(oid), OCT(value))
+
+
+def _rsa_pub_seq(pub):
+    """SEQ { INTEGER modulus, INTEGER exponent }"""
+    nums = pub.public_numbers()
+    nb = nums.n.to_bytes((nums.n.bit_length() + 7) // 8, "big")
+    eb = nums.e.to_bytes((nums.e.bit_length() + 7) // 8, "big")
+    return SEQ(INT(nb), INT(eb))
+
+
+def mint_leaf(device_cn, enroll_pub, pmo_priv, pmo_cert):
+    """The leaf certificate as PEM with CRLF line ends, the form the unit accepts."""
+    pub_seq = _rsa_pub_seq(enroll_pub)
+    ski = hashlib.sha1(pub_seq).digest()
+    aki = hashlib.sha1(_rsa_pub_seq(pmo_priv.public_key())).digest()
+    sigalg = SEQ(OID(OID_SHA256RSA), NULL())
+    spki = SEQ(SEQ(OID(OID_RSA), NULL()), BITSTR(pub_seq))
+    exts = SEQ(
+        _ext("55 1D 13", False, SEQ()),                                         # basicConstraints CA:FALSE
+        _ext("55 1D 0F", True, bytes.fromhex("030205E0")),                      # keyUsage
+        _ext("55 1D 25", False, SEQ(OID("2B 06 01 05 05 07 03 02"))),           # EKU clientAuth
+        _ext("60 86 48 01 86 F8 42 01 01", False, bytes.fromhex("03020780")),   # netscape cert-type
+        _ext("55 1D 0E", False, OCT(ski)),                                      # subjectKeyIdentifier
+        _ext("55 1D 23", False, SEQ(CTXP(0, aki))),                             # authorityKeyIdentifier
+    )
+    tbs = SEQ(CTX(0, INT(b"\x02")), INT(bytes([1, 169])), sigalg, pmo_cert.subject.public_bytes(),
+              SEQ(UTCTime("700101000100Z"), UTCTime("380930235900Z")),
+              _name_subject(pmo_cert.subject, device_cn), spki, CTX(3, exts))
+    sig = pmo_priv.sign(tbs, padding.PKCS1v15(), hashes.SHA256())
+    b = base64.b64encode(SEQ(tbs, sigalg, BITSTR(sig))).decode()
+    pem = ("-----BEGIN CERTIFICATE-----\r\n" + "\r\n".join(b[i:i + 64] for i in range(0, len(b), 64)) +
+           "\r\n-----END CERTIFICATE-----\r\n")
+    return pem.encode("ascii")
+
+
+def leaf_for(device_cn, assets):
+    """(leaf PEM, PMO certificate PEM) for device_cn, from the assets folder."""
+    def read(name):
+        with open(os.path.join(assets, name), "rb") as f:
+            return f.read()
+    enroll = serialization.load_pem_private_key(read(ENROLL_KEY), None)
+    pmo_key = serialization.load_pem_private_key(read(PMO_KEY), None)
+    pmo_cert = read(PMO_CERT)
+    return (mint_leaf(device_cn, enroll.public_key(), pmo_key, x509.load_pem_x509_certificate(pmo_cert)),
+            pmo_cert)

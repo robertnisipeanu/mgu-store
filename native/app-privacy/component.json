@@ -1,0 +1,18 @@
+{
+  "id": "app-privacy",
+  "kind": "tool",
+  "version": "1.2.2",
+  "title": "App privacy",
+  "description": "Keeps our apps out of the head unit's backend app reporting",
+  "versionFiles": ["patch_mainapp.js"],
+  "mguHmi": ["ID7"],
+  "files": [
+    { "path": "patch_mainapp.js", "from": "patch_mainapp.js", "mode": "0755" }
+  ],
+  "units": [
+    { "name": "app-privacy.service", "from": "systemd/app-privacy.service" }
+  ],
+  "enable": [{ "unit": "app-privacy.service", "target": "multi-user.target" }],
+  "recmgr": ["app-privacy"],
+  "restart": []
+}

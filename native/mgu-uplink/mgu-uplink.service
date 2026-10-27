@@ -1,0 +1,17 @@
+[Unit]
+Description=Internet for selected apps through a USB adapter, LTE stick or phone (mgu-uplink)
+RequiresMountsFor=/var/opt
+After=local-fs.target
+# IterioDev's iPhone tether drives the same phone: never both at once
+Conflicts=ipheth-tether.service
+
+[Service]
+ExecStart=/var/opt/mgu-uplink/current/mgu-uplink run -c /var/opt/mgu-uplink/current/mgu-uplink.conf
+Restart=always
+RestartSec=5
+# The unit's system.conf sends stdout to null by default; mgu-uplink logs there.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=mgu-render app socket
+
+[Socket]
+# Our own socket: the Store and apps using mgu_render_client.js connect here; the first connection starts
+# mgu-render.service.
+ListenStream=/run/mgu-render/render.sock
+DirectoryMode=0755
+SocketMode=0660
+# Every OAP app process has tm_oap_app as a supplementary group.
+SocketGroup=tm_oap_app
+RemoveOnStop=yes
+# The community renderers' socket /run/mgu-renderd/renderd.sock links here while no other renderer is installed
+# (README.md, "Beside other renderers"), and display-bridge's /dev/shm/display-bridge/bridge.sock while nothing
+# listens there (README.md, "display-bridge's apps"); the running daemon keeps those rules from then on.
+ExecStartPost=-/bin/sh -c 'B=/var/opt/mgu-render/current; [ -x $$B/mgu-render ] && exec $$B/mgu-render -c $$B/mgu-render.conf --share; true'
+ExecStopPost=-/bin/sh -c 'B=/var/opt/mgu-render/current; [ -x $$B/mgu-render ] && exec $$B/mgu-render -c $$B/mgu-render.conf --unshare; true'
+
+[Install]
+WantedBy=sockets.target

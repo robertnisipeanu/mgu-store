@@ -1,0 +1,27 @@
+{
+  "id": "mgu-updater",
+  "kind": "tool",
+  "version": "0.7.0",
+  "title": "Updater",
+  "description": "Installs, updates and removes apps and head-unit tools from its sources",
+  "requires": { "mgu-deploy": "0.5.0", "mgu-python": "1.0.0" },
+  "files": [
+    { "path": "mgu-updater", "from": "bin/mgu-updater", "mode": "0755" },
+    { "path": "updater.js", "from": "js/updater.js", "mode": "0644" },
+    { "path": "catalog.js", "from": "js/catalog.js", "mode": "0644" },
+    { "path": "client.js", "from": "js/client.js", "mode": "0644" },
+    { "path": "fetch.js", "from": "js/fetch.js", "mode": "0644" },
+    { "path": "sources.js", "from": "js/sources.js", "mode": "0644" },
+    { "path": "tar.js", "from": "js/tar.js", "mode": "0644" },
+    { "path": "login.js", "from": "js/login.js", "mode": "0644" },
+    { "path": "tokens.js", "from": "js/tokens.js", "mode": "0644" },
+    { "path": "build.js", "from": "js/build.js", "mode": "0644" },
+    { "path": "proxy.js", "from": "js/proxy.js", "mode": "0644" },
+    { "path": "web.js", "from": "js/web.js", "mode": "0644" },
+    { "path": "updater.conf", "from": "updater.conf", "mode": "0644" }
+  ],
+  "units": [{ "name": "mgu-updater.service", "from": "systemd/mgu-updater.service" }],
+  "enable": [{ "unit": "mgu-updater.service", "target": "multi-user.target" }],
+  "recmgr": ["mgu-updater"],
+  "restart": []
+}

@@ -1,0 +1,39 @@
+{
+  "id": "mgu-render",
+  "kind": "tool",
+  "version": "0.3.0",
+  "title": "Renderer",
+  "description": "Draws apps' screens on the GPU, over the HMI or inside the app's page",
+  "mguProvides": "renderer",
+  "mguHmi": ["ID7", "ID8"],
+  "optional": true,
+  "requires": { "mgu-deploy": "0.4.0" },
+  "uninstallable": true,
+  "build": ["make", "check-target"],
+  "files": [
+    { "path": "mgu-render", "from": "build/target/mgu-render", "mode": "0755" },
+    { "path": "mgu-render.conf", "from": "mgu-render.conf", "mode": "0644" },
+    { "path": "foreground_gate.js", "from": "js/foreground_gate.js", "mode": "0644" },
+    { "path": "hmi_template.js", "from": "js/hmi_template.js", "mode": "0644" },
+    { "path": "mgu-render-hmi.sh", "from": "systemd/mgu-render-hmi.sh", "mode": "0644" },
+    { "path": "mgu_render_client.js", "from": "js/mgu_render_client.js", "mode": "0644" },
+    { "path": "LICENSE.mgu-renderd", "from": "LICENSE.mgu-renderd", "mode": "0644" }
+  ],
+  "units": [
+    { "name": "mgu-render.socket", "from": "systemd/mgu-render.socket" },
+    { "name": "mgu-render.service", "from": "systemd/mgu-render.service" },
+    { "name": "mgu-render-hmi.service", "from": "systemd/mgu-render-hmi.service" }
+  ],
+  "enable": [
+    { "unit": "mgu-render.socket", "target": "sockets.target" },
+    { "unit": "mgu-render-hmi.service", "target": "hmi.service" }
+  ],
+  "dropins": [
+    { "unit": "display-bridge.socket", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" },
+    { "unit": "display-bridge.service", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" },
+    { "unit": "display-bridge-hmi.service", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" }
+  ],
+  "recmgr": ["mgu-render", "mgu-render-hmi"],
+  "restart": ["mgu-render.service"],
+  "keepRunning": true
+}

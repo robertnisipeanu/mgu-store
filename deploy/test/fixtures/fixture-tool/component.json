@@ -1,0 +1,20 @@
+{
+  "id": "fixture-tool",
+  "kind": "tool",
+  "version": "0.2.0",
+  "title": "Fixture tool",
+  "description": "Tool component for the deploy tests",
+  "build": ["sh", "build.sh"],
+  "files": [
+    { "path": "bin/fixture-tool", "from": "build/fixture-tool", "mode": "0755" },
+    { "path": "lib/helper.js", "from": "lib/helper.js", "mode": "0644" },
+    { "path": "fixture-tool.conf", "from": "fixture-tool.conf", "mode": "0644" }
+  ],
+  "units": [
+    { "name": "fixture-tool.socket", "from": "systemd/fixture-tool.socket" },
+    { "name": "fixture-tool.service", "from": "systemd/fixture-tool.service" }
+  ],
+  "enable": [{ "unit": "fixture-tool.socket", "target": "sockets.target" }],
+  "recmgr": ["fixture-tool"],
+  "restart": ["fixture-tool.service"]
+}
