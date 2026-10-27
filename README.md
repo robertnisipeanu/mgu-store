@@ -22,8 +22,10 @@ installs and removals take effect at the next head-unit restart.
   built into all three).
 - Root SSH access to the head unit, already set up, and root's private key
   as a file on the computer. Getting root access is not covered here.
-- The computer joined to the car's Wi-Fi hotspot. The installer connects to
-  the head unit at `172.16.222.97`.
+- A network path from the computer to the head unit's SSH: the car's Wi-Fi
+  hotspot (the installer's default, `172.16.222.97`), an ENET cable, or any
+  other way you reach it with `ssh`. Use `--host` (and `--port`) for an
+  address other than the hotspot's.
 - The car parked, on stable power (engine running or a charger connected),
   and awake until the install finishes.
 
@@ -42,7 +44,10 @@ installs and removals take effect at the next head-unit restart.
    Invoke-WebRequest https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/mgu-install.js -OutFile mgu-install.js
    ```
 
-2. Join the car's hotspot with the computer.
+2. Connect the computer to the head unit: join the car's hotspot, or use
+   your ENET cable or other SSH route. To check it first:
+   `ssh -i <root's key> -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@<address>`
+   (add `-p <port>` if SSH isn't on 22).
 
 3. Run the first install, pointing `--identity` at root's key:
 
@@ -55,6 +60,18 @@ installs and removals take effect at the next head-unit restart.
    # Windows PowerShell
    node .\mgu-install.js first-install --identity $HOME\.ssh\mgu_root_key
    ```
+
+   Over anything other than the hotspot, add `--host <address>` (and
+   `--port <n>` if SSH isn't on 22). An SSH config alias also works as
+   `--host`, but give its port with `--port` too. `--ssh-opt` passes any
+   `ssh -o` option, such as `--ssh-opt ProxyJump=<jump host>`.
+
+   **ENET:** the head unit's ENET address is a `169.254.x.x` address that
+   can change. From a clone of this repository on a Mac, with Python 3,
+   `deploy/hu connect --identity <root's key>` finds the head unit over
+   ENET and keeps a relay open until Ctrl-C. In another terminal, install
+   (and check step 2) through it with `--host 127.0.0.1 --port 2222
+   --ssh-opt StrictHostKeyChecking=no --ssh-opt UserKnownHostsFile=/dev/null`.
 
    It downloads the newest release of this repository, checks every file
    against the release's size and sha256, and installs the deploy tool, app
@@ -77,7 +94,7 @@ update, the Store's own included, comes through the Store. Running
 | `--token` | asks for a GitHub token (hidden prompt) and gives it to the updater, for private repositories |
 | `--no-renderer` | leaves out the renderer; the Store then shows its plain list screens until a Store update installs the renderer it requires |
 | `--no-uplink` | leaves out the internet uplink |
-| `--host <address>`, `--port <n>` | reach the head unit somewhere other than `172.16.222.97:22` |
+| `--host <address>`, `--port <n>` | the head unit's SSH address (an IP, a hostname or an SSH config alias) and port; default `172.16.222.97:22`, the car's hotspot |
 | `--user <name>` | SSH user (default `root`) |
 | `--ssh-opt <option>` | an extra `ssh -o` option; repeatable |
 
@@ -163,13 +180,37 @@ Settings → **Accounts**:
   the [mgu-store GitHub App](https://github.com/apps/mgu-store) installed;
   a source that still cannot be read shows the App's install page as a QR
   code.
-- **Add token** types a GitHub token on the car's keyboard: a fine-grained
-  token with read access to the repository's contents, or a classic token
-  with the `repo` scope.
+- **Add token** types a GitHub token on the car's keyboard (steps below).
 
 Accounts belong to the updater, not to one source: each source is read with
 whichever account can reach it. Tokens can also be added from the computer
-(`mgu-install.js token`) or from the phone page.
+(`mgu-install.js token`) or from the phone page, which is easier than typing
+one on the car.
+
+**Creating a token** (read-only access to the repositories you choose):
+
+1. On github.com, open your picture → **Settings** → **Developer settings**
+   → **Personal access tokens** → **Fine-grained tokens** →
+   **Generate new token**.
+2. **Token name**: anything, e.g. `car`. **Expiration**: pick a date, or
+   *No expiration* so the car keeps working (renew it before it expires
+   otherwise).
+3. **Resource owner**: your account, or the organisation that owns the
+   repository. A token covers one owner: make one per owner. For a
+   repository of someone else's account, use a classic token (below).
+4. **Repository access**: **Only select repositories**, and pick the
+   private repositories the car should read.
+5. **Permissions**: add **Contents** and set it to **Read-only**. Nothing
+   else is needed (Metadata is read-only by itself).
+6. **Generate token**, and copy it (it starts with `github_pat_`). GitHub
+   shows it only once.
+7. Add it on the car (Settings → **Accounts** → **Add token**), on the
+   phone page, or from the computer with `mgu-install.js token`.
+
+For a repository of an organisation, the organisation may have to approve
+the token first (GitHub shows it as *pending*). A classic token
+(**Tokens (classic)** → scope `repo`) also works, but it can write to every
+repository you have access to.
 
 ### The phone page
 
