@@ -1089,10 +1089,8 @@ function i7Written(p) {
     finally { if (fd !== undefined) fs.closeSync(fd); }
     return b.toString('utf8') === I7_MARK;
 }
-/* The apps its installer put on the unit: registered, listed in
- * custom_apps.json, with its kit's source/javascript/kit/app-spec.json,
- * and not installed by this tool. status --json names them (idrive7) for
- * the updater, which gives them their origin. */
+/* The apps idrive7-apps' installer put on the unit. status --json names
+ * them (idrive7) for the updater, which gives them their origin. */
 function i7Apps(state) {
     var custom = readCustomApps(), ours = (state && state.apps) || {};
     return installedApps().filter(function (a) {
