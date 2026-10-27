@@ -1720,7 +1720,7 @@ function testToken() {
     check('token: the same text again is not stored twice', r.status === 0 && r.out.includes(`stored already as ${id}`) &&
         Object.keys(tokenTexts(root)).length === 1, r.out);
     // the updater's own fields stay when another token is added
-    fs.writeFileSync(path.join(dir, 'tokens.json'), JSON.stringify([Object.assign(list()[0], { label: 'robert', login: 'someone' })]));
+    fs.writeFileSync(path.join(dir, 'tokens.json'), JSON.stringify([Object.assign(list()[0], { label: 'car', login: 'someone' })]));
     r = runIn(['updater-token'], `${TOKEN}2\n`);
     const id2 = Object.keys(tokenTexts(root)).find((x) => x !== id);
     check('token: a second token beside the first, whose entry is kept', r.status === 0 && id2 && list().length === 2 &&
@@ -1729,7 +1729,7 @@ function testToken() {
     check('token: no source is named (exit 2)', r.status === 2 && r.out.includes('no source'), r.out);
     r = runIn(['updater-token', '--list']);
     outputs.push(r.out);
-    check('token: --list names id, label and account', r.status === 0 && r.out.includes(`${id}  robert  someone`) &&
+    check('token: --list names id, label and account', r.status === 0 && r.out.includes(`${id}  car  someone`) &&
         r.out.includes(`${id2}  -  -`), r.out);
     r = runIn(['updater-token', '--list', '--json']);
     outputs.push(r.out);

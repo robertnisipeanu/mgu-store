@@ -117,7 +117,7 @@ It lists the newest published version of every component. `artifact.url`
 is where the unit downloads it: the GitHub asset's API URL, or a path
 relative to the catalog on a static host or a folder. The updater checks
 `size` and `sha256` before anything is installed. The catalog is not
-signed: the unit trusts a source over HTTPS (with a token that reaches it).
+signed: the unit trusts a source over HTTPS.
 
 Schema 2 adds, per entry:
 
@@ -152,20 +152,12 @@ and runs `release.js publish` with the workflow's own `GITHUB_TOKEN`
 anywhere. The workflow runs on `main` and `v*` tags only, with every action
 pinned to a commit.
 
-The releases are GitHub Releases of the **private**
-`robertnisipeanu/mgu-store` repository. Releases of a private repository
-are visible only to those with access to it, and stay private. `publish`
-reads the repository's visibility before it builds and again before it
-uploads the catalog, and refuses unless it is private; nothing in this
-tooling changes a repository's visibility. The car reads the releases with
-a token of the updater's that reaches the repository
-(`native/mgu-updater/README.md`, "Tokens"), put on the car by the
-installers (deploy/README.md, "The updater's sources and tokens") or the
-phone page.
+The releases are GitHub Releases of `robertnisipeanu/mgu-store`, which
+the car reads like any public repository.
 
 | Target (`MGU_PUBLISH`) | Layout | The unit reads it with |
 |---|---|---|
-| `github:<owner>/<repo>` (the workflow's repository) | release `<id>@<version>` per version, its artifact the one asset; release `catalog` holding `catalog.json` | a `github` source, read with a token that reaches it |
+| `github:<owner>/<repo>` (the workflow's repository) | release `<id>@<version>` per version, its artifact the one asset; release `catalog` holding `catalog.json` | a `github` source |
 | `dir:<path>` (relative paths: to the repository) | `catalog.json` and the artifacts side by side in a local folder, for the emulator or a USB stick | a `file` source, a USB stick, or the folder served over HTTPS (`https` source) |
 
 `publish` requires a clean working tree, builds HEAD, uploads each new

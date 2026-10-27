@@ -86,17 +86,17 @@ func TestDropIns(t *testing.T) {
 	c.StateDir, c.OAPDir = t.TempDir(), t.TempDir()
 	c.UIDs = []int{12990}
 	c.Apps = []string{"store"}
-	writeFile(t, c.uidsFile(), "12205=store\n12207=doom\n12209=waze\n")
-	writeFile(t, filepath.Join(c.uidsDir(), "mgu-tailscale"), "12993 # the tailnet node\n")
+	writeFile(t, c.uidsFile(), "12205=store\n12207=doom\n12209=maps\n")
+	writeFile(t, filepath.Join(c.uidsDir(), "vpn"), "12993 # a VPN node\n")
 	writeFile(t, filepath.Join(c.uidsDir(), "two"), "12994, 12995\n0\nx\n")
 	writeFile(t, filepath.Join(c.uidsDir(), ".hidden"), "1\n")
 	writeFile(t, filepath.Join(c.uidsDir(), "partial.tmp"), "2\n")
 	writeFile(t, filepath.Join(c.appsDir(), "robertn_doom"), "doom\n")
-	writeFile(t, filepath.Join(c.appsDir(), "waze"), "")
+	writeFile(t, filepath.Join(c.appsDir(), "maps"), "")
 	writeFile(t, filepath.Join(c.appsDir(), "bad"), "a/b\n")
 	uids, byApp, missing := resolveUIDs(c)
 	if !reflect.DeepEqual(uids, []int{12205, 12207, 12209, 12990, 12993, 12994, 12995}) ||
-		!reflect.DeepEqual(byApp, map[string]int{"store": 12205, "doom": 12207, "waze": 12209}) || len(missing) != 0 {
+		!reflect.DeepEqual(byApp, map[string]int{"store": 12205, "doom": 12207, "maps": 12209}) || len(missing) != 0 {
 		t.Fatalf("uids %v byApp %v missing %v", uids, byApp, missing)
 	}
 	_, _, bad := dropIns(c)
@@ -104,7 +104,7 @@ func TestDropIns(t *testing.T) {
 		t.Fatalf("bad entries %v", bad)
 	}
 	// Removing a drop-in takes its uid away at the next rescan.
-	os.Remove(filepath.Join(c.uidsDir(), "mgu-tailscale"))
+	os.Remove(filepath.Join(c.uidsDir(), "vpn"))
 	uids, _, _ = resolveUIDs(c)
 	for _, u := range uids {
 		if u == 12993 {

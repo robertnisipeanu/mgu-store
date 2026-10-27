@@ -650,12 +650,7 @@ components (`source <id> (<channel>): …`); each install its phases
 output as `build <id>: …` lines, the deploy tool's output as `deploy: …`
 lines, its result, and `<id>@<v>: done` when the Store stops showing it as
 installing. A new version of the updater itself then logs `running <v>:
-update committed` or `<v> not kept: …`. raluca-car's diag `file` op reads
-it over the tailnet, with no laptop at the car
-(`native/raluca-car/PROTOCOL.md` §5; on the live-codex host, `curl -H
-'X-Live-Codex: car' -d
-'{"op":"file","path":"/tmp/mgu-updater.log","max":196608}'
-http://127.0.0.1:4317/api/car/diag`). The file is written only while it
+update committed` or `<v> not kept: …`. The file is written only while it
 is root's own regular file; a link, a FIFO or anyone else's file at that
 name is removed first, and a folder there leaves only the journal.
 

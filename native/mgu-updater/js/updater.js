@@ -96,9 +96,9 @@ function selfVersion() {
 /* ---- log file ------------------------------------------------------------ */
 
 /* The daemon's journal is root's alone. Every line it logs also goes to
- * log_file with its time, readable by others: raluca-car's diag `file` op
- * reads /tmp over the tailnet, up to about 192 KiB from a file's start, so
- * the file is renamed to <log_file>.1 past 128 KiB. /tmp is everyone's: the
+ * log_file with its time, readable by others, for diagnostics that read
+ * up to about 192 KiB from a file's start, so the file is renamed to
+ * <log_file>.1 past 128 KiB. /tmp is everyone's: the
  * file is opened without following a link or blocking on a FIFO and used
  * only while it is root's own regular file; anything else at that name but
  * a folder is removed first (a folder there leaves the journal alone). */

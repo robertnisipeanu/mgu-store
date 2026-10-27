@@ -163,8 +163,7 @@ README.md, "Tokens"): each one's text in `/var/opt/mgu-updater/credentials/
 token-<id>` and its entry (id, label, account) in `credentials/tokens.json`,
 root's, mode 0600, in a 0700 folder; the updater reads each GitHub source
 with whichever token reaches it. The owner supplies a GitHub token (one
-that reads the mgu-store repository, and any other private repository the
-car reads) as a file on the Mac; it is never committed. `deploy/hu install
+that reads the private repositories the car reads) as a file on the Mac; it is never committed. `deploy/hu install
 --updater-token-file <file>` stores it after the install, and `deploy/hu
 updater-token --updater-token-file <file>` stores it alone; both default to
 `HU_UPDATER_TOKEN_FILE`. `deploy/hu updater-token --list [--json]` names the
