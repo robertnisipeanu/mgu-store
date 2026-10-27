@@ -290,6 +290,20 @@ function installedApp(conf, id, wantTitle) {
     }
 }
 
+/* What the deploy tool installed (status --json): its tools, and the apps
+ * it marked local (mguLocalOnly), not the firmware's own. */
+function ownInstalled(conf, st) {
+    return ((st && st.components) || []).filter((c) => c && typeof c.id === 'string' && ID.test(c.id) && (c.kind === 'tool' ||
+        (c.kind === 'app' && (() => {
+            try {
+                const entry = readJson(path.join(conf.oap_root, `oap_${conf.mainapp_uid}`, 'data', 'apps', `${c.id}.json`));
+                return readAppJson(path.join(conf.oap_root, `oap_${entry.userId}`, 'source', 'package.json')).mguLocalOnly === true;
+            } catch (e) {
+                return false;
+            }
+        })()))).map((c) => c.id);
+}
+
 function installedTool(conf, id) {
     try {
         const c = readJson(path.join(conf.tool_root, id, 'current', 'component.json'));
@@ -788,19 +802,15 @@ class Updater {
     }
 
     /* The origin that updates an installed id whose own origin lists it no
-     * more, or that has none (installed from outside the updater, imported):
-     * of the origins listing it, the one whose listing has the installed
+     * more, or that has none (installed from outside the updater, imported),
+     * of the origins listing it that hold no other id for it (aside): the
+     * one there is, else of several the one whose listing has the installed
      * one's title (an app's en_GB entry-point text, a tool's component.json
-     * title), the highest version of several; with no title on either side,
-     * the one origin listing it. Else none. */
+     * title). Else none: two of that title, or none of it. */
     openLead(id, origins) {
         const have = installedApp(this.conf, id, true) || installedTool(this.conf, id);
         const titled = origins.filter((g) => have.title && g.best.entry.title === have.title);
-        if (titled.length) {
-            return titled.reduce((a, g) => (catalogLib.compareVersions(g.best.entry.version, a.best.entry.version) > 0 ? g : a));
-        }
-        const g = origins.length === 1 ? origins[0] : null;
-        return g && (!have.title || g.best.entry.title === id) ? g : null;
+        return origins.length === 1 ? origins[0] : titled.length === 1 ? titled[0] : null;
     }
 
     /* Of one origin's listings of an id, the one it offers: the highest
@@ -820,10 +830,21 @@ class Updater {
 
     /* The row of an installed component no listing stands for: its id
      * belongs to no origin that lists it (source: its origin, imported, or
-     * null). It is shown, and can be removed, but nothing installs over it. */
+     * null). It is shown, and can be removed (what the updater never removes
+     * not, nor a tool its own component.json says cannot be), but nothing
+     * installs over it. A tool's requirements are its component.json's. */
     originless(id, source) {
         const i = installedApp(this.conf, id, true) || installedTool(this.conf, id);
-        return { entry: catalogLib.checkExtras({ id, kind: i.kind, version: i.version, title: i.title || id, uninstallable: id !== this.conf.store_app,
+        let c = {};
+        try {
+            c = i.kind === 'tool' ? readJson(path.join(this.conf.tool_root, id, 'current', 'component.json')) : {};
+        } catch (e) { /* none */ }
+        const kept = [SELF, this.conf.deploy_tool, this.conf.store_app].concat(Object.keys(selfComponent().requires || {}));
+        const requires = c.requires && typeof c.requires === 'object' && !Array.isArray(c.requires) ?
+            Object.keys(c.requires).filter((k) => ID.test(k) && k !== id && catalogLib.SEMVER.test(c.requires[k]))
+                .reduce((o, k) => Object.assign(o, { [k]: c.requires[k] }), {}) : {};
+        return { entry: catalogLib.checkExtras({ id, kind: i.kind, version: i.version, title: i.title || id, requires,
+            uninstallable: kept.indexOf(id) < 0 && c.uninstallable !== false,
             artifact: { name: '', size: null, sha256: null }, unlisted: true }),
         source: source || (this.adopted.imported.indexOf(id) >= 0 ? IMPORTED : null) };
     }
@@ -876,7 +897,7 @@ class Updater {
                 g.best = this.best(g.list);
                 g.aside = sourcesLib.renameable(g.best.entry) && !!this.aliases[`${g.origin}:${id}`];
             });
-            const lead = installed ? origins.find((g) => holder && g.origin === this.originOf(holder)) || this.openLead(id, origins) :
+            const lead = installed ? origins.find((g) => holder && g.origin === this.originOf(holder)) || this.openLead(id, origins.filter((g) => !g.aside)) :
                 origins.find((g) => !g.aside && !sourcesLib.renameable(g.best.entry)) || origins.find((g) => !g.aside);
             if (lead) {
                 map.set(id, { entry: lead.best.entry, source: lead.best.source });
@@ -900,10 +921,10 @@ class Updater {
                 map.set(r.entry.id, r);
             }
         });
-        // installed from a source that lists nothing of its id any more: kept for its Remove
-        Object.keys(this.origins).forEach((id) => {
+        // installed, ours, and no source lists its id: kept for its Remove
+        Object.keys(this.origins).concat(this.own || []).forEach((id) => {
             if (!map.has(id) && this.installedOf(id)) {
-                map.set(id, this.originless(id, this.origins[id].source));
+                map.set(id, this.originless(id, this.origins[id] ? this.origins[id].source : null));
             }
         });
         // what the Store and mgu-uplink replace is never installed, from whichever source
@@ -1832,6 +1853,7 @@ class Updater {
                 this.providers = providersOf(st);
                 this.appmanager = st.appmanager && typeof st.appmanager === 'object' ? st.appmanager : null;
                 this.idrive7 = st.idrive7 && Array.isArray(st.idrive7.apps) ? st.idrive7.apps : [];
+                this.own = ownInstalled(this.conf, st);
             }
             this.privacy = privacy;
             this.takeOver();

@@ -839,7 +839,7 @@ function testDaemon(certs, pubDir) {
             return waitFor(client, (st) => st.catalog.checkedAt && !st.catalog.checking, 15000, 'the first catalog check');
         })
         .then((st) => {
-            ok('daemon: serves its state and checks the catalog at start', version(st) === '0.1.0' && st.components.length === 2,
+            ok('daemon: serves its state and checks the catalog at start', version(st) === '0.1.0' && st.components.filter((c) => c.source === 'mgu-store').length === 2,
                 JSON.stringify(st.catalog));
             const mode = fs.statSync(sock).mode & 0o777;
             ok('daemon: the socket is 0660 in the configured group', mode === 0o660 && fs.statSync(sock).gid === 50);
@@ -885,13 +885,13 @@ function testDaemon(certs, pubDir) {
         })
         .then((st) => {
             ok('catalog: a malformed catalog is refused and the last good one kept',
-                /malformed/.test(st.catalog.error) && st.components.length === 2 && st.sources[0].status === 'error', st.catalog.error);
+                /malformed/.test(st.catalog.error) && st.components.filter((c) => c.source === 'mgu-store').length === 2 && st.sources[0].status === 'error', st.catalog.error);
             publish(pubDir, [entry(app1, 'app', 'Demo'), entry(kit2, 'tool', 'Updater')], { signature: { alg: 'ecdsa-p256-sha256', value: 'AAAA' } });
             client.check();
             return waitFor(client, (s) => !s.catalog.error && !s.catalog.checking, 15000, 'the catalog with a signature field');
         })
         .then((st) => {
-            ok('catalog: a signature field is not looked at', st.components.length === 2 && st.sources[0].status === 'ok');
+            ok('catalog: a signature field is not looked at', st.components.filter((c) => c.source === 'mgu-store').length === 2 && st.sources[0].status === 'ok');
             fs.writeFileSync(path.join(T, 'privacy.json'), 'not json');
             client.check();
             return waitFor(client, (s) => s.privacy === 'unknown' && !s.catalog.checking, 15000, 'unknown');
@@ -3222,9 +3222,9 @@ function testIdClash() {
                 fs.writeFileSync(path.join(home(id), 'rhmiData', 'application.json'), JSON.stringify({ application: { entryPoints: [{ textId: 'T' }] } }));
                 fs.writeFileSync(path.join(home(id), 'rhmiData', 'strings', 'en_GB.json'), JSON.stringify({ T: title }));
             };
-            const view = (origins, adopted) => {
+            const view = (origins, adopted, aliases) => {
                 const x = new Updater(conf);
-                Object.assign(x, { src: u.src, origins, aliases: {} }, adopted ? { adopted } : {});
+                Object.assign(x, { src: u.src, origins, aliases: aliases || {} }, adopted ? { adopted } : {});
                 return x.resolved();
             };
             titled('doom', 'DOOM');
@@ -3246,6 +3246,24 @@ function testIdClash() {
                 got.get('doom').entry.unlisted === true && got.get('doom').source === null && got.get('doom').entry.uninstallable === true &&
                 got.get('doom@mgu-apps').entry.blocked === 'doom is already installed' && got.get('doom2').entry.listedId === 'doom',
                 JSON.stringify(Array.from(got.keys())));
+            // the origin that holds doom2 never updates doom, even with doom's title
+            titled('doom', 'Doom');
+            got = view({}, null, { 'idrive7-apps:doom': 'doom2' });
+            ok('ids: an origin holding an id of its own for an app (doom2) is not the one that updates that app\'s id (doom)',
+                got.get('doom2').entry.listedId === 'doom' && got.get('doom2').source === 'idrive7-apps' && got.get('doom').source !== 'idrive7-apps',
+                JSON.stringify(Array.from(got.entries()).filter(([k]) => /^doom/.test(k)).map(([k, r]) => [k, r.source])));
+            got = view({ doom: { source: 'gone', commit: null } }, null, { 'idrive7-apps:doom': 'doom2' });
+            ok('ids: ...nor when the source that installed doom is removed', got.get('doom2').entry.listedId === 'doom' &&
+                got.get('doom').source !== 'idrive7-apps');
+            // of several listers the one with its title; one lister whatever its title; two of the title, or none, none
+            titled('stubborn', 'Stubborn');
+            got = view({});
+            ok('ids: of two sources listing an id, the one whose listing has the installed title updates it',
+                got.get('stubborn').source === 'idrive7-apps' && got.get('stubborn@mgu-apps').entry.blocked === 'stubborn is already installed',
+                JSON.stringify(Array.from(got.keys()).filter((k) => /stubborn/.test(k))));
+            titled('stubborn', 'Something else');
+            got = view({});
+            ok('ids: ...and with neither title it has no update: a row of its own', got.get('stubborn').entry.unlisted === true);
             titled('doom', 'DOOM');
             // a car offline: what an installer put there (no origin) updates from a stick, its folders mgu-repo/<name> and oap/
             const media = path.join(M, 'media');
@@ -3320,7 +3338,32 @@ function testIdClash() {
                 fs.writeFileSync(lease, JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
                 ok('a stick taken out: Car Data, installed from it, keeps a row for its Remove', comp('cardata').installed === '1.1.5' &&
                     comp('cardata').uninstallable === true && comp('cardata').source === 'usb:CAR/oap', JSON.stringify(comp('cardata')));
-                return ask(conf.socket, { op: 'install', id: 'doom@iterio' });
+                // tools and apps of ours no source lists: rows for their Remove, as their own manifests allow
+                const tool = (id, extra) => {
+                    mkdirp(path.join(opt, id, 'versions', '1.0.0'));
+                    fs.writeFileSync(path.join(opt, id, 'versions', '1.0.0', 'component.json'), JSON.stringify(Object.assign({ id, kind: 'tool', version: '1.0.0' }, extra)));
+                    fs.symlinkSync('versions/1.0.0', path.join(opt, id, 'current'));
+                };
+                const py = path.join(opt, 'mgu-python', 'current', 'component.json');
+                const pyWas = fs.readFileSync(py, 'utf8');
+                fs.writeFileSync(py, JSON.stringify(Object.assign(JSON.parse(pyWas), { title: 'Python runtime' })));
+                const lone = new Updater(conf);
+                Object.assign(lone, { src: u.src, origins: {}, aliases: {} });
+                const py1 = lone.resolved().get('mgu-python');
+                ok('ids: one source listing an id updates it whatever its title', py1.source === 'pytools' && !py1.entry.unlisted, JSON.stringify(py1));
+                fs.writeFileSync(py, pyWas);
+                tool('plain-tool', { title: 'Plain' });
+                tool('kept-tool', { uninstallable: false, requires: { 'plain-tool': '1.0.0' } });
+                cp.execFileSync(deploySh, ['install', '--artifact', appTgz(M, 'loose_one', '1.0.0'), '--yes'], { stdio: 'ignore' });
+                return u.refresh().then(() => {
+                    ok('unlisted: a tool and an app of ours no source lists have rows; a tool removable as its component.json says, with its ' +
+                        'requirements; the updater, the deploy tool and Python never removable', comp('plain-tool').uninstallable === true &&
+                        comp('plain-tool').title === 'Plain' && comp('kept-tool').uninstallable === false && comp('loose_one').uninstallable === true &&
+                        comp('loose_one').installed === '1.0.0' && comp('mgu-deploy').installed === '0.3.2' && comp('mgu-deploy').uninstallable === false &&
+                        u.requestUninstall('plain-tool') === 'kept-tool needs plain-tool',
+                        JSON.stringify(['plain-tool', 'kept-tool', 'loose_one', 'mgu-deploy'].map(comp)));
+                    return ask(conf.socket, { op: 'install', id: 'doom@iterio' });
+                });
             });
         })
         .then((why) => {

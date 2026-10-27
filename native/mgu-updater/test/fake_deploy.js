@@ -27,7 +27,7 @@
  * while $FAKE_DEPLOY_LOG.rollbackfail exists, rollback exits 1.
  * status --json says the head unit is $FAKE_UNIT_HMI (ID7 without it) and
  * lists every installed tool with what it provides (component.json
- * mguProvides). A root-service package (package.json with mguService) is
+ * mguProvides) and every app MainApp's registry names. A root-service package (package.json with mguService) is
  * installed as the tool of its name, providing its kind; providers of one
  * capability install side by side.
  * mgu-uplink stands for the internet: once its current version runs, the
@@ -138,6 +138,19 @@ if (cmd === 'uninstall') {
     console.log(`${id} removed`);
     process.exit(0);
 }
+/* Every app MainApp's registry names, as the deploy tool's status lists them. */
+function apps() {
+    const dir = path.join(process.env.OAP_ROOT, 'oap_12201', 'data', 'apps');
+    return (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((n) => /\.json$/.test(n)).map((n) => {
+        try {
+            const uid = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).userId;
+            const p = JSON.parse(fs.readFileSync(path.join(process.env.OAP_ROOT, `oap_${uid}`, 'source', 'package.json'), 'utf8'));
+            return { id: p.name, kind: 'app', version: p.version, uid };
+        } catch (e) {
+            return null;
+        }
+    }).filter(Boolean);
+}
 function tools() {
     const root = process.env.TOOL_ROOT;
     return (fs.existsSync(root) ? fs.readdirSync(root) : []).map((id) => {
@@ -151,7 +164,7 @@ function tools() {
 if (cmd === 'status') {
     const pending = (process.env.FAKE_PENDING || '').split(',').filter(Boolean).concat(pendingIds());
     console.log(JSON.stringify({ unit: { hmi: process.env.FAKE_UNIT_HMI || 'ID7', firmware: 'test firmware' },
-        components: tools().map((c) => ({ id: c.id, kind: 'tool', version: c.version, provides: c.mguProvides || null })),
+        components: tools().map((c) => ({ id: c.id, kind: 'tool', version: c.version, provides: c.mguProvides || null })).concat(apps()),
         pending_reboot: pending.map((id) => ({ id, reason: 'test' })), appmanager: readAm(),
         idrive7: { apps: fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.idrive7`) ? JSON.parse(fs.readFileSync(`${process.env.FAKE_DEPLOY_LOG}.idrive7`, 'utf8')) : [] } }));
     process.exit(0);
@@ -195,7 +208,8 @@ if (fs.existsSync(path.join(tmp, 'component.json'))) {
     const read = (p) => JSON.parse(fs.readFileSync(path.join(tmp, p), 'utf8'));
     const own = ['package.json', 'package/package.json', 'mgu-app.json', 'meta.json'].find((p) => fs.existsSync(path.join(tmp, p)));
     const m = read(own);
-    const pkg = Object.assign({}, m, { name: m.name || m.id, version: m.version, built: own === 'mgu-app.json', from: own });
+    // the deploy tool marks every app it installs local
+    const pkg = Object.assign({}, m, { name: m.name || m.id, version: m.version, built: own === 'mgu-app.json', from: own, mguLocalOnly: true });
     const oap = process.env.OAP_ROOT;
     const apps = path.join(oap, 'oap_12201', 'data', 'apps');
     mkdirp(apps);

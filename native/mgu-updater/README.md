@@ -254,19 +254,25 @@ lists the id.
 - An installed component without an origin (installed from outside the
   updater: the installers, the emulator's provisioning; `imported`), or
   whose origin lists its id no more (a stick that is gone, a source
-  removed), is updated by the origin whose listing has its title (an app's
-  en_GB entry-point text, a tool's `component.json` title; the highest
-  version of several), or, with no title on either side, by the one origin
-  that lists it; that origin's row has the id, and installing from it
-  records it as the origin. So a car set up offline updates the Store, the
-  updater and the uplink from a stick, an App Manager app from a stick's
-  `oap/`, and a source removed and added again updates what it installed
-  (a removed source's origins are kept, so no other title takes them).
-  Without such a listing, its row (source: its origin, `imported`, or none)
-  shows it installed and removable (the Store itself not), with no update;
-  every listing of its id is beside it, blocked (`<id> is already
-  installed`), and nothing installs over it, a requirement neither. An
-  installed component no source lists keeps such a row, for its Remove.
+  removed), is updated by the one origin listing its id, whatever its
+  title; of several, by the one whose listing has its title (an app's en_GB
+  entry-point text, a tool's `component.json` title). An origin holding
+  another id for an app of that id (`doom2`) is not counted. With two of
+  that title, or none of it, it has no update. That origin's row has the
+  id, and installing from it records it as the origin. So a car set up
+  offline updates the Store, the updater and the uplink from a stick, an
+  App Manager app from a stick's `oap/`, and a source removed and added
+  again updates what it installed (a removed source's origins are kept:
+  while it is gone, another source may update them by the rule above).
+  Without such an origin its row (source: its origin, `imported`, or
+  none) shows it installed, with no update; every listing of its id is
+  beside it, blocked (`<id> is already installed`), and nothing installs
+  over it, a requirement neither. Every installed component of ours no
+  source lists (a tool, an app the deploy tool marked local, one with an
+  origin, imported) has such a row, for its Remove: removable unless its
+  `component.json` says `uninstallable: false` or it is one the updater
+  never removes (itself, the deploy tool, the Store, what the updater
+  requires); a tool's requirements are its `component.json`'s.
 
 `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
@@ -399,8 +405,8 @@ that has no origin yet gets one, once per record (`state/appmanager.json`):
   after the repository (`car-apps`) when none is, and that source is the
   app's origin;
 - else (a stick's package, a private repository, whose token stays in its
-  folder) `imported`: no origin, so the source listing it under its title
-  updates it ("Ids"). One no source lists keeps a row of source
+  folder) `imported`: no origin, so the source listing it updates it
+  ("Ids"). One no source lists keeps a row of source
   `imported`, installed and removable, that installs from nowhere.
 
 The App Manager's app keeps a row while it or the App Manager's service is
