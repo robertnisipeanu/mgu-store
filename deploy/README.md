@@ -410,20 +410,14 @@ whose das edits and removal steps it follows:
   unit's own donor (MainApp-21's `preinstalled_apps`, then the installed
   stock apps; the apps provisioning lists as preinstalled custom apps
   excluded), any other one repacked with its files under `package/`), and
-  reports the app `pending_reboot` with `installs at the next start`. A
-  package is repacked with what MainApp-21 needs and it lacks: the ACL
-  tables `permissions.json` lacks (`masterAccessTable`,
-  `masterRegistrationTable`), empty, and an `appletId` in
-  `rhmiData/application.json`, without which MainApp-21 gives the app no
-  tile and does not start it: its own while that is in 20000..26999 and
-  not 0, 1000, 2000 or 3000 apart from another app's on the unit
-  (installed, in `preinstalled_apps` or queued, and FeatureTour's 20000),
-  else the installed version's, else the lowest such from 20602 up; the
-  output names an `appletId` it replaced. Hmi8
-  registers an app's tile at its `appletId` + 1000, its start widget at
-  + 2000 and its RHMI application at + 0 or + 3000 (by its oap-sdk), in
-  20000..29999, each once; stock apps hold 20000..20004, IterioDev's
-  20097..20199, the Store 20601.
+  reports the app `pending_reboot` with `installs at the next start`.
+  The package gets what iDrive 8 needs to install it and show its tile,
+  when it lacks it: the permission tables MainApp-21 requires, and an
+  appletId. The appletId is chosen on the car at install time, from the
+  ids its apps and the HMI already use: an update keeps the one the app
+  has, a package's own is kept when it is free, otherwise the tool picks a
+  free one and says so. When the tool cannot read the ids in use, it
+  refuses the install rather than guess.
   Neither app-privacy nor the provisioning fallback is used there (`fallback
   on|off|migrate` is refused).
 - `uninstall` queues the removal (`removed at the next start`); for an app
@@ -498,13 +492,11 @@ reinstalled:
   completes at the next boot, which starts neither (`oap-appmanager`
   pending, `adopted at the next boot`; `uninstall oap-appmanager` is
   refused until then);
-- its queued app changes go into ours (iDrive 8): an install with its
-  staged package while that matches its sha256 and is that app, queued as
-  an install of ours queues it (the ACL tables and `appletId` it lacks
-  added), a removal as it is; its own app is not carried over;
-  `pending.json` goes. A package that is refused is dropped, saying why;
-  a failure of the unit's own (space, I/O) rolls the adopt back, its
-  queue kept;
+- its queued app changes go into ours (iDrive 8), installs prepared as
+  ours are; its own app is not carried over. A queued install whose
+  package is unusable is dropped, saying why; if the car itself fails
+  (no space, a read error), the adopt is undone and his queue kept for
+  the next try;
 - its renderer becomes the tool `mgu-renderd` (`versions/<its version>/`
   from the program it runs), our unit written over its unit; a running
   renderer keeps running and runs ours from its next start. With our

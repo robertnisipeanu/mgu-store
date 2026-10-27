@@ -56,6 +56,9 @@ var CFG = {
     recmgr: env('MGU_DEPLOY_RECMGR', '/etc/recmgr-restartlist.conf'),
     mainapp: env('MGU_DEPLOY_MAINAPP', '/usr/lib/oap-mainapp'),
     mainapp21: env('MGU_DEPLOY_MAINAPP21', '/usr/lib/oap-mainapp21'),
+    // Hmi8's built-in applets: its RHMI applets' manifests (its -ro data) and its native applets
+    hmi8Data: env('MGU_DEPLOY_HMI8_DATA', '/mnt/dataro/data/hmi8'),
+    hmi8Applets: env('MGU_DEPLOY_HMI8_APPLETS', '/usr/lib/hmi8/applet'),
     prov: env('MGU_DEPLOY_PROV', '/usr/share/tm/prov'),
     vminput: env('MGU_DEPLOY_VMINPUT', '/usr/bin/vminput'),
     oap: env('MGU_DEPLOY_OAP', '/var/opt/public/oap'),
@@ -2330,19 +2333,24 @@ function ensureApplyUnit(state) {
 /* MainApp-21 gives an app a tile, and lets it start, only when its
  * rhmiData/application.json has an appletId. The app's tile registers with
  * the HMI at appletId + 1000, its start widget at + 2000 and its own RHMI
- * application at + 0 or + 3000 (by its oap-sdk); Hmi8 takes these in
- * 20000..29999, each once. Two apps clash when their appletIds are 0, 1000,
- * 2000 or 3000 apart. Stock apps hold 20000..20004 (FeatureTour's 20000 is
- * no OAP app's), IterioDev's 20097..20199, the Store 20601. A package keeps
- * the appletId it declares while that clashes with no other app's on the
- * unit; else, or without one, it gets the one its installed version has,
- * else the lowest free one of ID8_APPLET_IDS. */
-var ID8_APPLET_IDS = [20602, 20999];
-var ID8_RESERVED = [20000];
+ * application at + 0 or + 3000 (by its oap-sdk). Hmi8 takes these only in
+ * HMI_APPLET_IDS (a check in its binary; nothing on the unit names it), each
+ * once, so two appletIds 0, 1000, 2000 or 3000 apart clash. The ids in use
+ * differ from car to car and are read from the unit each time: every OAP
+ * app's, MainApp-21's, the packages in preinstalled_apps and in our queue,
+ * those given in this run, and Hmi8's built-in applets'. A source that
+ * cannot be read refuses the install rather than leave an id out. */
+var HMI_APPLET_IDS = [20000, 29999];
 var id8Assigned = {}; // appletIds given in this run, by app id
 function appletIdOf(appJson) {
     var a = appJson && appJson.application;
     return a && typeof a.appletId === 'number' ? a.appletId : null;
+}
+/* An application.json's appletId: null without the file or the id; a file
+ * that does not parse refuses. */
+function fileAppletId(f) {
+    if (!lstatOrNull(f)) return null;
+    try { return appletIdOf(readJson(f)); } catch (e) { throw refuse('cannot read ' + f + ' for the appletIds in use: ' + e.message); }
 }
 function tgzAppletId(file) {
     var j = null;
@@ -2350,20 +2358,45 @@ function tgzAppletId(file) {
         linker().untar(fs.readFileSync(file)).forEach(function (m) {
             if (/^(\.\/)?(package\/)?rhmiData\/application\.json$/.test(m.name)) j = JSON.parse(m.data.toString('utf8'));
         });
-    } catch (e) { return null; }
+    } catch (e) { throw refuse('cannot read ' + file + ' for the appletIds in use: ' + e.message); }
     return appletIdOf(j);
 }
-/* The appletIds on this unit, as { others: [...], own: id's or null }:
- * installed apps' (their homes), packages waiting in preinstalled_apps,
- * queued and given in this run. */
+/* Hmi8's built-in applets' appletIds: <appletId> of each RHMI applet's
+ * manifest under its data's applet/, AppletId of each native applet. */
+function builtinAppletIds() {
+    var ids = [], dir = path.join(CFG.hmi8Data, 'applet'), read = function (f) {
+        try { return fs.readFileSync(f, 'utf8'); } catch (e) { throw refuse('cannot read ' + f + ' for the appletIds in use: ' + e.message); }
+    }, list = function (d) {
+        try { return walk(d, '', []); } catch (e) { throw refuse('cannot read the HMI\'s applets in ' + d + ': ' + e.message); }
+    };
+    list(dir).forEach(function (e) {
+        if (!e.stat.isFile() || !/\.manifest$/.test(e.rel)) return;
+        var m = /<appletId>\s*([^<]*?)\s*<\/appletId>/.exec(read(e.path));
+        if (m && !/^\d+$/.test(m[1])) throw refuse(e.path + ': appletId ' + m[1] + ' is not a number');
+        if (m) ids.push(Number(m[1]));
+    });
+    list(CFG.hmi8Applets).forEach(function (e) {
+        if (!e.stat.isFile() || !/\.xml$/.test(e.rel)) return;
+        var re = /key="AppletId"\s+value="([^"]*)"/g, m, x = read(e.path);
+        while ((m = re.exec(x))) {
+            if (!/^(0x[0-9a-fA-F]+|\d+)$/.test(m[1])) throw refuse(e.path + ': AppletId ' + m[1] + ' is not a number');
+            ids.push(Number(m[1]));
+        }
+    });
+    return ids;
+}
+/* The appletIds on this unit, as { others: [...], own: id's or null }. */
 function id8AppletIds(id) {
     var entry = readJsonOrNull(appEntryFile(id)), ownHome = entry && entry.userId ? 'oap_' + entry.userId : null;
-    var others = [], own = null, add = function (v, mine) {
+    var others = builtinAppletIds(), own = null, add = function (v, mine) {
         if (v === null) return;
         if (mine) own = v; else others.push(v);
     };
-    (fs.existsSync(CFG.oap) ? fs.readdirSync(CFG.oap) : []).forEach(function (n) {
-        if (/^oap_\d+$/.test(n)) add(appletIdOf(readJsonOrNull(path.join(CFG.oap, n, 'rhmiData', 'application.json'))), n === ownHome);
+    add(fileAppletId(path.join(mainappRoot(), 'rhmiData', 'application.json')), false);
+    var homes;
+    try { homes = fs.readdirSync(CFG.oap); } catch (e) { throw refuse('cannot read ' + CFG.oap + ' for the appletIds in use: ' + e.message); }
+    homes.forEach(function (n) {
+        if (/^oap_\d+$/.test(n)) add(fileAppletId(path.join(CFG.oap, n, 'rhmiData', 'application.json')), n === ownHome);
     });
     var mine = preinstalledFor(id);
     (fs.existsSync(preinstalledDir()) ? fs.readdirSync(preinstalledDir()) : []).forEach(function (n) {
@@ -2374,14 +2407,16 @@ function id8AppletIds(id) {
     Object.keys(id8Assigned).forEach(function (k) { if (k !== id) add(id8Assigned[k], false); });
     return { others: others, own: own };
 }
+/* The appletId app id gets: its installed version's, else the one its
+ * package declares, while free; else the lowest free one. */
 function freeAppletId(id, declared) {
-    var ids = id8AppletIds(id), others = ids.others.concat(ID8_RESERVED), free = function (v) {
-        return v >= 20000 && v + 3000 <= 29999 && others.every(function (o) { return [0, 1000, 2000, 3000].indexOf(Math.abs(v - o)) < 0; });
+    var ids = id8AppletIds(id), lo = HMI_APPLET_IDS[0], hi = HMI_APPLET_IDS[1] - 3000, free = function (v) {
+        return v >= lo && v <= hi && ids.others.every(function (o) { return [0, 1000, 2000, 3000].indexOf(Math.abs(v - o)) < 0; });
     };
-    if (declared !== null && free(declared)) return declared;
     if (ids.own !== null && free(ids.own)) return ids.own;
-    for (var v = ID8_APPLET_IDS[0]; v <= ID8_APPLET_IDS[1]; v++) if (free(v)) return v;
-    throw refuse(id + ': no free appletId in ' + ID8_APPLET_IDS.join('..'));
+    if (declared !== null && free(declared)) return declared;
+    for (var v = lo; v <= hi; v++) if (free(v)) return v;
+    throw refuse(id + ': no appletId free on this unit');
 }
 /* What MainApp-21 needs of a package and it may lack, added in pkgDir: the
  * ACL tables permissions.json lacks (aclManager.js fails the install
@@ -2395,7 +2430,7 @@ function id8Complete(a) {
             j.application.appletId = v;
             fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
             added.push(declared === null ? 'appletId ' + v + ' added to rhmiData/application.json' :
-                'appletId ' + v + ' in rhmiData/application.json in place of ' + declared + ', which clashes with another app\'s on this unit');
+                'appletId ' + v + ' in rhmiData/application.json in place of ' + declared + ', which this unit cannot take');
         }
     }
     return added;

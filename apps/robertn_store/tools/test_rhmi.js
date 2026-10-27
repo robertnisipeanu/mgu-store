@@ -122,7 +122,7 @@ function checkHmi(hmi, dir) {
 const counts = [checkHmi('ID7', ID7), checkHmi('ID8', ID8)];
 const app = JSON.parse(fs.readFileSync(path.join(ID7, '..', '..', 'application.json'), 'utf8')).application;
 ok(app.uiDescriptions.map((u) => u.hmi.join()).join() === 'ID7,ID8', 'application.json names both descriptions');
-ok(app.appletId === 20601, 'application.json has the appletId MainApp-21 gives the tile by');
+ok(app.appletId === undefined, 'application.json declares no appletId: the deploy tool gives one on iDrive 8');
 const pkg = JSON.parse(fs.readFileSync(path.join(ID7, '..', '..', '..', 'package.json'), 'utf8'));
 ok(JSON.stringify(pkg.mguHmi) === '["ID7","ID8"]', 'package.json: mguHmi ID7 and ID8');
 console.log(`rhmi: ${counts[0]} states (iDrive 7), ${counts[1]} (iDrive 8), ${checks} checks pass`);

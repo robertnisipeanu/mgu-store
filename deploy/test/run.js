@@ -2964,6 +2964,13 @@ function id8Root(opts) {
     if (opts.noRecmgr) {
         fs.unlinkSync(root.p('etc/recmgr-restartlist.conf'));
     }
+    // Hmi8's built-in applets (opts.builtin: RHMI applet manifests' appletIds, opts.native: native applets' AppletIds)
+    (opts.builtin || [20000]).forEach((v, i) => write(root.p(`mnt/dataro/data/hmi8/applet/rhmi${i}/App${i}/App${i}.manifest`),
+        `<?xml version="1.0" encoding="utf-8"?>\n<plugin>\n    <name>App${i}</name>\n    <appletId>${v}</appletId>\n</plugin>\n`));
+    (opts.native || ['0x08']).forEach((v, i) => write(root.p(`usr/lib/hmi8/applet/native${i}.xml`),
+        `<PluginBundle>\n\t<Plugin>\n\t\t<MetaInformation key="AppletId" value="${v}"/>\n\t</Plugin>\n</PluginBundle>\n`));
+    root.env.MGU_DEPLOY_HMI8_DATA = root.p('mnt/dataro/data/hmi8');
+    root.env.MGU_DEPLOY_HMI8_APPLETS = root.p('usr/lib/hmi8/applet');
     root.env.FAKE_MGR_DIR = 'oap-mainapp21';
     root.noManager = () => fs.writeFileSync(`${root.R}.mgr.pid`, '');
     root.pre21 = (id, v) => root.p(`usr/lib/oap-mainapp21/preinstalled_apps/${id}@${v}.tgz`);
@@ -3547,7 +3554,7 @@ function testAppManager() {
     check('appmanager: his queued install moves to our queue as ours queues one (ACL tables, appletId), his pending.json goes',
         !fs.existsSync(root.H('pending.json')) &&
         JSON.parse(movedPkg['package/permissions.json']).masterRegistrationTable.length === 0 &&
-        JSON.parse(movedPkg['package/rhmiData/application.json']).application.appletId === 20602 &&
+        JSON.parse(movedPkg['package/rhmiData/application.json']).application.appletId === 20001 &&
         root.status().pending_reboot.some((p) => p.id === 'oap-driverecorder-next' && p.reason === 'installs at the next start'), a.out);
     check('appmanager: the record names the apps he installed that are on the unit or in his queue, with the repository he recorded',
         JSON.stringify(rec.apps) === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', from: 'github.com/IterioDev/car-apps' },
@@ -3675,60 +3682,78 @@ function testAppManager() {
 }
 
 /* iDrive 8: what MainApp-21 needs and a package lacks, added before it is
- * queued: the ACL tables permissions.json lacks and an appletId. */
+ * queued: the ACL tables permissions.json lacks, and an appletId free on
+ * the unit, read from what the unit has. */
 function testId8Complete() {
-    const root = id8Root();
-    const queued = (id, v) => untarBuf(fs.readFileSync(root.p(`var/opt/mgu-deploy/id8/queue/${id}@${v}.tgz`)));
+    const queuedIn = (root) => (id, v) => untarBuf(fs.readFileSync(root.p(`var/opt/mgu-deploy/id8/queue/${id}@${v || '1.0.0'}.tgz`)));
     const appletId = (m) => JSON.parse(m['package/rhmiData/application.json']).application.appletId;
+    const install = (root, id, opts) => root.run(['install', '--artifact', rhmiApp(id, (opts || {}).v || '1.0.0', ['ID8'],
+        Object.assign({ npm: true, acl: ACL }, opts || {})), '--yes']);
+
+    // a unit whose only id in use is a built-in applet's, 20000
+    const root = id8Root();
+    const queued = queuedIn(root);
     const entry = { uid: '${APPNAME}', domain: 'hmi.entrypoint2', operation: '*' };
-    const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: { masterAccessTable: [entry] } });
-    const r = root.run(['install', '--artifact', art, '--yes']);
+    const r = root.run(['install', '--artifact', rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: { masterAccessTable: [entry] } }), '--yes']);
     const m = queued('oap-cardash', '1.1.4'), acl = JSON.parse(m['package/permissions.json']);
     check('id8: a package without masterRegistrationTable or appletId is queued with both added, its entries kept', r.status === 0 &&
-        JSON.stringify(acl) === JSON.stringify({ masterAccessTable: [entry], masterRegistrationTable: [] }) && appletId(m) === 20602 &&
+        JSON.stringify(acl) === JSON.stringify({ masterAccessTable: [entry], masterRegistrationTable: [] }) && appletId(m) === 20001 &&
         Object.keys(m).every((n) => n.indexOf('package/') === 0) &&
-        r.out.includes('repacked oap-cardash 1.1.4: masterRegistrationTable added to permissions.json, appletId 20602 added to rhmiData/application.json'),
+        r.out.includes('repacked oap-cardash 1.1.4: masterRegistrationTable added to permissions.json, appletId 20001 added to rhmiData/application.json'),
     r.out);
     const two = root.run(['install', '--artifact', rhmiApp('a1', '1.0.0', ['ID8'], { npm: true, acl: ACL }),
         '--artifact', rhmiApp('a2', '1.0.0', ['ID8'], { acl: ACL }), '--yes']);
     check('id8: apps without one get appletIds the queue and each other do not hold', two.status === 0 &&
-        appletId(queued('a1', '1.0.0')) === 20603 && appletId(queued('a2', '1.0.0')) === 20604, two.out);
-    const declare = (id, v) => root.run(['install', '--artifact', rhmiApp(id, '1.0.0', ['ID8'], { npm: true, acl: ACL, appletId: v }), '--yes']);
-    const kept = declare('kept', 20650);
-    check('id8: a declared appletId that clashes with no other app\'s is kept', kept.status === 0 && appletId(queued('kept', '1.0.0')) === 20650 &&
+        appletId(queued('a1')) === 20002 && appletId(queued('a2')) === 20003, two.out);
+    const kept = install(root, 'kept', { appletId: 20650 });
+    check('id8: a declared appletId free on the unit is kept', kept.status === 0 && appletId(queued('kept')) === 20650 &&
         !kept.out.includes('repacked'), kept.out);
-    const clash = declare('clash', 20602);
+    const clash = install(root, 'clash', { appletId: 20001 });
     check('id8: a declared appletId another app holds is replaced by a free one, saying so', clash.status === 0 &&
-        appletId(queued('clash', '1.0.0')) === 20605 &&
-        clash.out.includes('appletId 20605 in rhmiData/application.json in place of 20602, which clashes with another app\'s on this unit'), clash.out);
-    // FeatureTour's 20000 (1000 below), and the ends of what Hmi8 takes with + 3000
-    const fixed = [['ft', 21000, 20606], ['high', 27100, 20607], ['low', 19900, 20608]].map(([id, v, want]) =>
-        [declare(id, v), appletId(queued(id, '1.0.0')) === want]);
-    check('id8: a declared appletId 0..3000 from FeatureTour\'s, or outside 20000..26999, is replaced',
+        appletId(queued('clash')) === 20004 &&
+        clash.out.includes('appletId 20004 in rhmiData/application.json in place of 20001, which this unit cannot take'), clash.out);
+    const fixed = [['near', 21000, 20005], ['high', 27100, 20006], ['low', 19900, 20007]].map(([id, v, want]) => {
+        const x = install(root, id, { appletId: v });
+        return [x, appletId(queued(id)) === want];
+    });
+    check('id8: a declared appletId 1000 from a built-in applet\'s, or outside what Hmi8 takes, is replaced',
         fixed.every(([x, ok]) => x.status === 0 && ok), fixed.map(([x]) => x.out).join('\n'));
 
-    // installed at 20602, 21603 (1000 above 20603), 23605 (3000 above 20605) and 20650 (mine); a package waiting in
-    // preinstalled_apps at 20604
-    const r2 = id8Root();
+    // another unit: ids in use at 20000 (an OAP app), 20001 (a native applet), 23002 (a built-in RHMI applet, 3000 from 20002),
+    // 20003 (an OAP app), 20004 (a built-in RHMI applet), 20005 (MainApp-21), 20006 (a package in preinstalled_apps)
+    const r2 = id8Root({ builtin: [23002, 20004], native: ['0x4E21', '0x08'] });
+    const q2 = queuedIn(r2);
     const home = (uid, v) => write(r2.p(`var/opt/public/oap/oap_${uid}/rhmiData/application.json`), JSON.stringify({ application: { appletId: v } }));
+    home(13001, 20000); home(13002, 20003);
+    write(r2.p('usr/lib/oap-mainapp21/rhmiData/application.json'), JSON.stringify({ application: { appletId: 20005 } }));
+    write(r2.pre21('waiting', '1.0.0'), fs.readFileSync(rhmiApp('waiting', '1.0.0', ['ID8'], { npm: true, appletId: 20006 })));
+    const n = install(r2, 'newapp');
+    check('id8: the lowest appletId clear of every id the unit has: OAP apps, MainApp-21, preinstalled packages, the HMI\'s built-in applets',
+        n.status === 0 && appletId(q2('newapp')) === 20007, n.out);
     write(r2.entry('mine'), JSON.stringify({ userId: 13003 }));
-    home(13001, 20602); home(13002, 21603); home(13004, 23605); home(13003, 20650);
+    home(13003, 20650);
     write(r2.p('var/opt/public/oap/oap_13003/source/package.json'), JSON.stringify({ name: 'mine', version: '0.9.0' }));
-    write(r2.pre21('waiting', '1.0.0'), fs.readFileSync(rhmiApp('waiting', '1.0.0', ['ID8'], { npm: true, appletId: 20604 })));
-    const n = r2.run(['install', '--artifact', rhmiApp('newapp', '1.0.0', ['ID8'], { npm: true, acl: ACL }), '--yes']);
-    const q2 = (id) => untarBuf(fs.readFileSync(r2.p(`var/opt/mgu-deploy/id8/queue/${id}@1.0.0.tgz`)));
-    check('id8: the lowest appletId clear of installed apps and preinstalled packages, 0, 1000, 2000 or 3000 apart',
-        n.status === 0 && appletId(q2('newapp')) === 20606, n.out);
-    write(r2.p('usr/lib/oap-mainapp21/preinstalled_apps/mine-0.9.0.tgz'),
-        fs.readFileSync(rhmiApp('mine', '0.9.0', ['ID8'], { npm: true, appletId: 20650 })));
-    const u = r2.run(['install', '--artifact', rhmiApp('mine', '1.0.0', ['ID8'], { npm: true, acl: ACL }), '--yes']);
-    check('id8: an update without one keeps the installed version\'s (its package named <id>-<version>.tgz)',
+    write(r2.p('usr/lib/oap-mainapp21/preinstalled_apps/mine-0.9.0.tgz'), fs.readFileSync(rhmiApp('mine', '0.9.0', ['ID8'], { npm: true, appletId: 20650 })));
+    const u = install(r2, 'mine', { appletId: 20700 });
+    check('id8: an update keeps the installed version\'s appletId (its package named <id>-<version>.tgz) over the one it declares',
         u.status === 0 && appletId(q2('mine')) === 20650, u.out);
     write(r2.entry('lowapp'), JSON.stringify({ userId: 13005 }));
     home(13005, 19500);
     write(r2.p('var/opt/public/oap/oap_13005/source/package.json'), JSON.stringify({ name: 'lowapp', version: '0.9.0' }));
-    const lo = r2.run(['install', '--artifact', rhmiApp('lowapp', '1.0.0', ['ID8'], { npm: true, acl: ACL }), '--yes']);
-    check('id8: an installed version\'s appletId below 20000 is not reused', lo.status === 0 && appletId(q2('lowapp')) === 20607, lo.out);
+    const lo = install(r2, 'lowapp');
+    check('id8: an installed version\'s appletId outside what Hmi8 takes is not kept', lo.status === 0 && appletId(q2('lowapp')) === 20008, lo.out);
+
+    // what cannot be read refuses the install, nothing queued
+    const bad = id8Root();
+    write(bad.p('var/opt/public/oap/oap_13009/rhmiData/application.json'), '{ not json');
+    const b1 = install(bad, 'b1');
+    fs.rmSync(bad.p('usr/lib/hmi8/applet'), { recursive: true });
+    fs.rmSync(bad.p('var/opt/public/oap/oap_13009'), { recursive: true });
+    const b2 = install(bad, 'b2');
+    check('id8: an id source that cannot be read refuses the install: an app\'s application.json, the HMI\'s applets', b1.status === 2 &&
+        b1.out.includes('rhmiData/application.json for the appletIds in use') && b2.status === 2 && b2.out.includes('cannot read the HMI\'s applets') &&
+        !fs.existsSync(bad.p('var/opt/mgu-deploy/id8/queue/b1@1.0.0.tgz')) && !fs.existsSync(bad.p('var/opt/mgu-deploy/id8/queue/b2@1.0.0.tgz')),
+    `${b1.out}\n${b2.out}`);
 }
 
 // MGU_TEST_ONLY=<name>,...: only those test functions

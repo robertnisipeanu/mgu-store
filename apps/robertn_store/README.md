@@ -82,20 +82,9 @@ through it once. iDrive 8 has its own widget layout
 (`uiDescriptions/ID8`, `LT_State_Wide_List` with
 `LT_Button_MediaEntry_1Row` rows) and no embed host states.
 
-MainApp-21 gives the Store its tile only by the `appletId` in
-`rhmiData/application.json` (iDrive 7 does not read it): 20601. The tile
-registers with Hmi8 at 21601, a start widget at 22601 and the Store's RHMI
-application at 20601 or 23601 (by the donor's oap-sdk); Hmi8 takes
-20000..29999, each once. Stock apps hold 20000..20004 and IterioDev's
-20097..20199, so these are clear of all of them; the deploy tool gives
-a package without an `appletId`, or with one that clashes, one from 20602
-up. The manifest names the
-iDrive 8 SDK's interfaces (`EntryPoint2`, `RemoteHmi2`, `ResourceManager2`,
-`UseCaseContext`, `PrivateEntryPoint2`, ...) beside iDrive 7's; both units'
-interface databases define them all. On iDrive 8 no state has a parent
-(`ParentState`): Hmi8 refuses a description with a parent that has a parent,
-and its BACK closes a state's parent with it; its history takes the Store's
-states back one at a time.
+On iDrive 8 the deploy tool gives the Store the id its tile needs when it
+installs it; the same package runs on iDrive 7. BACK goes back one page at
+a time.
 
 ## The widget screens
 
@@ -312,7 +301,6 @@ The Store requires mgu-render (`release.json`), so an install puts it on.
   template's buttons, else FrontCCU's dial and push there; touch inside the
   page template; the compact layout's text and buttons for reading and
   pressing in the car.
-- iDrive 8: the QR picture label of the widget layout, and text entry: the
-  free-text speller use case `02076b22-…` has no provider on Hmi8 in the
-  emulator (`PROVIDER_NOT_FOUND`), so Add source and Add token say `Text
-  entry failed` there.
+- iDrive 8: the QR picture in the widget screens, and typing: in the
+  emulator the HMI has no keyboard for apps, so Add source and Add token
+  say `Text entry failed` there.

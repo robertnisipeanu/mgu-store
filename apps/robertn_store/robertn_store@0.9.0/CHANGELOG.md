@@ -24,9 +24,9 @@ component's page follows its row when an install gives the row another id,
 and shows `Id <id>` when it installs under another id than its source's. An
 installed component without an origin shows no source.
 
-On iDrive 8 the Store has its tile and opens, drawn by mgu-render: an
-`appletId` (20601) in `rhmiData/application.json`, the iDrive 8 SDK's
-interfaces in the manifest, no state parents there (Hmi8 refuses a parent's
+On iDrive 8 the Store has its tile and opens, drawn by mgu-render: the
+deploy tool gives it its `appletId` there, the iDrive 8 SDK's interfaces in
+the manifest, no state parents there (Hmi8 refuses a parent's
 parent, and its BACK closes a parent with its state), and its version read
 from the SDK there. Needs mgu-render 0.3.0.
 
