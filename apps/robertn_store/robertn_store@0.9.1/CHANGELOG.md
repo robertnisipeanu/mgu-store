@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1
+
+On iDrive 8 the Store has its tile and opens, drawn by the renderer; touch,
+the controller and BACK work, going back one page at a time. Needs
+mgu-deploy 0.5.1, which gives it its tile, and mgu-render 0.3.1.
+
 ## 0.9.0
 
 Add source offers what a GitHub repository has. After `owner/repo` (or a
@@ -23,12 +29,6 @@ Each source's component of an id is its own tile and row (mgu-updater
 component's page follows its row when an install gives the row another id,
 and shows `Id <id>` when it installs under another id than its source's. An
 installed component without an origin shows no source.
-
-On iDrive 8 the Store has its tile and opens, drawn by mgu-render: the
-deploy tool gives it its `appletId` there, the iDrive 8 SDK's interfaces in
-the manifest, no state parents there (Hmi8 refuses a parent's
-parent, and its BACK closes a parent with its state), and its version read
-from the SDK there. Needs mgu-render 0.3.0.
 
 ## 0.8.2
 

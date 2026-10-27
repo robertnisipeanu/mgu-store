@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.5.1
+
+- iDrive 8: apps get their tile there. Each app is given what MainApp-21 needs to install and show it: the permission tables it requires, and an appletId chosen on the car from the ids its apps and the HMI already use. An update keeps the app's id; a package's own id is kept when it is free; otherwise a free one is given and the output says so. If the ids in use cannot be read, the install is refused rather than guessed.
+- `appmanager adopt` prepares IterioDev's queued installs the same way. One whose package is unusable is dropped, saying why; if the car itself fails (no space, a read error), the adopt is undone and his queue kept.
+
 ## 0.5.0
 
 - IterioDev's App Manager is replaced by the Store. `appmanager adopt` takes over a unit that runs it: its daemon disabled and stopped (a start the boot queued cancelled; one recmgr does not list runs until the next boot, which completes the adoption), its queued app changes moved to ours (iDrive 8) and its boot hook disabled, its iPhone tether stopped and disabled, its renderer made the tool `mgu-renderd` from the program it runs (left running), and the apps it installed or had queued and its repositories (without tokens) recorded in `appmanager.json`; with our `mgu-renderd` installed first, our unit goes back over the one it wrote; nothing is reinstalled. `uninstall oap-appmanager` adopts first, removes its units and boot hook, keeps `/var/opt/appmanager` as `appmanager-removed/`, and uninstalls its app (on iDrive 8 at the next start); the apps and the renderer stay. Both run in one snapshot, rolled back on a failure. `status --json` has `appmanager`.
@@ -8,7 +13,6 @@
 - A tool takes over what idrive7-apps' own installer (`# added by mgu-app-install.sh`) left: a unit or drop-in of the same name is written over, its controller gate files go with them, and a tool serving `/run/mgu-renderd` removes their renderer's unit, link and program (the running one stops at the next boot). All in the install's snapshot.
 - An update of an app installed without a CertificateManager keychain (idrive7-apps' installer installs them so) is done once the manager has the new version in place: MainApp's update keeps what the app had, without a keychain.
 - `status --json` `idrive7.apps`: the apps idrive7-apps' installer put on the unit (registered, listed in `custom_apps.json`, with its kit's `app-spec.json`, not installed by this tool), for the updater to give them their origin.
-- iDrive 8 apps: a package is queued with what MainApp-21 needs added when it lacks it: the ACL tables `permissions.json` lacks (`masterAccessTable`, `masterRegistrationTable`), empty, as on iDrive 7; and an `appletId` in `rhmiData/application.json`, without which MainApp-21 gives the app no tile and does not start it. The `appletId` is chosen on the unit from the ids it has in use (its OAP apps', MainApp-21's, `preinstalled_apps`', the queue's, the HMI's built-in applets'): the installed version's, else the package's own, while free; else the lowest free one, saying which it replaced. An id is free when it is in the range Hmi8 takes and not 0, 1000, 2000 or 3000 from one in use. A built-in applets folder a unit does not have holds no ids; an id source that cannot be read refuses the install. A package published in npm format is repacked only then. An install `appmanager adopt` takes over from IterioDev's App Manager's queue is queued the same way; one whose package is refused (does not validate, is not the app it says, cannot be prepared) is dropped, saying why, and a failure of the unit's own (space, I/O, the linker not loading) rolls the adopt back with his queue kept.
 
 ## 0.4.0
 

@@ -1,8 +1,8 @@
 {
   "build": "node tools/build.js && node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js && node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js",
   "requires": {
-    "mgu-deploy": "0.3.0",
+    "mgu-deploy": "0.5.1",
     "mgu-updater": "0.7.0",
-    "mgu-render": "0.3.0"
+    "mgu-render": "0.3.1"
   }
 }

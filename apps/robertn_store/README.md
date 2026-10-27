@@ -1,4 +1,4 @@
-# robertn_store 0.9.0
+# robertn_store 0.9.1
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources and the phone page.
@@ -265,15 +265,15 @@ tools/test_screens.js      every drawn screen in iDrive 7's and 8's boxes: in th
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.0/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.1/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.0.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.0.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.1.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.1.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js
 (cd ../../native/mgu-render && make test) && node tools/shots.js <out dir>     # screenshots
