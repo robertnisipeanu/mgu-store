@@ -1360,7 +1360,7 @@ class Updater {
     }
 
     /* Queues a removal of id: one its source marks uninstallable, installed,
-     * that nothing installed requires. */
+     * that nothing installed, nor the updater itself, requires. */
     requestUninstall(id) {
         if (this.rebooting) {
             return 'the head unit is restarting';
