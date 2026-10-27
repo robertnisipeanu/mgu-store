@@ -92,7 +92,7 @@ f = screen('app-update');
 eq(own(f), ['Update to a1b2c3d', 'Remove', 'Back'], 'a page: its buttons, Back, the side menu');
 eq(text(f, 'author'), 'by robertn · from cauliflower/idrive7-apps');
 eq(f.items[1].act, { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'gauges' } });
-ok(/^Voice assistant/.test(text(f, 'desc')), 'the description');
+ok(/^Speed, revs/.test(text(f, 'desc')), 'the description');
 eq(f.values.facts.items.map((c) => c.text), ['Version 1.2.0', 'Commit a1b2c3d', 'App', 'iDrive 7 and iDrive 8']);
 f = screen('app-incompatible');
 eq(own(f), ['Back'], 'not for this unit: nothing to press');

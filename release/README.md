@@ -117,7 +117,7 @@ It lists the newest published version of every component. `artifact.url`
 is where the unit downloads it: the GitHub asset's API URL, or a path
 relative to the catalog on a static host or a folder. The updater checks
 `size` and `sha256` before anything is installed. The catalog is not
-signed: the unit trusts a source over HTTPS (with a token that reaches it).
+signed: the unit trusts a source over HTTPS.
 
 Schema 2 adds, per entry:
 
@@ -157,7 +157,7 @@ the car reads like any public repository.
 
 | Target (`MGU_PUBLISH`) | Layout | The unit reads it with |
 |---|---|---|
-| `github:<owner>/<repo>` (the workflow's repository) | release `<id>@<version>` per version, its artifact the one asset; release `catalog` holding `catalog.json` | a `github` source, read with a token that reaches it |
+| `github:<owner>/<repo>` (the workflow's repository) | release `<id>@<version>` per version, its artifact the one asset; release `catalog` holding `catalog.json` | a `github` source |
 | `dir:<path>` (relative paths: to the repository) | `catalog.json` and the artifacts side by side in a local folder, for the emulator or a USB stick | a `file` source, a USB stick, or the folder served over HTTPS (`https` source) |
 
 `publish` requires a clean working tree, builds HEAD, uploads each new

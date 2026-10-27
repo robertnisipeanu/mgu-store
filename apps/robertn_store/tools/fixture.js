@@ -43,8 +43,8 @@ function state() {
             comp({ id: 'robertn_store', title: 'Store', version: '0.7.0', installed: '0.7.0', status: 'installed', uninstallable: false }),
             comp({ id: 'doom', title: 'DOOM', version: '1.0.1', installed: '1.0.0', status: 'update', size: 2080457, source: 'idrive7-apps' }),
             comp({ id: 'gauges', title: 'Gauges', version: '1.2.0', installed: '1.2.0', status: 'update', revision: 'a1b2c3d',
-                source: 'idrive7-apps', build: 'unit', author: 'robertn', description: 'Voice assistant for the car: asks, answers and reads out ' +
-                'what the car knows, with the microphone of the steering wheel.' }),
+                source: 'idrive7-apps', build: 'unit', author: 'robertn', description: 'Speed, revs, temperatures and boost as gauges, ' +
+                'laid out the way you pick.' }),
             comp({ id: 'car_vitals', title: 'M Vitals', version: '2.1.0', status: 'available', size: 412000, source: 'idrive7-apps' }),
             comp({ id: 'extended_dashboard', title: 'Extended dashboard', version: '1.3.0', installed: '1.2.0', status: 'update',
                 queued: true, source: 'idrive7-apps' }),

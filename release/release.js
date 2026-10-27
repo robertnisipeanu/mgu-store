@@ -487,8 +487,7 @@ function cmdPublish(ids, dryRun) {
     if (git(['status', '--porcelain', '--untracked-files=no'])) {
         throw new Error('commit first: publish builds HEAD and records its commit in the catalog');
     }
-    // before anything is built or uploaded: the target is private and
-    // publishing to it runs in GitHub Actions
+    // before anything is built or uploaded: publishing to GitHub runs in Actions
     publishTarget.preflight(dryRun);
     const published = publishTarget.published() || { components: [] };
     // a run from a commit older than the published catalog's (a re-run of an
