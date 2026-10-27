@@ -804,13 +804,14 @@ class Updater {
     /* The origin that updates an installed id whose own origin lists it no
      * more, or that has none (installed from outside the updater, imported),
      * of the origins listing it that hold no other id for it (aside): the
-     * one there is, else of several the one whose listing has the installed
-     * one's title (an app's en_GB entry-point text, a tool's component.json
-     * title). Else none: two of that title, or none of it. */
-    openLead(id, origins) {
+     * one whose listing has the installed one's title (an app's en_GB
+     * entry-point text, a tool's component.json title), or, for one with
+     * no recorded origin, the only one listing it. Else none: two of that
+     * title, or none of it. */
+    openLead(id, origins, recorded) {
         const have = installedApp(this.conf, id, true) || installedTool(this.conf, id);
         const titled = origins.filter((g) => have.title && g.best.entry.title === have.title);
-        return origins.length === 1 ? origins[0] : titled.length === 1 ? titled[0] : null;
+        return !recorded && origins.length === 1 ? origins[0] : titled.length === 1 ? titled[0] : null;
     }
 
     /* Of one origin's listings of an id, the one it offers: the highest
@@ -831,7 +832,7 @@ class Updater {
     /* The row of an installed component no listing stands for: its id
      * belongs to no origin that lists it (source: its origin, imported, or
      * null). It is shown, and can be removed (what the updater never removes
-     * not, nor a tool its own component.json says cannot be), but nothing
+     * not, nor a tool whose own component.json does not say it can be), but nothing
      * installs over it. A tool's requirements are its component.json's. */
     originless(id, source) {
         const i = installedApp(this.conf, id, true) || installedTool(this.conf, id);
@@ -844,7 +845,8 @@ class Updater {
             Object.keys(c.requires).filter((k) => ID.test(k) && k !== id && catalogLib.SEMVER.test(c.requires[k]))
                 .reduce((o, k) => Object.assign(o, { [k]: c.requires[k] }), {}) : {};
         return { entry: catalogLib.checkExtras({ id, kind: i.kind, version: i.version, title: i.title || id, requires,
-            uninstallable: kept.indexOf(id) < 0 && c.uninstallable !== false,
+            uninstallable: kept.indexOf(id) < 0 && (i.kind !== 'tool' || c.uninstallable === true),
+            mguProvides: i.kind === 'tool' && typeof c.mguProvides === 'string' ? c.mguProvides : null,
             artifact: { name: '', size: null, sha256: null }, unlisted: true }),
         source: source || (this.adopted.imported.indexOf(id) >= 0 ? IMPORTED : null) };
     }
@@ -897,7 +899,7 @@ class Updater {
                 g.best = this.best(g.list);
                 g.aside = sourcesLib.renameable(g.best.entry) && !!this.aliases[`${g.origin}:${id}`];
             });
-            const lead = installed ? origins.find((g) => holder && g.origin === this.originOf(holder)) || this.openLead(id, origins.filter((g) => !g.aside)) :
+            const lead = installed ? origins.find((g) => holder && g.origin === this.originOf(holder)) || this.openLead(id, origins.filter((g) => !g.aside), !!holder) :
                 origins.find((g) => !g.aside && !sourcesLib.renameable(g.best.entry)) || origins.find((g) => !g.aside);
             if (lead) {
                 map.set(id, { entry: lead.best.entry, source: lead.best.source });

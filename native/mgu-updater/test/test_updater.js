@@ -3351,17 +3351,23 @@ function testIdClash() {
                 Object.assign(lone, { src: u.src, origins: {}, aliases: {} });
                 const py1 = lone.resolved().get('mgu-python');
                 ok('ids: one source listing an id updates it whatever its title', py1.source === 'pytools' && !py1.entry.unlisted, JSON.stringify(py1));
+                Object.assign(lone, { origins: { 'mgu-python': { source: 'gone', commit: null } } });
+                const py2 = lone.resolved().get('mgu-python');
+                ok('ids: ...unless its own origin is gone: then only a listing with its title updates it', py2.entry.unlisted === true,
+                    JSON.stringify(py2));
                 fs.writeFileSync(py, pyWas);
-                tool('plain-tool', { title: 'Plain' });
+                tool('plain-tool', { title: 'Plain', uninstallable: true });
+                tool('bare-tool', { mguProvides: 'widget' });
                 tool('kept-tool', { uninstallable: false, requires: { 'plain-tool': '1.0.0' } });
                 cp.execFileSync(deploySh, ['install', '--artifact', appTgz(M, 'loose_one', '1.0.0'), '--yes'], { stdio: 'ignore' });
                 return u.refresh().then(() => {
                     ok('unlisted: a tool and an app of ours no source lists have rows; a tool removable as its component.json says, with its ' +
                         'requirements; the updater, the deploy tool and Python never removable', comp('plain-tool').uninstallable === true &&
+                        comp('bare-tool').uninstallable === false && u.resolved().get('bare-tool').entry.mguProvides === 'widget' &&
                         comp('plain-tool').title === 'Plain' && comp('kept-tool').uninstallable === false && comp('loose_one').uninstallable === true &&
                         comp('loose_one').installed === '1.0.0' && comp('mgu-deploy').installed === '0.3.2' && comp('mgu-deploy').uninstallable === false &&
                         u.requestUninstall('plain-tool') === 'kept-tool needs plain-tool',
-                        JSON.stringify(['plain-tool', 'kept-tool', 'loose_one', 'mgu-deploy'].map(comp)));
+                        JSON.stringify(['plain-tool', 'bare-tool', 'kept-tool', 'loose_one', 'mgu-deploy'].map(comp)));
                     return ask(conf.socket, { op: 'install', id: 'doom@iterio' });
                 });
             });
