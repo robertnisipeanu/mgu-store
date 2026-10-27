@@ -1,5 +1,10 @@
 # Updater changelog
 
+## 0.7.1
+
+- GitHub sources and the add-source check are read with a stored token when there is one, public repos too, and without one only where every token is refused; a source that hits GitHub's rate limit with no usable token says `GitHub rate limit reached`.
+- A check asks GitHub only what can have changed and reads the rest only when it did, so unchanged sources cost far fewer requests and a new version is still found in the same check.
+
 ## 0.7.0
 
 - IterioDev's App Manager on the unit (the deploy tool's `status --json` `appmanager`) is adopted once through `mgu-deploy.sh appmanager adopt`. Each app it installed gets as origin the source that reads its public repository's index (added as an https source named after the repository when none does), the repository it recorded, else its default one when that listed the app; any other is `imported`: no origin, so the source listing it updates it ("Ids"); one no source lists has a row of source `imported`, installed and removable.
