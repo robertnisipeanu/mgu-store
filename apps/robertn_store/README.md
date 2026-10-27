@@ -83,8 +83,7 @@ through it once. iDrive 8 has its own widget layout
 `LT_Button_MediaEntry_1Row` rows) and no embed host states.
 
 On iDrive 8 the deploy tool gives the Store the id its tile needs when it
-installs it; the same package runs on iDrive 7. BACK goes back one page at
-a time.
+installs it; the same package runs on iDrive 7.
 
 ## The widget screens
 
@@ -301,6 +300,7 @@ The Store requires mgu-render (`release.json`), so an install puts it on.
   template's buttons, else FrontCCU's dial and push there; touch inside the
   page template; the compact layout's text and buttons for reading and
   pressing in the car.
-- iDrive 8: the QR picture in the widget screens, and typing: in the
-  emulator the HMI has no keyboard for apps, so Add source and Add token
-  say `Text entry failed` there.
+- iDrive 8: the widget layout (`LT_State_Wide_List`, `LT_Button_MediaEntry_1Row`
+  cells, the QR picture label), the layer host states' proxies and focus
+  events, `mapEntryState` switching, the manifest's proxies under MainApp-21,
+  the entry point's insertion there.

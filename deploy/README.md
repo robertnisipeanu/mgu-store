@@ -417,7 +417,7 @@ whose das edits and removal steps it follows:
   ids its apps and the HMI already use: an update keeps the one the app
   has, a package's own is kept when it is free, otherwise the tool picks a
   free one and says so. When the tool cannot read the ids in use, it
-  refuses the install rather than guess.
+  stops the install rather than guess.
   Neither app-privacy nor the provisioning fallback is used there (`fallback
   on|off|migrate` is refused).
 - `uninstall` queues the removal (`removed at the next start`); for an app
@@ -492,11 +492,9 @@ reinstalled:
   completes at the next boot, which starts neither (`oap-appmanager`
   pending, `adopted at the next boot`; `uninstall oap-appmanager` is
   refused until then);
-- its queued app changes go into ours (iDrive 8), installs prepared as
-  ours are; its own app is not carried over. A queued install whose
-  package is unusable is dropped, saying why; if the car itself fails
-  (no space, a read error), the adopt is undone and his queue kept for
-  the next try;
+- its queued app changes go into ours (iDrive 8): an install with its
+  staged package while that matches its sha256, a removal as it is; its
+  own app is not carried over; `pending.json` goes;
 - its renderer becomes the tool `mgu-renderd` (`versions/<its version>/`
   from the program it runs), our unit written over its unit; a running
   renderer keeps running and runs ours from its next start. With our

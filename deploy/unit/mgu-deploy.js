@@ -2339,51 +2339,80 @@ function ensureApplyUnit(state) {
  * differ from car to car and are read from the unit each time: every OAP
  * app's, MainApp-21's, the packages in preinstalled_apps and in our queue,
  * those given in this run, and Hmi8's built-in applets'. A source that
- * cannot be read refuses the install rather than leave an id out. */
+ * cannot be read fails the install (the unit's failure, not the package's)
+ * rather than leave an id out; a package of another app that cannot be read
+ * is passed over, warning. */
 var HMI_APPLET_IDS = [20000, 29999];
 var id8Assigned = {}; // appletIds given in this run, by app id
 function appletIdOf(appJson) {
     var a = appJson && appJson.application;
     return a && typeof a.appletId === 'number' ? a.appletId : null;
 }
-/* An application.json's appletId: null without the file or the id; a file
- * that does not parse refuses. */
-function fileAppletId(f) {
-    if (!lstatOrNull(f)) return null;
-    try { return appletIdOf(readJson(f)); } catch (e) { throw refuse('cannot read ' + f + ' for the appletIds in use: ' + e.message); }
+function parseJsonText(t) { return JSON.parse(t.replace(/^﻿/, '')); }
+function idReadFailure(what, e) { return fail('cannot read ' + what + ' for the appletIds in use: ' + (e && e.message || e)); }
+/* fs.statSync (symlinks followed), null only when the path does not exist. */
+function statIfThere(p) {
+    try { return fs.statSync(p); } catch (e) {
+        if (e.code === 'ENOENT') return null;
+        throw idReadFailure(p, e);
+    }
 }
+/* An application.json's appletId: null without the file or the id. */
+function fileAppletId(f) {
+    if (!statIfThere(f)) return null;
+    try { return appletIdOf(parseJsonText(fs.readFileSync(f, 'utf8'))); } catch (e) { throw idReadFailure(f, e); }
+}
+/* A package's appletId; one that cannot be read is passed over (null). */
 function tgzAppletId(file) {
     var j = null;
     try {
-        linker().untar(fs.readFileSync(file)).forEach(function (m) {
-            if (/^(\.\/)?(package\/)?rhmiData\/application\.json$/.test(m.name)) j = JSON.parse(m.data.toString('utf8'));
+        var members = linker().untar(fs.readFileSync(file));
+        if (!members.length) throw new Error('no files in it');
+        members.forEach(function (m) {
+            if (/^(\.\/)?(package\/)?rhmiData\/application\.json$/.test(m.name)) j = parseJsonText(m.data.toString('utf8'));
         });
-    } catch (e) { throw refuse('cannot read ' + file + ' for the appletIds in use: ' + e.message); }
+    } catch (e) {
+        warn('the appletId of ' + file + ' is not known, passed over: ' + e.message);
+        return null;
+    }
     return appletIdOf(j);
 }
-/* Hmi8's built-in applets' appletIds: <appletId> of each RHMI applet's
- * manifest under its data's applet/, AppletId of each native applet. A
- * folder a unit does not have holds none; one that cannot be read refuses. */
-function builtinAppletIds() {
-    var ids = [], dir = path.join(CFG.hmi8Data, 'applet'), read = function (f) {
-        try { return fs.readFileSync(f, 'utf8'); } catch (e) { throw refuse('cannot read ' + f + ' for the appletIds in use: ' + e.message); }
-    }, list = function (d) {
-        if (!lstatOrNull(d)) return [];
-        try { return walk(d, '', []); } catch (e) { throw refuse('cannot read the HMI\'s applets in ' + d + ': ' + e.message); }
-    };
-    list(dir).forEach(function (e) {
-        if (!e.stat.isFile() || !/\.manifest$/.test(e.rel)) return;
-        var m = /<appletId>\s*([^<]*?)\s*<\/appletId>/.exec(read(e.path));
-        if (m && !/^\d+$/.test(m[1])) throw refuse(e.path + ': appletId ' + m[1] + ' is not a number');
-        if (m) ids.push(Number(m[1]));
+/* The files below dir, symlinks followed (depth-bounded against loops). */
+function filesBelow(dir, depth) {
+    var out = [];
+    fs.readdirSync(dir).forEach(function (n) {
+        var p = path.join(dir, n), st = statIfThere(p);
+        if (!st) return; // a link to nothing
+        if (st.isDirectory()) { if (depth < 8) out = out.concat(filesBelow(p, depth + 1)); }
+        else if (st.isFile()) out.push(p);
     });
-    list(CFG.hmi8Applets).forEach(function (e) {
-        if (!e.stat.isFile() || !/\.xml$/.test(e.rel)) return;
-        var re = /key="AppletId"\s+value="([^"]*)"/g, m, x = read(e.path);
-        while ((m = re.exec(x))) {
-            if (!/^(0x[0-9a-fA-F]+|\d+)$/.test(m[1])) throw refuse(e.path + ': AppletId ' + m[1] + ' is not a number');
-            ids.push(Number(m[1]));
+    return out;
+}
+/* Hmi8's built-in applets' appletIds: <appletId> of each RHMI applet's
+ * manifest under its data's applet/, AppletId of each native applet. Its
+ * data folder must be there; an applets folder a unit does not have holds
+ * none. An empty id is passed over; ids are decimal or 0x hex. */
+function builtinAppletIds() {
+    var ids = [], read = function (f) {
+        try { return fs.readFileSync(f, 'utf8'); } catch (e) { throw idReadFailure(f, e); }
+    }, list = function (d, ext) {
+        if (!statIfThere(d)) return [];
+        try { return filesBelow(d, 0).filter(function (f) { return f.slice(-ext.length) === ext; }); } catch (e) {
+            throw e.code === 1 ? e : idReadFailure('the HMI\'s applets in ' + d, e);
         }
+    }, add = function (f, v) {
+        if (v === '') return;
+        if (!/^(0x[0-9a-fA-F]+|\d+)$/.test(v)) throw idReadFailure(f, 'appletId ' + v + ' is not a number');
+        ids.push(Number(v));
+    };
+    if (!statIfThere(CFG.hmi8Data)) throw idReadFailure('the HMI\'s data', CFG.hmi8Data + ' is missing');
+    list(path.join(CFG.hmi8Data, 'applet'), '.manifest').forEach(function (f) {
+        var m = /<appletId>\s*([^<]*?)\s*<\/appletId>/.exec(read(f));
+        if (m) add(f, m[1]);
+    });
+    list(CFG.hmi8Applets, '.xml').forEach(function (f) {
+        var re = /key="AppletId"\s+value="\s*([^"]*?)\s*"/g, m, x = read(f);
+        while ((m = re.exec(x))) add(f, m[1]);
     });
     return ids;
 }
@@ -2395,13 +2424,15 @@ function id8AppletIds(id) {
         if (mine) own = v; else others.push(v);
     };
     add(fileAppletId(path.join(mainappRoot(), 'rhmiData', 'application.json')), false);
+    if (!statIfThere(CFG.oap)) throw idReadFailure('the apps\' homes', CFG.oap + ' is missing');
     var homes;
-    try { homes = fs.readdirSync(CFG.oap); } catch (e) { throw refuse('cannot read ' + CFG.oap + ' for the appletIds in use: ' + e.message); }
+    try { homes = fs.readdirSync(CFG.oap); } catch (e) { throw idReadFailure(CFG.oap, e); }
     homes.forEach(function (n) {
         if (/^oap_\d+$/.test(n)) add(fileAppletId(path.join(CFG.oap, n, 'rhmiData', 'application.json')), n === ownHome);
     });
-    var mine = preinstalledFor(id);
-    (fs.existsSync(preinstalledDir()) ? fs.readdirSync(preinstalledDir()) : []).forEach(function (n) {
+    var mine = preinstalledFor(id), pre = [];
+    try { pre = statIfThere(preinstalledDir()) ? fs.readdirSync(preinstalledDir()) : []; } catch (e) { throw e.code === 1 ? e : idReadFailure(preinstalledDir(), e); }
+    pre.forEach(function (n) {
         var f = path.join(preinstalledDir(), n);
         if (/\.tgz$/.test(n)) add(tgzAppletId(f), mine.indexOf(f) >= 0);
     });
@@ -2425,7 +2456,8 @@ function freeAppletId(id, declared) {
  * without either), empty, and an appletId. Returns what was added. */
 function id8Complete(a) {
     var added = linker().completePermissions(a.pkgDir).map(function (t) { return t + ' added to permissions.json'; });
-    var f = path.join(a.pkgDir, 'rhmiData', 'application.json'), j = readJsonOrNull(f);
+    var f = path.join(a.pkgDir, 'rhmiData', 'application.json'), j = null;
+    try { j = parseJsonText(fs.readFileSync(f, 'utf8')); } catch (e) { /* no RHMI app, or none that parses */ }
     if (j && j.application && typeof j.application === 'object') {
         var declared = appletIdOf(j), v = id8Assigned[a.id] = freeAppletId(a.id, declared);
         if (v !== declared) {

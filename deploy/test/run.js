@@ -2969,6 +2969,7 @@ function id8Root(opts) {
         `<?xml version="1.0" encoding="utf-8"?>\n<plugin>\n    <name>App${i}</name>\n    <appletId>${v}</appletId>\n</plugin>\n`));
     (opts.native || ['0x08']).forEach((v, i) => write(root.p(`usr/lib/hmi8/applet/native${i}.xml`),
         `<PluginBundle>\n\t<Plugin>\n\t\t<MetaInformation key="AppletId" value="${v}"/>\n\t</Plugin>\n</PluginBundle>\n`));
+    fs.mkdirSync(root.p('mnt/dataro/data/hmi8'), { recursive: true });
     root.env.MGU_DEPLOY_HMI8_DATA = root.p('mnt/dataro/data/hmi8');
     root.env.MGU_DEPLOY_HMI8_APPLETS = root.p('usr/lib/hmi8/applet');
     root.env.FAKE_MGR_DIR = 'oap-mainapp21';
@@ -3664,6 +3665,14 @@ function testAppManager() {
     fs.writeFileSync(fullTar, '#!/bin/sh\ncase "$1" in -x*) echo "tar: write error: No space left on device" >&2; exit 2;; esac\nexec tar "$@"\n',
         { mode: 0o755 });
     const realPack = fs.readFileSync(path.join(HERE, '..', '..', 'tools', 'oap_pack.js'), 'utf8');
+    {
+        const env8 = amRoot();
+        write(env8.p('var/opt/public/oap/oap_13099/rhmiData/application.json'), '{ not json');
+        const r = env8.run(['appmanager', 'adopt', '--yes']);
+        check('appmanager: an appletId source that cannot be read while his queued install moves: adopt rolled back, his queue kept',
+            r.status !== 0 && r.out.includes('rolling back') && !r.out.includes('is dropped') && fs.existsSync(env8.H('pending.json')) &&
+            !fs.existsSync(env8.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')) && env8.status().appmanager.record === null, r.out);
+    }
     [['no space to extract', null, { MGU_DEPLOY_TAR: fullTar }],
         ['the linker not loadable', unitCopy({ 'oap_link.js': "throw new Error('oap_link.js: cannot load');\n" }), {}],
         ['no space to write the repacked package', unitCopy({ 'oap_pack.js': `${realPack}\nconst tgz = module.exports.tgz;\n` +
@@ -3761,10 +3770,45 @@ function testId8Complete() {
     fs.rmSync(bad.p('usr/lib/hmi8/applet'));
     write(bad.p('mnt/dataro/data/hmi8/applet/rhmi9/X/X.manifest'), '<plugin><appletId>twenty</appletId></plugin>\n');
     const b3 = install(bad, 'b3');
-    check('id8: an id source that cannot be read refuses the install', b1.status === 2 &&
-        b1.out.includes('rhmiData/application.json for the appletIds in use') && b2.status === 2 && b2.out.includes('cannot read the HMI\'s applets') &&
-        b3.status === 2 && b3.out.includes('appletId twenty is not a number') &&
-        ['b1', 'b2', 'b3'].every((id) => !fs.existsSync(bad.p(`var/opt/mgu-deploy/id8/queue/${id}@1.0.0.tgz`))), `${b1.out}\n${b2.out}\n${b3.out}`);
+    fs.rmSync(bad.p('mnt/dataro/data/hmi8/applet/rhmi9'), { recursive: true });
+    fs.rmSync(bad.p('mnt/dataro/data/hmi8'), { recursive: true });
+    const b4 = install(bad, 'b4');
+    check('id8: an id source that cannot be read fails the install (the unit\'s failure): an app\'s application.json, an applets folder that ' +
+        'is no folder, a manifest id that is no number, the HMI\'s data folder missing', b1.status === 1 &&
+        b1.out.includes('rhmiData/application.json for the appletIds in use') && b2.status === 1 && b2.out.includes('cannot read the HMI\'s applets') &&
+        b3.status === 1 && b3.out.includes('appletId twenty is not a number') && b4.status === 1 && b4.out.includes('mnt/dataro/data/hmi8 is missing') &&
+        ['b1', 'b2', 'b3', 'b4'].every((id) => !fs.existsSync(bad.p(`var/opt/mgu-deploy/id8/queue/${id}@1.0.0.tgz`))),
+    `${b1.out}\n${b2.out}\n${b3.out}\n${b4.out}`);
+    const noHomes = id8Root();
+    fs.rmSync(noHomes.p('var/opt/public/oap'), { recursive: true });
+    const nh = install(noHomes, 'nh');
+    check('id8: the apps\' homes folder missing fails the install', nh.status === 1 && nh.out.includes('var/opt/public/oap is missing'), nh.out);
+
+    // a unit whose RHMI applets folder is missing under the HMI's data has none there
+    const noRhmi = id8Root({ builtin: [] });
+    const nr = install(noRhmi, 'norhmi');
+    check('id8: the RHMI applets folder missing under the HMI\'s data holds no ids', nr.status === 0 && appletId(queuedIn(noRhmi)('norhmi')) === 20000, nr.out);
+
+    // what the scan reads: manifests through a linked folder and a linked file, hex ids, an empty id passed over, a
+    // byte order mark in an app's application.json; other apps' packages that cannot be read passed over, warning
+    const odd = id8Root({ builtin: [], native: [] });
+    const H = (rel) => odd.p(`mnt/dataro/data/hmi8/${rel}`);
+    write(odd.p('elsewhere/Linked/Linked.manifest'), '<plugin><appletId>20000</appletId></plugin>\n');
+    fs.mkdirSync(H('applet'), { recursive: true });
+    fs.symlinkSync(odd.p('elsewhere'), H('applet/linkeddir'));
+    write(odd.p('elsewhere2/real.manifest'), '<plugin><appletId>0x4E21</appletId></plugin>\n');
+    fs.mkdirSync(H('applet/files'), { recursive: true });
+    fs.symlinkSync(odd.p('elsewhere2/real.manifest'), H('applet/files/Hex.manifest'));
+    write(H('applet/empty/Empty.manifest'), '<plugin><appletId></appletId></plugin>\n');
+    write(odd.p('var/opt/public/oap/oap_13001/rhmiData/application.json'), '\uFEFF' + JSON.stringify({ application: { appletId: 20002 } }));
+    write(odd.pre21('broken', '1.0.0'), 'not a tgz\n');
+    write(odd.p('var/opt/mgu-deploy/id8/queue/gone@1.0.0.tgz'), 'not a tgz\n');
+    write(odd.p('var/opt/mgu-deploy/id8/pending.json'), JSON.stringify({ changes: [{ action: 'install', id: 'gone', version: '1.0.0',
+        file: odd.p('var/opt/mgu-deploy/id8/queue/gone@1.0.0.tgz'), sha256: 'x' }] }));
+    const o = install(odd, 'oddapp');
+    check('id8: linked folders and files, hex and empty ids, a byte order mark are read; others\' unreadable packages passed over, warning',
+        o.status === 0 && appletId(queuedIn(odd)('oddapp')) === 20003 && o.out.includes('broken@1.0.0.tgz is not known, passed over') &&
+        o.out.includes('gone@1.0.0.tgz is not known, passed over'), o.out);
 }
 
 // MGU_TEST_ONLY=<name>,...: only those test functions
