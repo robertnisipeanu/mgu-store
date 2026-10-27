@@ -152,16 +152,8 @@ and runs `release.js publish` with the workflow's own `GITHUB_TOKEN`
 anywhere. The workflow runs on `main` and `v*` tags only, with every action
 pinned to a commit.
 
-The releases are GitHub Releases of the **private**
-`robertnisipeanu/mgu-store` repository. Releases of a private repository
-are visible only to those with access to it, and stay private. `publish`
-reads the repository's visibility before it builds and again before it
-uploads the catalog, and refuses unless it is private; nothing in this
-tooling changes a repository's visibility. The car reads the releases with
-a token of the updater's that reaches the repository
-(`native/mgu-updater/README.md`, "Tokens"), put on the car by the
-installers (deploy/README.md, "The updater's sources and tokens") or the
-phone page.
+The releases are GitHub Releases of `robertnisipeanu/mgu-store`, which
+the car reads like any public repository.
 
 | Target (`MGU_PUBLISH`) | Layout | The unit reads it with |
 |---|---|---|

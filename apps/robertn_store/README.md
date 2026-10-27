@@ -87,7 +87,7 @@ through it once. iDrive 8 has its own widget layout
 | Row (`LT_Button_1Row_2Col7030_2Text`) | Press |
 |---|---|
 | `DOOM` · `Update 1.0.1` | update to the catalog version |
-| `Raluca` · `Update a1b2c3d` | update to a branch's new commit (same version, new revision) |
+| `Gauges` · `Update a1b2c3d` | update to a branch's new commit (same version, new revision) |
 | `Display bridge demo` · `Install 1.0.0` | install |
 | `Network driver` · `Install 0.2.0` | install (an optional component) |
 | `Vehicle control` · `Installed 1.0.0` | nothing; *Remove?* when the catalog marks it `uninstallable` |

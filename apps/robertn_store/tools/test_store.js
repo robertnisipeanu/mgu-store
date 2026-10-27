@@ -854,7 +854,7 @@ function runDrawn() {
     const lastText = (name) => (last(new RegExp(`^${name}\\.0\\.Text=`)) || '').split('=').slice(1).join('=');
     const st = Object.assign({}, ST, { unit: { hmi: HMI }, busy: null, signin: true, rebooting: false,
         components: [comp({ id: 'doom', title: 'DOOM', version: '1.0.1', installed: '1.0.0', status: 'update' }),
-            comp({ id: 'raluca', title: 'Raluca', version: '1.2.0', installed: null, status: 'available' }),
+            comp({ id: 'gauges', title: 'Gauges', version: '1.2.0', installed: null, status: 'available' }),
             comp({ id: 'mgu-render', kind: 'tool', title: 'Renderer', version: '0.1.0', installed: null, status: 'available',
                 provides: 'renderer' }),
             comp({ id: 'mgu-renderd', kind: 'tool', title: 'GPU renderer', version: '1.1.0', installed: '1.1.0', provides: 'renderer' })] });

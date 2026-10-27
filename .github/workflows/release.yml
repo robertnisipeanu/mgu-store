@@ -1,5 +1,5 @@
 # Publishes new versions of the Store's apps and tools to this repository's
-# (private) GitHub Releases, with the catalog.json the car's updater reads
+# GitHub Releases, with the catalog.json the car's updater reads
 # (release/README.md). Push a v* tag, or run it by hand with the component
 # ids to publish (empty: every component).
 name: Release

@@ -3,13 +3,11 @@
  * Where release.js publishes, chosen by MGU_PUBLISH (default
  * github:robertnisipeanu/mgu-store):
  *
- *   github:<owner>/<repo>  GitHub Releases of a PRIVATE repository: each
- *                          version is the release <id>@<version> with its
- *                          artifact as the one asset; the release "catalog"
- *                          holds catalog.json. Runs in GitHub Actions only,
- *                          with the workflow's GITHUB_TOKEN (GH_TOKEN). A
- *                          repository that is not private is refused; nothing
- *                          here changes a repository's visibility.
+ *   github:<owner>/<repo>  GitHub Releases of the repository: each version
+ *                          is the release <id>@<version> with its artifact
+ *                          as the one asset; the release "catalog" holds
+ *                          catalog.json. Runs in GitHub Actions only, with
+ *                          the workflow's GITHUB_TOKEN (GH_TOKEN).
  *   dir:<path>             A local folder (relative paths: to the repository):
  *                          catalog.json and the artifacts side by side, a
  *                          catalog for the emulator or a USB stick.
@@ -77,19 +75,10 @@ function assetSha256(tag) {
     }
 }
 
-/* Publishing to GitHub runs in GitHub Actions (.github/workflows/release.yml),
- * and goes only to a private repository. */
+/* Publishing to GitHub runs in GitHub Actions (.github/workflows/release.yml). */
 function githubPreflight(dryRun) {
     if (!dryRun && process.env.GITHUB_ACTIONS !== 'true') {
         throw new Error('publishing runs in GitHub Actions: push a v* tag or run the Release workflow (release/README.md)');
-    }
-    assertPrivate();
-}
-
-function assertPrivate() {
-    const repo = JSON.parse(gh(['api', `repos/${WHERE}`]));
-    if (repo.private !== true || repo.visibility !== 'private') {
-        throw new Error(`refusing to publish: ${WHERE} is ${repo.visibility}, not private`);
     }
 }
 
@@ -158,7 +147,6 @@ const targets = {
             return asset.url;
         },
         uploadCatalog(catalogFile) {
-            assertPrivate();
             try {
                 gh(['release', 'view', CATALOG_TAG, '-R', WHERE]);
             } catch (e) {

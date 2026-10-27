@@ -42,7 +42,7 @@ function state() {
         components: [
             comp({ id: 'robertn_store', title: 'Store', version: '0.7.0', installed: '0.7.0', status: 'installed', uninstallable: false }),
             comp({ id: 'doom', title: 'DOOM', version: '1.0.1', installed: '1.0.0', status: 'update', size: 2080457, source: 'idrive7-apps' }),
-            comp({ id: 'raluca', title: 'Raluca', version: '1.2.0', installed: '1.2.0', status: 'update', revision: 'a1b2c3d',
+            comp({ id: 'gauges', title: 'Gauges', version: '1.2.0', installed: '1.2.0', status: 'update', revision: 'a1b2c3d',
                 source: 'idrive7-apps', build: 'unit', author: 'robertn', description: 'Voice assistant for the car: asks, answers and reads out ' +
                 'what the car knows, with the microphone of the steering wheel.' }),
             comp({ id: 'car_vitals', title: 'M Vitals', version: '2.1.0', status: 'available', size: 412000, source: 'idrive7-apps' }),
@@ -77,11 +77,11 @@ function screens() {
     return [
         ['store', { tab: 'store', stack: main }],
         ['store-apps', { tab: 'store', filter: 'app', stack: main, focus: 9 }],
-        ['app-update', { stack: main.concat([{ name: 'app', id: 'raluca' }]) }],
+        ['app-update', { stack: main.concat([{ name: 'app', id: 'gauges' }]) }],
         ['app-downloading', { stack: main.concat([{ name: 'app', id: 'doom' }]) }],
         ['app-incompatible', { stack: main.concat([{ name: 'app', id: 'oap-cardash' }]) }],
         ['app-renderer', { stack: main.concat([{ name: 'app', id: 'mgu-render' }]) }],
-        ['confirm-remove', { stack: main.concat([{ name: 'app', id: 'raluca' }, { name: 'confirm', kind: 'remove', id: 'raluca' }]),
+        ['confirm-remove', { stack: main.concat([{ name: 'app', id: 'gauges' }, { name: 'confirm', kind: 'remove', id: 'gauges' }]),
             focus: 0 }],
         ['installed', { tab: 'installed', stack: main }],
         ['usb', { tab: 'usb', stack: main }],

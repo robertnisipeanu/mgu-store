@@ -2183,22 +2183,6 @@ function uninstallApp(id, state) {
     leftovers.forEach(function (l) { say('leftover: ' + l); });
     say(id + ' uninstalled');
 }
-/* robertn-ampel: an uninstall must not leave the country override running. Set the
- * setting off, delete the /run drop-in, and restart AdasMgu so the running process
- * drops the shim (only while recmgr has its entry; otherwise just report it). The
- * service calls are best-effort: a failing restart must not strand a half-uninstall. */
-function ampelUninstallCleanup() {
-    try { fs.writeFileSync(path.join(CFG.varOpt, 'robertn-ampel', 'country'), 'off\n'); } catch (e) {}
-    rmrf('/run/systemd/system/HBAdasMgu.service.d/10-ampel.conf');
-    run(CFG.systemctl, ['daemon-reload'], { allowFail: true });
-    if (recmgrLoaded('HBAdasMgu')) {
-        run(CFG.systemctl, ['restart', 'HBAdasMgu.service'], { allowFail: true });
-        say('robertn-ampel: country override cleared, HBAdasMgu restart requested (stock)');
-    } else {
-        say('robertn-ampel: drop-in removed; the running AdasMgu keeps its in-memory ' +
-            'patch until its next restart (recmgr entry not loaded, not restarting it)');
-    }
-}
 function uninstallTool(id, state) {
     var tools = installedTools().filter(function (t) { return t.id === id; });
     if (!tools.length) throw refuse(id + ': no installed tool with that id');
@@ -2214,7 +2198,6 @@ function uninstallTool(id, state) {
     var ops = [], removeRec = (c.recmgr || []).filter(function (n) {
         return !installedTools().some(function (t) { return t.id !== id && (t.component.recmgr || []).indexOf(n) >= 0; });
     });
-    if (id === 'robertn-ampel') ampelUninstallCleanup();
     (c.units || []).forEach(function (u) { ops.push({ type: 'delete', path: path.join(CFG.systemd, u.name) }); });
     (c.enable || []).forEach(function (en) {
         ops.push({ type: 'delete', path: path.join(CFG.systemd, en.target + '.wants', en.unit) });

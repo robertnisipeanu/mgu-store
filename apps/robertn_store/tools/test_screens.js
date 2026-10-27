@@ -91,7 +91,7 @@ eq(hit(f.items, f.items[7].x + 5, f.items[7].y + 5), -1, 'and not hit');
 f = screen('app-update');
 eq(own(f), ['Update to a1b2c3d', 'Remove', 'Back'], 'a page: its buttons, Back, the side menu');
 eq(text(f, 'author'), 'by robertn · from cauliflower/idrive7-apps');
-eq(f.items[1].act, { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'raluca' } });
+eq(f.items[1].act, { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'gauges' } });
 ok(/^Voice assistant/.test(text(f, 'desc')), 'the description');
 eq(f.values.facts.items.map((c) => c.text), ['Version 1.2.0', 'Commit a1b2c3d', 'App', 'iDrive 7 and iDrive 8']);
 f = screen('app-incompatible');
@@ -143,7 +143,7 @@ eq([f.values.progress.label, f.values.progress.right, f.values.icon.progress], [
 // confirm steps: Cancel first
 f = screen('confirm-remove');
 eq(f.labels, ['Cancel', 'Remove']);
-eq(text(f, 'title'), 'Remove Raluca 1.2.0?');
+eq(text(f, 'title'), 'Remove Gauges 1.2.0?');
 eq(screen('confirm-restart').items[1].act, { do: 'restart' });
 f = screen('confirm-account');
 eq(f.items[1].act, { do: 'account-remove', id: '3f9a01c2' });
@@ -152,7 +152,7 @@ eq(text(f, 'text'), 'robertn · robertnisipeanu/mgu-store');
 // Installed: Update all for what can update now; a row's chip updates it
 f = screen('installed');
 eq(f.labels[4], 'Update all (1)', 'DOOM downloads and Extended dashboard waits: one update left');
-eq(f.items.find((i) => i.label === 'Update').act, { do: 'install', id: 'raluca' });
+eq(f.items.find((i) => i.label === 'Update').act, { do: 'install', id: 'gauges' });
 ok(f.labels.indexOf('Display bridge') >= 0 && f.labels.indexOf('M Vitals') < 0, 'installed ones only');
 
 // USB: the stick's components
