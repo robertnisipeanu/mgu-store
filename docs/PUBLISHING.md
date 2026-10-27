@@ -214,7 +214,7 @@ and installs the package. The same build runs on a desktop with
 "args": [...]}` runs the repository's own build on the head unit:
 
 - Node **8.16.2** (`node`), or Python **3.12** (`python`: the `mgu-python`
-  tool, which the Store installs first). It runs as an unprivileged uid
+  tool, installed with the updater). It runs as an unprivileged uid
   with **no network**, in a writable copy of the repository (the working
   directory), limited to 10 minutes and 200 MB. `node` is on `PATH` for a
   Python build too.

@@ -8,7 +8,7 @@ snapshots every change first, and restores a snapshot on request.
 |---|---|---|
 | `deploy/mgu-install.js` | the owner's computer (Node 18+; Windows, macOS, Linux) | the first install over SSH from the published release, the updater's tokens, USB sticks as local repos |
 | `deploy/hu` | the Mac (system Node) | packs tool artifacts, installs components built from this checkout over SSH (development) |
-| `deploy/sources.json` | | the updater's sources the installers seed: the Store's own |
+| `deploy/sources.json` | | the updater's sources the installers seed: the Store's own and idrive7-apps |
 | `deploy/transport/` | the Mac (system `python3`) | finds the unit's sshd over ENET or the hotspot, relays ENET, and the `--arm-debug` bootstrap |
 | `deploy/unit/mgu-deploy.sh` → `mgu-deploy.js` | the unit, as root, under its Node 8 | the installer itself |
 | `tools/oap_link.js`, `tools/oap_pack.js` | the unit (and the build machine) | build source packages and prepare packages built elsewhere |
@@ -153,7 +153,8 @@ Exit status everywhere: 0 done, 1 failed (rolled back where it applies),
 The updater reads its sources from `/var/opt/mgu-updater/sources.json`
 (native/mgu-updater/README.md). The installers seed it with
 `deploy/sources.json`, the Store's own source (`mgu-store`, this
-repository's releases), when the updater is installed and has none: `sh
+repository's releases) and idrive7-apps (`cauliflowermossgrape/idrive7-apps`
+on its default branch), when the updater is installed and has none: `sh
 mgu-deploy.sh updater-sources < sources.json` writes it, root's, mode 0600,
 and keeps an existing one, since the owner adds sources from the Store.
 
@@ -254,7 +255,8 @@ unit. One ssh call sends them as a tar stream to
 install --artifact ... --skip-older --yes` with the release's deploy tool
 (it installs itself as `mgu-deploy`, keeps newer installed tools and apps,
 does not build an installed Store version again) and `updater-sources`
-with the mgu-store source (kept when the unit has its own); then removes
+with the default sources, mgu-store and idrive7-apps (kept when the unit
+has its own); then removes
 the folder. With `--token` a token is added (below), then `status` is
 printed. Its last line
 is `Restart the head unit to finish setup (a normal ignition cycle does

@@ -81,12 +81,16 @@ function loadConf() {
     return conf;
 }
 
-function selfVersion() {
+function selfComponent() {
     try {
-        return JSON.parse(fs.readFileSync(path.join(HERE, 'component.json'), 'utf8')).version;
+        return JSON.parse(fs.readFileSync(path.join(HERE, 'component.json'), 'utf8'));
     } catch (e) {
-        return 'dev';
+        return {};
     }
+}
+
+function selfVersion() {
+    return selfComponent().version || 'dev';
 }
 
 /* ---- log file ------------------------------------------------------------ */
@@ -638,6 +642,7 @@ class Updater {
         } catch (e) { /* off */ }
         if (conf.sources) {
             this.loadSources();
+            this.addDefaultSources();
             // the per-source tokens of an earlier version, as tokens
             const was = this.tokens.convert(this.stored, (l) => console.log(l));
             Object.keys(was).forEach((id) => {
@@ -671,6 +676,71 @@ class Updater {
         }
         this.stored = list;
         list.forEach((def) => this.addRuntime(def));
+    }
+
+    /* A source id from want (a repo's name) when it is free, else s-<random>. */
+    freeSourceId(want) {
+        const taken = (id) => this.stored.some((s) => s.id === id);
+        return want && ID.test(want) && !taken(want) ? want : `s-${crypto.randomBytes(2).toString('hex')}`;
+    }
+
+    /* The default sources (default_sources: <owner>/<repo>[:<channel>] ...),
+     * each added once: on the first start of an updater that names it,
+     * unless a source of that repo is there. state/default-sources.json
+     * records each one, so one the owner removes stays removed. */
+    addDefaultSources() {
+        const want = String(this.conf.default_sources || '').split(/\s+/).filter(Boolean);
+        if (!want.length || this.sourcesError) {
+            return;
+        }
+        const file = path.join(this.conf.state_dir, 'default-sources.json');
+        let added = [];
+        try {
+            added = readJson(file).added || [];
+        } catch (e) { /* none yet */ }
+        const fresh = want.filter((w) => added.indexOf(w.split(':')[0].toLowerCase()) < 0);
+        if (!fresh.length) {
+            return;
+        }
+        let list = this.stored;
+        const defs = [];
+        fresh.forEach((w) => {
+            const i = w.indexOf(':');
+            const repo = i < 0 ? w : w.slice(0, i);
+            if (!list.some((s) => s.type === 'github' && s.repo.toLowerCase() === repo.toLowerCase())) {
+                const def = { id: this.freeSourceId(repo.split('/')[1] && repo.split('/')[1].toLowerCase()), type: 'github', repo };
+                if (i >= 0) {
+                    def.channel = w.slice(i + 1);
+                }
+                try {
+                    sourcesLib.checkStored(def);
+                } catch (e) {
+                    console.log(`default_sources: ${w}: ${e.message}`);
+                    return;
+                }
+                list = list.concat([def]);
+                defs.push(def);
+            }
+            added.push(repo.toLowerCase());
+        });
+        try {
+            if (defs.length) {
+                this.saveSources(list);
+            }
+        } catch (e) {
+            console.log(`default sources: ${e.message}`);
+            return;
+        }
+        defs.forEach((def) => {
+            this.addRuntime(def);
+            console.log(`source ${def.id}: added as a default source (${sourcesLib.label(def)}${def.channel ? `, ${def.channel}` : ''})`);
+        });
+        try {
+            mkdirp(this.conf.state_dir, 0o755);
+            writeAtomic(file, JSON.stringify({ added }, null, 1));
+        } catch (e) {
+            console.log(`default sources: ${e.message}`);
+        }
     }
 
     cacheFile(id) {
@@ -1290,7 +1360,7 @@ class Updater {
     }
 
     /* Queues a removal of id: one its source marks uninstallable, installed,
-     * that nothing installed requires. */
+     * that nothing installed, nor the updater itself, requires. */
     requestUninstall(id) {
         if (this.rebooting) {
             return 'the head unit is restarting';
@@ -1300,7 +1370,8 @@ class Updater {
         if (!r) {
             return `${id} is not in any source`;
         }
-        if (!r.entry.uninstallable || id === SELF || id === this.conf.deploy_tool) {
+        if (!r.entry.uninstallable || id === SELF || id === this.conf.deploy_tool ||
+            (selfComponent().requires || {})[id]) {
             return `${id} cannot be removed`;
         }
         if (!this.installedVersion(id, r.entry.kind) && !(id === APP_MANAGER && this.amPresent())) {
@@ -1927,8 +1998,6 @@ class Updater {
     /* want: the id to give it when that is free (else a random one). */
     sourceAdd(req, want) {
         let def;
-        const taken = (id) => this.stored.some((s) => s.id === id);
-        const newId = (want) => (want && ID.test(want) && !taken(want) ? want : `s-${crypto.randomBytes(2).toString('hex')}`);
         if (req.type === 'github') {
             if (!sourcesLib.REPO.test(req.repo || '')) {
                 return 'repo must be <owner>/<repo>';
@@ -1939,13 +2008,13 @@ class Updater {
             if (this.stored.some((s) => s.type === 'github' && s.repo.toLowerCase() === req.repo.toLowerCase())) {
                 return `${req.repo} is already a source`;
             }
-            def = { id: newId(req.repo.split('/')[1].toLowerCase()), type: 'github', repo: req.repo };
+            def = { id: this.freeSourceId(req.repo.split('/')[1].toLowerCase()), type: 'github', repo: req.repo };
             if (req.channel) {
                 def.channel = req.channel;
             }
         } else if (req.type === 'https') {
             try {
-                def = sourcesLib.checkStored({ id: newId(want || null), type: 'https', url: req.url });
+                def = sourcesLib.checkStored({ id: this.freeSourceId(want || null), type: 'https', url: req.url });
             } catch (e) {
                 return 'url must be https://';
             }

@@ -4,7 +4,7 @@
   "version": "0.7.0",
   "title": "Updater",
   "description": "Installs, updates and removes apps and head-unit tools from its sources",
-  "requires": { "mgu-deploy": "0.5.0" },
+  "requires": { "mgu-deploy": "0.5.0", "mgu-python": "1.0.0" },
   "files": [
     { "path": "mgu-updater", "from": "bin/mgu-updater", "mode": "0755" },
     { "path": "updater.js", "from": "js/updater.js", "mode": "0644" },
