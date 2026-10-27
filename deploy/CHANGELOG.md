@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.5.1
+
+- iDrive 8: apps get their tile there. Each app is given what MainApp-21 needs to install and show it: the permission tables it requires, and an appletId chosen on the car from the ids its apps and the HMI already use. An update keeps the app's id; a package's own id is kept when it is free; otherwise a free one is given and the output says so. If the ids in use cannot be read, the install stops rather than guess.
+- `appmanager adopt` prepares IterioDev's queued installs the same way. One whose package is unusable is dropped, saying why; if the car itself fails (no space, a read error), the adopt is undone and his queue kept.
+
 ## 0.5.0
 
 - IterioDev's App Manager is replaced by the Store. `appmanager adopt` takes over a unit that runs it: its daemon disabled and stopped (a start the boot queued cancelled; one recmgr does not list runs until the next boot, which completes the adoption), its queued app changes moved to ours (iDrive 8) and its boot hook disabled, its iPhone tether stopped and disabled, its renderer made the tool `mgu-renderd` from the program it runs (left running), and the apps it installed or had queued and its repositories (without tokens) recorded in `appmanager.json`; with our `mgu-renderd` installed first, our unit goes back over the one it wrote; nothing is reinstalled. `uninstall oap-appmanager` adopts first, removes its units and boot hook, keeps `/var/opt/appmanager` as `appmanager-removed/`, and uninstalls its app (on iDrive 8 at the next start); the apps and the renderer stay. Both run in one snapshot, rolled back on a failure. `status --json` has `appmanager`.

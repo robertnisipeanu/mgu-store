@@ -1,6 +1,6 @@
 {
   "name": "robertn_store",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "The apps and head-unit tools of every source with their state, and the sources; installs, updates and removes them through mgu-updater",
   "private": false,
   "main": "javascript/runner.js",

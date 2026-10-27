@@ -26,7 +26,8 @@ either on the app's own layer over the HMI or inside the app's own HMI page.
     the HMI's title bar, popups, camera, BACK and HOME behave as on any stock
     page (display-bridge's placement).
 - **Only the app in front shows**: a foreground gate reads the HMI's
-  `RemoteHmiApplication` stack and the kernel's peer uid of each connection.
+  `RemoteHmiApplication` (iDrive 8: `RemoteHmiApplication2`) stack and the
+  kernel's peer uid of each connection.
 - **Touch** is IterioDev's divert of the display's touch PDUs to the app that
   claims the area, per unit from the configuration; the **iDrive controller**
   can be held for an app through the HMI's controller gate (upstream's GRAB).
@@ -212,7 +213,7 @@ The unit-specific ones:
 | `touch_iface`, `touch_saddr` | `vlan73`, `160.48.199.115` (`auto`: `lo` when there is no vlan73, as in the emulator) | same |
 | `touch_area` | 84,76,1836,644 (`auto` by screen size) | 0,76,2880,764 |
 | `embed`, `embed_area` | 1, 104,88,1796,632 | never offered: no HmiMain3D, so no template is loaded |
-| `foreground_gate`, `hmi_process` | node + `foreground_gate.js`, `HmiMain3D` | the gate reads ID7's oap-mainapp paths: on-car |
+| `foreground_gate`, `hmi_process` | node + `foreground_gate.js`, `HmiMain3D` | the gate reads `RemoteHmiApplication2` from `oap-mainapp21` |
 
 ## Apps
 
@@ -285,5 +286,4 @@ the car can show:
 
 **iDrive 8**
 - [ ] Layer with IterioDev's apps unchanged (their packages are iDrive 8 only), screen 2880×960, the touch divert as with IterioDev's renderer.
-- [ ] The foreground gate: `RemoteHmiApplication` and the uid → uuid path under `oap-mainapp21` (a gate that reads nothing there leaves legacy apps as they are without it).
 - [ ] Embed: whether Hmi8 has an embedded compositor, an embedded-surface widget and loadable widget files (until then embed is not offered: no HmiMain3D).

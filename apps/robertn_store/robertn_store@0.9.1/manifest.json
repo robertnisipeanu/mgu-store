@@ -66,6 +66,22 @@
       "attributes": {
         "statusRotaryEncoderState": "rs"
       }
+    },
+    "de.bmw.infotainment.hmi.entrypoint2.EntryPoint2": "*",
+    "de.bmw.infotainment.hmi.entrypoint2.EntryPointManager2": "*",
+    "de.bmw.infotainment.hmi.remote2.RemoteHmi2": "*",
+    "de.bmw.infotainment.hmi.remote2.RemoteHmiApplication2": "*",
+    "de.bmw.infotainment.hmi.resourcemanagement2.ResourceManager2": "*",
+    "de.bmw.infotainment.hmi.resourcemanagement2.ResourceBundle2": "*",
+    "de.bmw.infotainment.hmi.resourcemanagement2.StringBundle2": "*",
+    "de.bmw.infotainment.hmi.usecasemanagement.UseCaseContext": "*",
+    "de.bmw.infotainment.telematic.oap.PrivateEntryPoint2": {
+      "instances": [
+        "${userId}"
+      ],
+      "methods": [
+        "genericMethod"
+      ]
     }
   },
   "services": {

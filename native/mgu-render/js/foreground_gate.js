@@ -8,7 +8,9 @@
  * renderer, closes.
  *
  * The HMI serves every app's RHMI as an instance of
- * de.bmw.infotainment.hmi.remote.RemoteHmiApplication. The instance's uuid
+ * de.bmw.infotainment.hmi.remote.RemoteHmiApplication (iDrive 7) or
+ * remote2.RemoteHmiApplication2 (iDrive 8), described where the unit's app
+ * manager keeps it (INTERFACES, the first there). The instance's uuid
  * field is the app's RHMI uuid, and its applicationStack field has a ROOT_APP
  * entry while the app's screen is in front. Installed apps live in
  * <apps>/oap_<uid>/, which only the app manager creates, with the RHMI uuid in
@@ -31,9 +33,13 @@ const path = require('path');
 
 const MAX_APP_JSON = 65536;
 
+const INTERFACES = [
+    '/usr/lib/oap-mainapp/src-gen/de_bmw_infotainment_hmi_remote_RemoteHmiApplication.json',
+    '/usr/lib/oap-mainapp21/src-gen/someip/de_bmw_infotainment_hmi_remote2_RemoteHmiApplication2.json'
+];
 const DEFAULTS = {
     someip: '/usr/lib/someip.node',
-    interface: '/usr/lib/oap-mainapp/src-gen/de_bmw_infotainment_hmi_remote_RemoteHmiApplication.json',
+    interface: INTERFACES.find((f) => fs.existsSync(f)) || INTERFACES[0],
     apps: '/var/opt/public/oap'
 };
 

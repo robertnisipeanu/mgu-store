@@ -44,7 +44,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.5.0';
+var VERSION = '0.5.1';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -56,6 +56,9 @@ var CFG = {
     recmgr: env('MGU_DEPLOY_RECMGR', '/etc/recmgr-restartlist.conf'),
     mainapp: env('MGU_DEPLOY_MAINAPP', '/usr/lib/oap-mainapp'),
     mainapp21: env('MGU_DEPLOY_MAINAPP21', '/usr/lib/oap-mainapp21'),
+    // Hmi8's built-in applets: its RHMI applets' manifests (its -ro data) and its native applets
+    hmi8Data: env('MGU_DEPLOY_HMI8_DATA', '/mnt/dataro/data/hmi8'),
+    hmi8Applets: env('MGU_DEPLOY_HMI8_APPLETS', '/usr/lib/hmi8/applet'),
     prov: env('MGU_DEPLOY_PROV', '/usr/share/tm/prov'),
     vminput: env('MGU_DEPLOY_VMINPUT', '/usr/bin/vminput'),
     oap: env('MGU_DEPLOY_OAP', '/var/opt/public/oap'),
@@ -147,6 +150,7 @@ function uplinkDropIns(id) {
 
 function fail(msg) { var e = new Error(msg); e.code = 1; return e; }
 function refuse(msg) { var e = new Error(msg); e.code = 2; return e; }
+function isRefusal(e) { return !!e && e.code === 2; }
 function say(m) { process.stdout.write(m + '\n'); }
 function warn(m) { process.stdout.write('warning: ' + m + '\n'); }
 
@@ -899,7 +903,8 @@ function validateArtifact(file, stage) {
     var dir = path.join(stage, 'a' + Math.floor(Math.random() * 1e9));
     mkdirp(dir);
     var x = run(CFG.tar, ['-xzf', file, '-C', dir], { allowFail: true });
-    if (x.status !== 0) throw refuse('cannot extract ' + file + ': ' + (x.stderr || '').trim());
+    // its listing read the whole archive: this is the unit's failure (space, I/O)
+    if (x.status !== 0) throw fail('cannot extract ' + file + ': ' + (x.stderr || '').trim());
     walk(dir, '', []).forEach(function (e) {
         if (e.stat.isSymbolicLink()) throw refuse('symlink in artifact: ' + e.rel);
         if (!e.stat.isFile() && !e.stat.isDirectory()) throw refuse('special file in artifact: ' + e.rel);
@@ -1218,22 +1223,25 @@ function unitDonors() {
  * Nothing outside the staging folder changes; a package that cannot be
  * prepared (no donor holds the oap-sdk it needs, a module that does not
  * compile) is refused. */
+/* System errors that are the unit's (space, I/O, limits), not a package's. */
+var ENV_ERRORS = ['ENOSPC', 'EDQUOT', 'EIO', 'EROFS', 'EMFILE', 'ENFILE', 'ENOMEM', 'EACCES', 'EPERM', 'EBUSY'];
 function prepareApp(a, stage) {
     if (!a.prepare) return a;
-    var out = path.join(stage, 'built-' + a.id + '@' + a.version + '.tgz'), r;
+    var out = path.join(stage, 'built-' + a.id + '@' + a.version + '.tgz'), r, link = linker();
     try {
         if (a.prepare === 'build') {
-            r = linker().build(a.dir, out, { donors: unitDonors(), workDir: stage });
+            r = link.build(a.dir, out, { donors: unitDonors(), workDir: stage });
             say('built ' + a.id + ' ' + a.version + ' from its source package (' + r.moduleCount +
                 ' modules, oap-sdk from ' + r.donor + (r.entry ? ', main from ' + r.entry : '') + ')');
         } else {
-            r = linker().preparePackage(a.pkgDir, out, { donors: unitDonors() });
+            r = link.preparePackage(a.pkgDir, out, { donors: unitDonors() });
             say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +
                 (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : '') +
                 (r.shrinkwrap ? ', npm-shrinkwrap.json added' : '') +
                 (r.permissions.length ? ', ' + r.permissions.join(' and ') + ' added to permissions.json' : ''));
         }
     } catch (e) {
+        if (ENV_ERRORS.indexOf(e.code) >= 0) throw e;
         throw refuse(a.file + ': cannot ' + (a.prepare === 'build' ? 'build ' : 'prepare ') + a.id + ' ' + a.version +
             ' on this unit: ' + e.message);
     }
@@ -2253,8 +2261,8 @@ function touchedForUninstall(id) {
  *              policy folder, uids.txt line and diag status entries; then
  *              its packages and das lines.
  * What goes is moved to id8/trash/<time>/ (the 3 newest kept). The
- * package is installed in npm format (files under package/), as published
- * when it is one. */
+ * package is installed in npm format (files under package/), with what
+ * MainApp-21 needs and it lacks added (id8Complete). */
 var ID8_DIR = path.join(DEPLOY_DIR, 'id8');
 var ID8_PENDING = path.join(ID8_DIR, 'pending.json');
 var ID8_QUEUE = path.join(ID8_DIR, 'queue');
@@ -2322,19 +2330,160 @@ function ensureApplyUnit(state) {
         say(APPLY_UNIT + ' installed: queued app changes apply at the next start');
     }
 }
-/* The package MainApp-21 installs: an npm-format package as published; a
- * source package built here; any other one (flat, .mgu) repacked with its
- * files under package/. */
+/* MainApp-21 gives an app a tile, and lets it start, only when its
+ * rhmiData/application.json has an appletId. The app's tile registers with
+ * the HMI at appletId + 1000, its start widget at + 2000 and its own RHMI
+ * application at + 0 or + 3000 (by its oap-sdk). Hmi8 takes these only in
+ * HMI_APPLET_IDS (a check in its binary; nothing on the unit names it), each
+ * once, so two appletIds 0, 1000, 2000 or 3000 apart clash. The ids in use
+ * differ from car to car and are read from the unit each time: every OAP
+ * app's, MainApp-21's, the packages in preinstalled_apps and in our queue,
+ * those given in this run, and Hmi8's built-in applets'. A source that
+ * cannot be read fails the install (the unit's failure, not the package's)
+ * rather than leave an id out; a package of another app that cannot be read
+ * is passed over, warning. */
+var HMI_APPLET_IDS = [20000, 29999];
+var id8Assigned = {}; // appletIds given in this run, by app id
+function appletIdOf(appJson) {
+    var a = appJson && appJson.application;
+    return a && typeof a.appletId === 'number' ? a.appletId : null;
+}
+function parseJsonText(t) { return JSON.parse(t.replace(/^﻿/, '')); }
+function idReadFailure(what, e) { return fail('cannot read ' + what + ' for the appletIds in use: ' + (e && e.message || e)); }
+/* fs.statSync (symlinks followed), null only when the path does not exist. */
+function statIfThere(p) {
+    try { return fs.statSync(p); } catch (e) {
+        if (e.code === 'ENOENT') return null;
+        throw idReadFailure(p, e);
+    }
+}
+/* An application.json's appletId: null without the file or the id. */
+function fileAppletId(f) {
+    if (!statIfThere(f)) return null;
+    try { return appletIdOf(parseJsonText(fs.readFileSync(f, 'utf8'))); } catch (e) { throw idReadFailure(f, e); }
+}
+/* A package's appletId; one that cannot be read is passed over (null). */
+function tgzAppletId(file) {
+    var j = null;
+    try {
+        var members = linker().untar(fs.readFileSync(file));
+        if (!members.length) throw new Error('no files in it');
+        members.forEach(function (m) {
+            if (/^(\.\/)?(package\/)?rhmiData\/application\.json$/.test(m.name)) j = parseJsonText(m.data.toString('utf8'));
+        });
+    } catch (e) {
+        warn('the appletId of ' + file + ' is not known, passed over: ' + e.message);
+        return null;
+    }
+    return appletIdOf(j);
+}
+/* The files below dir, symlinks followed (depth-bounded against loops). */
+function filesBelow(dir, depth) {
+    var out = [];
+    fs.readdirSync(dir).forEach(function (n) {
+        var p = path.join(dir, n), st = statIfThere(p);
+        if (!st) return; // a link to nothing
+        if (st.isDirectory()) { if (depth < 8) out = out.concat(filesBelow(p, depth + 1)); }
+        else if (st.isFile()) out.push(p);
+    });
+    return out;
+}
+/* Hmi8's built-in applets' appletIds: <appletId> of each RHMI applet's
+ * manifest under its data's applet/, AppletId of each native applet. Its
+ * data folder must be there; an applets folder a unit does not have holds
+ * none. An empty id is passed over; ids are decimal or 0x hex. */
+function builtinAppletIds() {
+    var ids = [], read = function (f) {
+        try { return fs.readFileSync(f, 'utf8'); } catch (e) { throw idReadFailure(f, e); }
+    }, list = function (d, ext) {
+        if (!statIfThere(d)) return [];
+        try { return filesBelow(d, 0).filter(function (f) { return f.slice(-ext.length) === ext; }); } catch (e) {
+            throw e.code === 1 ? e : idReadFailure('the HMI\'s applets in ' + d, e);
+        }
+    }, add = function (f, v) {
+        if (v === '') return;
+        if (!/^(0x[0-9a-fA-F]+|\d+)$/.test(v)) throw idReadFailure(f, 'appletId ' + v + ' is not a number');
+        ids.push(Number(v));
+    };
+    if (!statIfThere(CFG.hmi8Data)) throw idReadFailure('the HMI\'s data', CFG.hmi8Data + ' is missing');
+    list(path.join(CFG.hmi8Data, 'applet'), '.manifest').forEach(function (f) {
+        var m = /<appletId>\s*([^<]*?)\s*<\/appletId>/.exec(read(f));
+        if (m) add(f, m[1]);
+    });
+    list(CFG.hmi8Applets, '.xml').forEach(function (f) {
+        var re = /key="AppletId"\s+value="\s*([^"]*?)\s*"/g, m, x = read(f);
+        while ((m = re.exec(x))) add(f, m[1]);
+    });
+    return ids;
+}
+/* The appletIds on this unit, as { others: [...], own: id's or null }. */
+function id8AppletIds(id) {
+    var entry = readJsonOrNull(appEntryFile(id)), ownHome = entry && entry.userId ? 'oap_' + entry.userId : null;
+    var others = builtinAppletIds(), own = null, add = function (v, mine) {
+        if (v === null) return;
+        if (mine) own = v; else others.push(v);
+    };
+    add(fileAppletId(path.join(mainappRoot(), 'rhmiData', 'application.json')), false);
+    if (!statIfThere(CFG.oap)) throw idReadFailure('the apps\' homes', CFG.oap + ' is missing');
+    var homes;
+    try { homes = fs.readdirSync(CFG.oap); } catch (e) { throw idReadFailure(CFG.oap, e); }
+    homes.forEach(function (n) {
+        if (/^oap_\d+$/.test(n)) add(fileAppletId(path.join(CFG.oap, n, 'rhmiData', 'application.json')), n === ownHome);
+    });
+    var mine = preinstalledFor(id), pre = [];
+    try { pre = statIfThere(preinstalledDir()) ? fs.readdirSync(preinstalledDir()) : []; } catch (e) { throw e.code === 1 ? e : idReadFailure(preinstalledDir(), e); }
+    pre.forEach(function (n) {
+        var f = path.join(preinstalledDir(), n);
+        if (/\.tgz$/.test(n)) add(tgzAppletId(f), mine.indexOf(f) >= 0);
+    });
+    readPending().forEach(function (c) { if (c.file && c.id !== id) add(tgzAppletId(c.file), false); });
+    Object.keys(id8Assigned).forEach(function (k) { if (k !== id) add(id8Assigned[k], false); });
+    return { others: others, own: own };
+}
+/* The appletId app id gets: its installed version's, else the one its
+ * package declares, while free; else the lowest free one. */
+function freeAppletId(id, declared) {
+    var ids = id8AppletIds(id), lo = HMI_APPLET_IDS[0], hi = HMI_APPLET_IDS[1] - 3000, free = function (v) {
+        return v >= lo && v <= hi && ids.others.every(function (o) { return [0, 1000, 2000, 3000].indexOf(Math.abs(v - o)) < 0; });
+    };
+    if (ids.own !== null && free(ids.own)) return ids.own;
+    if (declared !== null && free(declared)) return declared;
+    for (var v = lo; v <= hi; v++) if (free(v)) return v;
+    throw refuse(id + ': no appletId free on this unit');
+}
+/* What MainApp-21 needs of a package and it may lack, added in pkgDir: the
+ * ACL tables permissions.json lacks (aclManager.js fails the install
+ * without either), empty, and an appletId. Returns what was added. */
+function id8Complete(a) {
+    var added = linker().completePermissions(a.pkgDir).map(function (t) { return t + ' added to permissions.json'; });
+    var f = path.join(a.pkgDir, 'rhmiData', 'application.json'), j = null;
+    try { j = parseJsonText(fs.readFileSync(f, 'utf8')); } catch (e) { /* no RHMI app, or none that parses */ }
+    if (j && j.application && typeof j.application === 'object') {
+        var declared = appletIdOf(j), v = id8Assigned[a.id] = freeAppletId(a.id, declared);
+        if (v !== declared) {
+            j.application.appletId = v;
+            fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
+            added.push(declared === null ? 'appletId ' + v + ' added to rhmiData/application.json' :
+                'appletId ' + v + ' in rhmiData/application.json in place of ' + declared + ', which this unit cannot take');
+        }
+    }
+    return added;
+}
+/* The package MainApp-21 installs, in npm format (files under package/):
+ * one published so, as it is unless id8Complete adds to it; a source
+ * package built here; any other one (flat, .mgu) repacked. */
 function id8Package(a, stage) {
     if (a.prepare === 'build') a = prepareApp(a, stage);
-    else if (a.pkgDir === path.join(a.dir, 'package')) return a;
+    var npm = a.pkgDir === path.join(a.dir, 'package'), added = id8Complete(a);
+    if (npm && !added.length) return a;
     var out = path.join(stage, 'id8-' + a.id + '@' + a.version + '.tgz');
     var entries = walk(a.pkgDir, '', []).filter(function (e) { return e.stat.isFile(); }).map(function (e) {
         return { name: 'package/' + e.rel, data: fs.readFileSync(e.path), mode: e.stat.mode & 0o777 };
     });
     var pack = require(selfFile('oap_pack.js'));
     fs.writeFileSync(out, pack.tgz(entries, pack.MTIME));
-    say('repacked ' + a.id + ' ' + a.version + ' in npm format (files under package/)');
+    say('repacked ' + a.id + ' ' + a.version + (npm ? '' : ' in npm format (files under package/)') +
+        (added.length ? ': ' + added.join(', ') : ''));
     return Object.assign({}, a, { file: out, from: a.from || a.file });
 }
 function queueId8(change) {
@@ -2646,9 +2795,10 @@ function amTouched() {
 }
 /* His queued app changes, into our queue (iDrive 8, where his apply step
  * installs): an install with its staged package while that still
- * matches, a removal as it is; his own app is not carried over.
+ * matches, as our install queues it (id8Package), a removal as it is; his
+ * own app is not carried over.
  * -> [{ id, version }] of the installs moved */
-function amMoveQueue(state) {
+function amMoveQueue(state, stage) {
     var changes = (readJsonOrNull(amFile('pending.json')) || {}).changes, moved = [];
     if (!isId8() || !Array.isArray(changes) || !changes.length) return moved;
     changes.forEach(function (c) {
@@ -2659,10 +2809,20 @@ function amMoveQueue(state) {
                 say('his queued install of ' + c.appId + ' is dropped: its staged package is missing or changed');
                 return;
             }
+            // a package that is refused is dropped; the unit's failure rolls the whole command back
+            var a = null, why = 'its staged package is not that app';
+            try {
+                a = validateArtifact(staged, stage);
+                a = a.kind === 'app' && a.id === c.appId && a.version === c.version ? id8Package(a, stage) : null;
+            } catch (e) {
+                if (!isRefusal(e)) throw e;
+                a = null; why = e.message;
+            }
+            if (!a) { say('his queued install of ' + c.appId + ' is dropped: ' + why); return; }
             ensureApplyUnit(state);
             var file = path.join(ID8_QUEUE, c.appId + '@' + c.version + '.tgz');
             mkdirp(ID8_QUEUE, 0o700);
-            copyFileMode(staged, file, 0o600);
+            copyFileMode(a.file, file, 0o600);
             queueId8({ action: 'install', id: c.appId, version: c.version, file: file, sha256: sha256File(file) });
             moved.push({ id: c.appId, version: c.version });
             say(c.appId + ' ' + c.version + ' ' + ID8_INSTALLS + ' (queued by the App Manager)');
@@ -2725,7 +2885,7 @@ function amAdopt(state, stage) {
     var t = amService('tether', 'ipheth-tether');
     if (t) rec.tether = t.version;
     var from = (readJsonOrNull(amFile('state.json')) || {}).installedFrom || {};
-    amMoveQueue(state).forEach(function (q) {
+    amMoveQueue(state, stage).forEach(function (q) {
         rec.apps = rec.apps.filter(function (x) { return x.id !== q.id; })
             .concat([{ id: q.id, version: q.version, from: typeof from[q.id] === 'string' ? from[q.id] : null }]);
     });

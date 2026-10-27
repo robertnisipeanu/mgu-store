@@ -411,6 +411,13 @@ whose das edits and removal steps it follows:
   stock apps; the apps provisioning lists as preinstalled custom apps
   excluded), any other one repacked with its files under `package/`), and
   reports the app `pending_reboot` with `installs at the next start`.
+  The package gets what iDrive 8 needs to install it and show its tile,
+  when it lacks it: the permission tables MainApp-21 requires, and an
+  appletId. The appletId is chosen on the car at install time, from the
+  ids its apps and the HMI already use: an update keeps the one the app
+  has, a package's own is kept when it is free, otherwise the tool picks a
+  free one and says so. When the tool cannot read the ids in use, it
+  stops the install rather than guess.
   Neither app-privacy nor the provisioning fallback is used there (`fallback
   on|off|migrate` is refused).
 - `uninstall` queues the removal (`removed at the next start`); for an app

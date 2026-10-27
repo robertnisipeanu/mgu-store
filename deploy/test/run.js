@@ -2926,9 +2926,15 @@ function rhmiApp(name, version, hmis, opts) {
         { name: `${pre}javascript/app.js`, data: Buffer.from(`console.log(${JSON.stringify(name)});\n`), mode: 0o644 },
         { name: `${pre}package.json`, data: Buffer.from(JSON.stringify(pkg, null, 2) + '\n'), mode: 0o644 }
     ];
+    if (opts.acl) {
+        entries.push({ name: `${pre}permissions.json`, data: Buffer.from(JSON.stringify(opts.acl)), mode: 0o644 });
+    }
     if (hmis) {
-        entries.push({ name: `${pre}rhmiData/application.json`, mode: 0o644, data: Buffer.from(JSON.stringify({ application: {
-            name, uiDescriptions: hmis.map((h) => ({ applicationFilePath: `./uiDescriptions/${h}/application.xml`, hmi: [h] })) } })) });
+        const application = { name, uiDescriptions: hmis.map((h) => ({ applicationFilePath: `./uiDescriptions/${h}/application.xml`, hmi: [h] })) };
+        if (opts.appletId) {
+            application.appletId = opts.appletId;
+        }
+        entries.push({ name: `${pre}rhmiData/application.json`, mode: 0o644, data: Buffer.from(JSON.stringify({ application })) });
         hmis.forEach((h) => entries.push({ name: `${pre}rhmiData/uiDescriptions/${h}/application.xml`, data: Buffer.from('<x/>\n'), mode: 0o644 }));
     }
     const file = path.join(fs.mkdtempSync(path.join(T, 'rapp-')), `${name}@${version}.tgz`);
@@ -2958,6 +2964,14 @@ function id8Root(opts) {
     if (opts.noRecmgr) {
         fs.unlinkSync(root.p('etc/recmgr-restartlist.conf'));
     }
+    // Hmi8's built-in applets (opts.builtin: RHMI applet manifests' appletIds, opts.native: native applets' AppletIds)
+    (opts.builtin || [20000]).forEach((v, i) => write(root.p(`mnt/dataro/data/hmi8/applet/rhmi${i}/App${i}/App${i}.manifest`),
+        `<?xml version="1.0" encoding="utf-8"?>\n<plugin>\n    <name>App${i}</name>\n    <appletId>${v}</appletId>\n</plugin>\n`));
+    (opts.native || ['0x08']).forEach((v, i) => write(root.p(`usr/lib/hmi8/applet/native${i}.xml`),
+        `<PluginBundle>\n\t<Plugin>\n\t\t<MetaInformation key="AppletId" value="${v}"/>\n\t</Plugin>\n</PluginBundle>\n`));
+    fs.mkdirSync(root.p('mnt/dataro/data/hmi8'), { recursive: true });
+    root.env.MGU_DEPLOY_HMI8_DATA = root.p('mnt/dataro/data/hmi8');
+    root.env.MGU_DEPLOY_HMI8_APPLETS = root.p('usr/lib/hmi8/applet');
     root.env.FAKE_MGR_DIR = 'oap-mainapp21';
     root.noManager = () => fs.writeFileSync(`${root.R}.mgr.pid`, '');
     root.pre21 = (id, v) => root.p(`usr/lib/oap-mainapp21/preinstalled_apps/${id}@${v}.tgz`);
@@ -3340,6 +3354,8 @@ function testKeepRunning() {
     check('keepRunning: anything but true or false is refused', bad.status === 2 && bad.out.includes('keepRunning is true or false'), bad.out);
 }
 
+const ACL = { masterAccessTable: [], masterRegistrationTable: [] };
+
 function testId8Apps() {
     const prov = process.env.MGU_TEST_ID8_PROV;
     [null].concat(prov ? [prov] : []).forEach((provDir) => {
@@ -3347,7 +3363,7 @@ function testId8Apps() {
         const root = id8Root({ prov: provDir });
         const das = () => [0, 1, 2, 3, 4, 5].map((i) => fs.readFileSync(root.p(`usr/share/tm/prov/das_00${i}.xml`), 'utf8'));
         const dasBefore = das();
-        const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true });
+        const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097 });
         const r = root.run(['install', '--artifact', art, '--yes']);
         const queued = root.p('var/opt/mgu-deploy/id8/queue/oap-cardash@1.1.4.tgz');
         const st = root.status();
@@ -3385,7 +3401,7 @@ function testId8Apps() {
         const again = root.run(['install', '--artifact', art, '--yes']);
         check(`${tag}: installing the installed version again drops its queued removal`, again.status === 0 &&
             again.out.includes('the queued removal of oap-cardash is dropped') && root.status().pending_reboot.length === 0, again.out);
-        const up = root.run(['install', '--artifact', rhmiApp('oap-cardash', '1.1.5', ['ID8'], { npm: true }), '--yes']);
+        const up = root.run(['install', '--artifact', rhmiApp('oap-cardash', '1.1.5', ['ID8'], { npm: true, acl: ACL, appletId: 20097 }), '--yes']);
         check(`${tag}: an update says the installed version and its data go first`, up.status === 0 &&
             up.out.includes('1.1.4 is uninstalled first, and its data with it'), up.out);
         const u = root.run(['uninstall', 'oap-cardash', '--yes']);
@@ -3535,8 +3551,11 @@ function testAppManager() {
     check('appmanager: the running renderer keeps running, the tool runs from its next start',
         root.status().pending_reboot.some((p) => p.id === 'mgu-renderd' && p.reason === 'the new version runs from its next start'),
         JSON.stringify(root.status().pending_reboot));
-    check('appmanager: his queued install moves to our queue, his pending.json goes', !fs.existsSync(root.H('pending.json')) &&
-        fs.readFileSync(root.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')).equals(fs.readFileSync(root.H('staged/oap-driverecorder-next@1.0.8.tgz'))) &&
+    const movedPkg = untarBuf(fs.readFileSync(root.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')));
+    check('appmanager: his queued install moves to our queue as ours queues one (ACL tables, appletId), his pending.json goes',
+        !fs.existsSync(root.H('pending.json')) &&
+        JSON.parse(movedPkg['package/permissions.json']).masterRegistrationTable.length === 0 &&
+        JSON.parse(movedPkg['package/rhmiData/application.json']).application.appletId === 20001 &&
         root.status().pending_reboot.some((p) => p.id === 'oap-driverecorder-next' && p.reason === 'installs at the next start'), a.out);
     check('appmanager: the record names the apps he installed that are on the unit or in his queue, with the repository he recorded',
         JSON.stringify(rec.apps) === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', from: 'github.com/IterioDev/car-apps' },
@@ -3620,6 +3639,176 @@ function testAppManager() {
     check('appmanager: at the next boot, his daemon not started, adopt completes', n7.status === 0 &&
         seven.status().appmanager.record.renderer === '1.1.2' && fs.readlinkSync(seven.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2' &&
         !fs.readFileSync(seven.sys('mgu-renderd.service'), 'utf8').includes('--touch'), n7.out);
+    // his queued install with a staged package that is another app, or a file that is not a tgz, is dropped saying why
+    [[rhmiApp('oap-other', '1.0.8', ['ID8'], { npm: true }), 'its staged package is not that app'], [null, 'unreadable tgz']].forEach(([art, why]) => {
+        const odd = amRoot();
+        const staged = odd.H('staged/oap-driverecorder-next@1.0.8.tgz');
+        write(staged, art ? fs.readFileSync(art) : 'not a tgz\n');
+        const pend = readJson(odd.H('pending.json'));
+        pend.changes[0].sha256 = sha256(fs.readFileSync(staged));
+        write(odd.H('pending.json'), JSON.stringify(pend));
+        const r = odd.run(['appmanager', 'adopt', '--yes']);
+        check(`appmanager: his queued install is dropped, saying why (${why})`, r.status === 0 &&
+            r.out.includes(`his queued install of oap-driverecorder-next is dropped: ${why}`) &&
+            !fs.existsSync(odd.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')), r.out);
+    });
+    // the unit's failure while his queued install is moved rolls the whole adopt back, his queue kept for the next try:
+    // no space to extract the package, the linker not loadable, no space to write the repacked package
+    const unitCopy = (files) => {
+        const d = fs.mkdtempSync(path.join(T, 'unit-'));
+        fs.readdirSync(path.join(HERE, '..', 'unit')).forEach((n) => fs.copyFileSync(path.join(HERE, '..', 'unit', n), path.join(d, n)));
+        LINK_FILES.forEach((n) => fs.copyFileSync(path.join(HERE, '..', '..', 'tools', n), path.join(d, n)));
+        Object.keys(files).forEach((n) => fs.writeFileSync(path.join(d, n), files[n]));
+        return path.join(d, 'mgu-deploy.js');
+    };
+    const fullTar = path.join(fs.mkdtempSync(path.join(T, 'tar-')), 'tar');
+    fs.writeFileSync(fullTar, '#!/bin/sh\ncase "$1" in -x*) echo "tar: write error: No space left on device" >&2; exit 2;; esac\nexec tar "$@"\n',
+        { mode: 0o755 });
+    const realPack = fs.readFileSync(path.join(HERE, '..', '..', 'tools', 'oap_pack.js'), 'utf8');
+    {
+        const env8 = amRoot();
+        write(env8.p('var/opt/public/oap/oap_13099/rhmiData/application.json'), '{ not json');
+        const r = env8.run(['appmanager', 'adopt', '--yes']);
+        check('appmanager: an appletId source that cannot be read while his queued install moves: adopt rolled back, his queue kept',
+            r.status !== 0 && r.out.includes('rolling back') && !r.out.includes('is dropped') && fs.existsSync(env8.H('pending.json')) &&
+            !fs.existsSync(env8.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')) && env8.status().appmanager.record === null, r.out);
+    }
+    [['no space to extract', null, { MGU_DEPLOY_TAR: fullTar }],
+        ['the linker not loadable', unitCopy({ 'oap_link.js': "throw new Error('oap_link.js: cannot load');\n" }), {}],
+        ['no space to write the repacked package', unitCopy({ 'oap_pack.js': `${realPack}\nconst tgz = module.exports.tgz;\n` +
+            "module.exports.tgz = (entries, mtime) => { if (entries.some((e) => e.name.indexOf('package/') === 0)) { " +
+            "const e = new Error('ENOSPC: no space left on device, write'); e.code = 'ENOSPC'; throw e; } return tgz(entries, mtime); };\n" }), {}]]
+        .forEach(([what, js, env]) => {
+            const env8 = amRoot();
+            const r = js ? cp.spawnSync(UNIT_NODE, [js, 'appmanager', 'adopt', '--yes'], { encoding: 'utf8', env: Object.assign({}, env8.env, env), input: '' })
+                : env8.run(['appmanager', 'adopt', '--yes'], env);
+            const out = `${r.stdout}${r.stderr}`;
+            check(`appmanager: ${what} while his queued install moves: adopt rolled back, his queue kept`, r.status !== 0 &&
+                out.includes('rolling back') && !out.includes('is dropped') && fs.existsSync(env8.H('pending.json')) &&
+                fs.existsSync(env8.H('staged/oap-driverecorder-next@1.0.8.tgz')) &&
+                !fs.existsSync(env8.p('var/opt/mgu-deploy/id8/queue/oap-driverecorder-next@1.0.8.tgz')) && env8.status().appmanager.record === null, out);
+        });
+}
+
+/* iDrive 8: what MainApp-21 needs and a package lacks, added before it is
+ * queued: the ACL tables permissions.json lacks, and an appletId free on
+ * the unit, read from what the unit has. */
+function testId8Complete() {
+    const queuedIn = (root) => (id, v) => untarBuf(fs.readFileSync(root.p(`var/opt/mgu-deploy/id8/queue/${id}@${v || '1.0.0'}.tgz`)));
+    const appletId = (m) => JSON.parse(m['package/rhmiData/application.json']).application.appletId;
+    const install = (root, id, opts) => root.run(['install', '--artifact', rhmiApp(id, (opts || {}).v || '1.0.0', ['ID8'],
+        Object.assign({ npm: true, acl: ACL }, opts || {})), '--yes']);
+
+    // a unit whose only id in use is a built-in applet's, 20000
+    const root = id8Root();
+    const queued = queuedIn(root);
+    const entry = { uid: '${APPNAME}', domain: 'hmi.entrypoint2', operation: '*' };
+    const r = root.run(['install', '--artifact', rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: { masterAccessTable: [entry] } }), '--yes']);
+    const m = queued('oap-cardash', '1.1.4'), acl = JSON.parse(m['package/permissions.json']);
+    check('id8: a package without masterRegistrationTable or appletId is queued with both added, its entries kept', r.status === 0 &&
+        JSON.stringify(acl) === JSON.stringify({ masterAccessTable: [entry], masterRegistrationTable: [] }) && appletId(m) === 20001 &&
+        Object.keys(m).every((n) => n.indexOf('package/') === 0) &&
+        r.out.includes('repacked oap-cardash 1.1.4: masterRegistrationTable added to permissions.json, appletId 20001 added to rhmiData/application.json'),
+    r.out);
+    const two = root.run(['install', '--artifact', rhmiApp('a1', '1.0.0', ['ID8'], { npm: true, acl: ACL }),
+        '--artifact', rhmiApp('a2', '1.0.0', ['ID8'], { acl: ACL }), '--yes']);
+    check('id8: apps without one get appletIds the queue and each other do not hold', two.status === 0 &&
+        appletId(queued('a1')) === 20002 && appletId(queued('a2')) === 20003, two.out);
+    const kept = install(root, 'kept', { appletId: 20650 });
+    check('id8: a declared appletId free on the unit is kept', kept.status === 0 && appletId(queued('kept')) === 20650 &&
+        !kept.out.includes('repacked'), kept.out);
+    const clash = install(root, 'clash', { appletId: 20001 });
+    check('id8: a declared appletId another app holds is replaced by a free one, saying so', clash.status === 0 &&
+        appletId(queued('clash')) === 20004 &&
+        clash.out.includes('appletId 20004 in rhmiData/application.json in place of 20001, which this unit cannot take'), clash.out);
+    const fixed = [['near', 21000, 20005], ['high', 27100, 20006], ['low', 19900, 20007]].map(([id, v, want]) => {
+        const x = install(root, id, { appletId: v });
+        return [x, appletId(queued(id)) === want];
+    });
+    check('id8: a declared appletId 1000 from a built-in applet\'s, or outside what Hmi8 takes, is replaced',
+        fixed.every(([x, ok]) => x.status === 0 && ok), fixed.map(([x]) => x.out).join('\n'));
+
+    // another unit: ids in use at 20000 (an OAP app), 20001 (a native applet), 23002 (a built-in RHMI applet, 3000 from 20002),
+    // 20003 (an OAP app), 20004 (a built-in RHMI applet), 20005 (MainApp-21), 20006 (a package in preinstalled_apps)
+    const r2 = id8Root({ builtin: [23002, 20004], native: ['0x4E21', '0x08'] });
+    const q2 = queuedIn(r2);
+    const home = (uid, v) => write(r2.p(`var/opt/public/oap/oap_${uid}/rhmiData/application.json`), JSON.stringify({ application: { appletId: v } }));
+    home(13001, 20000); home(13002, 20003);
+    write(r2.p('usr/lib/oap-mainapp21/rhmiData/application.json'), JSON.stringify({ application: { appletId: 20005 } }));
+    write(r2.pre21('waiting', '1.0.0'), fs.readFileSync(rhmiApp('waiting', '1.0.0', ['ID8'], { npm: true, appletId: 20006 })));
+    const n = install(r2, 'newapp');
+    check('id8: the lowest appletId clear of every id the unit has: OAP apps, MainApp-21, preinstalled packages, the HMI\'s built-in applets',
+        n.status === 0 && appletId(q2('newapp')) === 20007, n.out);
+    write(r2.entry('mine'), JSON.stringify({ userId: 13003 }));
+    home(13003, 20650);
+    write(r2.p('var/opt/public/oap/oap_13003/source/package.json'), JSON.stringify({ name: 'mine', version: '0.9.0' }));
+    write(r2.p('usr/lib/oap-mainapp21/preinstalled_apps/mine-0.9.0.tgz'), fs.readFileSync(rhmiApp('mine', '0.9.0', ['ID8'], { npm: true, appletId: 20650 })));
+    const u = install(r2, 'mine', { appletId: 20700 });
+    check('id8: an update keeps the installed version\'s appletId (its package named <id>-<version>.tgz) over the one it declares',
+        u.status === 0 && appletId(q2('mine')) === 20650, u.out);
+    write(r2.entry('lowapp'), JSON.stringify({ userId: 13005 }));
+    home(13005, 19500);
+    write(r2.p('var/opt/public/oap/oap_13005/source/package.json'), JSON.stringify({ name: 'lowapp', version: '0.9.0' }));
+    const lo = install(r2, 'lowapp');
+    check('id8: an installed version\'s appletId outside what Hmi8 takes is not kept', lo.status === 0 && appletId(q2('lowapp')) === 20008, lo.out);
+
+    // a unit without native applets has none of their ids
+    const none = id8Root({ native: [] });
+    fs.rmSync(none.p('usr/lib/hmi8/applet'), { recursive: true, force: true });
+    const nn = install(none, 'nonative');
+    check('id8: a unit without the native applets\' folder has no ids there', nn.status === 0 && appletId(queuedIn(none)('nonative')) === 20001, nn.out);
+
+    // what cannot be read refuses the install, nothing queued: an app's application.json that does not parse, an applets
+    // folder that is no folder, a manifest whose appletId is no number
+    const bad = id8Root();
+    write(bad.p('var/opt/public/oap/oap_13009/rhmiData/application.json'), '{ not json');
+    const b1 = install(bad, 'b1');
+    fs.rmSync(bad.p('var/opt/public/oap/oap_13009'), { recursive: true });
+    fs.rmSync(bad.p('usr/lib/hmi8/applet'), { recursive: true });
+    write(bad.p('usr/lib/hmi8/applet'), 'not a folder\n');
+    const b2 = install(bad, 'b2');
+    fs.rmSync(bad.p('usr/lib/hmi8/applet'));
+    write(bad.p('mnt/dataro/data/hmi8/applet/rhmi9/X/X.manifest'), '<plugin><appletId>twenty</appletId></plugin>\n');
+    const b3 = install(bad, 'b3');
+    fs.rmSync(bad.p('mnt/dataro/data/hmi8/applet/rhmi9'), { recursive: true });
+    fs.rmSync(bad.p('mnt/dataro/data/hmi8'), { recursive: true });
+    const b4 = install(bad, 'b4');
+    check('id8: an id source that cannot be read fails the install (the unit\'s failure): an app\'s application.json, an applets folder that ' +
+        'is no folder, a manifest id that is no number, the HMI\'s data folder missing', b1.status === 1 &&
+        b1.out.includes('rhmiData/application.json for the appletIds in use') && b2.status === 1 && b2.out.includes('cannot read the HMI\'s applets') &&
+        b3.status === 1 && b3.out.includes('appletId twenty is not a number') && b4.status === 1 && b4.out.includes('mnt/dataro/data/hmi8 is missing') &&
+        ['b1', 'b2', 'b3', 'b4'].every((id) => !fs.existsSync(bad.p(`var/opt/mgu-deploy/id8/queue/${id}@1.0.0.tgz`))),
+    `${b1.out}\n${b2.out}\n${b3.out}\n${b4.out}`);
+    const noHomes = id8Root();
+    fs.rmSync(noHomes.p('var/opt/public/oap'), { recursive: true });
+    const nh = install(noHomes, 'nh');
+    check('id8: the apps\' homes folder missing fails the install', nh.status === 1 && nh.out.includes('var/opt/public/oap is missing'), nh.out);
+
+    // a unit whose RHMI applets folder is missing under the HMI's data has none there
+    const noRhmi = id8Root({ builtin: [] });
+    const nr = install(noRhmi, 'norhmi');
+    check('id8: the RHMI applets folder missing under the HMI\'s data holds no ids', nr.status === 0 && appletId(queuedIn(noRhmi)('norhmi')) === 20000, nr.out);
+
+    // what the scan reads: manifests through a linked folder and a linked file, hex ids, an empty id passed over, a
+    // byte order mark in an app's application.json; other apps' packages that cannot be read passed over, warning
+    const odd = id8Root({ builtin: [], native: [] });
+    const H = (rel) => odd.p(`mnt/dataro/data/hmi8/${rel}`);
+    write(odd.p('elsewhere/Linked/Linked.manifest'), '<plugin><appletId>20000</appletId></plugin>\n');
+    fs.mkdirSync(H('applet'), { recursive: true });
+    fs.symlinkSync(odd.p('elsewhere'), H('applet/linkeddir'));
+    write(odd.p('elsewhere2/real.manifest'), '<plugin><appletId>0x4E21</appletId></plugin>\n');
+    fs.mkdirSync(H('applet/files'), { recursive: true });
+    fs.symlinkSync(odd.p('elsewhere2/real.manifest'), H('applet/files/Hex.manifest'));
+    write(H('applet/empty/Empty.manifest'), '<plugin><appletId></appletId></plugin>\n');
+    write(odd.p('var/opt/public/oap/oap_13001/rhmiData/application.json'), '\uFEFF' + JSON.stringify({ application: { appletId: 20002 } }));
+    write(odd.pre21('broken', '1.0.0'), 'not a tgz\n');
+    write(odd.p('var/opt/mgu-deploy/id8/queue/gone@1.0.0.tgz'), 'not a tgz\n');
+    write(odd.p('var/opt/mgu-deploy/id8/pending.json'), JSON.stringify({ changes: [{ action: 'install', id: 'gone', version: '1.0.0',
+        file: odd.p('var/opt/mgu-deploy/id8/queue/gone@1.0.0.tgz'), sha256: 'x' }] }));
+    const o = install(odd, 'oddapp');
+    check('id8: linked folders and files, hex and empty ids, a byte order mark are read; others\' unreadable packages passed over, warning',
+        o.status === 0 && appletId(queuedIn(odd)('oddapp')) === 20003 && o.out.includes('broken@1.0.0.tgz is not known, passed over') &&
+        o.out.includes('gone@1.0.0.tgz is not known, passed over'), o.out);
 }
 
 // MGU_TEST_ONLY=<name>,...: only those test functions
@@ -3679,7 +3868,8 @@ const SUITES = [
     testI7Takeover,
     testKeepRunning,
     testId8Apps,
-    testAppManager
+    testAppManager,
+    testId8Complete
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;

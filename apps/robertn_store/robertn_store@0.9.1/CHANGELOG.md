@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1
+
+On iDrive 8 the Store has its tile and opens, drawn by the renderer; touch,
+the controller and BACK work, going back one page at a time. Needs
+mgu-deploy 0.5.1, which gives it its tile, and mgu-render 0.3.1.
+
 ## 0.9.0
 
 Add source offers what a GitHub repository has. After `owner/repo` (or a

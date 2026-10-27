@@ -306,7 +306,7 @@ class Store extends OnlineApp {
     }
 
     _appInitialized() {
-        logger.info(`store ${this.getAppId()} v${this._packageJson.version} starting`);
+        logger.info(`store ${this.getAppId()} v${this._version()} starting`);
         this._client.connect();
         if (!this.rhmiApplication) {
             logger.info('no RhmiApplication for this start reason; initializing without a screen');
@@ -332,6 +332,13 @@ class Store extends OnlineApp {
                     this.getLastExecutedEntryPointUuid();
                 return lastUuid ? this._onEntryPointExecute(lastUuid) : undefined;
             });
+    }
+
+    /* The oap-sdk keeps package.json as _packageJson on iDrive 7 and as
+     * packageJson on iDrive 8. */
+    _version() {
+        const pkg = this._packageJson || this.packageJson;
+        return pkg && pkg.version;
     }
 
     _startedForeground() {
@@ -587,7 +594,7 @@ class Store extends OnlineApp {
     _drawnModel() {
         const web = this._connected && this._st && this._st.web;
         return { st: this._connected ? this._st : null, connected: this._connected && !!this._st, secret: !!readSecret(),
-            version: this._packageJson && this._packageJson.version, note: this._sourcesNote, login: this._login,
+            version: this._version(), note: this._sourcesNote, login: this._login,
             webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
             pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe, tokenNote: !!this._pick.tokenNote } };
     }
