@@ -83,7 +83,7 @@ them:
 | catalog | a `catalog` release's `catalog.json` asset (`release/README.md`), the https URL, `catalog.json` in a folder | schema 1 or 2 entries; artifact URLs absolute or relative to the catalog |
 | releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description"}}}`), else the installed app's en_GB entry-point text, else the id; always apps, each `uninstallable` |
 | repo tree | `mgu-repo.json` at a repo's or folder's root, at one commit | see below |
-| index | an https URL answering IterioDev's App Manager index: version 2, `{"version": 2, "packages": [{"url", "sha256", "size", "id", "kind", "version", "title", "author", "description", "icon", "iconSha256", …}]}`, or version 1, `{"packages": [{"url", "sha256"}]}` | version 2: each entry as it stands, no package downloaded (50 at most, 32 MiB each); `kind` `app`, or `renderer` / `tether`: a tool providing that kind, as a stick's service package (below); an app without `mguHmi` is for iDrive 8, the App Manager's head unit; an entry of another kind or without an https `url`, a sha256 and a size is left out, named in the source's `error`. An install downloads the package, checks its sha256 and that its `package.json` is the id, version and service its entry names, and keeps it in `state/index/<source id>/<sha256>.tgz` (root, 0600) while the index lists it. Version 1: each package (https, absolute or relative to the index) downloaded once, checked against its sha256, kept the same way, then read like a stick's `oap/` package; a package that is missing or does not match is left out, named in the source's `error` |
+| index | an https URL answering IterioDev's App Manager index: version 2, `{"version": 2, "packages": [{"url", "sha256", "size", "id", "kind", "version", "title", "author", "description", "icon", "iconSha256", …}]}`, or version 1, `{"packages": [{"url", "sha256"}]}` | version 2: each entry as it stands, no package downloaded (50 at most, 32 MiB each); `kind` `app`, or `renderer` / `tether` / `ytplay`: a tool providing that kind, as a stick's service package (below); an app without `mguHmi` is for iDrive 8, the App Manager's head unit; an entry of another kind or without an https `url`, a sha256 and a size is left out, named in the source's `error`. An install downloads the package, checks its sha256 and that its `package.json` is the id, version and service its entry names, and keeps it in `state/index/<source id>/<sha256>.tgz` (root, 0600) while the index lists it. Version 1: each package (https, absolute or relative to the index) downloaded once, checked against its sha256, kept the same way, then read like a stick's `oap/` package; a package that is missing or does not match is left out, named in the source's `error` |
 
 **Icons.** A catalog entry's `icon` (absolute https, or relative to the
 catalog; in a GitHub `catalog` release one of its assets), the asset an
@@ -378,10 +378,11 @@ any name, flat or with npm's `package/` prefix, is a component with the id
 and version of its own `package.json` and the title of its en_GB
 entry-point text, else its `productName`, else its name; the newest of an
 id wins, and its sha256 is taken as it is listed. A package whose
-`package.json` has `mguService` `renderer` or `tether` (IterioDev's root
-services) is a tool: the deploy tool installs it as one (deploy/README.md,
-"Service packages"), so it provides its kind and needs `mgu-deploy` 0.4.0
-or newer; another `mguService` is left out. An app without `mguHmi` is
+`package.json` has `mguService` `renderer`, `tether` or `ytplay`
+(IterioDev's root services) is a tool: the deploy tool installs it as one
+(deploy/README.md, "Service packages"), so it provides its kind and needs
+`mgu-deploy` 0.4.0 or newer (0.5.10 for `ytplay`, the YouTube player);
+another `mguService` is left out. An app without `mguHmi` is
 for the HMIs its rhmiData has a UI for. Each can be removed
 (`uninstallable`). It installs as `<id>@<version>.tgz` (or `.mgu`).
 `mgu-install.js usb-repo` writes a stick from published repositories,
@@ -401,8 +402,8 @@ listed, and its install is refused with the reason (`<title> is for
 iDrive 8; this head unit is iDrive 7`), as a requirement too.
 
 **Capabilities.** A tool may say which capability it provides
-(`mguProvides`; a renderer package provides `renderer`, a tether package
-`tether`). The installed providers of each are in `allProviders`, from the
+(`mguProvides`; a service package provides its kind: `renderer`, `tether`
+or `ytplay`). The installed providers of each are in `allProviders`, from the
 deploy tool's `status --json`. Providers of one capability install side by
 side, renderers among them (`native/mgu-render/README.md`, "Beside other
 renderers").
@@ -746,8 +747,8 @@ each request, and whenever it changes (at most every 250 ms):
   string), null until the deploy tool says. `allProviders`: the installed tools
   providing each capability; `providers`: the first of them each, for the
   Store 0.7. A component's `mguHmi`, `compat`, `provides`
-  (its capability) and `service` (`renderer` or `tether` for a service
-  package) ("Head units", "Capabilities").
+  (its capability) and `service` (`renderer`, `tether` or `ytplay` for a
+  service package) ("Head units", "Capabilities").
 - `busy.phase`: `download`, `build` (a source package or a repo's build
   script), `verify`, `install`, `uninstall`, or `check` (a tool the
   updater runs on, "Tools the updater runs on"); `busy.op`: `install` or
@@ -896,7 +897,7 @@ releases, branches, tags, contents, tarballs, the device flow), with
   second's uninstall and none after both;
 - an App Manager index version 2: listed with no package downloaded, an
   unknown kind left out, an app without `mguHmi` for iDrive 8, a renderer
-  as a tool, an install that downloads and keeps the package, one whose
+  and a YouTube player as tools, an install that downloads and keeps the package, one whose
   package is another id refused; icons from it, a folder catalog and a
   repo's `mgu-store.json`, kept by sha256 (0644), one that does not match
   or is too big left out, kept and failed ones not fetched again, removed once unnamed; a package's own `icon.png`, `author` and `store.description` from a stick and a version 1 index;

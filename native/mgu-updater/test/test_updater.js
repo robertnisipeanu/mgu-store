@@ -2517,6 +2517,7 @@ function testIndexV2(certs, pubDir) {
         item('v2odd@1.0.0.tgz', { name: 'v2odd', version: '1.0.0', productName: 'Odd' }, { kind: 'widget' })] };
     // another id naming v2both's package
     index.packages.push(Object.assign({}, index.packages[2], { id: 'v2twin', title: 'Twin', icon: undefined, iconSha256: undefined }));
+    index.packages.push(item('mgu-ytplay@1.0.5.tgz', { name: 'mgu-ytplay', version: '1.0.5', productName: 'YouTube player', mguService: 'ytplay' }));
     fs.writeFileSync(path.join(pubDir, 'v2render.png'), png(40, 4));
     fs.writeFileSync(path.join(pubDir, 'v2-index.json'), JSON.stringify(index));
     // a catalog in a folder, its icon beside it
@@ -2593,8 +2594,8 @@ function testIndexV2(certs, pubDir) {
         .then(() => {
             const s = st();
             const src = s.sources.find((x) => x.id === 'car-apps');
-            ok('index v2: listed from the index alone, no package downloaded', src.status === 'ok' && src.components === 6 &&
-                !seen.slice(from).some((x) => /^\/v2[a-z]*@/.test(x.url)), JSON.stringify(src));
+            ok('index v2: listed from the index alone, no package downloaded', src.status === 'ok' && src.components === 7 &&
+                !seen.slice(from).some((x) => /^\/(v2[a-z]*|mgu-ytplay)@/.test(x.url)), JSON.stringify(src));
             ok('index v2: an unknown kind is left out, said why', /v2odd: unknown kind widget/.test(src.error || '') && !comp('v2odd').id, src.error);
             const a = comp('v2app');
             ok('index v2: an app with title, author, description; no mguHmi: iDrive 8, not for this iDrive 7',
@@ -2604,6 +2605,10 @@ function testIndexV2(certs, pubDir) {
             ok('index v2: kind renderer is a tool providing renderer, needing the deploy tool that installs service packages',
                 r.kind === 'tool' && r.provides === 'renderer' && r.service === 'renderer' && r.compat === 'unknown' &&
                 u.src.get('car-apps').components.find((c) => c.id === 'v2render').requires['mgu-deploy'] === '0.4.0', JSON.stringify(r));
+            const y = comp('mgu-ytplay');
+            ok('index v2: kind ytplay (the YouTube player) is a tool providing ytplay, needing the deploy tool that adopts it',
+                y.kind === 'tool' && y.provides === 'ytplay' && y.service === 'ytplay' && y.title === 'YouTube player' &&
+                u.src.get('car-apps').components.find((c) => c.id === 'mgu-ytplay').requires['mgu-deploy'] === '0.5.10', JSON.stringify(y));
             ok('index v2: mguHmi in an entry counts', comp('v2both').compat === 'yes');
             ok('icons: kept by their sha256 under the state folder, readable by anyone, the bytes the index names',
                 a.icon === path.join(iconDir, `${sha256(appIcon)}.png`) && fs.readFileSync(a.icon).equals(appIcon) &&

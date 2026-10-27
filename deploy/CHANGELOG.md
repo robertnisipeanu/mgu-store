@@ -1,5 +1,12 @@
 # Deploy tool changelog
 
+## 0.5.10
+
+- IterioDev's YouTube player package (`mguService` `ytplay`, `mgu-ytplay`) installs as the tool `mgu-ytplay`: `versions/<v>/`, `mgu-ytplay.service` (as his App Manager writes it, running `current/mgu-ytplay`) enabled for `late.target`, its recmgr entry, kept running by updates. It is `"internet": true` with its uids in `/var/opt/mgu-ytplay/internet-uids`. A Wi-Fi hotspot package (`wifi`, `mgu-wifi`) is refused, as the tether is.
+- `appmanager adopt` makes his running player the tool `mgu-ytplay` the way it makes his renderer `mgu-renderd` (never stopped; ours from its next start), before anything can move `/var/opt/appmanager`. His Wi-Fi hotspot service stays as it is. The record has the player's version (`ytplay`).
+- `uninstall oap-appmanager` is refused, nothing changed, while an enabled unit other than his two names a path in `/var/opt/appmanager`: moving the folder would fail it at every start.
+- `mgu-install.js usb-repo` lists a player package as a tool needing `mgu-deploy` 0.5.10.
+
 ## 0.5.9
 
 - Source packages (`mgu-app.json`) are built with the certification service in their SOME/IP manifest, so one whose manifest lacks it installs on iDrive 7 and iDrive 8.

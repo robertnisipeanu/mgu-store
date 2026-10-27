@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.7.7
+
+- IterioDev's YouTube player (`mguService` / index `kind` `ytplay`, `mgu-ytplay`) is a tool providing `ytplay`, listed from his `car-apps` index and his packages instead of left out. It needs `mgu-deploy` 0.5.10, which installs it and adopts the one his App Manager installed; an adopted player has no origin and is updated by the source that lists it.
+
 ## 0.7.6
 
 - `deploy_timeout_s` is 5400 (90 min): longer than the deploy tool's 60-minute wait for another run's lock plus its longest run, so a queued run is never stopped mid-change.

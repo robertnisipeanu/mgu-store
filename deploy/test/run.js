@@ -3376,11 +3376,13 @@ function elf() {
 }
 
 /* IterioDev's service package format: npm-format, package/<name> and package.json. */
+const SERVICE_NAMES = { renderer: ['mgu-renderd', 'GPU renderer'], tether: ['ipheth-tether', 'iPhone tether'],
+    ytplay: ['mgu-ytplay', 'YouTube player'], wifi: ['mgu-wifi', 'Wi-Fi hotspot'] };
 function serviceArtifact(kind, version, opts) {
     opts = opts || {};
-    const name = opts.name || (kind === 'tether' ? 'ipheth-tether' : 'mgu-renderd');
-    const pkg = Object.assign({ name, version, productName: kind === 'tether' ? 'iPhone tether' : 'GPU renderer',
-        description: `test ${kind}`, mguService: kind }, opts.pkg || {});
+    const known = SERVICE_NAMES[kind] || SERVICE_NAMES.renderer;
+    const name = opts.name || known[0];
+    const pkg = Object.assign({ name, version, productName: known[1], description: `test ${kind}`, mguService: kind }, opts.pkg || {});
     const file = path.join(fs.mkdtempSync(path.join(T, 'svc-')), `${name}@${version}.tgz`);
     fs.writeFileSync(file, tgz([
         { name: `package/${opts.binName || name}`, data: opts.bin || elf(), mode: 0o755 },
@@ -3538,6 +3540,22 @@ function testServices() {
     const t = root.run(['install', '--artifact', serviceArtifact('tether', '1.0.1'), '--yes']);
     check('service: a tether package is refused: mgu-uplink drives the iPhone', t.status === 2 &&
         t.out.includes('the iPhone tether is replaced by mgu-uplink') && !fs.existsSync(root.p('var/opt/ipheth-tether')), t.out);
+    const w = root.run(['install', '--artifact', serviceArtifact('wifi', '1.0.0'), '--yes']);
+    check('service: a Wi-Fi hotspot package is refused: mgu-uplink is the uplink', w.status === 2 &&
+        w.out.includes('the Wi-Fi hotspot service is replaced by mgu-uplink') && !fs.existsSync(root.p('var/opt/mgu-wifi')), w.out);
+    const y = root.run(['install', '--artifact', serviceArtifact('ytplay', '1.0.5'), '--yes']);
+    const yunit = fs.existsSync(root.p('etc/systemd/system/mgu-ytplay.service')) ?
+        fs.readFileSync(root.p('etc/systemd/system/mgu-ytplay.service'), 'utf8') : '';
+    const yc = readJsonOrNull(root.p('var/opt/mgu-ytplay/current/component.json')) || {};
+    check('service: a YouTube player package installs as the tool mgu-ytplay: its unit runs current/mgu-ytplay on its socket and data folder, enabled, in recmgr',
+        y.status === 0 && fs.readFileSync(root.p('var/opt/mgu-ytplay/versions/1.0.5/mgu-ytplay')).equals(elf()) &&
+        yunit.includes(`ExecStart=${root.p('var/opt/mgu-ytplay/current/mgu-ytplay')} --socket /run/mgu-ytplay/ytplay.sock --data /var/opt/ytplay\n`) &&
+        yunit.includes('RuntimeDirectory=mgu-ytplay') && yunit.includes('Restart=always') &&
+        fs.readlinkSync(root.p('etc/systemd/system/late.target.wants/mgu-ytplay.service')) === '../mgu-ytplay.service' &&
+        /\[Whitelist\][^[]*mgu-ytplay/.test(fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8')) &&
+        root.status().components.some((c) => c.id === 'mgu-ytplay' && c.provides === 'ytplay'), y.out + yunit);
+    check('service: the player gets internet through mgu-uplink for the uids in /var/opt/mgu-ytplay/internet-uids, kept running by updates',
+        yc.internet === true && yc.uids === 'internet-uids' && yc.keepRunning === true, JSON.stringify(yc));
     const his = fakeRoot();
     write(his.p('etc/systemd/system/mgu-renderd.service'), '[Service]\nExecStart=/var/opt/appmanager/renderer/mgu-renderd\n');
     const h0 = his.hash();
@@ -3958,11 +3976,15 @@ function amRoot(opts) {
     const tbin = Buffer.concat([elf(), Buffer.from('tether')]);
     write(H('tether/ipheth-tether'), tbin, 0o755);
     write(H('tether/version.json'), JSON.stringify({ version: '1.0.1', at: 1 }));
+    const ybin = Buffer.concat([elf(), Buffer.from('ytplay')]);
+    write(H('ytplay/mgu-ytplay'), ybin, 0o755);
+    write(H('ytplay/version.json'), JSON.stringify({ version: '1.0.5', at: 1 }));
     write(sys('appmanager.service'), '[Service]\nExecStart=/usr/bin/node /var/opt/appmanager/code/current/appmanager.js daemon\n[Install]\nWantedBy=late.target\n');
     write(sys('appmanager-apply.service'), '[Service]\nType=oneshot\nExecStart=/usr/bin/node /var/opt/appmanager/code/stable/appmanager.js apply\n');
     write(sys('mgu-renderd.service'), '[Service]\nExecStart=/var/opt/appmanager/renderer/mgu-renderd --socket /run/mgu-renderd/renderd.sock\n');
     write(sys('ipheth-tether.service'), '[Service]\nExecStart=/var/opt/appmanager/tether/ipheth-tether socks 127.0.0.1:1080\n');
-    ['appmanager.service', 'appmanager-apply.service', 'mgu-renderd.service'].forEach((u) => {
+    write(sys('mgu-ytplay.service'), `[Service]\nExecStart=${H('ytplay/mgu-ytplay')} --socket /run/mgu-ytplay/ytplay.sock --data /var/opt/ytplay\nRestart=always\n`);
+    ['appmanager.service', 'appmanager-apply.service', 'mgu-renderd.service', 'mgu-ytplay.service'].forEach((u) => {
         fs.mkdirSync(sys('late.target.wants'), { recursive: true });
         fs.symlinkSync(`/etc/systemd/system/${u}`, sys(`late.target.wants/${u}`));
     });
@@ -3984,10 +4006,11 @@ function amRoot(opts) {
             }
         });
     }
-    root.env.FAKE_ACTIVE = 'appmanager.service mgu-renderd.service ipheth-tether.service';
+    root.env.FAKE_ACTIVE = 'appmanager.service mgu-renderd.service ipheth-tether.service mgu-ytplay.service';
     root.H = H;
     root.sys = sys;
     root.tbin = tbin;
+    root.ybin = ybin;
     return root;
 }
 
@@ -4014,9 +4037,18 @@ function testAppManager() {
     const a = root.run(['appmanager', 'adopt', '--yes']);
     const calls = root.systemctlCalls();
     const rec = readJsonOrNull(root.p('var/opt/mgu-deploy/appmanager.json')) || {};
-    check('appmanager: adopt stops his daemon and his tether, a start queued for them too (never a restart of the renderer)', a.status === 0 &&
+    check('appmanager: adopt stops his daemon and his tether, a start queued for them too (never a restart of the renderer or the player)', a.status === 0 &&
         calls.includes('stop appmanager.service') && calls.includes('stop ipheth-tether.service') &&
-        !calls.some((c) => /^(stop|restart) mgu-renderd/.test(c)), a.out + calls.join('\n'));
+        !calls.some((c) => /^(stop|restart) mgu-(renderd|ytplay)/.test(c)), a.out + calls.join('\n'));
+    const yunit = fs.readFileSync(root.sys('mgu-ytplay.service'), 'utf8');
+    check('appmanager: his YouTube player is the tool mgu-ytplay, its program as it was, our unit over his, enabled; it runs ours from its next start',
+        fs.readFileSync(root.p('var/opt/mgu-ytplay/versions/1.0.5/mgu-ytplay')).equals(root.ybin) &&
+        fs.readlinkSync(root.p('var/opt/mgu-ytplay/current')) === 'versions/1.0.5' &&
+        yunit.includes(`ExecStart=${root.p('var/opt/mgu-ytplay/current/mgu-ytplay')} --socket /run/mgu-ytplay/ytplay.sock --data /var/opt/ytplay\n`) &&
+        fs.readlinkSync(root.sys('late.target.wants/mgu-ytplay.service')) === '../mgu-ytplay.service' &&
+        root.status().components.some((c) => c.id === 'mgu-ytplay' && c.provides === 'ytplay') &&
+        root.status().pending_reboot.some((p) => p.id === 'mgu-ytplay' && p.reason === 'the new version runs from its next start') &&
+        a.out.includes('the YouTube player 1.0.5 is the tool mgu-ytplay'), a.out + yunit);
     check('appmanager: his units stay, disabled', fs.existsSync(root.sys('appmanager.service')) && fs.existsSync(root.sys('appmanager-apply.service')) &&
         !fs.existsSync(root.sys('late.target.wants/appmanager.service')) && !fs.existsSync(root.sys('late.target.wants/appmanager-apply.service')));
     const unit = fs.readFileSync(root.sys('mgu-renderd.service'), 'utf8');
@@ -4038,7 +4070,7 @@ function testAppManager() {
     check('appmanager: the record names the apps he installed that are on the unit or in his queue, with the repository he recorded',
         JSON.stringify(rec.apps) === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', from: 'github.com/IterioDev/car-apps' },
             { id: 'oap-draggy', version: '1.1.3', from: null }, { id: 'oap-driverecorder-next', version: '1.0.8', from: null }]) &&
-        rec.renderer === '1.1.2' && rec.tether === '1.0.1', JSON.stringify(rec));
+        rec.renderer === '1.1.2' && rec.ytplay === '1.0.5' && rec.tether === '1.0.1', JSON.stringify(rec));
     check('appmanager: and his repositories with what his store saw there, without the token',
         rec.repos && rec.repos.length === 2 && rec.repos[0].isDefault === true && rec.repos[0].lists.indexOf('oap-draggy') >= 0 &&
         rec.repos[1].private === true && !fs.readFileSync(root.p('var/opt/mgu-deploy/appmanager.json'), 'utf8').includes('SECRET'), JSON.stringify(rec.repos));
@@ -4046,7 +4078,8 @@ function testAppManager() {
     check('appmanager: status says it is adopted', root.status().appmanager.record.at === rec.at && root.status().appmanager.daemon === 'inactive');
     const again = root.run(['appmanager', 'adopt', '--yes']);
     check('appmanager: adopting again changes nothing it took over', again.status === 0 && readJsonOrNull(root.p('var/opt/mgu-deploy/appmanager.json')).renderer === '1.1.2' &&
-        fs.readlinkSync(root.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2', again.out);
+        readJsonOrNull(root.p('var/opt/mgu-deploy/appmanager.json')).ytplay === '1.0.5' &&
+        fs.readlinkSync(root.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2' && fs.readFileSync(root.sys('mgu-ytplay.service'), 'utf8') === yunit, again.out);
 
     const r = root.run(['uninstall', 'oap-appmanager', '--yes']);
     const st = root.status();
@@ -4054,9 +4087,11 @@ function testAppManager() {
         !fs.existsSync(root.sys('appmanager.service')) && !fs.existsSync(root.sys('appmanager-apply.service')) &&
         !fs.existsSync(root.sys('ipheth-tether.service')) && !fs.existsSync(root.H('')) &&
         fs.readFileSync(root.p('var/opt/mgu-deploy/appmanager-removed/tether/ipheth-tether')).equals(root.tbin), r.out);
-    check('appmanager: his app is removed at the next start; the renderer and his apps stay', st.appmanager.present === false &&
+    check('appmanager: his app is removed at the next start; the renderer, the player and his apps stay', st.appmanager.present === false &&
         st.appmanager.record.removed && st.pending_reboot.some((p) => p.id === 'oap-appmanager' && p.reason === 'removed at the next start') &&
-        fs.existsSync(root.p('var/opt/mgu-renderd/current/mgu-renderd')) && fs.existsSync(root.sys('mgu-renderd.service')) && apps() === apps0, JSON.stringify(st));
+        fs.existsSync(root.p('var/opt/mgu-renderd/current/mgu-renderd')) && fs.existsSync(root.sys('mgu-renderd.service')) &&
+        fs.readFileSync(root.p('var/opt/mgu-ytplay/current/mgu-ytplay')).equals(root.ybin) && fs.readFileSync(root.sys('mgu-ytplay.service'), 'utf8') === yunit &&
+        apps() === apps0, JSON.stringify(st));
     root.noManager();
     const boot = root.run(['apply-pending']);
     const das = dasNow();
@@ -4087,6 +4122,28 @@ function testAppManager() {
         fl.out.includes('is not an x86-64 program') && late.systemctlCalls().includes('start appmanager.service') &&
         late.hash((rel) => rel.startsWith('var/opt/mgu-deploy')).hash === hl.hash && !fs.existsSync(late.p('var/opt/mgu-renderd')),
         fl.out + treeDiff(hl, late.hash((rel) => rel.startsWith('var/opt/mgu-deploy'))));
+    const lateY = amRoot();
+    write(lateY.H('ytplay/mgu-ytplay'), '#!/bin/sh\n', 0o755);
+    const hy = lateY.hash((rel) => rel.startsWith('var/opt/mgu-deploy'));
+    const fy = lateY.run(['appmanager', 'adopt', '--yes']);
+    check('appmanager: a player that is no program fails the adopt after the renderer was taken over: both tools gone, all else back', fy.status !== 0 &&
+        fy.out.includes('mgu-ytplay is not an x86-64 program') && !fs.existsSync(lateY.p('var/opt/mgu-renderd')) && !fs.existsSync(lateY.p('var/opt/mgu-ytplay')) &&
+        lateY.hash((rel) => rel.startsWith('var/opt/mgu-deploy')).hash === hy.hash, fy.out + treeDiff(hy, lateY.hash((rel) => rel.startsWith('var/opt/mgu-deploy'))));
+
+    // an enabled unit of his other than the two he removes with himself, running from his folder: Remove is refused
+    const wifi = amRoot();
+    write(wifi.H('wifi/mgu-wifi'), elf(), 0o755);
+    write(wifi.H('wifi/version.json'), JSON.stringify({ version: '1.0.0', at: 1 }));
+    write(wifi.sys('mgu-wifi.service'), `[Service]\nExecStart=${wifi.H('wifi/mgu-wifi')}\nRestart=always\n`);
+    fs.symlinkSync('/etc/systemd/system/mgu-wifi.service', wifi.sys('late.target.wants/mgu-wifi.service'));
+    const ours = (rel) => rel.startsWith('var/opt/mgu-deploy');
+    const hw = wifi.hash(ours);
+    const rw = wifi.run(['uninstall', 'oap-appmanager', '--yes']);
+    check('appmanager: Remove is refused while an enabled unit runs from his folder (his Wi-Fi hotspot), all else back', rw.status === 2 &&
+        rw.out.includes(`IterioDev's App Manager is not removed while an enabled unit runs from ${wifi.p('var/opt/appmanager')}: mgu-wifi.service`) &&
+        rw.out.includes('his Wi-Fi hotspot service 1.0.0 stays as it is') && wifi.hash(ours).hash === hw.hash, rw.out + treeDiff(hw, wifi.hash(ours)));
+    fs.unlinkSync(wifi.sys('late.target.wants/mgu-wifi.service'));
+    check('appmanager: with that unit disabled, Remove goes ahead', wifi.run(['uninstall', 'oap-appmanager', '--yes']).status === 0 && !fs.existsSync(wifi.H('')));
 
     // our renderer tool first, his App Manager installed after it: his unit over ours
     const first = amRoot();
@@ -4117,6 +4174,11 @@ function testAppManager() {
     check('appmanager: at the next boot, his daemon not started, adopt completes', n7.status === 0 &&
         seven.status().appmanager.record.renderer === '1.1.2' && fs.readlinkSync(seven.p('var/opt/mgu-renderd/current')) === 'versions/1.1.2' &&
         !fs.readFileSync(seven.sys('mgu-renderd.service'), 'utf8').includes('--touch'), n7.out);
+    check('appmanager: there the player, not running, is our tool too, in recmgr, starting at the next boot (not now)',
+        fs.readlinkSync(seven.p('var/opt/mgu-ytplay/current')) === 'versions/1.0.5' &&
+        /\[Whitelist\][^[]*mgu-ytplay/.test(fs.readFileSync(seven.p('etc/recmgr-restartlist.conf'), 'utf8')) &&
+        !seven.systemctlCalls().some((c) => /^(start|stop|restart) mgu-ytplay/.test(c)) &&
+        seven.status().pending_reboot.some((p) => p.id === 'mgu-ytplay' && p.reason === 'starts at the next boot'), n7.out);
     // his queued install with a staged package that is another app, or a file that is not a tgz, is dropped saying why
     [[rhmiApp('oap-other', '1.0.8', ['ID8'], { npm: true }), 'its staged package is not that app'], [null, 'unreadable tgz']].forEach(([art, why]) => {
         const odd = amRoot();

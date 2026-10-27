@@ -931,9 +931,9 @@ function describePackage(file, data) {
         throw new Usage(`${file}: no component.json, mgu-app.json or package.json`);
     }
     const pkg = json(`${base}package.json`);
-    // a root-service package (renderer, tether) installs as the tool of its name, providing its kind
-    if (pkg.mguService !== undefined && ['renderer', 'tether'].indexOf(pkg.mguService) < 0) {
-        throw new Usage(`${file}: a root-service package of an unknown kind (mguService renderer or tether)`);
+    // a root-service package (renderer, tether, ytplay) installs as the tool of its name, providing its kind
+    if (pkg.mguService !== undefined && ['renderer', 'tether', 'ytplay'].indexOf(pkg.mguService) < 0) {
+        throw new Usage(`${file}: a root-service package of an unknown kind (mguService renderer, tether or ytplay)`);
     }
     if (!ID.test(pkg.name || '') || !SEMVER.test(pkg.version || '')) {
         throw new Usage(`${file}: package.json needs a lower-case name and an x.y.z version`);
@@ -941,7 +941,9 @@ function describePackage(file, data) {
     return { id: pkg.name, kind: pkg.mguService ? 'tool' : 'app', version: pkg.version,
         title: title(members, base) || pkg.productName || pkg.name,
         description: typeof pkg.description === 'string' ? pkg.description : '', mgu: base === 'source/',
-        mguHmi: pkg.mguHmi, mguProvides: pkg.mguService, service: !!pkg.mguService };
+        mguHmi: pkg.mguHmi, mguProvides: pkg.mguService, service: !!pkg.mguService,
+        // the deploy tool that installs a player package
+        requires: pkg.mguService === 'ytplay' ? { 'mgu-deploy': '0.5.10' } : undefined };
 }
 
 /* A catalog entry as the stick lists it: the source's fields, the artifact

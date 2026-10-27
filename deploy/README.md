@@ -209,8 +209,8 @@ An **app artifact** is one of:
   unit (below). The Store is published this way.
 
 A **service package** (IterioDev's App Manager format: `package.json` with
-`mguService`) installs as a tool when it is a renderer; a tether is refused
-("Service packages").
+`mguService`) installs as a tool when it is a renderer or a YouTube player;
+a tether or a Wi-Fi hotspot is refused ("Service packages").
 
 ## mgu-install
 
@@ -322,7 +322,7 @@ FAT, exFAT and NTFS), which the updater reads as source
 | `https://.../catalog.json` | `<host>-<folder>` | as a catalog release |
 | a folder with `catalog.json` (a `dir:` publish) | its name | as a catalog release |
 | a folder with `mgu-repo.json` (a checkout) | its name | the repository's files (git's tracked files, else all but `.git` and `node_modules`), which the unit builds |
-| package files `*.tgz`, `*.mgu` | `local` | added to `local/`'s catalog by their content: an app (`package.json` flat, under `package/`, or a `.mgu`), a source package (`mgu-app.json`, `build: "unit"`), a tool kit (`component.json`), a renderer or tether package (`mguService`) as a tool providing its kind; of an id the higher version stays |
+| package files `*.tgz`, `*.mgu` | `local` | added to `local/`'s catalog by their content: an app (`package.json` flat, under `package/`, or a `.mgu`), a source package (`mgu-app.json`, `build: "unit"`), a tool kit (`component.json`), a renderer, tether or player package (`mguService`) as a tool providing its kind (a player needing `mgu-deploy` 0.5.10); of an id the higher version stays |
 
 No input: `github:robertnisipeanu/mgu-store`. The folder of a `github:` or
 https input holds `mgu-copy.json`, `{"copyOf": "<the input>"}`: the
@@ -335,8 +335,8 @@ and each artifact beside it under a relative URL; an `.mgu` keeps its file
 name and is listed as `<id>@<version>.tgz`, which the deploy tool installs
 by its content. A folder is written next to the old one and replaces it
 once complete, so the stick holds the newer versions only; other folders
-and the stick's other files stay. A root-service package of another
-`mguService`, a folder over the updater's limits (catalog.json over 1 MiB, a checkout over
+and the stick's other files stay. A root-service package of a
+`mguService` other than `renderer`, `tether` and `ytplay`, a folder over the updater's limits (catalog.json over 1 MiB, a checkout over
 200 MB or 20000 files) or an artifact that does not match is refused.
 
 ## On the unit
@@ -473,27 +473,31 @@ whose das edits and removal steps it follows:
 
 ### Service packages
 
-IterioDev's App Manager installs two root services as packages: an
+IterioDev's App Manager installs its root services as packages: an
 npm-format tgz holding `package.json` `{ name, version, mguService }` and
 an x86-64 program under its name (`appmanager-service/services.js`,
-`pkg.js`). The tool installs a renderer as a tool of that name, so the
-tool rules apply (layout, recmgr, start, update, rollback, uninstall); a
-tether (`mguService` `tether`, `ipheth-tether`) is refused: mgu-uplink
-drives the iPhone:
+`pkg.js`). The tool installs a renderer or a YouTube player as a tool of
+that name, so the tool rules apply (layout, recmgr, start, update,
+rollback, uninstall); a tether (`mguService` `tether`, `ipheth-tether`) is
+refused, mgu-uplink drives the iPhone, and so is a Wi-Fi hotspot (`wifi`,
+`mgu-wifi`), mgu-uplink being the unit's uplink:
 
 | `mguService` | name | unit | runs |
 |---|---|---|---|
 | `renderer` | `mgu-renderd` | `mgu-renderd.service`, enabled for `late.target` | from boot: `current/mgu-renderd --socket /run/mgu-renderd/renderd.sock`, on iDrive 8 with `--touch car --touch-area 0,76,2880,764` (`vm` with `/usr/bin/vminput`) |
+| `ytplay` | `mgu-ytplay` | `mgu-ytplay.service`, enabled for `late.target` | from boot: `current/mgu-ytplay --socket /run/mgu-ytplay/ytplay.sock --data /var/opt/ytplay` (`Nice=5`) |
 
 The program and its `package.json` go to `versions/<version>/`, the unit
 is the one his App Manager writes (root, `Restart=always`, the renderer
 waiting for `/run/wayland/wayland-0`), and the name goes into recmgr's
-lists. A fresh renderer starts once recmgr has loaded its entry, so at the
+lists. A fresh one starts once recmgr has loaded its entry, so at the
 next boot on a unit with the list; a running one is not restarted by an
-update (`keepRunning`, as his App Manager does). The tool provides its kind
-("Capabilities"). Any other `mguService`, a name that does not match its
-kind, a version that is not x.y.z, or a program that is not a 64-bit x86-64
-ELF of at most 16 MiB is refused.
+update (`keepRunning`, as his App Manager does for the renderer). The tool
+provides its kind ("Capabilities"). The player is `"internet": true` with
+its uids in `/var/opt/mgu-ytplay/internet-uids` ("Internet for selected
+components"); without that file it gets none. Any other `mguService`, a
+name that does not match its kind, a version that is not x.y.z, or a
+program that is not a 64-bit x86-64 ELF of at most 16 MiB is refused.
 
 A unit without `/etc/recmgr-restartlist.conf` (none is known on iDrive 8)
 has no recmgr to restart it: nothing is written there, and units start,
@@ -511,7 +515,7 @@ any source, as is its tether. On a unit that runs it, it is:
 | service | `/var/opt/appmanager/code/current/` (1.0.x: the folder itself), `appmanager.service` (daemon) and `appmanager-apply.service` (its queue at boot), both enabled for `late.target` |
 | records | `state.json` (`installedFrom`: app → repository), `apply.log` (one JSON line per boot apply), `config.json` (`repos`, a token for a private one), `catalog.json` (what each repository listed), `pending.json` + `staged/` (its queue) |
 | app | `oap-appmanager`, installed for MainApp-21 like ours (iDrive 8) |
-| services | `renderer/mgu-renderd` + `mgu-renderd.service`; `tether/ipheth-tether` + `ipheth-tether.service` (on demand) |
+| services | `renderer/mgu-renderd` + `mgu-renderd.service`; `ytplay/mgu-ytplay` + `mgu-ytplay.service`; `tether/ipheth-tether` + `ipheth-tether.service` (on demand); `wifi/mgu-wifi` + `mgu-wifi.service`; each with `version.json` |
 
 `appmanager adopt [--yes]` takes it over, in one snapshot, nothing
 reinstalled:
@@ -527,27 +531,34 @@ reinstalled:
 - its queued app changes go into ours (iDrive 8): an install with its
   staged package while that matches its sha256, a removal as it is; its
   own app is not carried over; `pending.json` goes;
-- its renderer becomes the tool `mgu-renderd` (`versions/<its version>/`
-  from the program it runs), our unit written over its unit; a running
-  renderer keeps running and runs ours from its next start. With our
-  `mgu-renderd` installed before it, its unit is written over ours: ours
-  goes back, and our tool runs from the renderer's next start;
+- its renderer and its YouTube player become the tools `mgu-renderd` and
+  `mgu-ytplay` (`versions/<its version>/` from the program it runs, the
+  service package's rules), our unit written over its unit and the name
+  added to recmgr's lists; a running one keeps running and runs ours from
+  its next start. With our tool installed before it, its unit is written
+  over ours: ours goes back, and our tool runs from that service's next
+  start;
+- its Wi-Fi hotspot stays as it is (said in the output);
 - `/var/opt/mgu-deploy/appmanager.json` records the apps it installed that
   are on the unit (`state.json`'s `installedFrom`, and what `apply.log` last
   shows installed; not its app, its services or a system app) and the
   installs moved from its queue, with the
   repository it recorded for each (`from`), its repositories without their
   tokens (`url`, `index`, `private`, `enabled`, `isDefault`, and the ids
-  its last catalog fetch saw there as `lists`), and the renderer and tether
-  versions. The updater gives each app its origin from this.
+  its last catalog fetch saw there as `lists`), and the renderer, player
+  (`ytplay`) and tether versions. The updater gives each app its origin
+  from this.
 
-`uninstall oap-appmanager [--yes]` removes it: it adopts first, then
-removes its two units (and the tether's, unless the tool `ipheth-tether` is
-ours), keeps `/var/opt/appmanager` as `/var/opt/mgu-deploy/appmanager-removed/`
+`uninstall oap-appmanager [--yes]` removes it: it adopts first, and is
+refused, nothing changed, while an enabled unit other than its two names
+a path in `/var/opt/appmanager` (a service it installed that is not taken
+over, its Wi-Fi hotspot among them), which would fail at every start
+without it. Then it removes its two units (and the tether's, unless the
+tool `ipheth-tether` is ours), keeps `/var/opt/appmanager` as `/var/opt/mgu-deploy/appmanager-removed/`
 (the one before replaced), and uninstalls its app (on iDrive 8 queued for
 the next start). The apps and services it installed stay. A failure in
-either puts its folder and the snapshot back, removes a renderer tool it
-made, and starts its daemon again when it ran. `status --json` has
+either puts its folder and the snapshot back, removes a renderer or player
+tool it made, and starts its daemon again when it ran. `status --json` has
 `appmanager`: `null` when it was never on the unit, else `{ present,
 version, app, daemon, record }` (`record`: `appmanager.json`, with
 `removed` once removed). `appmanager [--json]` prints the same.
@@ -1271,9 +1282,10 @@ donor refused), packages built elsewhere (npm format, `.mgu`, unmarked,
 oap-sdk generated, no donor refused), the internet drop-ins, `sdk-donor`,
 the head unit (iDrive 7 and 8 by MainApp's folder, by the running HMI with
 both or neither, unknown), compatibility (rhmiData, a declared `mguHmi`,
-a tool's, a malformed one), service packages (the renderer as a tool with
-its unit, link and recmgr entry, starting at the next boot; refusals, the
-tether among them; uninstall; on an iDrive 8 without a recmgr list started
+a tool's, a malformed one), service packages (the renderer and the player
+as tools with their units, links and recmgr entries, the renderer starting
+at the next boot, the player's internet uids file; refusals, the tether and
+the Wi-Fi hotspot among them; uninstall; on an iDrive 8 without a recmgr list started
 at once with touch routing), capabilities (a second renderer installed
 beside the first, two in one call, one left after the other's uninstall),
 `keepRunning` (a running service and its changed socket left as they are,
@@ -1285,10 +1297,12 @@ queued install dropped, refusals; with `MGU_TEST_ID8_PROV=<folder>` also
 against real das files, never part of the repository),
 IterioDev's App Manager on a made-up iDrive 8 laid out as its `install.sh`
 and service leave it (its app refused; adopt: its daemon and tether
-stopped, its queue moved, its renderer our tool, the record without its
-token, nothing reinstalled; again; Remove and the next start; a failed
-adopt rolled back; our renderer installed first; under recmgr finished at
-the next boot),
+stopped, its queue moved, its renderer and player our tools, neither
+stopped, the record without its token, nothing reinstalled; again; Remove
+and the next start; a failed adopt rolled back, the player failing after
+the renderer was taken over too; our renderer installed first; under
+recmgr finished at the next boot; Remove refused while its Wi-Fi hotspot
+is enabled, done once it is not),
 and `mgu-install.js`: `first-install` and `token` against a fake root
 through a stand-in `ssh` (`fake_ssh_exec.js`) with the release from a
 stand-in GitHub API (`fake_github.js`: a private repository, downloads

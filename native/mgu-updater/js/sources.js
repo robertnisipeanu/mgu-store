@@ -44,7 +44,9 @@ const CHANNEL = /^(releases|tags|branch|branch:[A-Za-z0-9._][A-Za-z0-9._\/-]{0,1
 const SMALL = 1 << 20; // a JSON file of a source: catalog part, mgu-repo.json, component.json
 const ICON_BYTES = 128 << 10; // a component's icon (PNG)
 // a root-service package's mguService: the capability the tool made of it provides
-const SERVICE_KINDS = ['renderer', 'tether'];
+const SERVICE_KINDS = ['renderer', 'tether', 'ytplay'];
+// the deploy tool that installs a root-service package of each kind as a tool
+const SERVICE_DEPLOY = { renderer: '0.4.0', tether: '0.4.0', ytplay: '0.5.10' };
 // Packed components carry one fixed mtime: the same tree gives the same bytes.
 const MTIME = Math.floor(Date.UTC(2026, 9, 18) / 1000);
 
@@ -989,7 +991,7 @@ function indexEntry(item, url) {
         title: text(item.title, 80), description: text(item.description, 1000), author: text(item.author, 80),
         mguHmi: item.mguHmi !== undefined ? item.mguHmi : service ? undefined : ['ID8'],
         mguProvides: service || undefined, service,
-        requires: service ? { 'mgu-deploy': '0.4.0' } : undefined,
+        requires: service ? { 'mgu-deploy': SERVICE_DEPLOY[service] } : undefined,
         icon: item.icon, iconSha256: item.iconSha256,
         artifact: { name: `${item.id}@${item.version}.tgz`, size: item.size, sha256: String(item.sha256).toLowerCase(), url, index: 2 },
         uninstallable: true
@@ -1537,9 +1539,9 @@ function packageInfo(members) {
 
 
 /* A package's catalog entry from its own members: an app, or a root-service
- * package (mguService: renderer or tether) as the tool the deploy tool
- * makes of it, which provides its kind and needs mgu-deploy 0.4.0 or
- * newer to install. An app that names no mguHmi is
+ * package (mguService: SERVICE_KINDS) as the tool the deploy tool makes of
+ * it, which provides its kind and needs the deploy tool SERVICE_DEPLOY
+ * names to install. An app that names no mguHmi is
  * for the HMIs its rhmiData has a UI for. */
 function packageEntry(members, data, artifact, ext) {
     const { pkg, title, hmi, icon } = packageInfo(members);
@@ -1559,8 +1561,7 @@ function packageEntry(members, data, artifact, ext) {
         author: pkg.author && typeof pkg.author === 'object' ? pkg.author.name : pkg.author,
         mguHmi: pkg.mguHmi !== undefined ? pkg.mguHmi : service ? undefined : hmi,
         mguProvides: service || undefined, service,
-        // the deploy tool that installs a service package as a tool
-        requires: service ? { 'mgu-deploy': '0.4.0' } : undefined,
+        requires: service ? { 'mgu-deploy': SERVICE_DEPLOY[service] } : undefined,
         artifact: Object.assign({ name: `${pkg.name}@${pkg.version}.${ext}`, size: data.length,
             sha256: crypto.createHash('sha256').update(data).digest('hex') }, artifact),
         uninstallable: true
