@@ -536,10 +536,11 @@ sources with their channel and status, the components with installed and
 catalog versions (and the short commit of a branch build), what is being
 installed, errors, and the logs. On it the owner adds a GitHub source or a
 catalog URL and removes one: once owner/repo (or its github.com address)
-is typed, the page asks `source-probe` and its channel list shows only what
-the repo has, Releases, Tags and its branches in that order (a
-`/tree/<branch>` address names its branch; a repo that could not be listed
-is added without a channel); each source shows the account that reads it, or *Sign-in
+is typed and the box left, or on the first Add, the page asks
+`source-probe`, and Add waits for the answer; its channel list then shows
+only what the repo has, Releases, Tags and its branches in that order (a
+`/tree/<branch>` address names its branch; a repo with nothing listed, or
+that could not be listed, is added without a channel); each source shows the account that reads it, or *Sign-in
 needed*. Its Tokens list each token (label, account, the sources it reads)
 with Remove; a token is added by pasting it, or by Sign in with GitHub (shown
 while the state's `signin` is true; the code and the link show on the page). A component not for this head unit
@@ -705,7 +706,7 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 |---|---|
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
-| `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch`, `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there), `offline`, `rate-limited` (GitHub answered 403 or 429), `error` with `error`. A repo that is already a source is refused |
+| `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A repo that is already a source is refused |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one) and its records in `origins.json`; the ids `aliases.json` keeps for it stay with the apps installed under them |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
@@ -766,7 +767,8 @@ test/                    offline tests (test/run.sh: Node 8.16.2 in Docker)
 
 ## Tests
 
-`sh test/run.sh` runs `test/test_updater.js` (and `test/test_web.js`) on
+`sh test/run.sh` runs `test/test_updater.js` (and `test/test_web.js`,
+and `test/test_page.js`, the page's add form against a fake DOM) on
 the unit's Node 8.16.2, as root, against a local HTTPS server with its own
 CA and a DNS server that also answers for `github.com`,
 `api.github.com` and `codeload.github.com` (a fake GitHub: repos,

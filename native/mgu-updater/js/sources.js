@@ -1252,7 +1252,6 @@ function githubReader(s, ctx) {
         });
     };
 
-    // a repo's branches, 100 a page, at most PROBE_PAGES pages
     const branchList = (page, names) => json(`${repoUrl}/branches?per_page=100&page=${page}`, 'branches.json').then((list) => {
         const got = Array.isArray(list) ? list : [];
         const all = names.concat(got.map((b) => b && b.name).filter((n) => typeof n === 'string' && CHANNEL.test(`branch:${n}`)));
@@ -1265,18 +1264,22 @@ function githubReader(s, ctx) {
          * whether it has a release and an x.y.z tag, its default branch and
          * its branches (orderBranches). */
         probe: () => json(repoUrl, 'repo.json')
+            // a 403 that is no rate limit (an SSO or permission refusal) leaves the repo to another token
             .catch((err) => {
-                throw err.status === 401 || err.status === 404 ? authError(err.message) : err;
+                throw err.status === 401 || err.status === 404 || (err.status === 403 && !err.rateLimited) ? authError(err.message) : err;
             })
             .then((repo) => Promise.all([releasesList(1), json(`${repoUrl}/tags?per_page=100`, 'tags.json'), branchList(1, [])])
-                .then(([releases, tags, branches]) => ({
-                    name: REPO.test(repo.full_name || '') ? repo.full_name : s.repo,
-                    releases: releases.length > 0,
-                    tags: (Array.isArray(tags) ? tags : []).some((t) => t && SEMVER_TAG.test(t.name || '')),
-                    defaultBranch: typeof repo.default_branch === 'string' ? repo.default_branch : null,
-                    branches: orderBranches(branches.names, repo.default_branch),
-                    more: branches.more
-                }))),
+                .then(([releases, tags, branches]) => {
+                    const def = typeof repo.default_branch === 'string' && CHANNEL.test(`branch:${repo.default_branch}`) ? repo.default_branch : null;
+                    return {
+                        name: REPO.test(repo.full_name || '') ? repo.full_name : s.repo,
+                        releases: releases.length > 0,
+                        tags: (Array.isArray(tags) ? tags : []).some((t) => t && SEMVER_TAG.test(t.name || '')),
+                        defaultBranch: def,
+                        branches: orderBranches(branches.names, def),
+                        more: branches.more
+                    };
+                })),
         catalog: () => json(repoUrl, 'repo.json')
             .catch((err) => {
                 throw err.status === 401 || err.status === 404 ? authError(err.message) : err;

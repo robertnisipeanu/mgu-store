@@ -181,6 +181,7 @@ require(path.join(SRC, 'store.js'));
 Module._load = load;
 
 const tick = (ms) => new Promise((r) => setTimeout(r, ms || 15));
+const HIDE_MS = 800;                    // src/store.js HIDE_SETTLE_MS
 const comp = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.1',
     status: 'installed', queued: false, error: null, uninstallable: true }, o);
 const base = { type: 'state', online: true, busy: null, rebooting: false, catalog: { checking: false, checkedAt: 1 } };
@@ -396,6 +397,118 @@ function run() {
         eq(states, ['close ST_OnlineApps_StoreSourcePick']);
         app._client.emit('state', ST);
         app._endTokenAdd(null);
+
+        // Add token's status from elsewhere does not show on a repo's page; one from the page shows until the next answer
+        reset();
+        app._accountNote({ kind: 'added', label: 'earlier' });
+        spellerAnswers.push('o/stale');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._client.emit('probe', { type: 'probe', repo: 'o/stale', status: 'auth-needed' });
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(last(/storePickStatus\.0\.Text/), 'storePickStatus.0.Text=o/stale: Not found or private', 'no stale Add token status');
+        app._states.ST_OnlineApps_StoreSourcePick.emit('visible', { visible: true });
+        reset();
+        spellerAnswers.push('ghp_other');
+        // the handler itself: a second press of the same button within 400 ms counts once
+        app._pickAddToken();
+        return tick();
+    }).then(() => {
+        eq(last(/storePickStatus\.0\.Text/), 'storePickStatus.0.Text=o/stale: Checking token', 'Add token from the page: its status there');
+        app._client.emit('state', Object.assign({}, ST, { tokens: ST.tokens.concat([{ id: 'ab12cd34', kind: 'github', label: 'other',
+            login: 'other', addedAt: 1, rejected: false, usedBy: [] }]) }));
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless).slice(-1), [{ op: 'source-probe', repo: 'o/stale' }]);
+        app._client.emit('probe', { type: 'probe', repo: 'o/stale', status: 'auth-needed' });
+        return tick();
+    }).then(() => {
+        eq(last(/storePickStatus\.0\.Text/), 'storePickStatus.0.Text=o/stale: Not found or private', 'an account that does not reach it');
+        // BACK leaves the page: the repo is no longer being added, and an account change asks nothing
+        reset();
+        app._states.ST_OnlineApps_StoreSourcePick.emit('visible', { visible: false });
+        app._states.ST_OnlineApps_StoreSources.emit('visible', { visible: true });
+        return tick(HIDE_MS + 100);
+    }).then(() => {
+        eq(app._pick, null, 'BACK ends it');
+        app._client.emit('state', ST);
+        return tick();
+    }).then(() => {
+        eq(sent.filter((r) => r.op === 'source-probe'), [], 'nothing asked after BACK');
+        app._endTokenAdd(null);
+
+        // nothing a channel takes (a branch named so no channel takes it): added as typed
+        reset();
+        spellerAnswers.push('o/odd');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._client.emit('probe', { type: 'probe', repo: 'o/odd', name: 'O/odd', status: 'ok', releases: false, tags: false,
+            defaultBranch: null, branches: [], more: false });
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless).slice(-1), [{ op: 'source-add', type: 'github', repo: 'O/odd' }]);
+        eq(states, []);
+
+        // no answer: the status line says so after PROBE_MS; the updater going away says so at once
+        reset();
+        spellerAnswers.push('o/slow');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._pick.answerTimer._onTimeout();
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Add source failed: the updater did not answer');
+        eq(app._pick, null);
+        reset();
+        spellerAnswers.push('o/gone');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        app._client.emit('down');
+        return tick();
+    }).then(() => {
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Add source failed: updater not running');
+        app._client.emit('state', ST);
+        // on an open page: Try again
+        reset();
+        spellerAnswers.push('o/page');
+        app._addSource();
+        return tick();
+    }).then(() => {
+        app._client.emit('probe', { type: 'probe', repo: 'o/page', status: 'auth-needed' });
+        app._states.ST_OnlineApps_StoreSources.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        app._states.ST_OnlineApps_StoreSourcePick.emit('visible', { visible: true });
+        app._client.emit('state', Object.assign({}, ST, { tokens: ST.tokens.slice(0, 1) }));
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless).slice(-1), [{ op: 'source-probe', repo: 'o/page' }]);
+        app._client.emit('down');
+        return tick();
+    }).then(() => {
+        eq([last(/storePickStatus\.0\.Text/), app._written['storePickRetry.visible']], ['storePickStatus.0.Text=o/page: updater not running', true]);
+        app._client.emit('state', ST);
+        reset();
+        app._components.storePickRetry.emit('action', {});
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'source-probe', repo: 'o/page' }], 'Try again asks again');
+        app._client.emit('probe', { type: 'probe', repo: 'o/page', status: 'ok', releases: false, tags: false, defaultBranch: null,
+            branches: [], more: false });
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless).slice(-1), [{ op: 'source-add', type: 'github', repo: 'o/page' }], 'nothing listed on the page: added as typed');
+        eq(states.slice(-1), ['close ST_OnlineApps_StoreSourcePick']);
+        app._states.ST_OnlineApps_StoreSourcePick.emit('visible', { visible: false });
 
         // what is neither: the status line says so
         reset();

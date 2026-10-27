@@ -13,7 +13,8 @@
  * app, tool), note (the Sources status line), login ({ waiting, refusal }),
  * webText (the web-url file), accountsNote ({ text, error }: the Accounts
  * status line), pick (the GitHub repo being added: { repo, probe (the
- * updater's answer, null while it looks) }, or null) }.
+ * updater's answer, null while it looks), tokenNote (Add token's status
+ * belongs on its page) }, or null) }.
  *
  * What a press does rides on the values as `act`: on a button's opts, on
  * each nav, grid and list item, on each filter cell (acts). The acts:
@@ -22,7 +23,7 @@
  * { do: 'remove', id }, { do: 'restart' },
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
  * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
- * { do: 'pick', channel }, { do: 'pick-retry' }.
+ * { do: 'pick', channel }, { do: 'pick-retry' }, { do: 'pick-add-token' }.
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
@@ -370,7 +371,7 @@ function pickView(m) {
     const probe = pick.probe;
     const auth = !!probe && probe.status === 'auth-needed';
     const note = m.accountsNote || { text: '', error: false };
-    const status = auth && note.text ? note.text : probeStatus(probe);
+    const status = auth && pick.tokenNote && note.text ? note.text : probeStatus(probe);
     const failed = !!probe && probe.status !== 'ok' && !auth;
     return {
         title: { text: (probe && probe.name) || pick.repo },
@@ -379,7 +380,7 @@ function pickView(m) {
             vicon: o.channel === 'releases' ? 'arrowDown' : o.channel === 'tags' ? 'clock' : 'route', iconColor: 'text',
             right: 'chevron', act: { do: 'pick', channel: o.channel } })), empty: '' },
         signIn: auth && m.st && m.st.signin === true ? button('Sign in with GitHub', { do: 'sign-in' }, { vicon: 'plus', style: 'primary', color: BLUE }) : hidden,
-        addToken: auth && m.connected ? button('Add token', { do: 'add-token' }, { vicon: 'plus', style: 'outline' }) : hidden,
+        addToken: auth && m.connected ? button('Add token', { do: 'pick-add-token' }, { vicon: 'plus', style: 'outline' }) : hidden,
         retry: failed ? button('Try again', { do: 'pick-retry' }, { vicon: 'refresh', style: 'outline' }) : hidden
     };
 }

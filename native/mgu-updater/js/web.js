@@ -868,7 +868,6 @@ function ghRepo(v) {
 }
 /* What the typed repository offers (source-probe): the channel list shows only that. */
 var probe = { key: null, seq: 0, status: null, tokens: '' };
-var probeTimer = null;
 var PROBE_NOTE = { 'auth-needed': 'Not found or private', offline: 'Offline', 'rate-limited': 'GitHub rate limit reached' };
 function setChannels(list) {
   var sel = $('addChannel');
@@ -884,18 +883,26 @@ function addNote(text) {
   $('addNote').textContent = text;
   $('addNote').hidden = !text;
 }
+function typedRepo() {
+  return $('addType').value === 'github' ? ghRepo($('addValue').value.trim()) : null;
+}
+function keyOf(g) { return g ? g.repo + '#' + g.branch : null; }
+/* The typed repository asked about (on leaving the box, or the first Add); Add waits for the answer. */
 function probeRepo(force) {
-  var g = $('addType').value === 'github' ? ghRepo($('addValue').value.trim()) : null;
-  var key = g ? g.repo + '#' + g.branch : null;
+  var g = typedRepo();
+  var key = keyOf(g);
   if (key === probe.key && !force) { return; }
-  probe = { key: key, seq: probe.seq + 1, status: null, tokens: probe.tokens };
+  probe = { key: key, seq: probe.seq + 1, status: g && !g.branch ? null : 'none', tokens: probe.tokens };
   setChannels(g && g.branch ? [['branch:' + g.branch, g.branch]] : []);
   addNote('');
   if (!g || g.branch) { return; }
   var seq = probe.seq;
   addNote('Checking');
+  $('addSubmit').disabled = true;
+  var done = function () { if (seq === probe.seq) { $('addSubmit').disabled = false; } };
   api('POST', '/api/op', { op: 'source-probe', repo: g.repo }).then(function (p) {
     if (seq !== probe.seq) { return; }
+    done();
     probe.status = p.status;
     probe.name = p.name;
     var list = [];
@@ -905,9 +912,11 @@ function probeRepo(force) {
       (p.branches || []).forEach(function (b) { list.push(['branch:' + b, b === p.defaultBranch ? b + ' (default)' : b]); });
     }
     setChannels(list);
-    addNote(p.status === 'ok' ? (list.length ? '' : 'Nothing to add') : PROBE_NOTE[p.status] || p.error || p.status);
+    // nothing listed: added with no channel, and the updater picks
+    addNote(p.status === 'ok' ? '' : PROBE_NOTE[p.status] || p.error || p.status);
   }, function (e) {
     if (seq !== probe.seq) { return; }
+    done();
     probe.status = 'error';
     addNote(e.message);
   });
@@ -917,11 +926,16 @@ function addFields() {
   probeRepo(false);
 }
 $('addType').onchange = addFields;
+// a list for another repository goes as soon as the text changes
 $('addValue').oninput = function () {
-  clearTimeout(probeTimer);
-  probeTimer = setTimeout(function () { probeRepo(false); }, 600);
+  if (keyOf(typedRepo()) !== probe.key) {
+    probe = { key: null, seq: probe.seq + 1, status: null, tokens: probe.tokens };
+    setChannels([]);
+    addNote('');
+    $('addSubmit').disabled = false;
+  }
 };
-$('addValue').onchange = function () { clearTimeout(probeTimer); probeRepo(false); };
+$('addValue').onchange = function () { probeRepo(false); };
 $('addForm').onsubmit = function (ev) {
   ev.preventDefault();
   var v = $('addValue').value.trim();
@@ -929,6 +943,12 @@ $('addForm').onsubmit = function (ev) {
   var body = { op: 'source-add', type: 'https', url: v };
   if ($('addType').value === 'github') {
     var g = ghRepo(v);
+    // the first Add for a repository lists what it has
+    if (g && keyOf(g) !== probe.key) {
+      probeRepo(false);
+      if (!g.branch) { return; }
+    }
+    if (g && !g.branch && probe.status === null) { return; }
     // the repo as GitHub spells it, once listed
     body = { op: 'source-add', type: 'github', repo: probe.name && g && probe.key === g.repo + '#' + g.branch ? probe.name : g ? g.repo : v };
     // without a listed channel the updater picks: releases, else the default branch
@@ -1010,7 +1030,7 @@ a{color:var(--acc)}
 </div>
 <h2>Sources</h2>
 <div id="sources"></div>
-<form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel" hidden></select><button class="pri">Add</button></form>
+<form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel" hidden></select><button id="addSubmit" class="pri">Add</button></form>
 <p id="addNote" class="mut" hidden></p>
 <h2>Tokens</h2>
 <div id="tokens"></div>

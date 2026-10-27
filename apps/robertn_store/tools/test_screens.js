@@ -185,7 +185,12 @@ eq(f.items[2].act, { do: 'pick', channel: 'branch:develop' });
 f = screen('pick-private');
 eq(own(f), ['Sign in with GitHub', 'Add token', 'Back']);
 eq(text(f, 'status'), 'Not found or private');
-eq(text(screen('pick-private', { accountsNote: { text: 'Checking token', error: false } }), 'status'), 'Checking token');
+eq(text(screen('pick-private', { accountsNote: { text: 'Checking token', error: false },
+    pick: { repo: 'someone/private-apps', probe: { status: 'auth-needed' }, tokenNote: true } }), 'status'), 'Checking token',
+'Add token pressed on the page: its status there');
+eq(text(screen('pick-private', { accountsNote: { text: 'Added octo', error: false } }), 'status'), 'Not found or private',
+    'an Add token from elsewhere: not');
+eq(screen('pick-private').items[1].act, { do: 'pick-add-token' });
 f = screen('pick-offline');
 eq([own(f), text(f, 'status')], [['Try again', 'Back'], 'Offline']);
 eq(f.items[0].act, { do: 'pick-retry' });

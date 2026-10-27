@@ -87,6 +87,7 @@ const QR_PREFIX = 'qr_';
 const RENDERER_WAIT_MS = 1500;          // at start, how long the renderer may take to answer
 const TOKEN_ADD_MS = 30000;             // how long Add token says "Checking token" without an answer
 const FOCUS_BACK_MS = 2000;             // how long a page waits for the HMI to give the focus back from the speller
+const PROBE_MS = 30000;                 // how long a repo being added waits for the updater's answer
 const IF_FRONTCCU = 'de.bmw.infotainment.controlelements.FrontCCU';
 
 /* The drawn screens' host states and their proxies (tools/gen_rhmi.js). */
@@ -214,8 +215,11 @@ class Store extends OnlineApp {
         /* The GitHub repo being added: { repo, probe (the updater's answer,
          * null while it looks), tokens (the token ids it was asked with),
          * back (the HMI has given the focus back from the speller), timer,
-         * open (its page was opened) }. */
+         * answerTimer, open (its page was opened), shown (its page was seen),
+         * goneTimer, tokenNote (Add token was pressed on its page: Add
+         * token's status shows there until the next answer) }. */
         this._pick = null;
+        this._spelling = false;         // the HMI's speller is up
         this._qr = { login: { key: null, file: null, chain: Promise.resolve() },
             phone: { key: null, file: null, chain: Promise.resolve() }, app: { key: null, file: null, chain: Promise.resolve() } };
         this._hmi = 'ID7';
@@ -256,6 +260,7 @@ class Store extends OnlineApp {
                 logger.info('updater unreachable; reconnecting');
             }
             this._connected = false;
+            this._probeFailed('updater not running');
             this._render();
         });
         this._client.on('reply-error', (msg, op) => {
@@ -454,7 +459,7 @@ class Store extends OnlineApp {
         this._bind(C.loginCancel, () => this._cancelSignIn());
         this._bind(C.pickList, (row) => this._pickChannel(this._rows.pick[row]));
         this._bind(C.pickSignIn, () => this._signIn());
-        this._bind(C.pickAddToken, () => this._addToken());
+        this._bind(C.pickAddToken, () => this._pickAddToken());
         this._bind(C.pickRetry, () => this._probe());
         this._bind(C.navPhone, () => this._openState(S.phone));
         this._bind(C.phoneToggle, () => this._togglePhone());
@@ -584,7 +589,7 @@ class Store extends OnlineApp {
         return { st: this._connected ? this._st : null, connected: this._connected && !!this._st, secret: !!readSecret(),
             version: this._packageJson && this._packageJson.version, note: this._sourcesNote, login: this._login,
             webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
-            pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe } };
+            pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe, tokenNote: !!this._pick.tokenNote } };
     }
 
     /* A press on the drawn screens (src/store_ui.js acts). */
@@ -624,6 +629,7 @@ class Store extends OnlineApp {
         case 'phone': this._togglePhone(); break;
         case 'pick': this._pickChannel(act.channel); break;
         case 'pick-retry': this._probe(); break;
+        case 'pick-add-token': this._pickAddToken(); break;
         default: break;
         }
         this._render();
@@ -850,10 +856,13 @@ class Store extends OnlineApp {
         this._focusedPage = null;
         // the speller is the HMI's: the renderer's layer is not drawn over it
         this._drawn.suspend(true);
+        this._spelling = true;
         return spell(this, title).then((text) => {
+            this._spelling = false;
             this._drawn.suspend(false);
             return text;
         }, (err) => {
+            this._spelling = false;
             this._drawn.suspend(false);
             throw err;
         }).catch((err) => {
@@ -956,12 +965,11 @@ class Store extends OnlineApp {
 
     _endPick() {
         if (this._pick) {
-            clearTimeout(this._pick.timer);
+            [this._pick.timer, this._pick.answerTimer, this._pick.goneTimer].forEach((t) => clearTimeout(t));
             this._pick = null;
         }
     }
 
-    /* Asks the updater what the repo being added has. */
     _probe() {
         const pick = this._pick;
         if (!pick) {
@@ -969,12 +977,34 @@ class Store extends OnlineApp {
         }
         pick.probe = null;
         pick.tokens = this._tokenIds();
+        clearTimeout(pick.answerTimer);
         logger.info(`probe ${pick.repo}`);
         if (!this._privileged({ op: 'source-probe', repo: pick.repo })) {
             pick.probe = { status: 'refused', error: readSecret() ? 'updater not running' : 'no updater secret' };
+        } else {
+            pick.answerTimer = setTimeout(() => this._probeFailed('the updater did not answer'), PROBE_MS);
         }
         this._render();
         return !pick.probe;
+    }
+
+    /* A question the updater will not answer (it went away, or took too long). */
+    _probeFailed(error) {
+        const pick = this._pick;
+        if (pick && !pick.probe) {
+            clearTimeout(pick.answerTimer);
+            pick.probe = { status: 'error', error };
+            logger.info(`probe ${pick.repo}: ${error}`);
+            this._render();
+        }
+    }
+
+    /* Add token on a repo's page: its status shows there until the repo is asked about again. */
+    _pickAddToken() {
+        if (this._pick) {
+            this._pick.tokenNote = true;
+        }
+        this._addToken();
     }
 
     _tokenIds() {
@@ -984,8 +1014,14 @@ class Store extends OnlineApp {
     _probed(answer) {
         const pick = this._pick;
         if (pick && !pick.probe && answer && answer.repo === pick.repo) {
+            clearTimeout(pick.answerTimer);
             pick.probe = answer;
+            pick.tokenNote = false;
             logger.info(`probe ${pick.repo}: ${answer.status}`);
+            // nothing listed (no release, tag or branch a channel takes): added as typed, and the updater picks
+            if (answer.status === 'ok' && !pickOptions(answer).length && pick.open) {
+                this._pickChannel(null);
+            }
             this._render();
         }
     }
@@ -999,9 +1035,9 @@ class Store extends OnlineApp {
     }
 
     /* Once the updater has answered and the focus is back: a repo with one
-     * thing to add it on is added on it; one no account reaches, or with
-     * more to pick from, gets its page; anything else goes on the status
-     * line. */
+     * thing to add it on is added on it, one with none as typed; one no
+     * account reaches, or with more to pick from, gets its page; anything
+     * else goes on the status line. */
     _showPick() {
         const pick = this._pick;
         if (!pick || pick.open || !pick.probe || !(pick.back || this._focusedPage !== null)) {
@@ -1010,6 +1046,8 @@ class Store extends OnlineApp {
         const options = pickOptions(pick.probe);
         if (options.length === 1) {
             this._pickChannel(options[0].channel);
+        } else if (!options.length && pick.probe.status === 'ok') {
+            this._pickChannel(null);
         } else if (options.length > 1 || pick.probe.status === 'auth-needed') {
             pick.open = true;
             clearTimeout(pick.timer);
@@ -1021,9 +1059,10 @@ class Store extends OnlineApp {
         }
     }
 
+    /* Adds the repo being added on channel (null: none, the updater picks). */
     _pickChannel(channel) {
         const pick = this._pick;
-        if (!pick || !channel) {
+        if (!pick) {
             return;
         }
         this._endPick();
@@ -1032,7 +1071,36 @@ class Store extends OnlineApp {
             this._closePage('pick', isPage('pick'));
         }
         // the repo as GitHub spells it (the speller types capitals first)
-        this._sendSource({ type: 'github', repo: (pick.probe && pick.probe.name) || pick.repo, channel });
+        this._sendSource(Object.assign({ type: 'github', repo: (pick.probe && pick.probe.name) || pick.repo }, channel ? { channel } : {}));
+    }
+
+    /* Whether the repo's page is open: on the drawn stack, or its state (or
+     * the sign-in page opened from it) visible. */
+    _pickShown() {
+        return this._drawnUi() ? this._drawn.stack.some(isPage('pick'))
+            : this._visibleStates.has(S.pick) || this._visibleStates.has(S.login);
+    }
+
+    /* The repo's page left (BACK) ends the repo being added, once it stays
+     * gone HIDE_SETTLE_MS; the speller over it does not. */
+    _leavePick() {
+        const pick = this._pick;
+        if (!pick || !pick.open) {
+            return;
+        }
+        if (this._pickShown()) {
+            pick.shown = true;
+            clearTimeout(pick.goneTimer);
+            pick.goneTimer = null;
+        } else if (pick.shown && !this._spelling && !pick.goneTimer) {
+            pick.goneTimer = setTimeout(() => {
+                pick.goneTimer = null;
+                if (this._pick === pick && !this._spelling && !this._pickShown()) {
+                    logger.info(`left ${pick.repo}`);
+                    this._endPick();
+                }
+            }, HIDE_SETTLE_MS);
+        }
     }
 
     _togglePhone() {
@@ -1225,13 +1293,14 @@ class Store extends OnlineApp {
         const probe = pick ? pick.probe : null;
         const options = pickOptions(probe);
         const auth = !!probe && probe.status === 'auth-needed';
-        const status = auth && this._accountsNote.text ? this._accountsNote.text : probeStatus(probe);
+        const status = auth && pick.tokenNote && this._accountsNote.text ? this._accountsNote.text : probeStatus(probe);
         this._text(C.pickStatus, pick ? [(probe && probe.name) || pick.repo, status].filter(Boolean).join(': ') : '');
         this._renderList(C.pickList, options.map((o) => [o.label, o.sub]));
         this._rows.pick = options.map((o) => o.channel);
         this._show(C.pickSignIn, auth && this._connected && !!this._st && this._st.signin === true);
         this._show(C.pickAddToken, auth && this._connected);
         this._show(C.pickRetry, !!probe && probe.status !== 'ok' && !auth);
+        this._leavePick();
         this._showPick();
     }
 

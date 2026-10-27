@@ -489,7 +489,7 @@ class Fetcher {
                     }
                 } else {
                     reject(Object.assign(new Error(result && result.error || 'download failed'),
-                        result && result.status ? { status: result.status } : {}));
+                        result && result.status ? { status: result.status } : {}, result && result.rateLimited ? { rateLimited: true } : {}));
                 }
             });
             child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, ca: this.ca,
@@ -2099,8 +2099,7 @@ class Updater {
             .then(() => attempt(this.candidates({ tokenId: null, public: false }), 0))
             .then((p) => answer(Object.assign({ status: 'ok' }, p)), (err) => {
                 console.log(`probe ${req.repo}: ${err.message}`);
-                // GitHub answers a spent rate limit with 403 or 429
-                answer(err.auth ? { status: 'auth-needed' } : err.status === 403 || err.status === 429 ? { status: 'rate-limited' }
+                answer(err.auth ? { status: 'auth-needed' } : err.rateLimited ? { status: 'rate-limited' }
                     : { status: 'error', error: err.message });
             });
         return undefined;

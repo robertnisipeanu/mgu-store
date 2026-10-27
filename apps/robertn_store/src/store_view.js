@@ -301,7 +301,7 @@ function probeStatus(probe) {
         return 'Checking';
     }
     switch (probe.status) {
-    case 'ok': return pickOptions(probe).length ? '' : 'Nothing to add';
+    case 'ok': return '';
     case 'auth-needed': return 'Not found or private';
     case 'offline': return 'Offline';
     case 'rate-limited': return 'GitHub rate limit reached';

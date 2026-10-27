@@ -196,7 +196,12 @@ function ghApi(req, res, auth) {
         return;
     }
     if (gh.rateLimited) {
-        send(403, { message: 'API rate limit exceeded' });
+        send(403, { message: 'API rate limit exceeded' }, { 'X-RateLimit-Remaining': '0' });
+        return;
+    }
+    // a refusal that is no rate limit (an organisation's SSO) for a token
+    if (repo.forbid && auth && repo.forbid.indexOf(auth.replace(/^Bearer /, '')) >= 0) {
+        send(403, { message: 'Resource protected by organization SAML enforcement' });
         return;
     }
     const rest = m[2] || '';
@@ -1904,16 +1909,25 @@ function testSources(certs) {
                 gh.repos['third/many'].branches[`b${String(i).padStart(3, '0')}`] = 'f';
             }
             ghRepo('owner/secret', { private: true, branches: { main: 'a' } });
+            // a default branch no channel takes, and nothing else: no choice
+            ghRepo('probe/oddbranch', { default_branch: 'with space', branches: { 'with space': 'a' } });
+            // refused (403, no rate limit) for every stored token, readable without one
+            ghRepo('probe/sso', { forbid: Object.keys(gh.users), branches: { main: 'a' } });
             ghRepo('probe/rel', { releases: [{ assets: [] }], tags: [{ name: 'nightly', sha: 'a' }], branches: { main: 'a' } });
             ghRepo('probe/tags', { tags: [{ name: 'nightly', sha: 'a' }, { name: 'v1.0.0', sha: 'a' }], branches: { main: 'a' } });
             // readable with the token that reads the private source
             ghRepo('probe/private', { private: true, tokens: [u.tokens.text(src('private').auth.token)], releases: [{ assets: [] }], branches: { main: 'a' } });
             const probe = (repo) => askRaw(sock, { op: 'source-probe', repo, secret, rid: `p-${repo}` });
             return Promise.all(['probe/rel', 'probe/tags', 'third/forks', 'third/many', 'probe/private', 'owner/secret', 'no/such']
-                .map(probe).concat([probe('third/plain'), probe('bad repo'), askRaw(sock, { op: 'source-probe', repo: 'third/forks', rid: 'x' })]));
+                .map(probe).concat([probe('third/plain'), probe('bad repo'), askRaw(sock, { op: 'source-probe', repo: 'third/forks', rid: 'x' }),
+                    probe('probe/oddbranch'), probe('probe/sso')]));
         })
         .then((r) => {
-            const [rel, tagged, forks, many, priv2, secretRepo, none, plain, bad, noSecret] = r;
+            const [rel, tagged, forks, many, priv2, secretRepo, none, plain, bad, noSecret, odd, sso] = r;
+            ok('source-probe: a default branch no channel takes is left out', odd.status === 'ok' && odd.defaultBranch === null &&
+                JSON.stringify(odd.branches) === '[]', JSON.stringify(odd));
+            ok('source-probe: a 403 that is no rate limit tries the next token, then none', sso.status === 'ok' &&
+                JSON.stringify(sso.branches) === '["main"]', JSON.stringify(sso));
             ok('source-probe: releases, no x.y.z tag, the default branch', rel.type === 'probe' && rel.repo === 'probe/rel' && rel.name === 'probe/rel' && rel.status === 'ok' &&
                 rel.releases === true && rel.tags === false && rel.defaultBranch === 'main' && JSON.stringify(rel.branches) === '["main"]' && rel.more === false,
                 JSON.stringify(rel));

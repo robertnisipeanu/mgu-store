@@ -222,7 +222,7 @@ const cases = [
     [pickOptions({ status: 'auth-needed' }).length, 0],
     [probeStatus(null), 'Checking'],
     [probeStatus({ status: 'ok', releases: true, branches: [] }), ''],
-    [probeStatus({ status: 'ok', releases: false, tags: false, branches: [] }), 'Nothing to add'],
+    [probeStatus({ status: 'ok', releases: false, tags: false, branches: [] }), ''],
     [probeStatus({ status: 'auth-needed' }), 'Not found or private'],
     [probeStatus({ status: 'offline' }), 'Offline'],
     [probeStatus({ status: 'rate-limited' }), 'GitHub rate limit reached'],

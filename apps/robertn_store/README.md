@@ -172,9 +172,10 @@ source*. The text confirmed with OK, trimmed, is:
   `type: "github"`, `repo`, `channel: "branch:<branch>"`. Without a branch
   the status line says `Checking <repo>` while the updater is asked what the
   repo has (`source-probe`); then the repo's page (below) opens, or a repo
-  with only one choice is added on it, or the status line says why not
-  (`Add source failed: Offline`, `GitHub rate limit reached`, `… is already
-  a source`). With an updater before 0.8.0 the repo is added without a
+  with only one choice is added on it, one with none without a channel, or
+  the status line says why not (`Add source failed: Offline`, `GitHub rate
+  limit reached`, `… is already a source`, `the updater did not answer`
+  after 30 s, `updater not running` when it goes away). With an updater before 0.8.0 the repo is added without a
   channel.
 - any other `https://host/path` address (the scheme in any case), a
   catalog: `source-add` with `type: "https"`, `url`.
@@ -191,9 +192,11 @@ branch, then the rest. A press adds the repo on it (`source-add` with
 `channel` `releases`, `tags` or `branch:<name>`, and `repo` as GitHub
 spells it, the probe's `name`) and closes the page. A
 repo no account reaches shows `Not found or private`, **Sign in with
-GitHub** and **Add token** (whose status shows on the page); once the
-accounts change it is asked about again and lists its choices. A failure
-on the page shows with **Try again**. The page opens only once the HMI has
+GitHub** and **Add token** (the status of an Add token pressed there
+shows on the page until the repo's next answer); once the accounts change
+it is asked about again and lists its choices, or, with none, is added
+without a channel. A failure on the page shows with **Try again**. BACK
+from the page ends the adding. The page opens only once the HMI has
 given the focus back from the speller (or 2 s after it closed), since the
 focus coming back below a page opened earlier closes it.
 
