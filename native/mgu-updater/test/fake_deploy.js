@@ -9,8 +9,10 @@
  *   fake_deploy.js sdk-donor --json       { path: $FAKE_DONOR, module: $FAKE_SDK_MODULE }
  *   fake_deploy.js appmanager adopt --yes
  * $FAKE_DEPLOY_LOG.appmanager holds what status --json says of IterioDev's
- * App Manager (appmanager); adopt sets its record to the JSON in
- * $FAKE_DEPLOY_LOG.amrecord, and uninstall oap-appmanager marks it removed.
+ * App Manager (appmanager), and $FAKE_DEPLOY_LOG.idrive7 the apps
+ * idrive7-apps' own installer put there (idrive7.apps); adopt sets its
+ * record to the JSON in $FAKE_DEPLOY_LOG.amrecord, and uninstall
+ * oap-appmanager marks it removed.
  * A tool artifact (component.json at the root) lands in
  * $TOOL_ROOT/<id>/versions/<version>/ with `current` switched by rename,
  * and only the new version and the one `current` pointed to before remain;
@@ -150,7 +152,8 @@ if (cmd === 'status') {
     const pending = (process.env.FAKE_PENDING || '').split(',').filter(Boolean).concat(pendingIds());
     console.log(JSON.stringify({ unit: { hmi: process.env.FAKE_UNIT_HMI || 'ID7', firmware: 'test firmware' },
         components: tools().map((c) => ({ id: c.id, kind: 'tool', version: c.version, provides: c.mguProvides || null })),
-        pending_reboot: pending.map((id) => ({ id, reason: 'test' })), appmanager: readAm() }));
+        pending_reboot: pending.map((id) => ({ id, reason: 'test' })), appmanager: readAm(),
+        idrive7: { apps: fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.idrive7`) ? JSON.parse(fs.readFileSync(`${process.env.FAKE_DEPLOY_LOG}.idrive7`, 'utf8')) : [] } }));
     process.exit(0);
 }
 if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.fail`)) {

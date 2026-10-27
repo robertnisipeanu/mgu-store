@@ -9,7 +9,8 @@
  * The copy carries one fallback in ProvisioningNotifier, from
  * custom_apps.json, a map of appId to its provisioning flags
  * ("-enabled", "-allowed", "-appStartType", "-userLoginRequired",
- * "-updateMechanism"):
+ * "-updateMechanism"; one it leaves out is "true" for "-enabled" and
+ * "-allowed", else as mgu-deploy writes it):
  *  - an app with no entry in MainApp's installable_apps list takes one
  *    ({"#text": appId, ...flags}, the shape modifyInstallableApps handles);
  *  - an app whose own provisioning section is missing or empty takes its
@@ -41,11 +42,17 @@ var HOOK_ANCHOR = 'isMainapp&&section===mainAppSection&&(newProvisioning.';
 var INPLACE_MARK = '/* mgu-deploy in-place install */';
 var INPLACE_ANCHOR = 'mainApp.init()}).then(()=>{';
 
+/* The flags an entry does not name: idrive7-apps' installer lists its apps
+ * in the same file with "-appStartType" and "-userLoginRequired" alone. */
+var DEFAULT_FLAGS = { '-enabled': 'true', '-allowed': 'true', '-appStartType': 'manually',
+    '-userLoginRequired': 'false', '-updateMechanism': 'PLATFORM' };
+
 function helperSource(listPath) {
     return MARK +
         'const __mguDeployFallbackList=()=>{try{' +
         'const c=JSON.parse(require("fs").readFileSync(' + JSON.stringify(listPath) + ',"utf8"));' +
-        'return c&&typeof c==="object"?c:{}}catch(e){return{}}};' +
+        'return c&&typeof c==="object"?Object.keys(c).reduce((o,id)=>(o[id]=Object.assign({},' +
+        JSON.stringify(DEFAULT_FLAGS) + ',c[id]),o),{}):{}}catch(e){return{}}};' +
         'const __mguDeployFallbackApps=()=>{const c=__mguDeployFallbackList();' +
         'return Object.keys(c).map(id=>Object.assign({"#text":id,"-supportedECUs":"HU,RSE_LEFT,RSE_RIGHT"},c[id]))};';
 }

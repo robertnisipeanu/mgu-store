@@ -524,6 +524,25 @@ but listed by no installed tool of ours (IterioDev's App Manager writes
 `mgu-renderd.service` for its own renderer) is refused: the other manager
 would write its unit back. `status --json` gives each tool's `provides`.
 
+**idrive7-apps' own installer.** Its `mgu-app-install.sh` starts every
+unit and drop-in it writes with `# added by mgu-app-install.sh`: its
+renderer (`/var/opt/mgu-renderd/mgu-renderd`, `mgu-renderd.service` enabled
+for `oapcontroller.service`, on `/run/mgu-renderd/renderd.sock`) and its
+controller gate (`mgu-inputgate-guard.service`,
+`mgu-inputgate-check.service`, `hmi.service.d/zz-mgu-inputgate.conf`, and
+`mgu-inputgate.so`, `inputgate-guard.sh`, `inputgate.env`,
+`inputgate.strikes` in `/var/opt/mgu-renderd`). A tool of ours takes them
+over, in the install's snapshot: a unit or drop-in of the same name it
+writes over (the gate from that repository's source does; its gate files
+go too), and a tool whose unit serves the community socket's folder
+(`RuntimeDirectory=mgu-renderd`) removes their renderer's unit, link and
+program. Their renderer runs on until the next boot, when the tool's starts
+instead. The apps it installed (registered, listed in `custom_apps.json`,
+with its kit's `source/javascript/kit/app-spec.json`, not installed by this
+tool) are `status --json` `idrive7.apps` (`[{id, version}]`), from which the
+updater gives them their origin; `install` updates them and `uninstall`
+removes them like any app.
+
 ### The deploy tool as a tool
 
 `mgu-deploy` is a tool component like the others (`deploy/component.json`;
@@ -989,8 +1008,11 @@ copy of the stock `/usr/lib/oap-mainapp/src/main.js` with one change in
 `ProvisioningNotifier`: an app with no provisioning entry takes it from
 `oap_12201/data/custom_apps.json`, which lists our apps, both in MainApp's
 `installable_apps` (so the manager installs it) and as the app's own section
-(its flags, which give it its tile and start type). An app provisioning
-lists keeps its own entry. The build needs both anchors (`class
+(its flags, which give it its tile and start type; a flag an entry leaves
+out is `"true"` for `-enabled` and `-allowed`, else as `install` writes it,
+so the entries idrive7-apps' installer writes there, with
+`-appStartType` and `-userLoginRequired` alone, show their tiles too). An
+app provisioning lists keeps its own entry. The build needs both anchors (`class
 ProvisioningNotifier ` and the `installable_apps` hook,
 `isMainapp&&section===mainAppSection&&(newProvisioning.`) exactly once in the stock file;
 any other count refuses it and nothing is written. The copy also carries

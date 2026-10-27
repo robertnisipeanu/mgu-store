@@ -1050,18 +1050,79 @@ function dropinPath(d) { return path.join(CFG.systemd, d.unit + '.d', d.name); }
 function foreignUnit(c) {
     var tools = installedTools();
     var unit = (c.units || []).map(function (u) { return u.name; }).filter(function (name) {
-        return lstatOrNull(path.join(CFG.systemd, name)) && !tools.some(function (t) {
+        var p = path.join(CFG.systemd, name);
+        return lstatOrNull(p) && !i7Written(p) && !tools.some(function (t) {
             return (t.component.units || []).some(function (u) { return u.name === name; });
         });
     })[0];
     var dropin = (c.dropins || []).filter(function (d) {
-        return lstatOrNull(dropinPath(d)) && !tools.some(function (t) {
+        return lstatOrNull(dropinPath(d)) && !i7Written(dropinPath(d)) && !tools.some(function (t) {
             return (t.component.dropins || []).some(function (x) { return x.unit === d.unit && x.name === d.name; });
         });
     })[0];
     return unit || (dropin ? d2s(dropin) : null);
 }
 function d2s(d) { return d.unit + '.d/' + d.name; }
+
+/* ---- idrive7-apps' own installer -------------------------------------------------- */
+/* idrive7-apps' installer (deploy/mgu-app-install.sh in that repository)
+ * starts every unit and drop-in it writes with I7_MARK. It installs:
+ *   renderer  /var/opt/mgu-renderd/mgu-renderd, mgu-renderd.service enabled
+ *             for oapcontroller.service, serving /run/mgu-renderd/renderd.sock
+ *   gate      mgu-inputgate-guard.service, mgu-inputgate-check.service,
+ *             hmi.service.d/zz-mgu-inputgate.conf, and in /var/opt/mgu-renderd
+ *             mgu-inputgate.so, inputgate-guard.sh, inputgate.env,
+ *             inputgate.strikes
+ * A tool of ours takes them over: one with a unit or drop-in of the same
+ * name writes over it, and its gate files go with it; one whose unit serves
+ * the community socket's folder (RuntimeDirectory=mgu-renderd) replaces the
+ * renderer, which runs on until the next boot. */
+var I7_MARK = '# added by mgu-app-install.sh';
+var I7_DIR = path.join(CFG.varOpt, 'mgu-renderd');
+var I7_RENDERER_UNIT = 'mgu-renderd.service';
+var I7_GATE_UNIT = 'mgu-inputgate-guard.service';
+var I7_GATE_FILES = ['mgu-inputgate.so', 'inputgate-guard.sh', 'inputgate.env', 'inputgate.strikes'];
+function i7Written(p) {
+    var st = lstatOrNull(p), fd, b = Buffer.alloc(I7_MARK.length);
+    if (!st || !st.isFile()) return false;
+    try { fd = fs.openSync(p, 'r'); fs.readSync(fd, b, 0, b.length, 0); } catch (e) { return false; }
+    finally { if (fd !== undefined) fs.closeSync(fd); }
+    return b.toString('utf8') === I7_MARK;
+}
+/* The apps its installer put on the unit: registered, listed in
+ * custom_apps.json, with its kit's source/javascript/kit/app-spec.json,
+ * and not installed by this tool. status --json names them (idrive7) for
+ * the updater, which gives them their origin. */
+function i7Apps(state) {
+    var custom = readCustomApps(), ours = (state && state.apps) || {};
+    return installedApps().filter(function (a) {
+        return Object.prototype.hasOwnProperty.call(custom, a.id) && !ours[a.id] &&
+            fs.existsSync(path.join(appHome(a.uid), 'source', 'javascript', 'kit', 'app-spec.json'));
+    }).map(function (a) { return { id: a.id, version: a.version }; });
+}
+/* What installing tool a takes over: { paths } it changes, { units }
+ * of theirs it removes, { files } in I7_DIR it removes. */
+function i7Takeover(a) {
+    var c = a.component, out = { units: [], files: [], paths: [] };
+    if (!c || a.kind !== 'tool') return out;
+    var serves = (c.units || []).some(function (u) {
+        try { return /^RuntimeDirectory=mgu-renderd\s*$/m.test(fs.readFileSync(path.join(a.dir, 'units', u.name), 'utf8')); }
+        catch (e) { return false; }
+    });
+    var ours = function (name) { return (c.units || []).some(function (u) { return u.name === name; }); };
+    if (serves && i7Written(path.join(CFG.systemd, I7_RENDERER_UNIT))) {
+        /* a unit of the same name is written over; its enablement goes */
+        if (!ours(I7_RENDERER_UNIT)) out.units.push(I7_RENDERER_UNIT);
+        out.units.push('oapcontroller.service.wants/' + I7_RENDERER_UNIT);
+        out.files.push('mgu-renderd');
+    }
+    if (ours(I7_GATE_UNIT) && i7Written(path.join(CFG.systemd, I7_GATE_UNIT))) out.files = out.files.concat(I7_GATE_FILES);
+    out.files = out.files.filter(function (f) { return !!lstatOrNull(path.join(I7_DIR, f)); });
+    out.units = out.units.filter(function (u) { return !!lstatOrNull(path.join(CFG.systemd, u)); });
+    out.paths = out.units.map(function (u) { return path.join(CFG.systemd, u); })
+        .concat(out.files.map(function (f) { return path.join(I7_DIR, f); }));
+    return out;
+}
 
 /* ---- root-service packages (mguService) ------------------------------------------ */
 /* IterioDev's App Manager installs two root services as packages
@@ -1412,6 +1473,7 @@ function installTool(a, state, tx) {
     var dest = path.join(versions, c.version);
     var before = currentTarget(root);
     var prev = before ? readJsonOrNull(path.join(versions, before, 'component.json')) : null;
+    var i7 = i7Takeover(a);
     tx.root = root; tx.before = before; tx.rootExisted = fs.existsSync(root);
     tx.versionExisted = fs.existsSync(dest); tx.socketsActive = {};
     (c.enable || []).forEach(function (en) {
@@ -1471,10 +1533,17 @@ function installTool(a, state, tx) {
     ((prev && prev.dropins) || []).filter(function (d) {
         return !(c.dropins || []).some(function (x) { return x.unit === d.unit && x.name === d.name; }) && lstatOrNull(dropinPath(d));
     }).forEach(function (d) { ops.push({ type: 'delete', path: dropinPath(d) }); unitChanged = true; });
+    i7.units.forEach(function (u) { ops.push({ type: 'delete', path: path.join(CFG.systemd, u) }); unitChanged = true; });
     var rec = recmgrOp(recmgrWith(recmgrText(), c.recmgr || [], []));
     if (rec) { ops.push(rec); unitChanged = true; }
     if (ops.length) rootfsWindow(ops);
     if (unitChanged) runOk(CFG.systemctl, ['daemon-reload']);
+    if (i7.paths.length) {
+        i7.files.forEach(function (f) { rmrf(path.join(I7_DIR, f)); });
+        try { fs.rmdirSync(I7_DIR); } catch (e) { /* not empty, or gone */ }
+        say(c.id + " takes over from idrive7-apps' installer: " + i7.paths.join(', ') +
+            (i7.units.indexOf(I7_RENDERER_UNIT) >= 0 ? ' (its renderer runs until the next boot)' : ''));
+    }
     /* An enabled socket starts once recmgr has loaded its entry: the
      * service it activates can stop like any other. A running socket whose
      * unit changed listens as the new unit says only once it restarts,
@@ -1790,15 +1859,17 @@ function placePreinstalled(a) {
 /* The manager's install of the artifact as it stands: done when its
  * registry entry names a uid and an installationSource, that uid's source
  * is the new version, and its keychain exists (a fresh install writes it
- * last). */
+ * last; an update keeps what the app had, so an app installed without one,
+ * as idrive7-apps' installer installs them, is updated without one). */
+function keychainFile(uid) { return path.join(appHome(uid), 'security', 'joynrKeyChain.json'); }
 function installState(a) {
     var entry = readJsonOrNull(appEntryFile(a.id));
     if (!entry || !entry.userId) return { done: false, seen: 'no registry entry' };
     var pkg = readJsonOrNull(path.join(appHome(entry.userId), 'source', 'package.json'));
-    var keychain = lstatOrNull(path.join(appHome(entry.userId), 'security', 'joynrKeyChain.json'));
+    var keychain = lstatOrNull(keychainFile(entry.userId));
     return { uid: entry.userId, source: entry.installationSource,
         done: !!(entry.installationSource && pkg && pkg.name === a.id && pkg.version === a.version &&
-            keychain && keychain.size > 0),
+            ((keychain && keychain.size > 0) || (a.noKeychain && entry.userId === a.noKeychain))),
         seen: 'uid ' + entry.userId + ', installationSource ' + entry.installationSource +
             ', source ' + (pkg ? pkg.version : 'absent') + ', keychain ' + (keychain ? 'present' : 'absent') };
 }
@@ -1978,6 +2049,8 @@ function installApp(a, state, decision) {
     say('installing app ' + a.id + ' ' + a.version + (existing ? ' (update of ' + existing.version + ')' : ''));
     ensurePrivacy();
     entry = existing ? readJsonOrNull(appEntryFile(a.id)) : null;
+    var kc = existing ? lstatOrNull(keychainFile(existing.uid)) : null;
+    a.noKeychain = existing && !(kc && kc.size > 0) ? existing.uid : null;
     placePreinstalled(a);
     customAppsPut(a.id, entry ? entry.provisioningCache : null, a.pkg.mguAppStartType || 'manually');
     ensureFallback(state);
@@ -3210,6 +3283,7 @@ function collectStatus(state) {
         retired_leftovers: retiredBackups().map(function (b) { return b.path; }),
         updater_tokens: storedTokens().length,
         appmanager: amStatus(),
+        idrive7: { apps: i7Apps(state) },
         stock_backup: fs.existsSync(path.join(BACKUPS_DIR, 'stock')) };
 }
 function cmdStatus(args) {
@@ -3260,7 +3334,7 @@ function artifactTouched(a) {
         /* the installed version's drop-ins too: an update that drops one removes it */
         var installed = installedTools().filter(function (t) { return t.id === a.id; })[0];
         var gone = ((installed && installed.component.dropins) || []).map(dropinPath);
-        return toolTouched(a.component).concat(gone)
+        return toolTouched(a.component).concat(gone).concat(i7Takeover(a).paths)
             .concat([path.join(CFG.varOpt, a.id, 'versions', a.version)]).concat(uplinkDropIns(a.id));
     }
     if (isId8()) return applyTouched();
