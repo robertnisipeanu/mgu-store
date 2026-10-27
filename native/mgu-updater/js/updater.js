@@ -81,12 +81,16 @@ function loadConf() {
     return conf;
 }
 
-function selfVersion() {
+function selfComponent() {
     try {
-        return JSON.parse(fs.readFileSync(path.join(HERE, 'component.json'), 'utf8')).version;
+        return JSON.parse(fs.readFileSync(path.join(HERE, 'component.json'), 'utf8'));
     } catch (e) {
-        return 'dev';
+        return {};
     }
+}
+
+function selfVersion() {
+    return selfComponent().version || 'dev';
 }
 
 /* ---- log file ------------------------------------------------------------ */
@@ -723,8 +727,6 @@ class Updater {
             if (defs.length) {
                 this.saveSources(list);
             }
-            mkdirp(this.conf.state_dir, 0o755);
-            writeAtomic(file, JSON.stringify({ added }, null, 1));
         } catch (e) {
             console.log(`default sources: ${e.message}`);
             return;
@@ -733,6 +735,12 @@ class Updater {
             this.addRuntime(def);
             console.log(`source ${def.id}: added as a default source (${sourcesLib.label(def)}${def.channel ? `, ${def.channel}` : ''})`);
         });
+        try {
+            mkdirp(this.conf.state_dir, 0o755);
+            writeAtomic(file, JSON.stringify({ added }, null, 1));
+        } catch (e) {
+            console.log(`default sources: ${e.message}`);
+        }
     }
 
     cacheFile(id) {
@@ -1362,7 +1370,8 @@ class Updater {
         if (!r) {
             return `${id} is not in any source`;
         }
-        if (!r.entry.uninstallable || id === SELF || id === this.conf.deploy_tool) {
+        if (!r.entry.uninstallable || id === SELF || id === this.conf.deploy_tool ||
+            (selfComponent().requires || {})[id]) {
             return `${id} cannot be removed`;
         }
         if (!this.installedVersion(id, r.entry.kind) && !(id === APP_MANAGER && this.amPresent())) {
