@@ -44,7 +44,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.5.0';
+var VERSION = '0.5.1';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -100,6 +100,8 @@ var FALLBACK_COPY = path.join(DEPLOY_DIR, 'main.js');
 var FALLBACK_BUILD_INSTALLED = path.join(DEPLOY_DIR, 'current', 'fallback_build.js');
 var INPLACE_DIR = path.join(DEPLOY_DIR, 'inplace');
 var INPLACE_REQUEST = path.join(INPLACE_DIR, 'request.json');
+/* fallback_build.js's marker around the in-place hook in the copy */
+var INPLACE_MARK = '/* mgu-deploy in-place install */';
 var SHIM = path.join(DEPLOY_DIR, 'mgu-deploy.sh');
 /* This tool's own manifest, as deploy/component.json has it. */
 var SELF_TITLE = 'Deploy tool';
@@ -1900,6 +1902,22 @@ function bundlesWritten() {
         try { return Math.max(newest, fs.statSync(p).mtime.getTime() / 1000); } catch (e) { return newest; }
     }, 0);
 }
+/* Whether the manager pid, started at started, announced its in-place hook. */
+function hookAnnounced(pid, started) {
+    var st = readJsonOrNull(inplaceStatusFile());
+    return !!(st && st.pid === pid && typeof st.start === 'number' && Math.abs(st.start / 1000 - started) < 5);
+}
+/* The in-place hook's code in a fallback copy's text, or null without one. */
+function inplaceHookOf(text) {
+    var a = text.indexOf(INPLACE_MARK), b = a < 0 ? -1 : text.indexOf(INPLACE_MARK, a + 1);
+    return b < 0 ? null : text.slice(a, b);
+}
+/* A running manager that started before its bundles were last written: it
+ * runs older code than the files hold. */
+function managerStale() {
+    var pid = managerPid(), started = pid ? processStart(pid) : null;
+    return started !== null && bundlesWritten() > started;
+}
 /* The running manager, when it runs the hook: it announced itself with its
  * pid and start, and started after the bundles were last written, so it
  * runs the copy bound now. A manager younger than the bounce minimum gets
@@ -1909,12 +1927,10 @@ function inplaceManager() {
     for (;;) {
         var pid = managerPid();
         if (!pid) return { why: 'no app manager is running' };
-        var started = processStart(pid), st = readJsonOrNull(inplaceStatusFile());
+        var started = processStart(pid);
         if (started === null) return { why: 'its start time is unreadable' };
         if (bundlesWritten() > started) return { why: 'its main.js or AppManagement.js was written after it started' };
-        if (st && st.pid === pid && typeof st.start === 'number' && Math.abs(st.start / 1000 - started) < 5) {
-            return { pid: pid };
-        }
+        if (hookAnnounced(pid, started)) return { pid: pid };
         var left = started + CFG.bounceMinUpS - nowS();
         if (left <= 0) return { why: 'the running app manager has no in-place hook' };
         if (!told) {
@@ -2037,21 +2053,35 @@ function installedAlready(a, why) {
     return s.uid;
 }
 
-/* Privacy, the package, the app listed by the fallback; then the running
- * manager installs or updates it in place, or else one bounce: the
- * restarted manager installs it fresh, or updates it from its registry
+/* Privacy, the fallback, the package, the app listed by the fallback; then
+ * the running manager installs or updates it in place, or else one bounce:
+ * the restarted manager installs it fresh, or updates it from its registry
  * entry re-seeded with installationSource null. An app the manager has
- * installed or updated by itself by then needs no bounce. */
+ * installed or updated by itself by then needs no bounce.
+ *
+ * An update the running manager cannot make in place, as it runs older
+ * bundles than the files hold, bounces the manager before the new package
+ * is there: the restarted manager starts the app as it is, and updates it
+ * in place. The manager's own update at its start removes and inserts the
+ * app's tile again while its start-up insert of that tile may still be
+ * under way, which can leave the HMI without the tile until the head unit
+ * restarts. */
 function installApp(a, state, decision) {
     var existing = decision.existing || null, entry;
     say('installing app ' + a.id + ' ' + a.version + (existing ? ' (update of ' + existing.version + ')' : ''));
     ensurePrivacy();
+    var kept = ensureFallback(state, true);
+    if (existing && managerStale() && fs.existsSync(FALLBACK_COPY) &&
+        inplaceHookOf(fs.readFileSync(FALLBACK_COPY, 'utf8')) !== null) {
+        say('the app manager runs older code than its main.js or AppManagement.js: restarting it before the update, ' +
+            'which it then makes in place');
+        bounceManager();
+    }
     entry = existing ? readJsonOrNull(appEntryFile(a.id)) : null;
     var kc = existing ? lstatOrNull(keychainFile(existing.uid)) : null;
     a.noKeychain = existing && !(kc && kc.size > 0) ? existing.uid : null;
     placePreinstalled(a);
     customAppsPut(a.id, entry ? entry.provisioningCache : null, a.pkg.mguAppStartType || 'manually');
-    ensureFallback(state);
     var r = installInPlace(a, existing), uid = r.uid;
     /* A fresh app the manager may be installing by itself: looked at once
      * the bounce's wait is over, unless the manager failed the request for
@@ -2068,6 +2098,7 @@ function installApp(a, state, decision) {
     }
     if (!uid) {
         say('installing ' + a.id + ' through a bounce: ' + r.why);
+        if (kept) rebuildFallback(false);
         entry = existing ? readJsonOrNull(appEntryFile(a.id)) : null;
         if (entry) {
             entry.installationSource = null;
@@ -2162,7 +2193,7 @@ function uninstallApp(id, state) {
     else if (fs.existsSync(home)) leftovers.push(home + ' left in place: not provably ' + id + "'s; inspect manually");
     var ops = preinstalledFor(id).map(function (p) { return { type: 'delete', path: p }; });
     if (ops.length) rootfsWindow(ops);
-    if (fallbackPresent()) rebuildFallback();
+    if (fallbackPresent()) rebuildFallback(!!r.done);
     cleanNpmCache(id);
     if (!FAKE) {
         if (which(CFG.setquota)) {
@@ -2859,9 +2890,14 @@ function preflightFallback() {
  * for the build and bound again (the old copy when the build refuses).
  * The copy is written only when its bytes change: a manager that started
  * after it was written runs it (app-privacy's restartNeeded, and the
- * in-place install, go by that time). */
-function rebuildFallback() {
-    var wasBound = !FAKE && bindMounted(mainJs()), tmp;
+ * in-place install, go by that time).
+ *
+ * With keepRunning, a copy the running manager runs, with its in-place
+ * hook announced, stays when the new build has the same hook: the manager
+ * keeps installing in place, with no bounce, and the boot unit builds the
+ * new copy at the next start. True when it stayed. */
+function rebuildFallback(keepRunning) {
+    var wasBound = !FAKE && bindMounted(mainJs()), tmp, kept = false;
     if (wasBound) runOk(CFG.umount, [mainJs()]);
     try {
         tmp = buildPatchedCopy();
@@ -2869,10 +2905,25 @@ function rebuildFallback() {
         if (wasBound && fs.existsSync(FALLBACK_COPY)) runOk(CFG.mount, ['--bind', FALLBACK_COPY, mainJs()]);
         throw e;
     }
-    if (!bytesEqualFile(fs.readFileSync(tmp), FALLBACK_COPY)) copyFileMode(tmp, FALLBACK_COPY, 0o644);
+    var built = fs.readFileSync(tmp);
+    if (!bytesEqualFile(built, FALLBACK_COPY)) {
+        kept = !!keepRunning && (FAKE || wasBound) && runsCopyWithHook(built.toString('utf8'));
+        if (kept) say('the app manager keeps the provisioning fallback it runs; this version\'s takes effect at the next start');
+        else copyFileMode(tmp, FALLBACK_COPY, 0o644);
+    }
     rmrf(tmp);
     if (!FAKE) runOk(CFG.mount, ['--bind', FALLBACK_COPY, mainJs()]);
     if (fs.existsSync(privacyTool())) privacyApplyQuiet(null);
+    return kept;
+}
+/* Whether the running manager runs the fallback copy in place now, with
+ * its in-place hook announced, and that hook is the one in built. */
+function runsCopyWithHook(built) {
+    var pid = managerPid(), started = pid ? processStart(pid) : null, cur;
+    if (started === null || bundlesWritten() > started || !hookAnnounced(pid, started)) return false;
+    try { cur = fs.readFileSync(FALLBACK_COPY, 'utf8'); } catch (e) { return false; }
+    var hook = inplaceHookOf(cur);
+    return hook !== null && hook === inplaceHookOf(built);
 }
 function unbindFallback() {
     var wasBound = !FAKE && bindMounted(mainJs());
@@ -2888,9 +2939,10 @@ function settleFallback() {
     if (fallbackPresent()) rebuildFallback(); else unbindFallback();
 }
 /* Turns the fallback on, or refreshes it: builder, unit, link and recmgr
- * entry where they differ, the copy rebuilt and bound. No bounce: the
- * caller bounces once. */
-function ensureFallback(state) {
+ * entry where they differ, the copy rebuilt and bound (keepRunning:
+ * rebuildFallback's). No bounce: the caller bounces once. True when the
+ * running copy stayed. */
+function ensureFallback(state, keepRunning) {
     var was = fallbackPresent();
     if (!fs.existsSync(fallbackUnitSource())) throw refuse(FALLBACK_UNIT + ' missing beside mgu-deploy.js');
     selfInstall(); // the boot unit runs current/fallback_build.js
@@ -2912,8 +2964,9 @@ function ensureFallback(state) {
         runOk(CFG.systemctl, ['daemon-reload']);
     }
     if (!fs.existsSync(customAppsFile())) writeCustomApps({});
-    rebuildFallback();
+    var kept = rebuildFallback(keepRunning);
     if (!was) say('provisioning fallback turned on');
+    return kept;
 }
 function fallbackOn(state) {
     preflightFallback();

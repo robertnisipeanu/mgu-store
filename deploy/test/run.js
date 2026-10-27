@@ -1062,6 +1062,61 @@ function testInplace() {
         late.root.managerLog().includes('install second_app 1.0.0 uid 13002 in place') && Date.now() - t0 < 4000, lr.out);
 }
 
+/* The manager a bounce respawned on the hook ($FAKE_MGR_HOOK), stopped. */
+function stopHooked(root) {
+    const marker = `${root.R}.mgr.pid.inplace`;
+    if (fs.existsSync(marker)) {
+        try { process.kill(Number(fs.readFileSync(marker, 'utf8')), 'SIGKILL'); } catch (e) { /* gone */ }
+    }
+}
+
+/* A copy the running manager runs, built by an earlier deploy tool: kept
+ * while its in-place hook is this version's, so the update stays in place;
+ * a different hook is rewritten and the manager bounced before the new
+ * package is there, which it then updates in place. */
+function testInplaceKeepCopy() {
+    const copyOf = (root) => root.p('var/opt/mgu-deploy/main.js');
+    const hookOf = (text) => {
+        const mark = '/* mgu-deploy in-place install */';
+        const a = text.indexOf(mark);
+        return text.slice(a, text.indexOf(mark, a + 1));
+    };
+    const older = (root, edit) => {
+        const copy = copyOf(root);
+        fs.writeFileSync(copy, edit(fs.readFileSync(copy, 'utf8')));
+        fs.utimesSync(copy, Date.now() / 1000 - 3600, Date.now() / 1000 - 3600);
+    };
+
+    const { root, mgr } = inplaceRoot();
+    older(root, (t) => `/* an earlier build */\n${t}`);
+    const up = root.run(['install', '--artifact', appArtifact('fixture_app', '1.1.0', true), '--yes']);
+    check('keep copy: an update while the manager runs an earlier build with this hook is made in place, no bounce',
+        up.status === 0 && root.kills().length === 1 && up.out.includes('updated in place') &&
+        root.managerPid() === mgr.pid && up.out.includes('keeps the provisioning fallback it runs'),
+    `${up.out}\n${root.managerLog().join('\n')}`);
+    check('keep copy: the copy it runs stays as it is', fs.readFileSync(copyOf(root), 'utf8').startsWith('/* an earlier build */'));
+    const un = root.run(['uninstall', 'fixture_app', '--yes']);
+    check('keep copy: an uninstall in place keeps it too, no bounce', un.status === 0 && root.kills().length === 1 &&
+        un.out.includes('uninstalled in place') && fs.readFileSync(copyOf(root), 'utf8').startsWith('/* an earlier build */'), un.out);
+
+    const b = inplaceRoot(undefined, { minUp: 1 });
+    older(b.root, (t) => t.replace(hookOf(t), hookOf(t).replace('state:"ready"', 'state:"ready",earlier:1')));
+    const k0 = b.root.kills().length;
+    const r = b.root.run(['install', '--artifact', appArtifact('fixture_app', '1.1.0', true), '--yes'], { FAKE_MGR_HOOK: '1' });
+    const log = b.root.managerLog();
+    const killAt = log.findIndex((l) => l.startsWith('kill ') && l.includes(`kill ${b.mgr.pid} `));
+    check('keep copy: a different hook is written, the manager bounced once before the update, then updated in place',
+        r.status === 0 && !fs.readFileSync(copyOf(b.root), 'utf8').includes('earlier:1') && b.root.kills().length === k0 + 1 &&
+        r.out.includes('restarting it before the update') && r.out.includes('updated in place') && !r.out.includes('re-seeded') &&
+        killAt >= 0 && log.indexOf('update fixture_app 1.1.0 uid 13001 in place') > killAt &&
+        !log.some((l) => l === 'update fixture_app 1.1.0 uid 13001'),
+    `${r.out}\n${log.join('\n')}`);
+    check('keep copy: the bounce came before the new package was there',
+        log.slice(killAt).every((l) => !/^update fixture_app [\d.]+ uid \d+$/.test(l)) &&
+        readJson(b.root.entry('fixture_app')).userId === 13001, log.join('\n'));
+    stopHooked(b.root);
+}
+
 /* Uninstall through the running manager's own uninstall (its tile goes at
  * once), or else the bounce: not confirmed, or no manager running. */
 function testInplaceUninstall() {
@@ -2178,12 +2233,13 @@ function testRetiredEdges() {
     const before = bad.hash(notBackups);
     const c = bad.run(['check']);
     const fm = bad.run(['fallback', 'migrate', '--yes']);
-    const i = bad.run(['install', '--artifact', appArtifact('old_app', '1.1.0', true), '--yes']);
+    const i = bad.run(['install', '--artifact', appArtifact('old_app', '1.1.0', true), '--yes'], { FAKE_MGR_HOOK: '1' });
     check('retired: backups that are not the stock bundle are reported and left; the install goes ahead alone',
         c.out.includes('(not the stock main.js)') && !c.out.includes('migrates them') && fm.status === 0 &&
         fm.out.includes("none of the retired installer's backups is a stock bundle") && i.status === 0 &&
         fs.existsSync(bad.src('main.js.capbak')) && bad.kills().length === kills0 + 1 &&
         !bad.snapshots().some((d) => d.endsWith('-migrate')), `${c.out}\n${i.out}`);
+    stopHooked(bad);
 
     const twice = retiredRoot();
     const base = twice.p('usr/lib/oap-mainapp/config/base.json');
@@ -3636,6 +3692,7 @@ const SUITES = [
     testStatusJson,
     testFallback,
     testInplace,
+    testInplaceKeepCopy,
     testInplaceHook,
     testInplaceUninstall,
     testLocalOnlyListed,

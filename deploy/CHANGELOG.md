@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.5.1
+
+- An app update, the Store's included, runs in place, restarting only that app, also right after an update of the deploy tool: while the app manager runs a provisioning fallback with the same in-place install hook, it keeps that one, and the deploy tool's new one takes effect at the next start.
+- An update the running app manager cannot make in place restarts the app manager before the new version is put in place, then has it update the app in place, so the app's tile stays on the HMI. (An update the app manager made while it was starting could leave the app without its tile until the head unit restarted.)
+
 ## 0.5.0
 
 - IterioDev's App Manager is replaced by the Store. `appmanager adopt` takes over a unit that runs it: its daemon disabled and stopped (a start the boot queued cancelled; one recmgr does not list runs until the next boot, which completes the adoption), its queued app changes moved to ours (iDrive 8) and its boot hook disabled, its iPhone tether stopped and disabled, its renderer made the tool `mgu-renderd` from the program it runs (left running), and the apps it installed or had queued and its repositories (without tokens) recorded in `appmanager.json`; with our `mgu-renderd` installed first, our unit goes back over the one it wrote; nothing is reinstalled. `uninstall oap-appmanager` adopts first, removes its units and boot hook, keeps `/var/opt/appmanager` as `appmanager-removed/`, and uninstalls its app (on iDrive 8 at the next start); the apps and the renderer stay. Both run in one snapshot, rolled back on a failure. `status --json` has `appmanager`.

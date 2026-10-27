@@ -20,6 +20,8 @@
  * $FAKE_MGR_PIDFILE.inplace), that process is killed too, and the
  * respawned child's pid is 900000 above it rather than the next one,
  * which the deploy tool's own process often has.
+ * With $FAKE_MGR_HOOK set, the respawned child is fake_inplace.js on the
+ * fallback copy when the fallback is active and its copy has the hook.
  * With $FAKE_MGR_STAY_DOWN_AT set to n, the n-th kill respawns nothing.
  * With $FAKE_MGR_NO_KEYCHAIN set, a fresh install writes no keychain. The
  * JSON object in $FAKE_MGR_SECTIONS, when that file exists, holds
@@ -201,6 +203,16 @@ function bounce() {
     entries().forEach(({ id, entry }) => {
         if (entry && entry.installationSource === null) update(id);
     });
+
+    // $FAKE_MGR_HOOK: the respawned child runs the fallback copy's in-place hook, as on the unit
+    const copy = path.join(env.MGU_DEPLOY_VAR_OPT, 'mgu-deploy', 'main.js');
+    if (env.FAKE_MGR_HOOK && fallbackActive() && fs.readFileSync(copy, 'utf8').includes('mgu-deploy in-place install')) {
+        cp.spawn(process.execPath, [path.join(__dirname, 'fake_inplace.js'), copy], { detached: true, stdio: 'ignore' }).unref();
+        const t0 = Date.now();
+        while (fs.readFileSync(env.FAKE_MGR_PIDFILE, 'utf8') === String(pid) && Date.now() - t0 < 10000) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+        }
+    }
 }
 
 module.exports = { install, update, uninstall, log };

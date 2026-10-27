@@ -742,7 +742,12 @@ The app manager installs our apps itself.
   package, keeping the uid, the data and the keychain: in place (below), or
   else the entry's `installationSource` is re-seeded as null (uid and
   provisioning cache kept) and one bounce lets the restarted manager update
-  it. Only a higher version installs; the same version is reported as
+  it. A running manager on older bundles than `main.js` (the copy, when
+  bound) and `AppManagement.js` hold is bounced before the new package is
+  placed, and the restarted one updates the app in place: an update the
+  manager makes while it starts removes and inserts the app's tile while its
+  start-up insert of that tile may still run, which can leave the HMI
+  without the tile until the head unit restarts. Only a higher version installs; the same version is reported as
   already installed (exit 0), a lower one is refused.
 - **Start type.** `custom_apps.json` lists every app with
   `-appStartType` `manually`, or the value its `package.json` names in
@@ -1031,7 +1036,11 @@ the hook and the build says so; app installs then go through a bounce.
 The copy, with the app-privacy patch applied to it, is `/var/opt/mgu-deploy/main.js`,
 bind-mounted over the stock file; a rebuild unmounts the old copy, builds
 from the stock file and binds the copy again, rewritten only when its bytes
-change.
+change. An app install or uninstall keeps the copy the running manager runs
+when it announced its hook and the new build has the same hook (a newer
+deploy tool's build differing elsewhere), so the manager keeps installing
+in place with no bounce; the boot unit builds the new copy at the next
+start, and a bounce this run makes anyway writes it first.
 
 `mgu-app-fallback.service` (enabled, listed in recmgr, before oapcontroller
 and app-privacy) rebuilds the copy from the stock file at every boot with
