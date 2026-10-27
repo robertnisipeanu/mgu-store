@@ -846,6 +846,12 @@ function ua(version) {
     return { 'User-Agent': `mgu-updater/${version}` };
 }
 
+/* A repo's answer that another token (or none) may get past: 401, 404, or a
+ * 403 that is no rate limit (an organisation's SSO, a permission). */
+function refused(err) {
+    return err.status === 401 || err.status === 404 || (err.status === 403 && !err.rateLimited);
+}
+
 function missing(err) {
     return err.status === 404 || err.code === 'ENOENT' || err.missing;
 }
@@ -1129,8 +1135,11 @@ function githubReader(s, ctx) {
         const auth = token && new URL(url).hostname === 'api.github.com' ? { Authorization: `Bearer ${token}` } : {};
         return Object.assign({ Accept: accept }, auth, ua(ctx.version));
     };
-    const json = (url, name) => ctx.net.get(url, headers(url, 'application/vnd.github+json'), name, 4 << 20)
+    // asked for again with their ETag: an unchanged answer is a 304 and the body kept from before
+    const json = (url, name) => ctx.net.cached(url, headers(url, 'application/vnd.github+json'), name, 4 << 20)
         .then((b) => parseJson(b, url));
+    // a listing read before from the same commit or the same catalog.json (its memoKey): the updater's copy
+    const reuse = (key) => (ctx.reuse ? ctx.reuse(key) : null);
     const raw = (url, name, max, onProgress) => ctx.net.get(url, headers(url, 'application/octet-stream'), name, max, onProgress);
     // the tarball endpoint redirects to codeload for its JSON media type; octet-stream is refused (415)
     const tarball = (commit, onProgress) => ctx.net.get(`${repoUrl}/tarball/${commit}`, headers(repoUrl, 'application/vnd.github+json'),
@@ -1152,8 +1161,16 @@ function githubReader(s, ctx) {
         if (!asset) {
             throw new Error('the catalog release has no catalog.json');
         }
+        // the listing follows from the release's assets: catalog.json and the icons it names. An asset
+        // replaced is a new asset (a new url); one edited in place has a new upload time
+        const key = `catalog ${crypto.createHash('sha256').update((release.assets || [])
+            .map((a) => `${a.name} ${a.url} ${a.size} ${a.updated_at || ''} ${a.digest || ''}`).join('\n')).digest('hex')}`;
+        const known = reuse(key);
+        if (known) {
+            return Promise.resolve(known);
+        }
         return raw(asset.url, 'catalog.json', 4 << 20).then((b) => {
-            const cat = Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8')));
+            const cat = Object.assign({ mode: 'catalog', memoKey: key }, catalogLib.parse(b.toString('utf8')));
             cat.components.forEach((c) => assetIcon(c, release.assets || []));
             return cat;
         });
@@ -1184,10 +1201,18 @@ function githubReader(s, ctx) {
         if (!newest.size) {
             throw new Error('no catalog release and no <id>@<x.y.z>.tgz or .mgu in its releases');
         }
+        // the listing follows from the assets alone (mgu-store.json's among them)
+        const key = `releases ${crypto.createHash('sha256').update(assets.map((a) => `${a.name} ${a.url} ${a.size} ${a.updated_at || ''}`).join('\n')).digest('hex')}`;
+        const known = reuse(key);
+        if (known) {
+            return Promise.resolve(known);
+        }
         const titles = meta ? raw(meta.url, 'mgu-store.json', SMALL)
-            .then((b) => (parseJson(b, 'mgu-store.json') || {}).apps || {}, () => ({})) : Promise.resolve({});
+            .then((b) => (parseJson(b, 'mgu-store.json') || {}).apps || {}, () => null) : Promise.resolve({});
         return titles.then((apps) => ({
             mode: 'releases',
+            // a listing without the titles mgu-store.json failed to give is not kept
+            memoKey: apps ? key : null,
             commit: null,
             components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)).map((n) => {
                 const t = apps && typeof apps[n.id] === 'object' && apps[n.id] ? apps[n.id] : {};
@@ -1210,19 +1235,26 @@ function githubReader(s, ctx) {
         if (!/^[0-9a-f]{40}$/.test(sha || '')) {
             throw new Error('no commit to read');
         }
-        const readFile = (rel) => content(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, path.posix.basename(rel), SMALL)
-            .catch((e) => {
-                throw Object.assign(e, { missing: e.status === 404 });
-            });
+        // a commit's listing is kept and used again for the same commit, unless a read failed for
+        // another reason than the file not being there (a rate limit, a timeout): that one is read again
+        const key = `repo ${sha} ${revision ? 'revision' : ''}`;
+        const known = reuse(key);
+        if (known) {
+            return Promise.resolve(known);
+        }
+        let unsure = false;
+        const failed = (e) => {
+            unsure = unsure || e.status !== 404;
+            throw Object.assign(e, { missing: e.status === 404 });
+        };
+        const readFile = (rel) => content(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, path.posix.basename(rel), SMALL).catch(failed);
         const listDir = (rel) => json(`${repoUrl}/contents/${encode(rel)}?ref=${sha}`, 'contents.json').then((items) => {
             if (!Array.isArray(items)) {
                 throw new Error(`${rel}: not a folder`);
             }
             return items.filter((i) => i && i.type === 'dir' && typeof i.name === 'string').map((i) => i.name);
-        }, (e) => {
-            throw Object.assign(e, { missing: e.status === 404 });
-        });
-        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null, listDir).catch((e) => {
+        }, failed);
+        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null, listDir).then((cat) => Object.assign(cat, { memoKey: unsure ? null : key }), (e) => {
             throw e.missing ? new Error(`no mgu-repo.json at ${sha.slice(0, 7)}`) : e;
         });
     };
@@ -1252,9 +1284,12 @@ function githubReader(s, ctx) {
             });
         }
         const branch = channel.slice('branch:'.length);
-        return json(`${repoUrl}/commits/${encodeURIComponent(branch)}`, 'commit.json').then((c) => atCommit(c.sha, true), (err) => {
-            throw err.status === 404 || err.status === 422 ? new Error(`no branch ${branch}`) : err;
-        });
+        // the head commit's sha alone (its media type): the commit's files are read only when it moved
+        const url = `${repoUrl}/commits/${encodeURIComponent(branch)}`;
+        return ctx.net.cached(url, headers(url, 'application/vnd.github.sha'), 'commit.sha', 1024)
+            .then((b) => atCommit(b.toString('utf8').trim(), true), (err) => {
+                throw err.status === 404 || err.status === 422 ? new Error(`no branch ${branch}`) : err;
+            });
     };
 
     const branchList = (page, names) => json(`${repoUrl}/branches?per_page=100&page=${page}`, 'branches.json').then((list) => {
@@ -1271,7 +1306,7 @@ function githubReader(s, ctx) {
         probe: () => json(repoUrl, 'repo.json')
             // a 403 that is no rate limit (an SSO or permission refusal) leaves the repo to another token
             .catch((err) => {
-                throw err.status === 401 || err.status === 404 || (err.status === 403 && !err.rateLimited) ? authError(err.message) : err;
+                throw refused(err) ? authError(err.message) : err;
             })
             .then((repo) => Promise.all([releasesList(1), json(`${repoUrl}/tags?per_page=100`, 'tags.json'), branchList(1, [])])
                 .then(([releases, tags, branches]) => {
@@ -1287,13 +1322,24 @@ function githubReader(s, ctx) {
                 })),
         catalog: () => json(repoUrl, 'repo.json')
             .catch((err) => {
-                throw err.status === 401 || err.status === 404 ? authError(err.message) : err;
+                throw refused(err) ? authError(err.message) : err;
             })
             .then((repo) => {
                 const branch = `branch:${repo.default_branch || 'main'}`;
-                return Promise.resolve(s.channel ? (s.channel === 'branch' ? branch : s.channel) :
-                    releasesList(1).then((r) => (r.length ? 'releases' : branch)))
-                    .then((channel) => onChannel(channel).then((c) => Object.assign(c, { channel, public: repo.private === false })));
+                const done = (channel) => (c) => Object.assign(c, { channel, public: repo.private === false });
+                if (s.channel) {
+                    const channel = s.channel === 'branch' ? branch : s.channel;
+                    return onChannel(channel).then(done(channel));
+                }
+                return json(`${repoUrl}/releases/tags/catalog`, 'release.json').then((r) => fromCatalog(r).then(done('releases')), (err) => {
+                    if (!missing(err)) {
+                        throw err;
+                    }
+                    return releasesList(100).then((r) => (r.length ? fromReleases(r).then(done('releases')) : onChannel(branch).then(done(branch))));
+                });
+            })
+            .catch((err) => {
+                throw err.rateLimited ? Object.assign(new Error('GitHub rate limit reached'), { status: err.status, rateLimited: true }) : err;
             }),
         artifact: (entry, onProgress) => raw(entry.artifact.url, entry.artifact.name, entry.artifact.size, onProgress),
         icon: (entry) => (/^https:\/\//.test(entry.icon.ref) ? raw(entry.icon.ref, 'icon.png', ICON_BYTES)

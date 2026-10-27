@@ -303,14 +303,13 @@ or not `tokens.json` names it yet; the deploy tool writes both too
 (`mgu-deploy.sh updater-token`, deploy/README.md), and the updater reads
 the folder again every `usb_poll_s` and on each check.
 
-- A GitHub source is read with the token that read it last, else each
-  stored token in turn (those GitHub rejects last) until one reaches the
-  repo; the one that does is kept for it (in `state/sources/<id>.json`, a
-  cache) and its downloads use it. A repo whose own answer said it is
-  public is read without a token first; any other repo without one last.
-  A source no token reaches (the repo answers 401 or 404 to each) is
-  `auth-needed`. When the tokens change, the sources that need one, or
-  lost theirs, are read again.
+- A GitHub source is read with a stored token when there is one (the
+  one that read it last first), public repos too: a token's rate limit is
+  far higher than an anonymous one. It is read without a token only when
+  every token is refused for that repo. A source no token reaches is
+  `auth-needed`; one that hits the rate limit with no usable token shows
+  `GitHub rate limit reached`. When the tokens change, the sources that
+  need one are read again.
 - `token-add` asks `api.github.com/user` whose the token is: `login`, and
   a classic token's `X-OAuth-Scopes` as `scopes` (a fine-grained or GitHub
   App token has none: null). One GitHub rejects (401) is refused; without
@@ -814,10 +813,11 @@ releases, branches, tags, contents, tarballs, the device flow), with
   rejects, one that reads two private repos (the second added later, no
   token asked for), a third repo only a token the deploy tool writes
   reaches, the same token twice, removal (each source falls back to
-  another token, else needs one), a public repo read without one, a token
+  another token, else needs one), a token
   added by the device flow (pending, slow_down, denied, renewed by its
   refresh token), no token anywhere but `api.github.com`, and the
-  per-source files of 0.2 converted; the releases layout, a branch (a new commit of the same
+  per-source files of 0.2 converted; public repos read with a stored
+  token; the requests each check makes; the releases layout, a branch (a new commit of the same
   version is an update) and tags, repo-tree apps and tools, build scripts
   that succeed, fail, run too long or write outside their folder,
   requirements installed first, uninstall and its refusals, USB media
