@@ -2,7 +2,7 @@
 /**
  * Reads a stick the way the updater does (native/mgu-updater/js/sources.js),
  * on the unit's Node: node stick_read.js <media folder>. Prints JSON:
- * { "<source id>": { mode, components: [{ id, kind, version, build, ok }],
+ * { "<source id>": { mode, copyOf, components: [{ id, kind, version, build, ok }],
  * skipped } }, where ok says the artifact (or, for a repo tree, the
  * component's packed folder) reads and matches the listed size and sha256.
  */
@@ -27,7 +27,7 @@ sources.usbSources(mounts, [media]).reduce((p, u) => p.then(() => {
             (!e.artifact.sha256 || crypto.createHash('sha256').update(b).digest('hex') === e.artifact.sha256), (err) => err.message)
             .then((ok) => ({ id: e.id, kind: e.kind, version: e.version, build: e.build, title: e.title, ok }));
     })).then((components) => {
-        out[u.id] = { mode: cat.mode, components, skipped: cat.skipped || [] };
+        out[u.id] = { mode: cat.mode, copyOf: cat.copyOf || null, components, skipped: cat.skipped || [] };
     }), (err) => {
         out[u.id] = { error: err.message };
     });

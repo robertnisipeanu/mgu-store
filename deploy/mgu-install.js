@@ -837,6 +837,19 @@ function localFolder(dest, inputs) {
         catalog: { schema: 2, components: rows.map((x) => stickEntry(x.entry, x.file, x.data)) } };
 }
 
+/* The marker the updater reads a stick folder's source from: it updates
+ * what that source installed (native/mgu-updater/README.md, "Ids"). */
+function copyOf(source) {
+    return { name: 'mgu-copy.json', data: Buffer.from(`${JSON.stringify({ copyOf: source })}\n`) };
+}
+
+/* The GitHub repository a checkout's origin remote names (owner/repo), or null. */
+function githubOrigin(dir) {
+    const r = cp.spawnSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], { encoding: 'utf8', windowsHide: true });
+    const m = r.status === 0 && /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?\s*$/.exec(r.stdout);
+    return m ? m[1] : null;
+}
+
 async function usbRepo(o) {
     const stick = path.resolve(o.stick);
     if (!fs.existsSync(stick) || !fs.statSync(stick).isDirectory()) {
@@ -863,14 +876,14 @@ async function usbRepo(o) {
             const gh = await githubRepo(repo, null);
             const { commit, components } = await githubComponents(gh);
             const out = await publishedFolder(components, commit, input);
-            writeFolder(path.join(repoDir, name), out.files, out.catalog);
+            writeFolder(path.join(repoDir, name), out.files.concat([copyOf(input)]), out.catalog);
         } else if (/^https?:\/\//.test(input)) {
             const u = checkUrl(input);
             const name = unique(folderName(`${u.hostname}-${path.posix.basename(path.posix.dirname(u.pathname)) || 'catalog'}`));
             say(`${input} -> mgu-repo/${name}/`);
             const { commit, components } = await urlComponents(u.toString());
             const out = await publishedFolder(components, commit, input);
-            writeFolder(path.join(repoDir, name), out.files, out.catalog);
+            writeFolder(path.join(repoDir, name), out.files.concat([copyOf(u.toString())]), out.catalog);
         } else if (fs.existsSync(input) && fs.statSync(input).isDirectory()) {
             const dir = path.resolve(input);
             if (dir === stick || dir.startsWith(repoDir + path.sep)) {
@@ -883,8 +896,9 @@ async function usbRepo(o) {
                 const out = await publishedFolder(components, commit, input);
                 writeFolder(path.join(repoDir, name), out.files, out.catalog);
             } else if (fs.existsSync(path.join(dir, 'mgu-repo.json'))) {
-                writeFolder(path.join(repoDir, name), checkoutFiles(dir), null);
-                say('  a repository checkout: the unit builds its components');
+                const gh = githubOrigin(dir);
+                writeFolder(path.join(repoDir, name), checkoutFiles(dir).concat(gh ? [copyOf(`github:${gh}`)] : []), null);
+                say(`  a repository checkout${gh ? ` of ${gh}` : ''}: the unit builds its components`);
             } else {
                 throw new Usage(`${input}: no catalog.json or mgu-repo.json`);
             }

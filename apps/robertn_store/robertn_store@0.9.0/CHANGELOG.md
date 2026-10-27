@@ -18,6 +18,12 @@ Add token's status shows on the page only for an Add token pressed there. The pa
 speller. Requires mgu-updater 0.7.0; with an older updater the repo is
 added as typed.
 
+Each source's component of an id is its own tile and row (mgu-updater
+0.7.0): two repositories' Doom are two, each named with its source. A
+component's page follows its row when an install gives the row another id,
+and shows `Id <id>` when it installs under another id than its source's. An
+installed component without an origin shows no source.
+
 ## 0.8.2
 
 Add source adds what is typed at once: `owner/repo`, or a repo's address

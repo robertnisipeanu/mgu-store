@@ -295,7 +295,10 @@ FAT, exFAT and NTFS), which the updater reads as source
 | a folder with `mgu-repo.json` (a checkout) | its name | the repository's files (git's tracked files, else all but `.git` and `node_modules`), which the unit builds |
 | package files `*.tgz`, `*.mgu` | `local` | added to `local/`'s catalog by their content: an app (`package.json` flat, under `package/`, or a `.mgu`), a source package (`mgu-app.json`, `build: "unit"`), a tool kit (`component.json`), a renderer or tether package (`mguService`) as a tool providing its kind; of an id the higher version stays |
 
-No input: `github:robertnisipeanu/mgu-store`. A written catalog is schema
+No input: `github:robertnisipeanu/mgu-store`. The folder of a `github:` or
+https input holds `mgu-copy.json`, `{"copyOf": "<the input>"}`: the
+updater then updates from it what that source installed
+(native/mgu-updater/README.md, "Ids"). A written catalog is schema
 2 with the source's fields (`build`, `requires`, `optional`,
 `uninstallable`, `mguHmi`, `mguProvides`; apps and service packages from
 releases or package files are `uninstallable`)

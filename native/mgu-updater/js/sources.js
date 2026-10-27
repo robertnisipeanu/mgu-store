@@ -878,11 +878,16 @@ function folderReader(root, ctx) {
             if (!fs.lstatSync(root).isDirectory()) {
                 throw new Error(`${root} is not a folder`);
             }
+            // the source a stick folder is a copy of (mgu-install.js usb-repo)
+            const copyOf = isFileInside(root, 'mgu-copy.json') ? readFile('mgu-copy.json')
+                .then((b) => parseJson(b, 'mgu-copy.json').copyOf).catch(() => null) : Promise.resolve(null);
             if (isFileInside(root, 'catalog.json')) {
-                return readFile('catalog.json').then((b) => Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8'))));
+                return readFile('catalog.json').then((b) => Object.assign({ mode: 'catalog' }, catalogLib.parse(b.toString('utf8'))))
+                    .then((cat) => copyOf.then((c) => Object.assign(cat, { copyOf: typeof c === 'string' ? c : null })));
             }
             if (isFileInside(root, 'mgu-repo.json')) {
-                return repoCatalog(readFile, null, null, listDir);
+                return repoCatalog(readFile, null, null, listDir)
+                    .then((cat) => copyOf.then((c) => Object.assign(cat, { copyOf: typeof c === 'string' ? c : null })));
             }
             throw new Error('no catalog.json or mgu-repo.json');
         }),

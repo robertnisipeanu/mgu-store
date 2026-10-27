@@ -66,7 +66,7 @@ Object.keys(UNITS).forEach((unit) => fixture.screens().forEach(([name, over, stO
 let f = screen('store');
 eq(f.labels.slice(0, 7), ['Store', 'Installed', 'USB', 'Settings', 'All', 'Apps', 'Tools']);
 eq(f.labels.length, 7 + fixture.state().components.length, 'a tile per component');
-eq(f.items[7].act, { do: 'open', page: { name: 'app', id: 'robertn_store' } });
+eq(f.items[7].act, { do: 'open', page: { name: 'app', id: 'robertn_store', source: 'mgu-store', listed: 'robertn_store' } });
 const subs = f.values.grid.items.map((t) => t.sub);
 ['Downloading 42 %', 'Not for this head unit', 'Update a1b2c3d', 'Waiting', 'Restart pending', 'Failed', 'Installed', '2.1.0 · 402 KB']
     .forEach((s) => ok(subs.indexOf(s) >= 0, `a tile says ${s}`));
@@ -107,9 +107,10 @@ eq([f.values.grid.items[0].sub, f.values.grid.items[0].badge, f.values.nav.items
     'says so, installed, not counted as an update');
 // an app installed beside another source's app of its id shows the id it has; one built elsewhere cannot install
 const two = Object.assign(fixture.state(), { busy: null });
-two.components = [Object.assign({}, two.components[1], { id: 'doom2', listedId: 'doom', status: 'available', installed: null, error: null }),
-    Object.assign({}, two.components[1], { id: 'doom@iterio', listedId: 'doom', status: 'available', installed: null, error: null,
-        blocked: 'doom is already installed from robertnisipeanu/mgu-apps' })];
+two.components = [Object.assign({}, two.components[1], { id: 'doom2', listedId: 'doom', installAs: 'doom2', status: 'available', installed: null,
+    error: null, source: 'idrive7-apps' }),
+    Object.assign({}, two.components[1], { id: 'doom@iterio', listedId: 'doom', installAs: 'doom', status: 'available', installed: null, error: null,
+        blocked: 'doom is already installed from robertnisipeanu/mgu-apps', source: 'iterio' })];
 const page = (id) => {
     const p = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id }] }, two), { textScale: 1, focus: 0, scroll: {} });
     p.labels = p.items.map((i) => i.label);
@@ -122,6 +123,15 @@ eq([own(f), text(f, 'note1')], [['Back'], 'doom is already installed from robert
 ok(!f.values.facts.items.some((c) => /^Id /.test(c.text)), 'blocked: no id of its own');
 f = frame(fixture.model({}, two), { textScale: 1, focus: 0, scroll: {} });
 eq(f.values.grid.items[1].sub, 'Not installable');
+// two sources' Doom: two tiles, each named with its source; a page follows its row when the install gives it another id
+two.sources = [{ id: 'idrive7-apps', label: 'cauliflowermossgrape/idrive7-apps' }, { id: 'iterio', label: 'https://apps.example.org/index.json' }];
+eq(frame(fixture.model({}, two), { textScale: 1, focus: 0, scroll: {} }).values.grid.items.map((t) => t.title),
+    [`${two.components[0].title} (idrive7-apps)`, `${two.components[1].title} (apps.example.org)`]);
+const moved = Object.assign({}, two, { components: [Object.assign({}, two.components[1], { id: 'doom', listedId: null, blocked: null,
+    status: 'installed', installed: two.components[1].version })] });
+const followed = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom@iterio', source: 'iterio', listed: 'doom' }] }, moved),
+    { textScale: 1, focus: 0, scroll: {} });
+eq(text(followed, 'instValue'), two.components[1].version, 'the page shows the row it became');
 f = screen('app-renderer');
 eq(own(f), ['Install', 'Back'], 'a second renderer installs beside the first');
 eq(f.items[0].act, { do: 'install', id: 'mgu-render' });

@@ -206,22 +206,38 @@ before a build and after it, so nothing a script leaves running reaches
 the next one; its output goes to the log as `build <id>:` lines; the
 folder is emptied as the build uid afterwards.
 
-**Ids.** Component ids are global on the unit. An id several sources list
-is shown once, at the highest version any of them lists, so a newer
-version on a USB stick is an update of a component installed from GitHub.
-Of equal versions it comes from the source that installed it
-(`state/origins.json`), else a USB stick, else the first source in
-`sources.json` order; the source an install comes from becomes the
-component's origin.
+**Ids.** Component ids are global on the unit, and sources are listed
+apart: each origin's component of an id is a row of its own, and an
+installed component is updated only by its origin. A source is its own
+origin, except a stick folder `mgu-install.js usb-repo` wrote from a stored
+source: its `mgu-copy.json` (`{"copyOf": "github:<owner>/<repo>"}` or the
+catalog's URL; for a checkout, the GitHub repository its `origin` remote
+names) names that source, which is then its origin, and a folder
+`mgu-repo/<name>` without one stands for the stored source `<name>`; so a
+car without internet updates from the stick what that source installed. The
+origin of an installed component is the one its install recorded
+(`state/origins.json`). Within one origin, the row offers the highest
+version its sources list; of equal versions the source that installed it,
+then a USB stick, then `sources.json` order; without internet, a network
+source's last listing counts only when no reachable source of the origin
+lists the id.
 
-An app id an installed app of another origin holds (its origin in
-`origins.json`; a stick's `mgu-repo/<name>`, which `usb-repo` writes from
-the source of that name, counts as that source) is that app's alone:
-
+- An installed id is its origin's: that origin's row has the id, and
+  another origin's listing never shows as its update.
+- An id nothing has installed goes to the first origin listing a component
+  that cannot install under another id (a package built elsewhere, or a
+  tool), else to the first origin.
+- Every other origin's listing is beside it, as a row keyed `<id>@<source>`
+  that installs as `<id>` (`installAs`), and, while another origin's `<id>`
+  is installed, `blocked` with the reason (`<id> is already installed from
+  <source>`): its install is refused. A tool and a package built elsewhere
+  (a release, catalog or index package, a stick's `oap/`), which may name
+  its id in its code, keep their id so.
 - An app the updater builds (a repo tree's build script, or source
-  package) installs beside it as `<id>2`, `<id>3`, …: the first id no app or
-  tool on the unit has, no source lists and no other app was given. A
-  build script builds it from a copy of the app's folder named for that
+  package) goes beside it under another id instead, so both install: the
+  id it was installed under before, else `<id>2`, `<id>3`, …, the first id no
+  app or tool on the unit has, no source lists and no other app was given.
+  A build script builds it from a copy of the app's folder named for that
   id beside the folder, its manifest's `id` (`package.json`: `name`) that
   id and `{id}` and `{dir}` filled in for it (`network` stays the app's),
   so all the script derives from the id follows (idrive7-apps' `build.py`:
@@ -235,19 +251,35 @@ the source of that name, counts as that source) is that app's alone:
   keeps the id for the source, so its updates land there, until the app
   is removed. Its state row has that id as `id`, the source's as
   `listedId`, and the title its source gives.
-- A package built elsewhere (a release, catalog or index package, a
-  stick's `oap/`) may name its id in its code, so it keeps it: it is listed
-  as `<id>@<source>`, `blocked` with the reason (`<id> is already installed
-  from <source>`), and its install is refused. When no source of the
-  installed app's origin lists the id any more (a stick that is gone), it is
-  listed as `<id>` instead, so the installed app keeps its row and can be
-  removed, but not updated from it.
+- An installed component without an origin (installed from outside the
+  updater: the installers, the emulator's provisioning; `imported`), or
+  whose origin lists its id no more (a stick that is gone, a source
+  removed), is updated by the origin whose listing has its title (an
+  app's en_GB entry-point text, a tool's `component.json` title); one
+  without a recorded origin also by the only origin listing its id,
+  whatever its title. An origin holding
+  another id for an app of that id (`doom2`) is not counted. With two of
+  that title, or none of it, it has no update. That origin's row has the
+  id, and installing from it records it as the origin. So a car set up
+  offline updates the Store, the updater and the uplink from a stick, an
+  App Manager app from a stick's `oap/`, and a source removed and added
+  again updates what it installed (a removed source's origins are kept:
+  while it is gone, only a listing with the installed title updates them).
+  Without such an origin its row (source: its origin, `imported`, or
+  none) shows it installed, with no update; every listing of its id is
+  beside it, blocked (`<id> is already installed`), and nothing installs
+  over it, a requirement neither. Every installed component of ours no
+  source lists (a tool, an app the deploy tool marked local, one with an
+  origin, imported) has such a row, for its Remove: an app removable, a
+  tool when its `component.json` says `uninstallable: true`, never one the
+  updater never removes (itself, the deploy tool, the Store, what the
+  updater requires); a tool's requirements and capability are its
+  `component.json`'s.
 
-An app installed outside the updater has no origin: any source updates
-it. Without internet, a network source's last listing
-counts only for ids no other source lists. `requires` (`{"<id>":
+`requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
-same source if it has one at least that version, else from any (a
+same source if it has one at least that version, else from any (an
+installed one from its origin only; a
 newer updater installs alone: it restarts into its new version, which ends
 the queue, and the component is asked for again after; a requirement that
 provides a capability another installed tool provides counts as met, so a
@@ -338,7 +370,8 @@ for the HMIs its rhmiData has a UI for. Each can be removed
 `mgu-install.js usb-repo` writes a stick from published repositories,
 catalog URLs, checkouts and package files, one `mgu-repo/<name>/` folder
 each (deploy/README.md, "mgu-install"), so a car without internet installs
-and updates from it alone. Sticks
+from it alone, and updates from it what the sources it copies installed
+(each such folder names its source, "Ids"). Sticks
 are only read: no link is followed (a folder or file reached through one is
 not there), only regular files, every size bounded.
 
@@ -374,9 +407,9 @@ that has no origin yet gets one, once per record (`state/appmanager.json`):
   after the repository (`car-apps`) when none is, and that source is the
   app's origin;
 - else (a stick's package, a private repository, whose token stays in its
-  folder) `imported`: no origin, so any source updates it. One no source
-  lists keeps a row of source `imported`, installed and removable, that
-  installs from nowhere.
+  folder) `imported`: no origin, so the source listing it updates it
+  ("Ids"). One no source lists keeps a row of source
+  `imported`, installed and removable, that installs from nowhere.
 
 The App Manager's app keeps a row while it or the App Manager's service is
 on the unit, listed or not, installed (the service's version when its app
@@ -392,7 +425,8 @@ yet gets one, the same way: the github source reading
 its origin once it has read that repository and the repository lists the
 app; one a complete listing (nothing left out) does not name is
 `imported` (in `state/appmanager.json` too), and so is every app while no
-source reads that repository (the owner removed it: it is not added again). Nothing is reinstalled: an update builds the
+source reads that repository (the owner removed it: it is not added again;
+added again by the owner, it updates them, "Ids"). Nothing is reinstalled: an update builds the
 repository's newer version and installs it over the app, under its uid.
 
 **First start.** The installers seed `sources.json` (the deploy tool's
@@ -656,12 +690,14 @@ each request, and whenever it changes (at most every 250 ms):
     "build": null, "optional": false, "uninstallable": true, "revision": null,
     "description": "…", "author": "…", "icon": "/var/opt/mgu-updater/state/icons/…png",
     "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null,
-    "listedId": null, "blocked": null, "pendingReboot": false, "queued": false, "error": null } ] }
+    "listedId": null, "installAs": "doom", "blocked": null, "pendingReboot": false, "queued": false, "error": null } ] }
 ```
 
-- `components`: each id once (Sources, "Ids"); `listedId` the id its
-  source lists when it installs under another one, `blocked` why it cannot
-  be installed (else null). `status` is `installed`,
+- `components`: each origin's component of an id (Sources, "Ids"); `id`
+  the row's id (requests and `busy` name it), `listedId` the id its source
+  lists when `id` is another, `installAs` the id it is or would be
+  installed under, `blocked` why it cannot be installed (else null);
+  `source` is null for an installed component without an origin. `status` is `installed`,
   `update`, `available` or `newer` (a local build ahead of its source);
   `build` is `"unit"` for what is built on the unit; `revision` the short
   commit a branch would install; `size` null where the source states none;
@@ -707,7 +743,7 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A repo that is already a source is refused |
-| `{"op":"source-remove","id"}` | removes a source (not the built-in one) and its records in `origins.json`; the ids `aliases.json` keeps for it stay with the apps installed under them |
+| `{"op":"source-remove","id"}` | removes a source (not the built-in one); what it installed keeps it as its origin in `origins.json`, and the ids `aliases.json` keeps for it stay |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
 | `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |
@@ -795,6 +831,14 @@ releases, branches, tags, contents, tarballs, the device flow), with
   (with a stand-in page), `rid`, a first start without `sources.json`, default
   sources (added once, kept out after a removal, not doubled), and
   the Store 0.3's texts from the state;
+- sources listed apart: an id two sources list is a row for each, only
+  its origin updates an installed one, another source's newer one is
+  beside it, blocked; with nothing installed, the package built elsewhere
+  has the id and the repo's build its alias; a component installed from
+  outside takes the one origin listing it, of several the one whose
+  listing has its title, else none (a row of its own), and none before
+  every source is tried; a stick folder `usb-repo` marked as a copy of a source
+  updates what that source installed, one without the mark does not;
 - ids two origins share: a repo laid out as idrive7-apps building its doom
   as doom2 beside a catalog's installed doom (from a copy made over to
   doom2, with its download), its update landing on doom2, a package built
