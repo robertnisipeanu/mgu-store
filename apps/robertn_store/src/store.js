@@ -66,7 +66,7 @@ const { Drawn } = require('./store_drawn.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
     loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage,
-    removable } = require('./store_view.js');
+    removable, withSources } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 
@@ -1211,7 +1211,7 @@ class Store extends OnlineApp {
         this._show(C.restart, connected && !busy && st.rebooting === false);
 
         KINDS.forEach((kind) => {
-            const rows = connected ? st.components.filter((c) => c.kind === kind) : [];
+            const rows = connected ? withSources(st.components, st.sources).filter((c) => c.kind === kind) : [];
             this._set(LISTS[kind].nav, 'Text2ndCol', groupState(rows, busy), 'Text');
             this._show(LISTS[kind].nav, connected);
             this._renderList(LISTS[kind].list, rows.map((r) => [r.title, rowState(r, busy)]));

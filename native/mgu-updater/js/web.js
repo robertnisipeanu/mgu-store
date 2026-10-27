@@ -787,7 +787,7 @@ function renderComponents(list) {
     var row = el('div', 'row');
     var main = el('div', 'grow');
     main.appendChild(el('div', null, c.title || c.id));
-    var meta = [c.id, (c.installed || '-') + ' → ' + (c.version || '-') + (c.revision ? ' (' + c.revision + ')' : ''),
+    var meta = [c.installAs || c.id, (c.installed || '-') + ' → ' + (c.version || '-') + (c.revision ? ' (' + c.revision + ')' : ''),
       STATUS[c.status] || c.status];
     if (c.source) { meta.push(c.source); }
     if (c.pendingReboot) { meta.push('Restart pending'); }

@@ -31,6 +31,19 @@ function notForUnit(row) {
     return row.compat === 'no' && (row.status === 'update' || row.status === 'available');
 }
 
+/* The components, each titled with its source's name where another
+ * source lists one of the same id (two repositories' Doom). */
+function withSources(rows, sources) {
+    const name = (id) => {
+        const s = (sources || []).find((x) => x.id === id);
+        return s ? String(s.label || s.id).replace(/^https:\/\/([^/]+).*$/, '$1').split('/').pop() : null;
+    };
+    return (rows || []).map((r) => {
+        const twin = r.source && rows.some((o) => o !== r && (o.listedId || o.id) === (r.listedId || r.id) && o.source !== r.source);
+        return twin && name(r.source) ? Object.assign({}, r, { title: `${r.title} (${name(r.source)})` }) : r;
+    });
+}
+
 /* The second column of a component's row. */
 function rowState(row, busy) {
     if (busy && busy.id === row.id) {
@@ -331,6 +344,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { removable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { withSources, removable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

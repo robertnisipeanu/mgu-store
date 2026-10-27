@@ -293,7 +293,7 @@ function installedApp(conf, id, wantTitle) {
 function installedTool(conf, id) {
     try {
         const c = readJson(path.join(conf.tool_root, id, 'current', 'component.json'));
-        return c.id === id ? { id, kind: 'tool', version: c.version } : null;
+        return c.id === id ? Object.assign({ id, kind: 'tool', version: c.version }, typeof c.title === 'string' && c.title ? { title: c.title } : {}) : null;
     } catch (e) {
         return null;
     }
@@ -517,14 +517,6 @@ const REPLACED = { [APP_MANAGER]: 'Replaced by Store', 'ipheth-tether': 'Replace
 const IMPORTED = 'imported';
 // the repository whose own installer (deploy/mgu-app-install.sh) the deploy tool recognises
 const IDRIVE7_REPO = 'cauliflowermossgrape/idrive7-apps';
-
-/* The origin a source stands for: a stick's mgu-repo/<name>, which
- * mgu-install.js usb-repo writes from the source of that name, stands for
- * that source; any other source for itself. */
-function originOf(sourceId) {
-    const m = /^usb:[^/]*\/mgu-repo\/([^/]+)$/.exec(sourceId);
-    return m ? m[1] : sourceId;
-}
 
 /* entry as it installs under id, its own id as listedId (Updater.place). */
 function under(entry, id) {
@@ -771,11 +763,22 @@ class Updater {
         return this.stored.concat(this.usb);
     }
 
-    /* The source an installed app's id belongs to, when the updater
-     * installed it (origins.json), else null. */
+    /* The source the installed component of id came from (origins.json),
+     * else null. */
     holder(id) {
         const o = this.origins[id];
-        return o && installedApp(this.conf, id) ? o.source : null;
+        return o && this.installedOf(id) ? o.source : null;
+    }
+
+    /* The origin a source stands for: a stick folder mgu-install.js
+     * usb-repo wrote from a stored source (its copyOf, mgu-copy.json:
+     * github:<owner>/<repo> or the catalog's URL) stands for that source;
+     * any other source for itself. */
+    originOf(id) {
+        const rt = this.src.get(id);
+        const copy = rt && rt.def.type === 'usb' && rt.copyOf ? rt.copyOf.toLowerCase() : null;
+        const def = copy && this.stored.find((d) => (d.type === 'github' ? `github:${d.repo}` : d.url || '').toLowerCase() === copy);
+        return def ? def.id : id;
     }
 
     sourceLabel(id) {
@@ -783,76 +786,163 @@ class Updater {
         return def ? sourcesLib.label(def) : id;
     }
 
-    /* Where a source's entry goes on the unit (README.md, "Ids"). An app
-     * whose id an installed app of another origin holds goes under the id
-     * it was installed under before (aliases.json), else, when the updater
-     * builds it, under the first free <id>2, <id>3, ...: the entry as that
-     * id, its own id as listedId. A package built elsewhere keeps its id
-     * and is blocked, keyed <id>@<source> beside the installed one's row;
-     * when the installed one's origin lists that id no more, it is that row
-     * (the installed app stays shown and removable). taken: ids no new
-     * alias may have (every listed id, every alias). */
-    place(source, entry, taken) {
-        if (REPLACED[entry.id]) {
-            return Object.assign({}, entry, { blocked: REPLACED[entry.id] });
-        }
-        if (entry.kind !== 'app') {
-            return entry;
-        }
-        const alias = this.aliases[`${originOf(source)}:${entry.id}`];
-        if (alias && sourcesLib.renameable(entry)) {
-            return under(entry, alias);
-        }
-        const holder = this.holder(entry.id);
-        if (!holder || originOf(holder) === originOf(source)) {
-            return entry;
-        }
-        for (let n = 2; sourcesLib.renameable(entry) && n < 100; n += 1) {
-            const id = `${entry.id}${n}`;
-            if (ID.test(id) && !taken.has(id) && !this.installedOf(id)) {
-                taken.add(id);
-                return under(entry, id);
+    /* An installed component without a recorded origin (installed from
+     * outside the updater) takes as its origin, once every stored source has
+     * been tried online, the one origin that lists its id (a stick counts only as a
+     * copy of a stored source), or of several the one whose listing has its
+     * title (an app's en_GB entry-point text, a tool's component.json
+     * title). Otherwise it keeps none, and no source updates it (resolved).
+     * An origin recorded as a stick's mgu-repo/<name> folder is the stored
+     * source <name>, which mgu-install.js usb-repo writes that folder from. */
+    adoptOrigins() {
+        let changed = false;
+        Object.keys(this.origins).forEach((id) => {
+            const m = /^usb:[^/]*\/mgu-repo\/([^/]+)$/.exec(this.origins[id].source);
+            if (m && this.stored.some((d) => d.id === m[1])) {
+                this.origins[id].source = m[1];
+                changed = true;
             }
-        }
-        const listed = this.defs().some((d) => originOf(d.id) === originOf(holder) &&
-            (this.src.get(d.id) || { components: [] }).components.some((c) => c.id === entry.id));
-        return Object.assign({}, entry, { id: listed ? `${entry.id}@${source}` : entry.id, listedId: entry.id,
-            blocked: `${entry.id} is already installed from ${this.sourceLabel(holder)}` });
-    }
-
-    /* Each component id once: the highest version a source lists; of equal
-     * versions, the source that installed it (origins.json), then USB media,
-     * then sources.json order. Without internet, a network source's last
-     * listing counts only for ids no other source lists. An app another
-     * origin's app holds the id of is placed beside it (place). */
-    resolved() {
-        const online = readLease(this.conf).online;
-        const found = new Map();
-        const taken = new Set(Object.keys(this.aliases).map((k) => this.aliases[k]));
-        this.defs().forEach((def) => (this.src.get(def.id) || { components: [] }).components.forEach((e) => taken.add(e.id)));
-        this.defs().forEach((def, order) => {
-            const rt = this.src.get(def.id);
-            (rt ? rt.components : []).forEach((own) => {
-                const entry = this.place(def.id, own, taken);
-                const list = found.get(entry.id) || [];
-                list.push({ entry, source: def.id, order, usb: def.type === 'usb', reachable: online || !rt.reader.network });
-                found.set(entry.id, list);
+        });
+        // each stored source tried online (one not tried yet may list the id)
+        const read = this.stored.every((d) => {
+            const rt = this.src.get(d.id) || {};
+            return rt.checkedAt || rt.answered || rt.status === 'error' || rt.status === 'auth-needed';
+        });
+        // the App Manager's and idrive7-apps' installers' apps: their takeover decides (takeOver)
+        const am = this.appmanager;
+        const theirs = new Set(this.adopted.imported.concat((this.idrive7 || []).map((a) => a && a.id),
+            (am && am.record && Array.isArray(am.record.apps) ? am.record.apps : []).map((a) => a && a.id), Object.keys(REPLACED)));
+        const pending = am && am.present && (!am.record || am.record.removed);
+        const by = new Map();
+        this.defs().forEach((def) => {
+            const origin = this.originOf(def.id);
+            if (!read || pending || (def.type === 'usb' && origin === def.id)) {
+                return;
+            }
+            this.src.get(def.id).components.forEach((e) => {
+                if (!this.origins[e.id] && !theirs.has(e.id)) {
+                    by.set(e.id, (by.get(e.id) || []).concat([{ e, origin }]));
+                }
             });
         });
-        const map = new Map();
-        found.forEach((list, id) => {
-            const o = this.origins[id];
-            const rank = (c) => (o && o.source === c.source ? 0 : c.usb ? 1 : 2);
-            const pool = list.some((c) => c.reachable) ? list.filter((c) => c.reachable) : list;
-            const best = pool.reduce((a, c) => {
-                const cmp = catalogLib.compareVersions(c.entry.version, a.entry.version);
-                return cmp > 0 || (cmp === 0 && (rank(c) < rank(a) || (rank(c) === rank(a) && c.order < a.order))) ? c : a;
+        by.forEach((list, id) => {
+            const have = installedApp(this.conf, id, true) || installedTool(this.conf, id);
+            const distinct = (l) => l.map((c) => c.origin).filter((o, i, all) => all.indexOf(o) === i);
+            const titled = have && distinct(list.filter((c) => c.e.title === have.title));
+            const origin = !have ? null : distinct(list).length === 1 ? list[0].origin : titled.length === 1 ? titled[0] : null;
+            if (origin) {
+                this.origins[id] = { source: origin, commit: null };
+                changed = true;
+                console.log(`${id}: installed from outside the updater; its origin is ${origin}`);
+            }
+        });
+        if (changed) {
+            this.saveOrigins();
+        }
+    }
+
+    /* Of one origin's listings of an id, the one it offers: the highest
+     * version; of equal versions the source that installed it, then USB
+     * media, then sources.json order. Without internet, a network source's
+     * last listing counts only when no reachable source of the origin
+     * lists the id. */
+    best(list) {
+        const o = this.origins[list[0].entry.id];
+        const rank = (c) => (o && o.source === c.source ? 0 : c.usb ? 1 : 2);
+        const pool = list.some((c) => c.reachable) ? list.filter((c) => c.reachable) : list;
+        return pool.reduce((a, c) => {
+            const cmp = catalogLib.compareVersions(c.entry.version, a.entry.version);
+            return cmp > 0 || (cmp === 0 && (rank(c) < rank(a) || (rank(c) === rank(a) && c.order < a.order))) ? c : a;
+        });
+    }
+
+    /* The row of an installed component no listing stands for: its id
+     * belongs to no origin that lists it (source: its origin, imported, or
+     * null). It is shown, and can be removed, but nothing installs over it. */
+    originless(id, source) {
+        const i = installedApp(this.conf, id, true) || installedTool(this.conf, id);
+        return { entry: catalogLib.checkExtras({ id, kind: i.kind, version: i.version, title: i.title || id, uninstallable: id !== this.conf.store_app,
+            artifact: { name: '', size: null, sha256: null }, unlisted: true }),
+        source: source || (this.adopted.imported.indexOf(id) >= 0 ? IMPORTED : null) };
+    }
+
+    /* Every component each origin lists, once per origin (README.md,
+     * "Ids"), keyed by the row's id. An installed id is its origin's: that
+     * origin's listing is the row of that id, and only it updates it; an
+     * id that is not installed goes to the first origin listing a package it
+     * cannot build under another id (a package built elsewhere, a tool),
+     * else to the first. Each other origin's listing is beside it: one the
+     * updater builds under the id it was installed under before
+     * (aliases.json), else the first free <id>2, <id>3, ... (the entry as
+     * that id, its own as listedId); any other keyed <id>@<source>,
+     * installing as <id> (installAs), blocked while another origin's <id> is
+     * installed. An installed id without an origin, or whose origin lists it
+     * no more, is a row of its own (unlisted). */
+    resolved() {
+        const online = readLease(this.conf).online;
+        const groups = new Map();
+        const taken = new Set(Object.keys(this.aliases).map((k) => this.aliases[k]));
+        this.defs().forEach((def, order) => {
+            const rt = this.src.get(def.id);
+            (rt ? rt.components : []).forEach((entry) => {
+                taken.add(entry.id);
+                const list = groups.get(entry.id) || [];
+                list.push({ entry, source: def.id, origin: this.originOf(def.id), order, usb: def.type === 'usb', reachable: online || !rt.reader.network });
+                groups.set(entry.id, list);
             });
-            map.set(id, { entry: best.entry, source: best.source });
+        });
+        const free = (id) => {
+            for (let n = 2; n < 100; n += 1) {
+                const alias = `${id}${n}`;
+                if (ID.test(alias) && !taken.has(alias) && !this.installedOf(alias)) {
+                    taken.add(alias);
+                    return alias;
+                }
+            }
+            return null;
+        };
+        const map = new Map();
+        groups.forEach((list, id) => {
+            const holder = this.holder(id);
+            const installed = !!this.installedOf(id);
+            const origins = [];
+            list.forEach((c) => {
+                const g = origins.find((x) => x.origin === c.origin) || origins[origins.push({ origin: c.origin, list: [] }) - 1];
+                g.list.push(c);
+            });
+            origins.forEach((g) => {
+                g.best = this.best(g.list);
+                g.aside = sourcesLib.renameable(g.best.entry) && !!this.aliases[`${g.origin}:${id}`];
+            });
+            const lead = installed ? origins.find((g) => holder && g.origin === this.originOf(holder)) :
+                origins.find((g) => !g.aside && !sourcesLib.renameable(g.best.entry)) || origins.find((g) => !g.aside);
+            if (lead) {
+                map.set(id, { entry: lead.best.entry, source: lead.best.source });
+            } else if (installed) {
+                map.set(id, this.originless(id, holder));
+            }
+            origins.filter((g) => g !== lead).forEach((g) => {
+                const { entry, source } = g.best;
+                const alias = sourcesLib.renameable(entry) && (this.aliases[`${g.origin}:${id}`] || free(id));
+                if (alias && !map.has(alias)) {
+                    map.set(alias, { entry: under(entry, alias), source });
+                    return;
+                }
+                const key = `${id}@${source}`;
+                map.set(key, { entry: Object.assign({}, entry, { id: key, listedId: id, installAs: id,
+                    blocked: installed ? `${id} is already installed${holder ? ` from ${this.sourceLabel(holder)}` : ''}` : null }), source });
+            });
         });
         this.unlisted().forEach((r) => {
             if (!map.has(r.entry.id)) {
                 map.set(r.entry.id, r);
+            }
+        });
+        // what the Store and mgu-uplink replace is never installed, from whichever source
+        map.forEach((r, key) => {
+            const why = REPLACED[r.entry.installAs || r.entry.listedId || r.entry.id];
+            if (why) {
+                map.set(key, { entry: Object.assign({}, r.entry, { blocked: why }), source: r.source });
             }
         });
         return map;
@@ -932,11 +1022,13 @@ class Updater {
                 icon: icon && fs.existsSync(icon) ? icon : null,
                 compat: catalogLib.compat(row.mguHmi, this.unit && this.unit.hmi),
                 revision: entry.revision || null,
-                // the id its source lists, when it is (or would be) installed under another one
+                // the id its source lists, when the row's id is another
                 listedId: entry.listedId || null,
-                // why it cannot be installed: another origin's app holds its id
+                // the id it is, or would be, installed under
+                installAs: entry.installAs || entry.id,
+                // why it cannot be installed: another origin's component has its id
                 blocked: entry.blocked || null,
-                pendingReboot: this.pending.indexOf(row.id) >= 0,
+                pendingReboot: !!row.installed && this.pending.indexOf(entry.installAs || entry.id) >= 0,
                 queued: this.queue.some((q) => q.id === row.id),
                 error: this.errors[row.id] || null
             });
@@ -1078,6 +1170,7 @@ class Updater {
             .then(() => this.readSource(rt))
             .then((cat) => {
                 Object.assign(rt, { components: cat.components, mode: cat.mode, channel: cat.channel || rt.channel, commit: cat.commit || null,
+                    copyOf: typeof cat.copyOf === 'string' ? cat.copyOf : null,
                     status: 'ok', error: cat.skipped && cat.skipped.length ? `left out: ${cat.skipped.join('; ')}` : null,
                     checkedAt: Date.now(), answered: true });
                 if (rt.def.type !== 'usb') {
@@ -1226,17 +1319,18 @@ class Updater {
         return !!cap && this.providerIds(cap).some((p) => p !== dep);
     }
 
-    /* An entry of dep at least min: from source first, else any source in order. */
+    /* The row of dep at least min: of source first, else of any source in
+     * order. An installed dep is updated only from its origin, and one
+     * without an origin not at all. */
     findRequirement(dep, min, source) {
-        const order = [source].concat(this.defs().map((d) => d.id).filter((id) => id !== source));
-        for (let i = 0; i < order.length; i += 1) {
-            const rt = this.src.get(order[i]);
-            const e = rt && rt.components.find((c) => c.id === dep && catalogLib.compareVersions(c.version, min) >= 0);
-            if (e) {
-                return { entry: e, source: order[i] };
-            }
+        const holder = this.holder(dep);
+        if (!holder && this.installedOf(dep)) {
+            throw new Error(`needs ${dep} ${min} or newer; the installed one has no source of its own`);
         }
-        return null;
+        const rows = Array.from(this.resolved().values()).filter((r) => (r.entry.installAs || r.entry.id) === dep &&
+            catalogLib.compareVersions(r.entry.version, min) >= 0 && (!holder || this.originOf(r.source) === this.originOf(holder)));
+        const order = [source].concat(this.defs().map((d) => d.id));
+        return order.map((id) => rows.find((r) => r.source === id)).filter(Boolean)[0] || null;
     }
 
     /* What installing r takes, requirements first: [{ id, source }]. */
@@ -1264,7 +1358,8 @@ class Updater {
                 }
             });
         });
-        steps.push(Object.assign({ id: r.entry.id, source: r.source }, r.entry.listedId ? { listed: r.entry.listedId } : {}));
+        steps.push(Object.assign({ id: r.entry.id, source: r.source }, r.entry.listedId ? { listed: r.entry.listedId } : {},
+            r.entry.installAs ? { unit: r.entry.installAs } : {}));
         return steps;
     }
 
@@ -1310,6 +1405,9 @@ class Updater {
         if (r.entry.blocked) {
             return r.entry.blocked;
         }
+        if (r.entry.unlisted) {
+            return `${id} is installed, and no source of its own lists it`;
+        }
         if (!this.src.get(r.source)) {
             return `${id} is in no source`;
         }
@@ -1343,7 +1441,8 @@ class Updater {
             steps = [self];
             this.errors[id] = `needs a newer ${SELF}: it installs first, then ${id} can be installed`;
         }
-        const items = steps.map((s) => Object.assign({ op: 'install', id: s.id, source: s.source }, s.listed ? { listed: s.listed } : {}));
+        const items = steps.map((s) => Object.assign({ op: 'install', id: s.id, source: s.source }, s.listed ? { listed: s.listed } : {},
+            s.unit ? { unit: s.unit } : {}));
         const refused = items.map((i) => this.conflict(i)).filter(Boolean)[0];
         if (refused) {
             return refused;
@@ -1534,17 +1633,19 @@ class Updater {
     /* Downloads (or builds), verifies and installs one component. Resolves
      * true when the updater installed a new version of itself. */
     install(item) {
-        const id = item.id;
+        // the row's id; the id it installs as
+        const key = item.id;
+        const id = item.unit || item.id;
         const rt = this.src.get(item.source);
-        const own = rt && rt.components.find((c) => c.id === (item.listed || id));
+        const own = rt && rt.components.find((c) => c.id === (item.listed || key));
         if (!own) {
-            this.errors[id] = 'no longer in its source';
+            this.errors[key] = 'no longer in its source';
             return Promise.resolve(false);
         }
-        const entry = item.listed ? under(own, id) : own;
+        const entry = own.id !== id ? under(own, id) : own;
         // an uplink installed without internet (from a stick) has none to give back
         const wasOnline = readLease(this.conf).online;
-        this.busy = { id, op: 'install', phase: 'download', progress: 0, total: entry.artifact.size || null };
+        this.busy = { id: key, op: 'install', phase: 'download', progress: 0, total: entry.artifact.size || null };
         this.changed();
         console.log(`${id}@${entry.version}: download from ${item.source}${entry.revision ? ` at ${entry.revision}` : ''}` +
             `${entry.artifact.size ? ` (${entry.artifact.size} bytes)` : ''}`);
@@ -1561,10 +1662,13 @@ class Updater {
                         throw new Error(`needs ${dep} ${entry.requires[dep]} or newer${dep === SELF ? ': update the updater first' : ''}`);
                     }
                 });
-                // an app of another origin holds the id (it was placed so since it was asked for)
-                const holder = entry.kind === 'app' ? this.holder(id) : null;
-                if (holder && originOf(holder) !== originOf(item.source)) {
+                // another origin's component has the id (installed since this was asked for)
+                const holder = this.holder(id);
+                if (holder && this.originOf(holder) !== this.originOf(item.source)) {
                     throw new Error(`${id} is already installed from ${this.sourceLabel(holder)}`);
+                }
+                if (!holder && this.installedOf(id)) {
+                    throw new Error(`${id} is installed, and no source of its own lists it`);
                 }
                 return this.artifact(rt, entry, own);
             })
@@ -1609,10 +1713,11 @@ class Updater {
                         `install failed${why ? ': ' + why : ''}; the previous version was kept`);
                 }
                 console.log(`installed ${id}@${entry.version}`);
-                this.origins[id] = { source: item.source, commit: entry.commit || null };
+                // installed from a stick's copy of a source: that source is its origin
+                this.origins[id] = { source: this.originOf(item.source), commit: entry.commit || null };
                 this.saveOrigins();
                 if (entry.listedId) {
-                    this.aliases[`${originOf(item.source)}:${entry.listedId}`] = id;
+                    this.aliases[`${this.originOf(item.source)}:${entry.listedId}`] = id;
                     this.saveAliases();
                 }
                 return this.bootstrapCheck(entry, toolDir, before, wasOnline);
@@ -1620,7 +1725,7 @@ class Updater {
             .then(() => self)
             .catch((err) => {
                 console.log(`${id}@${entry.version}: ${err.message}`);
-                this.errors[id] = err.message;
+                this.errors[key] = err.message;
                 if (self && fs.existsSync(trial)) {
                     fs.unlinkSync(trial);
                 }
@@ -1767,6 +1872,7 @@ class Updater {
             }
             this.privacy = privacy;
             this.takeOver();
+            this.adoptOrigins();
         });
     }
 
@@ -2117,8 +2223,9 @@ class Updater {
         this.src.delete(id);
         rmIfThere(this.cacheFile(id));
         cp.execFileSync('rm', ['-rf', path.join(this.ctx.cacheDir, id)]);
+        // what it installed keeps it as its origin: no other source updates that
         Object.keys(this.origins).forEach((c) => {
-            if (this.origins[c].source === id) {
+            if (this.origins[c].source === id && !this.installedOf(c)) {
                 delete this.origins[c];
             }
         });

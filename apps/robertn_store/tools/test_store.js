@@ -889,7 +889,7 @@ function runDrawn() {
         return tick();
     }).then(() => {
         eq(states, [`open ${host(2)}`], 'the app page is the next host state');
-        eq(drawn.top(), { name: 'app', id: 'doom' });
+        eq({ name: drawn.top().name, id: drawn.top().id }, { name: 'app', id: 'doom' });
         // as the HMI reports it: the state below loses the focus but stays visible
         app._states[host(1)].emit('focus', { focus: false });
         app._states[host(2)].emit('visible', { visible: true });
@@ -935,7 +935,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', tile.x + 10, tile.y + 10);
         return tick();
     }).then(() => {
-        eq(drawn.top(), { name: 'app', id: 'mgu-render' }, 'a tap opens the tile');
+        eq({ name: drawn.top().name, id: drawn.top().id }, { name: 'app', id: 'mgu-render' }, 'a tap opens the tile');
         const install = drawn.items.find((i) => i.label === 'Install');
         eq(!!install && !drawn.items.some((i) => /Replace/.test(i.label || '')), true, 'Install on a second renderer\'s page, no Replace');
         reset();
@@ -1047,7 +1047,7 @@ function runDrawn() {
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
             ccu(101, 'SIGNAL_UNGUELTIG', 5);
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
-            eq(drawn.top(), { name: 'app', id: 'doom' }, 'a push presses the focused tile (DOOM)');
+            eq({ name: drawn.top().name, id: drawn.top().id }, { name: 'app', id: 'doom' }, 'a push presses the focused tile (DOOM)');
             eq(states.length, 1, 'once while held, an invalid sample in between');
             ccu(101);
             drawn.pop();

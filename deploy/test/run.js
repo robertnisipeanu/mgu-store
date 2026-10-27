@@ -2817,6 +2817,11 @@ function testMguInstallUsb() {
         check('mgu-install usb-repo: a dir: publish and a checkout (the updater builds it as a repo tree, node_modules left out)',
             ids('dir-publish') === 'dir_app@1.0.0' && src('checkout').mode === 'repo' && ids('checkout') === 'co-tool@0.1.0' &&
             !fs.existsSync(path.join(repo, 'checkout', 'node_modules')), JSON.stringify([src('dir-publish'), src('checkout')]));
+        const marker = (name) => (fs.existsSync(path.join(repo, name, 'mgu-copy.json')) ?
+            JSON.parse(fs.readFileSync(path.join(repo, name, 'mgu-copy.json'), 'utf8')).copyOf : null);
+        check('mgu-install usb-repo: a published source\'s folder names the source it is a copy of; the updater reads it',
+            marker('mgu-store') === `github:${STORE_REPO}` && marker('rel') === 'github:third/rel' && src('mgu-store').copyOf === `github:${STORE_REPO}` &&
+            [marker('dir-publish'), marker('checkout'), marker('local')].every((m) => m === null), JSON.stringify([marker('mgu-store'), src('mgu-store').copyOf]));
         check('mgu-install usb-repo: package files by their content: an app, a .mgu, a tool kit and a source package built on the unit',
             ids('local') === 'loose-tool@0.3.0 loose_app@1.0.0 mgu_app@2.0.0 robertn_demo@1.0.0:unit', ids('local'));
         // again: a newer and an older package; the newer replaces, the older leaves the newer

@@ -1056,6 +1056,8 @@ function testDaemon(certs, pubDir) {
             const stick = path.join('/media', 'SELFSTICK');
             mkdirp(stick);
             publish(stick, [entry(updaterKit(stick, '0.8.0'), 'tool', 'Updater')]);
+            // written by mgu-install.js usb-repo from the built-in source
+            fs.writeFileSync(path.join(stick, 'mgu-copy.json'), JSON.stringify({ copyOf: 'https://updates.test:8443/catalog.json' }));
             fs.writeFileSync(path.join(T, 'no-mounts'), `/dev/sdz1 ${stick} vfat ro 0 0\n`);
             return waitFor(client, (s) => row(s, 'mgu-updater').version === '0.8.0' && row(s, 'mgu-updater').status === 'update' &&
                 row(s, 'mgu-updater').source === 'usb:SELFSTICK', 20000, 'the stick\'s updater offered offline')
@@ -1204,6 +1206,7 @@ function testDaemon(certs, pubDir) {
                     mkdirp(stick);
                     publish(stick, [entry(toolKit(stick, 'mgu-uplink', '0.2.4', { 'mgu-uplink': ['#!/bin/sh\n', 0o755] }, { test_broken: true }),
                         'tool', 'Internet uplink')]);
+                    fs.writeFileSync(path.join(stick, 'mgu-copy.json'), JSON.stringify({ copyOf: 'https://updates.test:8443/catalog.json' }));
                     fs.writeFileSync(path.join(T, 'no-mounts'), `/dev/sdz1 ${stick} vfat ro 0 0\n`);
                     return waitFor(client, (x) => x.online === false && row(x, 'mgu-uplink').source === 'usb:UPLSTICK', 30000, 'the stick\'s uplink offered offline');
                 })
@@ -1585,8 +1588,9 @@ function testSources(certs) {
             ok('sources: a public repo is read without a token', src('mgu-store').auth === null && s.tokens.length === 0);
             ok('sources: an https source is read without a token; one answering 401 is an error', src('hp').status === 'error' &&
                 /401/.test(src('hp').error) && !seen.some((x) => x.url.indexOf('/private/') === 0 && x.auth), JSON.stringify(src('hp')));
-            ok('collision: an id two sources list is shown once, at the highest version any lists',
-                s.components.filter((c) => c.id === 'dup_app').length === 1 && comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
+            ok('collision: an id two sources list is a row for each, the first source\'s under the id, the other\'s beside it',
+                comp('dup_app').source === 'mgu-store' && comp('dup_app').version === '1.0.0' && comp('dup_app@second').version === '2.0.0' &&
+                comp('dup_app@second').installAs === 'dup_app' && comp('dup_app@second').blocked === null, JSON.stringify(s.components.filter((c) => /dup_app/.test(c.id))));
             ok('state: rows carry their source and schema-2 fields', comp('needs_app').uninstallable === true && comp('opt_tool').optional === true &&
                 comp('robertn_demo').build === null && comp('p_app').build === 'unit' && comp('robertn_demo').revision === null);
             ok('releases: the newest package of each id, drafts and prereleases left out, the .tgz over the .mgu',
@@ -1782,12 +1786,13 @@ function testSources(certs) {
             ok('uninstall: through the deploy tool\'s uninstall; the row is available again', err === null &&
                 /^uninstall needs_app --yes$/m.test(fs.readFileSync(deployLog, 'utf8')) &&
                 !JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).needs_app);
-            // collision: a higher version wins over the source that installed an id
+            return ask(sock, { op: 'install', id: 'dup_app' }).then(() => installed('dup_app'));
+        })
+        .then(() => {
+            ok('collision: only the source that installed an id updates it; another source\'s newer one is beside it, not installable',
+                comp('dup_app').source === 'mgu-store' && comp('dup_app').status === 'installed' && comp('dup_app@second').version === '2.0.0' &&
+                /^dup_app is already installed from /.test(comp('dup_app@second').blocked || ''), JSON.stringify(comp('dup_app@second')));
             fs.writeFileSync(deployLog, '');
-            u.origins.dup_app = { source: 'mgu-store', commit: null };
-            ok('collision: a newer version elsewhere is offered over the source that installed it',
-                comp('dup_app').source === 'second' && comp('dup_app').version === '2.0.0');
-            delete u.origins.dup_app;
             return ask(sock, { op: 'install', id: 'rel_app' });
         })
         .then(() => installed('rel_app'))
@@ -1980,7 +1985,9 @@ function testSources(certs) {
                 fs.copyFileSync(file, path.join(dir, path.basename(file)));
                 return path.join(dir, path.basename(file));
             };
-            // besides its own app: a newer base_tool (installed from mgu-store) and robertn_demo at mgu-store's version
+            // written by usb-repo from mgu-store: besides its own app, a newer base_tool (installed from mgu-store) and robertn_demo at
+            // mgu-store's version
+            fs.writeFileSync(path.join(one, 'mgu-copy.json'), JSON.stringify({ copyOf: 'github:robertnisipeanu/mgu-store' }));
             publish(one, [entry(appTgz(one, 'usb_app', '0.1.0'), 'app', 'From USB'),
                 entry(copyInto(one, toolKit(path.join(T, 'src'), 'base_tool', '1.1.0', { 'base.sh': ['#!/bin/sh\n', 0o755] })), 'tool', 'Base'),
                 entry(appTgz(one, 'robertn_demo', '1.0.0'), 'app', 'Demo')]);
@@ -2002,6 +2009,8 @@ function testSources(certs) {
             pkgTgz(path.join(oapDir, 'Gauges v1.0.9.tgz'), true, { name: 'oap-gauges', version: '1.0.9', productName: 'Gauges' }, 'Apps');
             pkgTgz(path.join(oapDir, 'older-gauges.tar.gz'), true, { name: 'oap-gauges', version: '1.0.2' }, null);
             pkgTgz(path.join(oapDir, 'flat.TGZ'), false, { name: 'flat_app', version: '2.0.0', productName: 'Flat' }, null);
+            // a newer package of an app another source installed
+            pkgTgz(path.join(oapDir, 'rel.tgz'), false, { name: 'rel_app', version: '9.0.0' }, null);
             pkgTgz(path.join(oapDir, 'renderer.tgz'), true, { name: 'mgu-renderd', version: '1.0.0', mguService: 'renderer' }, null);
             pkgTgz(path.join(oapDir, 'odd-service.tgz'), true, { name: 'odd', version: '1.0.0', mguService: { unit: 'x' } }, null);
             fs.copyFileSync(mgu('loose_mgu', '0.2.0'), path.join(oapDir, 'thing.mgu'));
@@ -2030,7 +2039,7 @@ function testSources(certs) {
                     ok('usb oap/: every app can be removed', comp('flat_app').uninstallable === true && comp('loose_mgu').uninstallable === true);
                     ok('usb oap/: a root-service package is the tool it installs as; an unknown service, links and files that are not packages are left out',
                         comp('mgu-renderd').kind === 'tool' && comp('mgu-renderd').provides === 'renderer' && comp('rel_app').source === 'rel' &&
-                        src('usb:STICK/oap').components === 4 && /broken\.tgz/.test(src('usb:STICK/oap').error || '') &&
+                        src('usb:STICK/oap').components === 5 && /broken\.tgz/.test(src('usb:STICK/oap').error || '') &&
                         /odd-service\.tgz: unknown mguService/.test(src('usb:STICK/oap').error || '') &&
                         !/renderer\.tgz|README|linked/.test(src('usb:STICK/oap').error || ''),
                         JSON.stringify(src('usb:STICK/oap')));
@@ -2040,7 +2049,10 @@ function testSources(certs) {
                 .then(() => installed('oap-gauges'))
                 .then(() => {
                     ok('usb oap/: a package installs under its id and version', /oap-gauges@1\.0\.9\.tgz --yes/.test(deployed()[0]), deployed()[0]);
-                    ok('usb: a newer version on a stick is an update of a component installed from a GitHub source',
+                    ok('usb: a package of an installed id from a stick that is no copy of its source is beside it, not installable',
+                        comp('rel_app').source === 'rel' && comp('rel_app@usb:STICK/oap').version === '9.0.0' &&
+                        /^rel_app is already installed from /.test(comp('rel_app@usb:STICK/oap').blocked || ''), JSON.stringify(comp('rel_app@usb:STICK/oap')));
+                    ok('usb: a newer version in a stick folder usb-repo wrote from a source is an update of a component it installed',
                         JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'mgu-store' &&
                         comp('base_tool').status === 'update' && comp('base_tool').version === '1.1.0' &&
                         comp('base_tool').source === 'usb:My Stick/mgu-repo/one', JSON.stringify(comp('base_tool')));
@@ -2053,9 +2065,9 @@ function testSources(certs) {
                 })
                 .then(() => installed('base_tool'))
                 .then(() => {
-                    ok('usb: the update installs from the stick, which becomes its origin',
+                    ok('usb: the update installs from the stick; the source it is a copy of stays its origin',
                         /base_tool@1\.1\.0\.tgz --yes/.test(deployed()[0]) && comp('base_tool').installed === '1.1.0' &&
-                        JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'usb:My Stick/mgu-repo/one',
+                        JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).base_tool.source === 'mgu-store',
                         JSON.stringify(deployed()));
                     return before;
                 });
@@ -3109,7 +3121,12 @@ function testIdClash() {
         'py/ssl/cacert.pem': 'roots\n'
     });
     const sources = path.join(M, 'sources.json');
-    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-apps', type: 'file', path: mguApps },
+    // the Store's own source, read like the others
+    const store = path.join(M, 'store');
+    mkdirp(store);
+    publish(store, []);
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: store, builtin: true },
+        { id: 'mgu-apps', type: 'file', path: mguApps },
         { id: 'idrive7-apps', type: 'file', path: repo }, { id: 'iterio', type: 'file', path: iterio }, { id: 'pytools', type: 'file', path: tools }] }));
     const conf = {
         sources, credentials_dir: path.join(M, 'cred'), state_dir: path.join(M, 'state'), tool_root: opt, oap_root: oap,
@@ -3188,6 +3205,57 @@ function testIdClash() {
                 other.blocked === `doom is already installed from ${mguApps}` && other.listedId === 'doom' && other.version === '9.0.0' &&
                 comp('doom').version === '1.1.2', JSON.stringify([other, comp('doom')]));
             ok('clash: ids nobody else holds are their own', comp('warmup').listedId === null && comp('warmup').source === 'idrive7-apps');
+            // nothing of the id installed: each origin's row, the package that cannot be built under another id under the id itself
+            const bare = new Updater(conf);
+            Object.assign(bare, { src: u.src, origins: {}, aliases: {}, installedOf: () => null });
+            const rows = bare.resolved();
+            ok('ids: with nothing installed every origin\'s doom is listed: mgu-apps\' package as doom, the repo\'s build as doom2, ' +
+                'the other package beside them, installable', rows.get('doom').source === 'mgu-apps' && rows.get('doom2').entry.listedId === 'doom' &&
+                rows.get('doom2').source === 'idrive7-apps' && rows.get('doom@iterio').entry.installAs === 'doom' && rows.get('doom@iterio').entry.blocked === null,
+                JSON.stringify(Array.from(rows.keys())));
+            // installed from outside the updater: an origin only when one source's listing has its title
+            const home = (id) => path.join(oap, `oap_${JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`))).userId}`);
+            mkdirp(path.join(home('doom'), 'rhmiData', 'strings'));
+            fs.writeFileSync(path.join(home('doom'), 'rhmiData', 'application.json'), JSON.stringify({ application: { entryPoints: [{ textId: 'T' }] } }));
+            fs.writeFileSync(path.join(home('doom'), 'rhmiData', 'strings', 'en_GB.json'), JSON.stringify({ T: 'DOOM' }));
+            const adopt = new Updater(conf);
+            Object.assign(adopt, { src: u.src, origins: {}, aliases: {} });
+            adopt.saveOrigins = () => {};
+            adopt.adoptOrigins();
+            ok('ids: an app installed from outside takes the one origin whose listing has its title (DOOM: mgu-apps, not Doom or ' +
+                'DOOM (App Manager)); one no listing names takes none', adopt.origins.doom.source === 'mgu-apps' && !adopt.origins.stubborn,
+                JSON.stringify(adopt.origins));
+            const early = new Updater(conf);
+            Object.assign(early, { src: new Map(u.src), origins: {}, aliases: {} });
+            early.src.set('iterio', Object.assign({}, u.src.get('iterio'), { checkedAt: null, answered: false }));
+            early.saveOrigins = () => {};
+            early.adoptOrigins();
+            const legacy = new Updater(conf);
+            Object.assign(legacy, { src: u.src, origins: { doom: { source: 'usb:OLD/mgu-repo/mgu-apps', commit: null } }, aliases: {} });
+            legacy.saveOrigins = () => {};
+            legacy.adoptOrigins();
+            ok('ids: no origin is taken while a stored source has not been read; one an earlier updater recorded as a stick\'s ' +
+                'mgu-repo/<name> is the source <name>', !early.origins.doom && !early.origins['mgu-python'] && legacy.origins.doom.source === 'mgu-apps',
+                JSON.stringify([early.origins, legacy.origins]));
+            const kept = new Updater(conf);
+            Object.assign(kept, { src: u.src, origins: {}, aliases: {}, adopted: { at: null, imported: ['doom'] }, idrive7: [{ id: 'stubborn' }] });
+            kept.saveOrigins = () => {};
+            kept.adoptOrigins();
+            const imp = kept.resolved().get('doom');
+            ok('ids: an imported app and one idrive7-apps\' installer put there are left to their takeover; an imported one is a row of ' +
+                'its own, source imported, that nothing updates', !kept.origins.doom && !kept.origins.stubborn && imp.source === 'imported' &&
+                imp.entry.unlisted === true && kept.resolved().get('doom@mgu-apps').entry.blocked === 'doom is already installed',
+                JSON.stringify([kept.origins, imp]));
+            fs.writeFileSync(path.join(home('doom'), 'rhmiData', 'strings', 'en_GB.json'), JSON.stringify({ T: 'Something else' }));
+            const none = new Updater(conf);
+            Object.assign(none, { src: u.src, origins: {}, aliases: {} });
+            none.saveOrigins = () => {};
+            none.adoptOrigins();
+            const left = none.resolved();
+            ok('ids: ...and without one it has no origin: a row of its own, every source\'s doom beside it, not installable over it',
+                !none.origins.doom && left.get('doom').entry.unlisted === true && left.get('doom').source === null &&
+                left.get('doom@mgu-apps').entry.blocked === 'doom is already installed' && left.get('doom2').entry.listedId === 'doom',
+                JSON.stringify(Array.from(left.keys())));
             return ask(conf.socket, { op: 'install', id: 'doom@iterio' });
         })
         .then((why) => {
@@ -3244,9 +3312,11 @@ function testIdClash() {
             // a stick that installed doom is gone: the packages of that id show it, blocked, still removable
             u.origins.doom.source = 'usb:GONE';
             const held = comp('doom');
-            ok('clash: an installed app whose origin lists it no more keeps its row, installed and removable, its update blocked',
-                held.installed === '1.1.2' && held.blocked === 'doom is already installed from usb:GONE' && held.uninstallable === true &&
-                u.request('doom') === held.blocked && !st().components.some((c) => /^doom@/.test(c.id)), JSON.stringify(held));
+            ok('clash: an installed app whose origin lists it no more is a row of its own, removable, that nothing updates',
+                held.installed === '1.1.2' && held.version === '1.1.2' && held.status === 'installed' && held.source === 'usb:GONE' &&
+                held.uninstallable === true && held.blocked === null && u.request('doom') === 'doom is installed, and no source of its own lists it' &&
+                comp('doom@mgu-apps').blocked === 'doom is already installed from usb:GONE' && comp('doom@iterio').blocked === comp('doom@mgu-apps').blocked,
+                JSON.stringify(st().components.filter((c) => /^doom/.test(c.id))));
             u.origins.doom.source = 'mgu-apps';
             const tar = require('../js/tar');
             const pj = (name) => Buffer.from(JSON.stringify({ name, version: '1.0.0' }));

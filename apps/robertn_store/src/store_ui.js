@@ -27,7 +27,7 @@
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    notForUnit, removable, pickOptions, probeStatus } = require('./store_view.js');
+    notForUnit, removable, pickOptions, probeStatus, withSources } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -54,7 +54,18 @@ const isTool = (c) => c.kind !== 'app';
 const target = (c) => (c.revision && c.version === c.installed ? c.revision : c.version);
 
 function comps(m) {
-    return m.connected && m.st && Array.isArray(m.st.components) ? m.st.components : [];
+    return m.connected && m.st && Array.isArray(m.st.components) ? withSources(m.st.components, m.st.sources) : [];
+}
+/* A component's page: its row, else (its row's id changed with an install)
+ * the row of the same source and listed id, else (its source turned to a
+ * stick copying it, or back) the row of its id. */
+const pageOf = (c) => ({ name: 'app', id: c.id, source: c.source, listed: c.listedId || c.id });
+function rowOf(m, page) {
+    // a stick that copies a source offers its rows in turn with it
+    const usb = (id) => (sources(m) || []).some((s) => s.id === id && s.usb);
+    return comps(m).find((c) => c.id === page.id && (!page.source || c.source === page.source)) ||
+        comps(m).find((c) => page.source && c.source === page.source && (c.listedId || c.id) === page.listed) ||
+        comps(m).find((c) => c.id === page.id && (usb(c.source) || usb(page.source))) || null;
 }
 function sources(m) {
     return m.connected && m.st && Array.isArray(m.st.sources) ? m.st.sources : null;
@@ -115,7 +126,7 @@ function tileState(c, busy) {
 }
 
 function tile(c, busy) {
-    return Object.assign(iconOf(c), { id: c.id, title: c.title, act: { do: 'open', page: { name: 'app', id: c.id } } }, tileState(c, busy));
+    return Object.assign(iconOf(c), { id: c.id, title: c.title, act: { do: 'open', page: pageOf(c) } }, tileState(c, busy));
 }
 
 function nav(m, sel) {
@@ -158,7 +169,7 @@ function installedView(m) {
     const item = (c) => {
         const s = tileState(c, busy);
         const up = c.status === 'update' && s.badge === 'update';
-        const open = { do: 'open', page: { name: 'app', id: c.id } };
+        const open = { do: 'open', page: pageOf(c) };
         return Object.assign(iconOf(c), { id: c.id, title: c.title, act: open,
             sub: up ? `${c.installed} → ${target(c)}` : `${c.installed}${isTool(c) ? ' · tool' : ''}`, subColor: up ? BLUE : DIM,
             right: up ? 'chip:Update' : s.sub !== 'Installed' ? `chip:${s.sub}` : 'chevron', chipColor: up ? BLUE : s.subColor,
@@ -230,8 +241,8 @@ function settingsView(m) {
 
 /* ---- pages ---- */
 
-function appView(m, id) {
-    const c = find(comps(m), id);
+function appView(m, page) {
+    const c = rowOf(m, page);
     if (!c) {
         return { name: { text: 'Not listed' }, author: { text: '' }, facts: { items: [] }, desc: { text: '' }, icon: { letter: '?' },
             instValue: { text: '' }, availLabel: { text: '' }, availValue: { text: '' }, note1: { text: '' }, note2: { text: '' },
@@ -245,10 +256,10 @@ function appView(m, id) {
     const v = {
         icon: Object.assign(iconOf(c), { badge: mine ? '' : s.badge, progress: s.progress }),
         name: { text: c.title },
-        author: { text: [c.author && `by ${c.author}`, `from ${src ? sourceLabel(src) : c.source}`].filter(Boolean).join(' · ') },
+        author: { text: [c.author && `by ${c.author}`, c.source && `from ${src ? sourceLabel(src) : c.source}`].filter(Boolean).join(' · ') },
         facts: { items: [{ text: `Version ${c.version}` }, c.revision && { text: `Commit ${c.revision}` }, c.size && { text: size(c.size) },
-            // installed under another id than its source's: another source's app has that one
-            c.listedId && !c.blocked && { text: `Id ${c.id}` },
+            // installed under another id than its source's
+            c.listedId && !c.blocked && (c.installAs || c.id) !== c.listedId && { text: `Id ${c.installAs || c.id}` },
             { text: isTool(c) ? 'Tool' : 'App', color: isTool(c) ? TEAL : BLUE }, c.mguHmi && c.mguHmi.length && { text: hmiNames(c.mguHmi) },
             c.provides && { text: c.provides }].filter(Boolean) },
         desc: { text: c.description || '' },
@@ -422,7 +433,7 @@ function view(m) {
     case 'installed': values = installedView(m); break;
     case 'usb': values = usbView(m); break;
     case 'settings': values = settingsView(m); break;
-    case 'app': values = appView(m, page.id); break;
+    case 'app': values = appView(m, page); break;
     case 'confirm': values = confirmView(m, page); break;
     case 'source': values = sourceView(m, page.id); break;
     case 'accounts': values = accountsView(m); break;

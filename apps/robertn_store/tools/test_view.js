@@ -6,7 +6,7 @@
  *   node tools/test_view.js
  */
 const assert = require('assert');
-const { rowState, rowAction, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
+const { withSources, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
     sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress,
     parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage } = require('../src/store_view.js');
 
@@ -92,6 +92,8 @@ const cases = [
     [rowAction(row({ blocked: 'doom is already installed from o/r', uninstallable: true }), null), 'remove'],
     [groupState([row({ blocked: 'doom is already installed from o/r' })], null), ''],
     [statusLine(st({ components: [row({ blocked: 'doom is already installed from o/r' })] }), true, true), 'Up to date, checked 14:02'],
+    [JSON.stringify(withSources([row({ source: 'a' }), row({ source: 'b' }), row({ id: 'x', title: 'X', source: 'a' })],
+        [{ id: 'a', label: 'o/apps' }, { id: 'b', label: 'usb:S/mgu-repo/b' }]).map((r) => r.title)), '["DOOM (apps)","DOOM (b)","X"]'],
     [rowAction(row({ compat: 'no', uninstallable: true }), null), 'remove'],
     [rowAction(row({ compat: 'yes' }), null), 'install'],
     [groupState([row({}), row({ id: 'vc', compat: 'no' })], null), '1 update'],
