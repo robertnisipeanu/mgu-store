@@ -15,7 +15,7 @@ const m = /const PAGE_SCRIPT = `([\s\S]*?)`;\n/.exec(src);
 const js = eval('`' + m[1] + '`');
 const els = {};
 const el = (id) => els[id] || (els[id] = { id, value: '', hidden: false, textContent: '', disabled: false, children: [], style: {},
-    appendChild(c) { this.children.push(c); }, set textContent_(v) {}, removeAttribute() {}, scrollTop: 0 });
+    appendChild(c) { this.children.push(c); }, removeAttribute() {}, scrollTop: 0 });
 ['addType', 'addValue', 'addChannel', 'addNote', 'addForm', 'addSubmit', 'app', 'locked', 'status', 'stateErr', 'err', 'down', 'busy',
     'busyText', 'busyBar', 'loginStart', 'sources', 'tokens', 'components', 'login', 'loginCode', 'loginUrl', 'loginStatus', 'loginCancel',
     'tokenForm', 'tokenValue', 'logForm', 'logSrc', 'log'].forEach(el);
@@ -86,6 +86,18 @@ const assert = require('assert');
     submit();
     await tick();
     assert.deepStrictEqual(sent, [{ op: 'source-add', type: 'github', repo: 'x/y', channel: 'branch:dev' }]);
+    // switching to URL while a repository is being checked frees Add
+    els.addType.value = 'github';
+    els.addValue.value = 'p/q';
+    els.addValue.oninput();
+    els.addValue.onchange();
+    await tick();
+    assert.strictEqual(els.addSubmit.disabled, true);
+    els.addType.value = 'https';
+    els.addType.onchange();
+    assert.strictEqual(els.addSubmit.disabled, false, 'Add free for a URL');
+    pending.shift()({ repo: 'p/q', status: 'ok', releases: true, tags: false, defaultBranch: 'main', branches: ['main'] });
+    await tick();
     // a catalog URL is added at once
     sent.length = 0;
     els.addType.value = 'https';

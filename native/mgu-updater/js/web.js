@@ -895,6 +895,7 @@ function probeRepo(force) {
   probe = { key: key, seq: probe.seq + 1, status: g && !g.branch ? null : 'none', tokens: probe.tokens };
   setChannels(g && g.branch ? [['branch:' + g.branch, g.branch]] : []);
   addNote('');
+  $('addSubmit').disabled = false;
   if (!g || g.branch) { return; }
   var seq = probe.seq;
   addNote('Checking');
@@ -926,7 +927,6 @@ function addFields() {
   probeRepo(false);
 }
 $('addType').onchange = addFields;
-// a list for another repository goes as soon as the text changes
 $('addValue').oninput = function () {
   if (keyOf(typedRepo()) !== probe.key) {
     probe = { key: null, seq: probe.seq + 1, status: null, tokens: probe.tokens };
