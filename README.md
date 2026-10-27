@@ -67,10 +67,11 @@ installs and removals take effect at the next head-unit restart.
    `ssh -o` option, such as `--ssh-opt ProxyJump=<jump host>`.
 
    **ENET:** the head unit's ENET address is a `169.254.x.x` address that
-   can change. From a checkout of this repository on a Mac, with Python 3,
-   `deploy/hu connect --identity <root's key> --hold 1800` finds the head
-   unit over ENET and keeps a relay open; in another terminal, install with
-   `--host 127.0.0.1 --port 2222`.
+   can change. From a clone of this repository on a Mac, with Python 3,
+   `deploy/hu connect --identity <root's key>` finds the head unit over
+   ENET and keeps a relay open until Ctrl-C. In another terminal, install
+   (and check step 2) through it with `--host 127.0.0.1 --port 2222
+   --ssh-opt StrictHostKeyChecking=no --ssh-opt UserKnownHostsFile=/dev/null`.
 
    It downloads the newest release of this repository, checks every file
    against the release's size and sha256, and installs the deploy tool, app
