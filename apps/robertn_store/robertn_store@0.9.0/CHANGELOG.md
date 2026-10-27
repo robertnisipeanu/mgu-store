@@ -15,7 +15,7 @@ about again once an account is added. Offline, a spent GitHub rate limit or
 another failure, or no answer from the updater within 30 s or its going
 away, shows on the Sources status line, or on the page with Try again.
 Add token's status shows on the page only for an Add token pressed there. The page opens only once the HMI has given the focus back from the
-speller. Requires mgu-updater 0.8.0; with an older updater the repo is
+speller. Requires mgu-updater 0.7.0; with an older updater the repo is
 added as typed.
 
 ## 0.8.2

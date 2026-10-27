@@ -272,7 +272,7 @@ class Store extends OnlineApp {
                 this._login = { waiting: false, refusal: String(msg) };
                 this._render();
             } else if (forOp === 'source-probe' && this._pick && /^unknown op/.test(String(msg))) {
-                // an updater before 0.8.0: the repo is added as typed, and the updater picks
+                // an updater before 0.7.0: the repo is added as typed, and the updater picks
                 const repo = this._pick.repo;
                 this._endPick();
                 this._note(null);

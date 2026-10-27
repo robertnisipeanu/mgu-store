@@ -175,7 +175,7 @@ source*. The text confirmed with OK, trimmed, is:
   with only one choice is added on it, one with none without a channel, or
   the status line says why not (`Add source failed: Offline`, `GitHub rate
   limit reached`, `… is already a source`, `the updater did not answer`
-  after 30 s, `updater not running` when it goes away). With an updater before 0.8.0 the repo is added without a
+  after 30 s, `updater not running` when it goes away). With an updater before 0.7.0 the repo is added without a
   channel.
 - any other `https://host/path` address (the scheme in any case), a
   catalog: `source-add` with `type: "https"`, `url`.
