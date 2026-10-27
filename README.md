@@ -45,8 +45,9 @@ installs and removals take effect at the next head-unit restart.
    ```
 
 2. Connect the computer to the head unit: join the car's hotspot, or use
-   your ENET cable or other SSH route. Check it with
-   `ssh -i <root's key> root@<address>` first.
+   your ENET cable or other SSH route. To check it first:
+   `ssh -i <root's key> -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@<address>`
+   (add `-p <port>` if SSH isn't on 22).
 
 3. Run the first install, pointing `--identity` at root's key:
 
@@ -61,10 +62,15 @@ installs and removals take effect at the next head-unit restart.
    ```
 
    Over anything other than the hotspot, add `--host <address>` (and
-   `--port <n>` if SSH isn't on 22), for example
-   `--host 169.254.25.10` for the head unit's address on ENET. An SSH
-   config alias also works as `--host`, and `--ssh-opt` passes any `ssh -o`
-   option, such as `--ssh-opt ProxyJump=<jump host>`.
+   `--port <n>` if SSH isn't on 22). An SSH config alias also works as
+   `--host`, but give its port with `--port` too. `--ssh-opt` passes any
+   `ssh -o` option, such as `--ssh-opt ProxyJump=<jump host>`.
+
+   **ENET:** the head unit's ENET address is a `169.254.x.x` address that
+   can change. From a checkout of this repository on a Mac, with Python 3,
+   `deploy/hu connect --identity <root's key> --hold 1800` finds the head
+   unit over ENET and keeps a relay open; in another terminal, install with
+   `--host 127.0.0.1 --port 2222`.
 
    It downloads the newest release of this repository, checks every file
    against the release's size and sha256, and installs the deploy tool, app
@@ -188,13 +194,13 @@ one on the car.
 2. **Token name**: anything, e.g. `car`. **Expiration**: pick a date, or
    *No expiration* so the car keeps working (renew it before it expires
    otherwise).
-3. **Resource owner**: the account or organisation that owns the
-   repository.
+3. **Resource owner**: your account, or the organisation that owns the
+   repository. A token covers one owner: make one per owner. For a
+   repository of someone else's account, use a classic token (below).
 4. **Repository access**: **Only select repositories**, and pick the
    private repositories the car should read.
-5. **Permissions** → **Repository permissions** → **Contents**:
-   **Read-only**. Leave everything else at *No access* (Metadata turns
-   read-only by itself).
+5. **Permissions**: add **Contents** and set it to **Read-only**. Nothing
+   else is needed (Metadata is read-only by itself).
 6. **Generate token**, and copy it (it starts with `github_pat_`). GitHub
    shows it only once.
 7. Add it on the car (Settings → **Accounts** → **Add token**), on the
