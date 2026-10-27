@@ -515,6 +515,8 @@ const APP_MANAGER = 'oap-appmanager';
 const REPLACED = { [APP_MANAGER]: 'Replaced by Store', 'ipheth-tether': 'Replaced by mgu-uplink' };
 // the origin of an app the App Manager installed from no source the updater reads
 const IMPORTED = 'imported';
+// the repository whose own installer (deploy/mgu-app-install.sh) the deploy tool recognises
+const IDRIVE7_REPO = 'cauliflowermossgrape/idrive7-apps';
 
 /* The origin a source stands for: a stick's mgu-repo/<name>, which
  * mgu-install.js usb-repo writes from the source of that name, stands for
@@ -1761,6 +1763,7 @@ class Updater {
                 this.unit = unitOf(st);
                 this.providers = providersOf(st);
                 this.appmanager = st.appmanager && typeof st.appmanager === 'object' ? st.appmanager : null;
+                this.idrive7 = st.idrive7 && Array.isArray(st.idrive7.apps) ? st.idrive7.apps : [];
             }
             this.privacy = privacy;
             this.takeOver();
@@ -1773,6 +1776,7 @@ class Updater {
      * repository it came from (a public index, added as a source when
      * none reads it), else imported. Nothing is reinstalled. */
     takeOver() {
+        this.takeOverIdrive7();
         const am = this.appmanager;
         if (am && am.present && (!am.record || am.record.removed) && !this.adoptTried) {
             this.adoptTried = true;
@@ -1805,6 +1809,43 @@ class Updater {
         });
         this.saveOrigins();
         this.adopted = { at: rec.at, imported: this.adopted.imported.filter((id) => imported.indexOf(id) < 0).concat(imported) };
+        mkdirp(this.conf.state_dir, 0o755);
+        writeAtomic(path.join(this.conf.state_dir, 'appmanager.json'), JSON.stringify(this.adopted, null, 1));
+        this.changed();
+    }
+
+    /* The apps idrive7-apps' own installer put on the unit (the deploy
+     * tool's status idrive7): each gets as origin the source that reads
+     * that repository (a default source, default_sources) once it has read
+     * it and lists the app, else imported; with no such source (the owner
+     * removed it) each is imported. Nothing is reinstalled. */
+    takeOverIdrive7() {
+        const apps = (this.idrive7 || []).filter((a) => a && ID.test(a.id || '') && !this.origins[a.id] &&
+            this.adopted.imported.indexOf(a.id) < 0);
+        if (!apps.length || this.sourcesError) {
+            return;
+        }
+        const def = this.stored.find((d) => d.type === 'github' && d.repo.toLowerCase() === IDRIVE7_REPO);
+        const rt = def ? this.src.get(def.id) : null;
+        // its listing decides: not read yet, or not readable, a later check does
+        if (rt && (!rt.checkedAt || rt.status !== 'ok')) {
+            return;
+        }
+        const imported = [];
+        apps.forEach((app) => {
+            const listed = rt && rt.components.some((c) => c.kind === 'app' && c.id === app.id);
+            if (listed) {
+                this.origins[app.id] = { source: def.id, commit: null };
+            } else if (rt && rt.error) {
+                // a listing that left something out may have left this app out
+                return;
+            } else {
+                imported.push(app.id);
+            }
+            console.log(`idrive7-apps: ${app.id}${app.version ? `@${app.version}` : ''} adopted, origin ${listed ? def.id : IMPORTED}`);
+        });
+        this.saveOrigins();
+        this.adopted = Object.assign({}, this.adopted, { imported: this.adopted.imported.concat(imported) });
         mkdirp(this.conf.state_dir, 0o755);
         writeAtomic(path.join(this.conf.state_dir, 'appmanager.json'), JSON.stringify(this.adopted, null, 1));
         this.changed();

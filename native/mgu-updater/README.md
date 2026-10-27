@@ -382,7 +382,18 @@ The App Manager's app keeps a row while it or the App Manager's service is
 on the unit, listed or not, installed (the service's version when its app
 is not); its Remove is `mgu-deploy.sh uninstall oap-appmanager`, which
 removes the App Manager and leaves what it installed. The updater requires
-`mgu-deploy` 0.5.0, which does that.
+`mgu-deploy` 0.5.0, which does that and names idrive7-apps' apps.
+
+**idrive7-apps' own installer.** The apps its `mgu-app-install.sh` put on
+the unit are the deploy tool's `status --json` `idrive7.apps`
+(deploy/README.md, "idrive7-apps' own installer"). Each that has no origin
+yet gets one, the same way: the github source reading
+`cauliflowermossgrape/idrive7-apps` (the default source, "First start") is
+its origin once it has read that repository and the repository lists the
+app; one a complete listing (nothing left out) does not name is
+`imported` (in `state/appmanager.json` too), and so is every app while no
+source reads that repository (the owner removed it: it is not added again). Nothing is reinstalled: an update builds the
+repository's newer version and installs it over the app, under its uid.
 
 **First start.** The installers seed `sources.json` (the deploy tool's
 `updater-sources`, from `deploy/sources.json`) and never replace
@@ -804,6 +815,10 @@ releases, branches, tags, contents, tarballs, the device flow), with
   not installable from nowhere), its app and tether replaced and refused,
   an adopted app updated from its repository, Remove as the deploy tool's
   uninstall of `oap-appmanager`;
+- apps idrive7-apps' own installer put there: an app its repository (the
+  default source) lists given it as origin (with its update) once it is
+  read, one it does not list imported, kept over a restart; with that
+  source removed, imported, the source not added again;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a

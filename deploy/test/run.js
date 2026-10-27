@@ -874,7 +874,8 @@ function testFallbackHook() {
     const list = path.join(dir, 'custom_apps.json');
     const flags = { '-enabled': 'true', '-allowed': 'true', '-appStartType': 'manually',
         '-userLoginRequired': 'false', '-updateMechanism': 'PLATFORM' };
-    write(list, JSON.stringify({ our_app: flags }));
+    // their_app as idrive7-apps' installer lists it
+    write(list, JSON.stringify({ our_app: flags, their_app: { '-appStartType': 'manually', '-userLoginRequired': 'false' } }));
     const r = cp.spawnSync(UNIT_NODE, [path.join(DEPLOY, 'unit', 'fallback_build.js'),
         path.join(HERE, 'fixtures', 'main.js'), path.join(dir, 'built.js'), list], { encoding: 'utf8' });
     check('fallback hook: builds from the fixture main.js', r.status === 0, r.stderr);
@@ -884,7 +885,10 @@ function testFallbackHook() {
     const handle = (section, prov) => new (require(path.join(dir, 'built.js')))().handle(section, prov);
     const main = handle('main_app', { installable_apps: { app: { '#text': 'provisioned_app' } } });
     check('fallback hook: installable_apps keeps the provisioned app and adds ours',
-        main.installable_apps.app.map((a) => a['#text']).join(',') === 'provisioned_app,our_app', JSON.stringify(main));
+        main.installable_apps.app.map((a) => a['#text']).join(',') === 'provisioned_app,our_app,their_app', JSON.stringify(main));
+    check('fallback hook: an entry without -enabled/-allowed (idrive7-apps\' installer) takes them as true',
+        JSON.stringify(handle('their_app', undefined)) === JSON.stringify(flags) &&
+        main.installable_apps.app[2]['-enabled'] === 'true', JSON.stringify(handle('their_app', undefined)));
     check('fallback hook: our app with no section of its own takes its flags',
         JSON.stringify(handle('our_app', undefined)) === JSON.stringify(flags) &&
         JSON.stringify(handle('our_app', {})) === JSON.stringify(flags));
@@ -3142,6 +3146,105 @@ function testDropins() {
     check('dropins: ...and after its removal the unit\'s folder is as before', root.hash(skip).hash === h2.hash, treeDiff(h2, root.hash(skip)));
 }
 
+/* idrive7-apps' own installer (deploy/mgu-app-install.sh there) left its
+ * renderer and controller gate: a tool of ours takes them over. */
+function i7Leftovers(root) {
+    const mark = '# added by mgu-app-install.sh - GPU renderer for the custom apps\n';
+    write(root.p('etc/systemd/system/mgu-renderd.service'), `${mark}[Service]\nRuntimeDirectory=mgu-renderd\nExecStart=/var/opt/mgu-renderd/mgu-renderd --group 12202\n`);
+    fs.mkdirSync(root.p('etc/systemd/system/oapcontroller.service.wants'), { recursive: true });
+    fs.symlinkSync('../mgu-renderd.service', root.p('etc/systemd/system/oapcontroller.service.wants/mgu-renderd.service'));
+    write(root.p('etc/systemd/system/mgu-inputgate-guard.service'), '# added by mgu-app-install.sh - boot guard\n[Service]\nType=oneshot\n');
+    write(root.p('etc/systemd/system/hmi.service.d/zz-mgu-inputgate.conf'), '# added by mgu-app-install.sh - gate\n[Service]\nEnvironmentFile=-/run/mgu-inputgate.env\n');
+    ['mgu-renderd', 'mgu-inputgate.so', 'inputgate-guard.sh', 'inputgate.env', 'inputgate.strikes'].forEach((f) => write(root.p(`var/opt/mgu-renderd/${f}`), f));
+}
+function testI7Takeover() {
+    const toolArt = (version, edit, unitTail) => {
+        const dir = fixtureCopy(version, (c) => { c.enable = []; edit(c); });
+        if (unitTail) {
+            fs.appendFileSync(path.join(dir, 'systemd', 'fixture-tool.service'), unitTail);
+        }
+        const out = fs.mkdtempSync(path.join(T, 'art-'));
+        const r = hu(['artifact', dir, '--out', out]);
+        if (r.status !== 0) {
+            throw new Error(`deploy/hu artifact failed: ${r.stderr}`);
+        }
+        return path.join(out, `fixture-tool@${version}.tgz`);
+    };
+    // a renderer serving the community socket's folder
+    const root = fakeRoot({ recmgr: ['fixture-tool'] });
+    i7Leftovers(root);
+    const r = root.run(['install', '--artifact', toolArt('0.2.0', (c) => { c.mguProvides = 'renderer'; }, 'RuntimeDirectory=mgu-renderd\n'), '--yes']);
+    check('idrive7-apps installer: a renderer serving /run/mgu-renderd replaces theirs: unit, enablement and program go, nothing stopped',
+        r.status === 0 && !fs.existsSync(root.p('etc/systemd/system/mgu-renderd.service')) &&
+        !fs.existsSync(root.p('etc/systemd/system/oapcontroller.service.wants/mgu-renderd.service')) &&
+        !fs.existsSync(root.p('var/opt/mgu-renderd/mgu-renderd')) && fs.existsSync(root.p('var/opt/mgu-renderd/mgu-inputgate.so')) &&
+        fs.existsSync(root.p('etc/systemd/system/mgu-inputgate-guard.service')) &&
+        !root.systemctlCalls().some((c) => /^stop mgu-renderd/.test(c)) && r.out.includes("takes over from idrive7-apps' installer"), r.out);
+    // a renderer update that fails its health check puts theirs back
+    const failing = fakeRoot({ recmgr: ['fixture-tool'] });
+    i7Leftovers(failing);
+    const first = failing.run(['install', '--artifact', toolArt('0.2.0', (c) => { c.mguProvides = 'renderer'; }), '--yes']);
+    check('idrive7-apps installer: a renderer on a socket of its own installs beside theirs', first.status === 0 &&
+        fs.existsSync(failing.p('etc/systemd/system/mgu-renderd.service')), first.out);
+    const art = toolArt('0.3.0', (c) => { c.mguProvides = 'renderer'; }, 'RuntimeDirectory=mgu-renderd\n');
+    write(failing.unitFile('fixture-tool.service.crash'), `${failing.p('var/opt/fixture-tool/current')} versions/0.3.0`);
+    const back = failing.run(['install', '--artifact', art, '--yes']);
+    check('idrive7-apps installer: a failed renderer update puts their renderer back',
+        back.status === 1 && fs.existsSync(failing.p('etc/systemd/system/mgu-renderd.service')) &&
+        fs.readlinkSync(failing.p('etc/systemd/system/oapcontroller.service.wants/mgu-renderd.service')) === '../mgu-renderd.service' &&
+        fs.readFileSync(failing.p('var/opt/mgu-renderd/mgu-renderd'), 'utf8') === 'mgu-renderd', back.out);
+
+    // the controller gate: units and drop-in of the same names
+    const gate = fakeRoot({ recmgr: ['fixture-tool'] });
+    i7Leftovers(gate);
+    const g = gate.run(['install', '--artifact', toolArt('0.2.0', (c) => {
+        c.units.push({ name: 'mgu-inputgate-guard.service', from: 'systemd/fixture-tool.service' });
+        c.dropins = [{ unit: 'hmi.service', name: 'zz-mgu-inputgate.conf', from: 'fixture-tool.conf' }];
+    }), '--yes']);
+    check('idrive7-apps installer: a gate of the same unit names is not refused: it writes over theirs, their gate files go',
+        g.status === 0 && !fs.readFileSync(gate.p('etc/systemd/system/mgu-inputgate-guard.service'), 'utf8').startsWith('# added by') &&
+        fs.readFileSync(gate.p('etc/systemd/system/hmi.service.d/zz-mgu-inputgate.conf'), 'utf8') ===
+            fs.readFileSync(path.join(FIXTURE_TOOL, 'fixture-tool.conf'), 'utf8') &&
+        !fs.existsSync(gate.p('var/opt/mgu-renderd/mgu-inputgate.so')) && !fs.existsSync(gate.p('var/opt/mgu-renderd/inputgate.strikes')) &&
+        fs.existsSync(gate.p('var/opt/mgu-renderd/mgu-renderd')) && fs.existsSync(gate.p('etc/systemd/system/mgu-renderd.service')), g.out);
+
+    // an app their installer put there: no keychain, its kit's marker, listed with two flags
+    const apps = fakeRoot();
+    write(apps.p(`var/opt/public/oap/oap_${MGR}/data/apps/their_app.json`), JSON.stringify({ userId: 13005,
+        provisioningCache: { '-allowed': 'true', '-appStartType': 'manually', '-enabled': 'true', '-userLoginRequired': 'false',
+            '-updateMechanism': 'PLATFORM' }, configStateQueueIndex: null, installationSource: 'PREINSTALLED' }), 0o660);
+    write(apps.p('var/opt/public/oap/oap_13005/source/package.json'), JSON.stringify({ name: 'their_app', version: '1.0.0' }));
+    write(apps.p('var/opt/public/oap/oap_13005/source/javascript/kit/app-spec.json'), '{}\n');
+    write(apps.p('var/opt/public/oap/oap_13005/someipInterfaces/acl.json'), '{}\n');
+    fs.appendFileSync(apps.p(`var/opt/public/oap/oap_${MGR}/security/uids.txt`), '13005=their_app\n');
+    write(apps.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`),
+        JSON.stringify({ their_app: { '-appStartType': 'manually', '-userLoginRequired': 'false' } }));
+    const listed = apps.status().idrive7;
+    check('idrive7-apps installer: status names the apps it installed', JSON.stringify(listed) ===
+        JSON.stringify({ apps: [{ id: 'their_app', version: '1.0.0' }] }), JSON.stringify(listed));
+    const up = apps.run(['install', '--artifact', appArtifact('their_app', '1.1.0', true), '--yes']);
+    check('idrive7-apps installer: its app, which has no keychain, updates under its uid',
+        up.status === 0 && readJson(apps.entry('their_app')).userId === 13005 &&
+        readJson(apps.p('var/opt/public/oap/oap_13005/source/package.json')).version === '1.1.0' &&
+        !fs.existsSync(apps.p('var/opt/public/oap/oap_13005/security/joynrKeyChain.json')), up.out);
+    check('idrive7-apps installer: an app this tool updated is its own, no longer named', apps.status().idrive7.apps.length === 0,
+        JSON.stringify(apps.status().idrive7));
+    const gone = apps.run(['uninstall', 'their_app', '--yes']);
+    check('idrive7-apps installer: its app uninstalls: registry entry, home and custom_apps.json entry go', gone.status === 0 &&
+        !fs.existsSync(apps.entry('their_app')) && !fs.existsSync(apps.home(13005)) &&
+        !('their_app' in readJson(apps.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`))), gone.out);
+
+    // the same names without their mark stay another manager's
+    const plain = fakeRoot({ recmgr: ['fixture-tool'] });
+    write(plain.p('etc/systemd/system/mgu-inputgate-guard.service'), '[Service]\nType=oneshot\n');
+    const pl = plain.run(['install', '--artifact', toolArt('0.2.0', (c) => {
+        c.mguProvides = 'gate';
+        c.units.push({ name: 'mgu-inputgate-guard.service', from: 'systemd/fixture-tool.service' });
+    }), '--yes']);
+    check('idrive7-apps installer: a unit of that name without their mark is still refused', pl.status === 2 &&
+        pl.out.includes('mgu-inputgate-guard.service is installed, but by no tool of ours'), pl.out);
+}
+
 function testProvides() {
     const opts = { recmgr: ['mgu-renderd', 'fixture-tool'], active: 'mgu-renderd.service' };
     const root = fakeRoot(opts);
@@ -3563,6 +3666,7 @@ const SUITES = [
     testServices,
     testProvides,
     testDropins,
+    testI7Takeover,
     testKeepRunning,
     testId8Apps,
     testAppManager

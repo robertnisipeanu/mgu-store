@@ -2574,6 +2574,105 @@ function testAppManager(certs, pubDir) {
         });
 }
 
+/* Apps idrive7-apps' own installer put on the unit (the deploy tool's status
+ * idrive7): an app its repository (the default source) lists gets that
+ * source as origin, with its update, once it has been read; one it does not
+ * list is imported; with that source removed by the owner, each is imported
+ * and the source stays removed. */
+function testIdrive7(certs) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'i7');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const state = path.join(M, 'state');
+    [M, opt, oap, state, path.join(M, 'shm'), path.join(M, 'media'), path.join(M, 'empty')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog });
+    delete process.env.FAKE_LEASE;
+    delete process.env.FAKE_PENDING;
+    delete process.env.FAKE_UNIT_HMI;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.5.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.5.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.5.0' }));
+    fs.symlinkSync('versions/0.5.0', path.join(opt, 'mgu-deploy', 'current'));
+    const installed = (id, version, uid) => {
+        mkdirp(path.join(oap, 'oap_12201', 'data', 'apps'));
+        mkdirp(path.join(oap, `oap_${uid}`, 'source'));
+        fs.writeFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`), JSON.stringify({ userId: uid, installationSource: 'PREINSTALLED' }));
+        fs.writeFileSync(path.join(oap, `oap_${uid}`, 'source', 'package.json'), JSON.stringify({ name: id, version }));
+    };
+    installed('car_vitals', '2.13.0', 12450);
+    installed('my_kitapp', '0.1.0', 12449);
+    fs.writeFileSync(`${deployLog}.idrive7`, JSON.stringify([{ id: 'car_vitals', version: '2.13.0' }, { id: 'my_kitapp', version: '0.1.0' }]));
+    ghRepo('cauliflowermossgrape/idrive7-apps');
+    gh.repos['cauliflowermossgrape/idrive7-apps'].branches.main = ghCommit('cauliflowermossgrape/idrive7-apps', {
+        'mgu-repo.json': JSON.stringify({ schema: 1, components: [{ id: 'car_vitals', kind: 'app', path: 'apps/car_vitals', mguHmi: ['ID7'],
+            uninstallable: true, build: { node: 'tools/build.js', args: ['car_vitals'] } }] }),
+        'apps/car_vitals/app.json': JSON.stringify({ id: 'car_vitals', title: 'M Vitals', version: '2.14.0' }),
+        'tools/build.js': '// not run here\n'
+    });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: path.join(M, 'empty'), builtin: true }] }));
+    publish(path.join(M, 'empty'), []);
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
+        github_api: API, github_web: GH_WEB, github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: '', default_sources: 'cauliflowermossgrape/idrive7-apps:branch'
+    };
+    fs.writeFileSync(conf.mounts, 'proc /proc proc rw 0 0\n');
+    let u = new Updater(conf);
+    const comp = (id) => u.state().components.find((c) => c.id === id) || {};
+    return u.serve()
+        .then(() => u.refresh())
+        .then(() => {
+            ok('idrive7: no origin before the default source is read', !u.origins.car_vitals && u.adopted.imported.length === 0, JSON.stringify(u.origins));
+            return u.check();
+        })
+        .then(() => until(() => u.origins.car_vitals, (o) => !!o, 30000, 'car_vitals adopted'))
+        .then(() => {
+            ok('idrive7: an app the repository lists gets it as origin; one it does not is imported',
+                u.origins.car_vitals.source === 'idrive7-apps' && !u.origins.my_kitapp &&
+                JSON.stringify(JSON.parse(fs.readFileSync(path.join(state, 'appmanager.json'), 'utf8')).imported) === '["my_kitapp"]',
+                JSON.stringify(u.origins));
+            const cv = comp('car_vitals');
+            ok('idrive7: its app shows installed from that source, with the newer version as its update', cv.source === 'idrive7-apps' &&
+                cv.status === 'update' && cv.installed === '2.13.0' && cv.version === '2.14.0' && !cv.blocked, JSON.stringify(cv));
+            const mine = comp('my_kitapp');
+            ok('idrive7: an imported app keeps a row, installed and removable', mine.source === 'imported' && mine.status === 'installed' &&
+                mine.uninstallable === true, JSON.stringify(mine));
+            u.server.close();
+            u = new Updater(conf);
+            return u.serve().then(() => u.refresh());
+        })
+        .then(() => {
+            ok('idrive7: a later start keeps what was decided', u.origins.car_vitals.source === 'idrive7-apps' &&
+                u.adopted.imported.join() === 'my_kitapp' && u.stored.filter((d) => d.id === 'idrive7-apps').length === 1, JSON.stringify(u.stored));
+            u.server.close();
+            // the owner removed the default source: a newly found app is imported, the source not added again
+            installed('dyno', '1.2.4', 12448);
+            fs.writeFileSync(`${deployLog}.idrive7`, JSON.stringify([{ id: 'car_vitals', version: '2.13.0' }, { id: 'my_kitapp', version: '0.1.0' },
+                { id: 'dyno', version: '1.2.4' }]));
+            fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: path.join(M, 'empty'), builtin: true }] }));
+            u = new Updater(conf);
+            return u.serve().then(() => u.refresh());
+        })
+        .then(() => {
+            ok('idrive7: with its source removed by the owner, an app is imported and the source stays removed',
+                u.adopted.imported.indexOf('dyno') >= 0 && !u.origins.dyno && !u.stored.some((d) => d.id === 'idrive7-apps') &&
+                comp('dyno').source === 'imported' && comp('dyno').status === 'installed', `${JSON.stringify(u.stored)} ${JSON.stringify(comp('dyno'))}`);
+            u.server.close();
+        });
+}
+
 /* A repo whose apps build with Python, listed by a pattern (mgu-repo.json
  * "apps"), with a service tool and a preload tool: requirements, the oap-sdk
  * module, the declared output, the build proxy, the service tool's kit, and
@@ -3242,6 +3341,7 @@ function main() {
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
             .then(() => testAppManager(certs, pubDir).catch((e) => ok('App Manager scenario', false, e.stack)))
+            .then(() => testIdrive7(certs).catch((e) => ok('idrive7-apps installer scenario', false, e.stack)))
             .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
             .then(() => testIdClash().catch((e) => ok('id clash scenario', false, e.stack)))
             .then(() => testDaemon(certs, pubDir))
