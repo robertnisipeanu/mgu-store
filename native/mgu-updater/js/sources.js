@@ -886,7 +886,8 @@ function folderReader(root, ctx) {
                     .then((cat) => copyOf.then((c) => Object.assign(cat, { copyOf: typeof c === 'string' ? c : null })));
             }
             if (isFileInside(root, 'mgu-repo.json')) {
-                return repoCatalog(readFile, null, null, listDir);
+                return repoCatalog(readFile, null, null, listDir)
+                    .then((cat) => copyOf.then((c) => Object.assign(cat, { copyOf: typeof c === 'string' ? c : null })));
             }
             throw new Error('no catalog.json or mgu-repo.json');
         }),

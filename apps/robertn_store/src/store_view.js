@@ -34,13 +34,22 @@ function notForUnit(row) {
 /* The components, each titled with its source's name where another
  * source lists one of the same id (two repositories' Doom). */
 function withSources(rows, sources) {
-    const name = (id) => {
+    // a source's label: an https URL's host, else its owner/repo or folder path
+    const label = (id) => {
         const s = (sources || []).find((x) => x.id === id);
-        return s ? String(s.label || s.id).replace(/^https:\/\/([^/]+).*$/, '$1').split('/').pop() : null;
+        return s ? String(s.label || s.id).replace(/^https:\/\/([^/]+).*$/, '$1') : null;
+    };
+    const twins = (r) => (rows || []).filter((o) => (o.listedId || o.id) === (r.listedId || r.id) && o.source);
+    // its last part, or the whole label where another twin's last part is the same
+    const name = (r) => {
+        const full = label(r.source);
+        const last = full && full.split('/').pop();
+        return full && twins(r).some((o) => o.source !== r.source && label(o.source) !== full && (label(o.source) || '').split('/').pop() === last) ?
+            full : last;
     };
     return (rows || []).map((r) => {
-        const twin = r.source && rows.some((o) => o !== r && (o.listedId || o.id) === (r.listedId || r.id) && o.source !== r.source);
-        return twin && name(r.source) ? Object.assign({}, r, { title: `${r.title} (${name(r.source)})` }) : r;
+        const twin = r.source && twins(r).some((o) => o.source !== r.source);
+        return twin && name(r) ? Object.assign({}, r, { title: `${r.title} (${name(r)})` }) : r;
     });
 }
 

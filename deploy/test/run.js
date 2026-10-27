@@ -2769,6 +2769,10 @@ function testMguInstallUsb() {
             files: [{ path: 'co.sh', mode: '0755' }], units: [], enable: [], recmgr: [], restart: [] }));
         write(path.join(co, 'native', 'co-tool', 'co.sh'), '#!/bin/sh\n');
         write(path.join(co, 'node_modules', 'x', 'index.js'), '// not on GitHub\n');
+        // a clone of a GitHub repository: usb-repo names it in mgu-copy.json
+        cp.execFileSync('git', ['-C', co, 'init', '-q']);
+        cp.execFileSync('git', ['-C', co, 'add', 'mgu-repo.json', 'native']);
+        cp.execFileSync('git', ['-C', co, 'remote', 'add', 'origin', 'git@github.com:cauliflowermossgrape/idrive7-apps.git']);
         // package files: an app built elsewhere, a .mgu, a tool kit, a source package
         const pk = fs.mkdtempSync(path.join(T, 'pk-'));
         const pkgs = [thirdPartyArtifact('loose_app', '1.0.0', 'npm'), thirdPartyArtifact('mgu_app', '2.0.0', 'mgu'),
@@ -2819,9 +2823,10 @@ function testMguInstallUsb() {
             !fs.existsSync(path.join(repo, 'checkout', 'node_modules')), JSON.stringify([src('dir-publish'), src('checkout')]));
         const marker = (name) => (fs.existsSync(path.join(repo, name, 'mgu-copy.json')) ?
             JSON.parse(fs.readFileSync(path.join(repo, name, 'mgu-copy.json'), 'utf8')).copyOf : null);
-        check('mgu-install usb-repo: a published source\'s folder names the source it is a copy of; the updater reads it',
+        check('mgu-install usb-repo: a published source\'s folder, and a clone of a GitHub repository, names the source it is a copy of; the updater reads it',
             marker('mgu-store') === `github:${STORE_REPO}` && marker('rel') === 'github:third/rel' && src('mgu-store').copyOf === `github:${STORE_REPO}` &&
-            [marker('dir-publish'), marker('checkout'), marker('local')].every((m) => m === null), JSON.stringify([marker('mgu-store'), src('mgu-store').copyOf]));
+            marker('checkout') === 'github:cauliflowermossgrape/idrive7-apps' && src('checkout').copyOf === marker('checkout') &&
+            [marker('dir-publish'), marker('local')].every((m) => m === null), JSON.stringify([marker('mgu-store'), src('mgu-store').copyOf, marker('checkout')]));
         check('mgu-install usb-repo: package files by their content: an app, a .mgu, a tool kit and a source package built on the unit',
             ids('local') === 'loose-tool@0.3.0 loose_app@1.0.0 mgu_app@2.0.0 robertn_demo@1.0.0:unit', ids('local'));
         // again: a newer and an older package; the newer replaces, the older leaves the newer

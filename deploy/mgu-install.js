@@ -843,6 +843,13 @@ function copyOf(source) {
     return { name: 'mgu-copy.json', data: Buffer.from(`${JSON.stringify({ copyOf: source })}\n`) };
 }
 
+/* The GitHub repository a checkout's origin remote names (owner/repo), or null. */
+function githubOrigin(dir) {
+    const r = cp.spawnSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], { encoding: 'utf8', windowsHide: true });
+    const m = r.status === 0 && /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?\s*$/.exec(r.stdout);
+    return m ? m[1] : null;
+}
+
 async function usbRepo(o) {
     const stick = path.resolve(o.stick);
     if (!fs.existsSync(stick) || !fs.statSync(stick).isDirectory()) {
@@ -889,8 +896,9 @@ async function usbRepo(o) {
                 const out = await publishedFolder(components, commit, input);
                 writeFolder(path.join(repoDir, name), out.files, out.catalog);
             } else if (fs.existsSync(path.join(dir, 'mgu-repo.json'))) {
-                writeFolder(path.join(repoDir, name), checkoutFiles(dir), null);
-                say('  a repository checkout: the unit builds its components');
+                const gh = githubOrigin(dir);
+                writeFolder(path.join(repoDir, name), checkoutFiles(dir).concat(gh ? [copyOf(`github:${gh}`)] : []), null);
+                say(`  a repository checkout${gh ? ` of ${gh}` : ''}: the unit builds its components`);
             } else {
                 throw new Usage(`${input}: no catalog.json or mgu-repo.json`);
             }

@@ -778,7 +778,8 @@ class Updater {
         const rt = this.src.get(id);
         const copy = rt && rt.def.type === 'usb' && rt.copyOf ? rt.copyOf.toLowerCase() : null;
         const def = copy && this.stored.find((d) => (d.type === 'github' ? `github:${d.repo}` : d.url || '').toLowerCase() === copy);
-        return def ? def.id : id;
+        const folder = !copy && /^usb:[^/]*\/mgu-repo\/([^/]+)$/.exec(id);
+        return def ? def.id : folder && this.stored.some((d) => d.id === folder[1]) ? folder[1] : id;
     }
 
     sourceLabel(id) {
@@ -786,59 +787,20 @@ class Updater {
         return def ? sourcesLib.label(def) : id;
     }
 
-    /* An installed component without a recorded origin (installed from
-     * outside the updater) takes as its origin, once every stored source has
-     * been tried online, the one origin that lists its id (a stick counts only as a
-     * copy of a stored source), or of several the one whose listing has its
-     * title (an app's en_GB entry-point text, a tool's component.json
-     * title). Otherwise it keeps none, and no source updates it (resolved).
-     * An origin recorded as a stick's mgu-repo/<name> folder is the stored
-     * source <name>, which mgu-install.js usb-repo writes that folder from. */
-    adoptOrigins() {
-        let changed = false;
-        Object.keys(this.origins).forEach((id) => {
-            const m = /^usb:[^/]*\/mgu-repo\/([^/]+)$/.exec(this.origins[id].source);
-            if (m && this.stored.some((d) => d.id === m[1])) {
-                this.origins[id].source = m[1];
-                changed = true;
-            }
-        });
-        // each stored source tried online (one not tried yet may list the id)
-        const read = this.stored.every((d) => {
-            const rt = this.src.get(d.id) || {};
-            return rt.checkedAt || rt.answered || rt.status === 'error' || rt.status === 'auth-needed';
-        });
-        // the App Manager's and idrive7-apps' installers' apps: their takeover decides (takeOver)
-        const am = this.appmanager;
-        const theirs = new Set(this.adopted.imported.concat((this.idrive7 || []).map((a) => a && a.id),
-            (am && am.record && Array.isArray(am.record.apps) ? am.record.apps : []).map((a) => a && a.id), Object.keys(REPLACED)));
-        const pending = am && am.present && (!am.record || am.record.removed);
-        const by = new Map();
-        this.defs().forEach((def) => {
-            const origin = this.originOf(def.id);
-            if (!read || pending || (def.type === 'usb' && origin === def.id)) {
-                return;
-            }
-            this.src.get(def.id).components.forEach((e) => {
-                if (!this.origins[e.id] && !theirs.has(e.id)) {
-                    by.set(e.id, (by.get(e.id) || []).concat([{ e, origin }]));
-                }
-            });
-        });
-        by.forEach((list, id) => {
-            const have = installedApp(this.conf, id, true) || installedTool(this.conf, id);
-            const distinct = (l) => l.map((c) => c.origin).filter((o, i, all) => all.indexOf(o) === i);
-            const titled = have && distinct(list.filter((c) => c.e.title === have.title));
-            const origin = !have ? null : distinct(list).length === 1 ? list[0].origin : titled.length === 1 ? titled[0] : null;
-            if (origin) {
-                this.origins[id] = { source: origin, commit: null };
-                changed = true;
-                console.log(`${id}: installed from outside the updater; its origin is ${origin}`);
-            }
-        });
-        if (changed) {
-            this.saveOrigins();
+    /* The origin that updates an installed id whose own origin lists it no
+     * more, or that has none (installed from outside the updater, imported):
+     * of the origins listing it, the one whose listing has the installed
+     * one's title (an app's en_GB entry-point text, a tool's component.json
+     * title), the highest version of several; with no title on either side,
+     * the one origin listing it. Else none. */
+    openLead(id, origins) {
+        const have = installedApp(this.conf, id, true) || installedTool(this.conf, id);
+        const titled = origins.filter((g) => have.title && g.best.entry.title === have.title);
+        if (titled.length) {
+            return titled.reduce((a, g) => (catalogLib.compareVersions(g.best.entry.version, a.best.entry.version) > 0 ? g : a));
         }
+        const g = origins.length === 1 ? origins[0] : null;
+        return g && (!have.title || g.best.entry.title === id) ? g : null;
     }
 
     /* Of one origin's listings of an id, the one it offers: the highest
@@ -914,7 +876,7 @@ class Updater {
                 g.best = this.best(g.list);
                 g.aside = sourcesLib.renameable(g.best.entry) && !!this.aliases[`${g.origin}:${id}`];
             });
-            const lead = installed ? origins.find((g) => holder && g.origin === this.originOf(holder)) :
+            const lead = installed ? origins.find((g) => holder && g.origin === this.originOf(holder)) || this.openLead(id, origins) :
                 origins.find((g) => !g.aside && !sourcesLib.renameable(g.best.entry)) || origins.find((g) => !g.aside);
             if (lead) {
                 map.set(id, { entry: lead.best.entry, source: lead.best.source });
@@ -936,6 +898,12 @@ class Updater {
         this.unlisted().forEach((r) => {
             if (!map.has(r.entry.id)) {
                 map.set(r.entry.id, r);
+            }
+        });
+        // installed from a source that lists nothing of its id any more: kept for its Remove
+        Object.keys(this.origins).forEach((id) => {
+            if (!map.has(id) && this.installedOf(id)) {
+                map.set(id, this.originless(id, this.origins[id].source));
             }
         });
         // what the Store and mgu-uplink replace is never installed, from whichever source
@@ -1320,15 +1288,12 @@ class Updater {
     }
 
     /* The row of dep at least min: of source first, else of any source in
-     * order. An installed dep is updated only from its origin, and one
-     * without an origin not at all. */
+     * order. An installed dep only from its own row, the origin that
+     * updates it (resolved). */
     findRequirement(dep, min, source) {
-        const holder = this.holder(dep);
-        if (!holder && this.installedOf(dep)) {
-            throw new Error(`needs ${dep} ${min} or newer; the installed one has no source of its own`);
-        }
-        const rows = Array.from(this.resolved().values()).filter((r) => (r.entry.installAs || r.entry.id) === dep &&
-            catalogLib.compareVersions(r.entry.version, min) >= 0 && (!holder || this.originOf(r.source) === this.originOf(holder)));
+        const installed = !!this.installedOf(dep);
+        const rows = Array.from(this.resolved().values()).filter((r) => (installed ? r.entry.id === dep : (r.entry.installAs || r.entry.id) === dep) &&
+            !r.entry.unlisted && !r.entry.blocked && this.src.get(r.source) && catalogLib.compareVersions(r.entry.version, min) >= 0);
         const order = [source].concat(this.defs().map((d) => d.id));
         return order.map((id) => rows.find((r) => r.source === id)).filter(Boolean)[0] || null;
     }
@@ -1662,13 +1627,11 @@ class Updater {
                         throw new Error(`needs ${dep} ${entry.requires[dep]} or newer${dep === SELF ? ': update the updater first' : ''}`);
                     }
                 });
-                // another origin's component has the id (installed since this was asked for)
-                const holder = this.holder(id);
-                if (holder && this.originOf(holder) !== this.originOf(item.source)) {
-                    throw new Error(`${id} is already installed from ${this.sourceLabel(holder)}`);
-                }
-                if (!holder && this.installedOf(id)) {
-                    throw new Error(`${id} is installed, and no source of its own lists it`);
+                // installed (since this was asked for): only the origin that updates it (resolved)
+                const lead = this.installedOf(id) ? this.resolved().get(id) : null;
+                if (lead && (lead.entry.unlisted || this.originOf(lead.source) !== this.originOf(item.source))) {
+                    const holder = this.holder(id);
+                    throw new Error(`${id} is already installed${holder ? ` from ${this.sourceLabel(holder)}` : ''}`);
                 }
                 return this.artifact(rt, entry, own);
             })
@@ -1872,7 +1835,6 @@ class Updater {
             }
             this.privacy = privacy;
             this.takeOver();
-            this.adoptOrigins();
         });
     }
 

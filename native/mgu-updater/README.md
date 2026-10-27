@@ -211,8 +211,10 @@ apart: each origin's component of an id is a row of its own, and an
 installed component is updated only by its origin. A source is its own
 origin, except a stick folder `mgu-install.js usb-repo` wrote from a stored
 source: its `mgu-copy.json` (`{"copyOf": "github:<owner>/<repo>"}` or the
-catalog's URL) names that source, which is then its origin, so a car
-without internet updates from the stick what that source installed. The
+catalog's URL; for a checkout, the GitHub repository its `origin` remote
+names) names that source, which is then its origin, and a folder
+`mgu-repo/<name>` without one stands for the stored source `<name>`; so a
+car without internet updates from the stick what that source installed. The
 origin of an installed component is the one its install recorded
 (`state/origins.json`). Within one origin, the row offers the highest
 version its sources list; of equal versions the source that installed it,
@@ -249,18 +251,22 @@ lists the id.
   keeps the id for the source, so its updates land there, until the app
   is removed. Its state row has that id as `id`, the source's as
   `listedId`, and the title its source gives.
-- A component installed from outside the updater (the installers, the
-  emulator's provisioning) takes as its origin, once every stored source
-  has been tried online, the one origin that lists its id (a stick counts only as
-  a copy of a stored source), or of several the one whose listing has its
-  title (an app's en_GB entry-point text, a tool's `component.json` title).
-  Otherwise it has none: its row shows it installed and removable (the
-  Store itself not), with no source and no update, and every listing of its id is beside it, blocked
-  (`<id> is already installed`); nothing installs over it, a requirement
-  neither. The row of a component whose origin lists it no more (a stick
-  that is gone, a source removed: what it installed keeps it as its origin)
-  is such a row too, with that origin as its source. An origin recorded as
-  a stick's `mgu-repo/<name>` is the stored source `<name>`.
+- An installed component without an origin (installed from outside the
+  updater: the installers, the emulator's provisioning; `imported`), or
+  whose origin lists its id no more (a stick that is gone, a source
+  removed), is updated by the origin whose listing has its title (an app's
+  en_GB entry-point text, a tool's `component.json` title; the highest
+  version of several), or, with no title on either side, by the one origin
+  that lists it; that origin's row has the id, and installing from it
+  records it as the origin. So a car set up offline updates the Store, the
+  updater and the uplink from a stick, an App Manager app from a stick's
+  `oap/`, and a source removed and added again updates what it installed
+  (a removed source's origins are kept, so no other title takes them).
+  Without such a listing, its row (source: its origin, `imported`, or none)
+  shows it installed and removable (the Store itself not), with no update;
+  every listing of its id is beside it, blocked (`<id> is already
+  installed`), and nothing installs over it, a requirement neither. An
+  installed component no source lists keeps such a row, for its Remove.
 
 `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
@@ -393,9 +399,9 @@ that has no origin yet gets one, once per record (`state/appmanager.json`):
   after the repository (`car-apps`) when none is, and that source is the
   app's origin;
 - else (a stick's package, a private repository, whose token stays in its
-  folder) `imported`: no origin, so any source updates it. One no source
-  lists keeps a row of source `imported`, installed and removable, that
-  installs from nowhere.
+  folder) `imported`: no origin, so the source listing it under its title
+  updates it ("Ids"). One no source lists keeps a row of source
+  `imported`, installed and removable, that installs from nowhere.
 
 The App Manager's app keeps a row while it or the App Manager's service is
 on the unit, listed or not, installed (the service's version when its app
@@ -411,7 +417,8 @@ yet gets one, the same way: the github source reading
 its origin once it has read that repository and the repository lists the
 app; one a complete listing (nothing left out) does not name is
 `imported` (in `state/appmanager.json` too), and so is every app while no
-source reads that repository (the owner removed it: it is not added again). Nothing is reinstalled: an update builds the
+source reads that repository (the owner removed it: it is not added again;
+added again by the owner, it updates them, "Ids"). Nothing is reinstalled: an update builds the
 repository's newer version and installs it over the app, under its uid.
 
 **First start.** The installers seed `sources.json` (the deploy tool's

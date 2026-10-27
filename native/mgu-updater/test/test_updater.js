@@ -2082,7 +2082,9 @@ function testSources(certs) {
             ok('usb: nothing on the stick changes', sh(`find ${media} -exec stat -c '%n %s %Y %a' {} +`) === before);
             fs.writeFileSync(mounts, 'proc /proc proc rw 0 0\n');
             u.scanUsb();
-            ok('usb: a stick taken out is no longer a source', !st().sources.some((x) => x.usb) && !comp('usb_app').id);
+            ok('usb: a stick taken out is no longer a source; an app installed from it keeps a row for its Remove',
+                !st().sources.some((x) => x.usb) && comp('usb_app').installed === '0.1.0' && comp('usb_app').uninstallable === true &&
+                comp('usb_app').status === 'installed', JSON.stringify(comp('usb_app')));
             ok('usb: with the stick out, a component it installed follows the stored source again',
                 comp('base_tool').source === 'mgu-store' && comp('base_tool').installed === '1.1.0' && comp('base_tool').status === 'newer',
                 JSON.stringify(comp('base_tool')));
@@ -3213,50 +3215,113 @@ function testIdClash() {
                 'the other package beside them, installable', rows.get('doom').source === 'mgu-apps' && rows.get('doom2').entry.listedId === 'doom' &&
                 rows.get('doom2').source === 'idrive7-apps' && rows.get('doom@iterio').entry.installAs === 'doom' && rows.get('doom@iterio').entry.blocked === null,
                 JSON.stringify(Array.from(rows.keys())));
-            // installed from outside the updater: an origin only when one source's listing has its title
+            // installed from outside the updater, or imported: the origin listing it under its title updates it
             const home = (id) => path.join(oap, `oap_${JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`))).userId}`);
-            mkdirp(path.join(home('doom'), 'rhmiData', 'strings'));
-            fs.writeFileSync(path.join(home('doom'), 'rhmiData', 'application.json'), JSON.stringify({ application: { entryPoints: [{ textId: 'T' }] } }));
-            fs.writeFileSync(path.join(home('doom'), 'rhmiData', 'strings', 'en_GB.json'), JSON.stringify({ T: 'DOOM' }));
-            const adopt = new Updater(conf);
-            Object.assign(adopt, { src: u.src, origins: {}, aliases: {} });
-            adopt.saveOrigins = () => {};
-            adopt.adoptOrigins();
-            ok('ids: an app installed from outside takes the one origin whose listing has its title (DOOM: mgu-apps, not Doom or ' +
-                'DOOM (App Manager)); one no listing names takes none', adopt.origins.doom.source === 'mgu-apps' && !adopt.origins.stubborn,
-                JSON.stringify(adopt.origins));
-            const early = new Updater(conf);
-            Object.assign(early, { src: new Map(u.src), origins: {}, aliases: {} });
-            early.src.set('iterio', Object.assign({}, u.src.get('iterio'), { checkedAt: null, answered: false }));
-            early.saveOrigins = () => {};
-            early.adoptOrigins();
-            const legacy = new Updater(conf);
-            Object.assign(legacy, { src: u.src, origins: { doom: { source: 'usb:OLD/mgu-repo/mgu-apps', commit: null } }, aliases: {} });
-            legacy.saveOrigins = () => {};
-            legacy.adoptOrigins();
-            ok('ids: no origin is taken while a stored source has not been read; one an earlier updater recorded as a stick\'s ' +
-                'mgu-repo/<name> is the source <name>', !early.origins.doom && !early.origins['mgu-python'] && legacy.origins.doom.source === 'mgu-apps',
-                JSON.stringify([early.origins, legacy.origins]));
-            const kept = new Updater(conf);
-            Object.assign(kept, { src: u.src, origins: {}, aliases: {}, adopted: { at: null, imported: ['doom'] }, idrive7: [{ id: 'stubborn' }] });
-            kept.saveOrigins = () => {};
-            kept.adoptOrigins();
-            const imp = kept.resolved().get('doom');
-            ok('ids: an imported app and one idrive7-apps\' installer put there are left to their takeover; an imported one is a row of ' +
-                'its own, source imported, that nothing updates', !kept.origins.doom && !kept.origins.stubborn && imp.source === 'imported' &&
-                imp.entry.unlisted === true && kept.resolved().get('doom@mgu-apps').entry.blocked === 'doom is already installed',
-                JSON.stringify([kept.origins, imp]));
-            fs.writeFileSync(path.join(home('doom'), 'rhmiData', 'strings', 'en_GB.json'), JSON.stringify({ T: 'Something else' }));
-            const none = new Updater(conf);
-            Object.assign(none, { src: u.src, origins: {}, aliases: {} });
-            none.saveOrigins = () => {};
-            none.adoptOrigins();
-            const left = none.resolved();
-            ok('ids: ...and without one it has no origin: a row of its own, every source\'s doom beside it, not installable over it',
-                !none.origins.doom && left.get('doom').entry.unlisted === true && left.get('doom').source === null &&
-                left.get('doom@mgu-apps').entry.blocked === 'doom is already installed' && left.get('doom2').entry.listedId === 'doom',
-                JSON.stringify(Array.from(left.keys())));
-            return ask(conf.socket, { op: 'install', id: 'doom@iterio' });
+            const titled = (id, title) => {
+                mkdirp(path.join(home(id), 'rhmiData', 'strings'));
+                fs.writeFileSync(path.join(home(id), 'rhmiData', 'application.json'), JSON.stringify({ application: { entryPoints: [{ textId: 'T' }] } }));
+                fs.writeFileSync(path.join(home(id), 'rhmiData', 'strings', 'en_GB.json'), JSON.stringify({ T: title }));
+            };
+            const view = (origins, adopted) => {
+                const x = new Updater(conf);
+                Object.assign(x, { src: u.src, origins, aliases: {} }, adopted ? { adopted } : {});
+                return x.resolved();
+            };
+            titled('doom', 'DOOM');
+            let got = view({});
+            ok('ids: an app installed from outside is updated by the origin whose listing has its title (DOOM: mgu-apps, not Doom or ' +
+                'DOOM (App Manager)); the others are beside it', got.get('doom').source === 'mgu-apps' && !got.get('doom').entry.unlisted &&
+                got.get('doom2').entry.listedId === 'doom' && got.get('doom@iterio').entry.blocked === 'doom is already installed',
+                JSON.stringify(Array.from(got.keys())));
+            got = view({}, { at: null, imported: ['doom'] });
+            ok('ids: ...an imported one too', got.get('doom').source === 'mgu-apps' && !got.get('doom').entry.blocked);
+            got = view({ doom: { source: 'usb:OLD/mgu-repo/mgu-apps', commit: null } });
+            ok('ids: an origin recorded as a stick\'s mgu-repo/<name> is the stored source <name>', got.get('doom').source === 'mgu-apps' &&
+                !got.get('doom@mgu-apps'));
+            got = view({ doom: { source: 'gone', commit: null } });
+            ok('ids: ...and one whose origin is gone (a source removed) is updated by the listing with its title', got.get('doom').source === 'mgu-apps');
+            titled('doom', 'Something else');
+            got = view({});
+            ok('ids: without a listing of its title it is a row of its own, removable, that nothing installs over; the others beside it',
+                got.get('doom').entry.unlisted === true && got.get('doom').source === null && got.get('doom').entry.uninstallable === true &&
+                got.get('doom@mgu-apps').entry.blocked === 'doom is already installed' && got.get('doom2').entry.listedId === 'doom',
+                JSON.stringify(Array.from(got.keys())));
+            titled('doom', 'DOOM');
+            // a car offline: what an installer put there (no origin) updates from a stick, its folders mgu-repo/<name> and oap/
+            const media = path.join(M, 'media');
+            const car = path.join(media, 'CAR');
+            const mountsFile = path.join(M, 'mounts');
+            fs.writeFileSync(mountsFile, `/dev/sdx1 ${car} vfat ro 0 0\n`);
+            mkdirp(path.join(opt, 'mgu-uplink', 'versions', '0.5.0'));
+            fs.writeFileSync(path.join(opt, 'mgu-uplink', 'versions', '0.5.0', 'component.json'),
+                JSON.stringify({ id: 'mgu-uplink', kind: 'tool', version: '0.5.0', title: 'Internet uplink' }));
+            fs.symlinkSync('versions/0.5.0', path.join(opt, 'mgu-uplink', 'current'));
+            const storeCopy = path.join(car, 'mgu-repo', 'mgu-store');
+            mkdirp(storeCopy);
+            publish(storeCopy, [entry(toolKit(storeCopy, 'mgu-uplink', '0.5.1', { 'mgu-uplink': ['#!/bin/sh\n', 0o755] }), 'tool', 'Internet uplink')]);
+            // a checkout of idrive7-apps (usb-repo writes no catalog for it: the unit builds it), warmup newer
+            const co = path.join(car, 'mgu-repo', 'idrive7-apps');
+            cp.execFileSync('cp', ['-R', repo, co]);
+            fs.writeFileSync(path.join(co, 'apps', 'warmup', 'app.json'), JSON.stringify({ id: 'warmup', title: 'Warm-up', version: '1.1.0' }));
+            // the App Manager's oap/ folder with a newer Car Data
+            const oapDir = path.join(car, 'oap');
+            const pkg = (dir, file, name, version, title) => {
+                const d = fs.mkdtempSync(path.join(M, 'pkg-'));
+                mkdirp(path.join(d, 'rhmiData', 'variantGroups', 'Common', 'texts'));
+                fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name, version }));
+                fs.writeFileSync(path.join(d, 'rhmiData', 'application.json'), JSON.stringify({ application: { name, entryPoints: [{ textId: 'S' }],
+                    variantGroups: [{ stringsPath: './variantGroups/Common/texts' }] } }));
+                fs.writeFileSync(path.join(d, 'rhmiData', 'variantGroups', 'Common', 'texts', 'en_GB.json'), JSON.stringify({ S: title }));
+                mkdirp(dir);
+                cp.execFileSync('tar', ['-czf', path.join(dir, file), '-C', d, '.']);
+                return path.join(dir, file);
+            };
+            pkg(oapDir, 'Car Data 1.1.5.tgz', 'cardata', '1.1.5', 'Car Data');
+            // Car Data 1.1.4, put there by the App Manager from a stick: imported
+            cp.execFileSync(deploySh, ['install', '--artifact', pkg(path.join(M, 'am'), 'cardata.tgz', 'cardata', '1.1.4', 'Car Data'), '--yes'],
+                { stdio: 'ignore' });
+            titled('cardata', 'Car Data');
+            u.adopted = { at: null, imported: ['cardata'] };
+            return ask(conf.socket, { op: 'install', id: 'warmup' }).then(() => settle('warmup')).then(() => {
+                const was = { mounts: u.conf.mounts, lease: u.conf.lease };
+                Object.assign(u.conf, { mounts: mountsFile, usb_roots: media });
+                fs.unlinkSync(lease);
+                u.scanUsb();
+                return until(st, () => ['usb:CAR/mgu-repo/mgu-store', 'usb:CAR/mgu-repo/idrive7-apps', 'usb:CAR/oap']
+                    .every((id) => (st().sources.find((x) => x.id === id) || {}).status === 'ok'), 20000, 'the car\'s stick read').then(() => was);
+            }).then((was) => {
+                const up = comp('mgu-uplink');
+                ok('offline: the uplink an installer put there (no origin) is an update from a stick\'s copy of mgu-store',
+                    !st().online && up.status === 'update' && up.version === '0.5.1' && up.source === 'usb:CAR/mgu-repo/mgu-store', JSON.stringify(up));
+                ok('offline: what idrive7-apps installed updates from a stick holding a checkout of it',
+                    comp('warmup').status === 'update' && comp('warmup').version === '1.1.0' && comp('warmup').source === 'usb:CAR/mgu-repo/idrive7-apps' &&
+                    !comp('warmup2').id, JSON.stringify(comp('warmup')));
+                ok('imported: Car Data from the App Manager is an update from his oap/ stick',
+                    comp('cardata').status === 'update' && comp('cardata').version === '1.1.5' && comp('cardata').source === 'usb:CAR/oap',
+                    JSON.stringify(comp('cardata')));
+                fs.writeFileSync(deployLog, '');
+                return ask(conf.socket, { op: 'install', id: 'cardata' }).then(() => until(st, () => !u.busy && (comp('cardata').installed === '1.1.5' ||
+                    !!comp('cardata').error), 30000, 'cardata updated')).then(() => was);
+            }).then((was) => {
+                ok('imported: the update installs over it and records the stick as its origin', comp('cardata').installed === '1.1.5' &&
+                    u.origins.cardata.source === 'usb:CAR/oap' && /cardata@1\.1\.5/.test(deployed().join()), JSON.stringify([comp('cardata'), deployed()]));
+                // idrive7-apps removed and added again: its apps are imported, and it updates them again
+                const own = u.origins.warmup;
+                delete u.origins.warmup;
+                u.adopted = { at: null, imported: ['warmup'] };
+                const back = u.resolved();
+                ok('imported: an idrive7-apps app is updated by idrive7-apps added again, no warmup2 beside it',
+                    ['idrive7-apps', 'usb:CAR/mgu-repo/idrive7-apps'].indexOf(back.get('warmup').source) >= 0 && !back.get('warmup2'),
+                    JSON.stringify(Array.from(back.keys()).filter((k) => /warmup/.test(k))));
+                u.origins.warmup = own;
+                fs.writeFileSync(mountsFile, 'proc /proc proc rw 0 0\n');
+                u.scanUsb();
+                Object.assign(u.conf, { mounts: was.mounts });
+                fs.writeFileSync(lease, JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+                ok('a stick taken out: Car Data, installed from it, keeps a row for its Remove', comp('cardata').installed === '1.1.5' &&
+                    comp('cardata').uninstallable === true && comp('cardata').source === 'usb:CAR/oap', JSON.stringify(comp('cardata')));
+                return ask(conf.socket, { op: 'install', id: 'doom@iterio' });
+            });
         })
         .then((why) => {
             ok('clash: installing the blocked package is refused with its reason', why === `doom is already installed from ${mguApps}`, why);
@@ -3268,7 +3333,7 @@ function testIdClash() {
             ok('clash: doom2 is built from a copy of apps/doom made over to doom2 (with its download), and installed as doom2',
                 pkg.name === 'doom2' && pkg.specId === 'doom2' && pkg.version === '1.4.1' && pkg.proxied === true &&
                 JSON.stringify(pkg.folders) === '["doom","doom2","stubborn","warmup"]' &&
-                deployed().length === 2 && /mgu-python@1\.0\.0/.test(deployed()[0]) && /doom2@1\.4\.1\.tgz --yes/.test(deployed()[1]),
+                comp('mgu-python').installed === '1.0.0' && /doom2@1\.4\.1\.tgz --yes/.test(deployed().pop()),
                 JSON.stringify([comp('doom2'), pkg, deployed()]));
             const reg = (id) => JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`))).userId;
             ok('clash: mgu-apps\' doom is untouched, beside it', pkgOf('doom').version === '1.1.2' && reg('doom') !== reg('doom2') &&
@@ -3309,13 +3374,12 @@ function testIdClash() {
                 comp('doom').source === 'iterio' && comp('doom').status === 'update' && comp('doom').version === '9.0.0' &&
                 comp('doom@mgu-apps').blocked === `doom is already installed from ${iterio}` && comp('doom2').listedId === 'doom',
                 JSON.stringify(st().components.map((c) => [c.id, c.source, c.blocked])));
-            // a stick that installed doom is gone: the packages of that id show it, blocked, still removable
+            // a stick that installed doom is gone: the listing with its title (DOOM: mgu-apps) updates it, the others beside it
             u.origins.doom.source = 'usb:GONE';
             const held = comp('doom');
-            ok('clash: an installed app whose origin lists it no more is a row of its own, removable, that nothing updates',
-                held.installed === '1.1.2' && held.version === '1.1.2' && held.status === 'installed' && held.source === 'usb:GONE' &&
-                held.uninstallable === true && held.blocked === null && u.request('doom') === 'doom is installed, and no source of its own lists it' &&
-                comp('doom@mgu-apps').blocked === 'doom is already installed from usb:GONE' && comp('doom@iterio').blocked === comp('doom@mgu-apps').blocked,
+            ok('clash: an installed app whose origin lists it no more is updated by the listing with its title, the others beside it',
+                held.installed === '1.1.2' && held.status === 'installed' && held.source === 'mgu-apps' && held.blocked === null &&
+                comp('doom@iterio').blocked === 'doom is already installed from usb:GONE' && comp('doom2').listedId === 'doom',
                 JSON.stringify(st().components.filter((c) => /^doom/.test(c.id))));
             u.origins.doom.source = 'mgu-apps';
             const tar = require('../js/tar');
