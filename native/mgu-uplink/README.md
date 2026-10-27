@@ -122,7 +122,7 @@ replaces the shipped value, except `uids`, which adds to it), which updates keep
 | Key | Value |
 |---|---|
 | `apps` | OAP app names, resolved through `oap_12201/security/uids.txt` every 5 s |
-| `uids` | numeric uids of non-app processes; the shipped `uids = 12990` is the updater's fetcher. A local `uids` adds to it, so the unit always keeps it; 0 is refused |
+| `uids` | numeric uids of non-app processes (the shipped list is empty); a local `uids` adds to the shipped one; 0 is refused |
 | `uplink` | `auto`, `usb`, `usbecm`, `rndis`, `ncm`, `iphone` or `netdev:<ifname>` |
 | `usb_device` | `VID:PID` of the one USB device to use (with `usbecm`: of the stick in network mode) |
 | `table`, `rule_pref` | routing table (110) and first rule priority (1100) |
@@ -131,7 +131,8 @@ Components that need the internet add themselves without touching the
 conf: the deploy tool writes `/var/opt/mgu-uplink/uids.d/<component>`
 (numeric uids) or `apps.d/<component>` (app names; an empty file stands
 for the app named like the file), one per line, on install and removes it
-on uninstall. They are read with the 5 s rescan, so an install or removal
+on uninstall. The updater's downloads get out this way too, as
+`uids.d/mgu-updater`, which names the uid the updater picked for them. They are read with the 5 s rescan, so an install or removal
 takes effect within seconds; entries that are not a uid or an app name are
 logged and skipped.
 

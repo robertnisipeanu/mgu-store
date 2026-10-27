@@ -2431,6 +2431,35 @@ function testInternet() {
         fs.existsSync(root.p('var/opt/mgu-uplink/current')), r.out);
     const bad = fakeRoot().run(['install', '--artifact', namedTool('net-tool', '1.0.0', (c) => { c.internet = true; c.uids = []; }), '--yes']);
     check('internet: "internet" without uids is refused', bad.status === 2 && bad.out.includes('needs "uids"'), bad.out);
+    const outside = fakeRoot().run(['install', '--artifact', namedTool('net-tool', '1.0.0', (c) => { c.internet = true; c.uids = '../x'; }), '--yes']);
+    check('internet: a uids file outside the tool\'s folder is refused', outside.status === 2 && outside.out.includes('needs "uids"'), outside.out);
+    // a tool that picks its uids on the unit keeps them in a file of its own
+    const own = root.p('var/opt/mgu-uplink/uids.d/own-tool');
+    r = root.run(['install', '--artifact', namedTool('own-tool', '1.0.0', (c) => { c.internet = true; c.uids = 'state/internet-uids'; }), '--yes']);
+    check('internet: a uids file the tool has not written yet gives no drop-in', r.status === 0 && !fs.existsSync(own), r.out);
+    fs.mkdirSync(root.p('var/opt/own-tool/state'));
+    fs.writeFileSync(root.p('var/opt/own-tool/state/internet-uids'), '12708\n');
+    r = root.run(['install', '--artifact', namedTool('mgu-uplink', '1.0.1'), '--yes']);
+    check('internet: installing mgu-uplink writes the uids a tool keeps in its file',
+        r.status === 0 && fs.readFileSync(own, 'utf8') === '12708\n', r.out);
+    fs.writeFileSync(own, '12709\n');
+    fs.writeFileSync(root.p('var/opt/own-tool/state/internet-uids'), '12709\n');
+    r = root.run(['install', '--artifact', namedTool('net-tool', '1.0.0', (c) => { c.internet = true; c.uids = [12993]; }), '--yes']);
+    check('internet: a drop-in the tool rewrote to match its file is kept', r.status === 0 &&
+        fs.readFileSync(own, 'utf8') === '12709\n', r.out);
+}
+
+function testMainappUid() {
+    const root = fakeRoot();
+    const base = root.p('usr/lib/oap-mainapp/config/base.json');
+    const cfg = JSON.parse(fs.readFileSync(base, 'utf8'));
+    fs.writeFileSync(base, JSON.stringify(Object.assign(cfg, { mainAppUids: [12301, 12551] })));
+    fs.renameSync(root.p(`var/opt/public/oap/oap_${MGR}`), root.p('var/opt/public/oap/oap_12301'));
+    const st = root.status();
+    check('mainapp uid: the registry is found under the first of MainApp\'s mainAppUids',
+        st.components.some((c) => c.id === 'stock_app' && c.uid === 13000), JSON.stringify(st.components));
+    const r = root.run(['status', '--json'], { MGU_DEPLOY_MAINAPP_UID: String(MGR) });
+    check('mainapp uid: MGU_DEPLOY_MAINAPP_UID overrides it', !JSON.parse(r.stdout).components.some((c) => c.id === 'stock_app'), r.out);
 }
 
 function testSourcesAndDonor() {
@@ -3655,6 +3684,7 @@ const SUITES = [
     testSourcePackages,
     testThirdParty,
     testInternet,
+    testMainappUid,
     testSourcesAndDonor,
     testMguInstall,
     testMguInstallUsb,

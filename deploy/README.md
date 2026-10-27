@@ -923,7 +923,8 @@ asks for it (`build.sdk`, docs/PUBLISHING.md). No lock, no snapshot; exit
 ### Internet for selected components
 
 A tool whose `component.json` says `"internet": true` lists its numeric
-`uids`; an app's built or published `package.json` says `"mguInternet":
+`uids`, or names in `uids` a file under `/var/opt/<id>/` where it keeps
+them, one per line (the updater: `state/internet-uids`); an app's built or published `package.json` says `"mguInternet":
 true`. After every install and uninstall, while `mgu-uplink` is installed,
 the tool writes `/var/opt/mgu-uplink/uids.d/<id>` (the uids, one per line)
 and `apps.d/<id>` (the app id) for every installed component that declares

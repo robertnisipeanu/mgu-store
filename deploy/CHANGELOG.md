@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.5.1
+
+- A tool's `"internet": true` can name in `"uids"` a file under `/var/opt/<id>/` the tool keeps its uids in (the updater picks its own on the unit); its `uids.d/<id>` follows that file.
+- MainApp's uid (its registry's folder, `oap_<uid>`) is the first of `mainAppUids` in MainApp's `config/base.json`, else 12201; `MGU_DEPLOY_MAINAPP_UID` overrides it.
+
 ## 0.5.0
 
 - IterioDev's App Manager is replaced by the Store. `appmanager adopt` takes over a unit that runs it: its daemon disabled and stopped (a start the boot queued cancelled; one recmgr does not list runs until the next boot, which completes the adoption), its queued app changes moved to ours (iDrive 8) and its boot hook disabled, its iPhone tether stopped and disabled, its renderer made the tool `mgu-renderd` from the program it runs (left running), and the apps it installed or had queued and its repositories (without tokens) recorded in `appmanager.json`; with our `mgu-renderd` installed first, our unit goes back over the one it wrote; nothing is reinstalled. `uninstall oap-appmanager` adopts first, removes its units and boot hook, keeps `/var/opt/appmanager` as `appmanager-removed/`, and uninstalls its app (on iDrive 8 at the next start); the apps and the renderer stay. Both run in one snapshot, rolled back on a failure. `status --json` has `appmanager`.

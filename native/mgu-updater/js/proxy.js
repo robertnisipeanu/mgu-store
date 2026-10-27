@@ -3,7 +3,7 @@
  * The internet for one repo build that declares it (mgu-repo.json
  * `"network"`; README.md, "Building on the unit"): an HTTP proxy on
  * 127.0.0.1, run by the updater as a child process under the fetch uid
- * (updater.conf `fetch_uid`), the one identity the apps-only uplink lets
+ * (uids.js), the one identity the apps-only uplink lets
  * out. The build itself, as the build uid, has no route out but this.
  * Node 8.
  *

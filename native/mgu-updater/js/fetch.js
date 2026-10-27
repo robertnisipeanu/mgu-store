@@ -1,7 +1,7 @@
 'use strict';
 /**
  * One HTTPS download, run by the updater as a child process under the
- * fetch uid (updater.conf `fetch_uid`): the only identity the apps-only
+ * fetch uid (uids.js): the only identity the apps-only
  * uplink lets out, and one that can write nothing but its download folder.
  * Node 8.
  *

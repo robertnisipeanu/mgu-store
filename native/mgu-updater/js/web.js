@@ -25,8 +25,8 @@
  *                       <lines> --no-pager`, for the privileged `logs` op;
  *                       unit one of web.UNITS, lines clamped to 1..1000.
  *
- * Conf keys (defaults): web_uid (12996), web_gid (12202, tm_oap_app: the
- * group that may use the updater socket), web_port (8470), web_iface
+ * Conf keys (defaults): web_uid and web_gid (the updater's own, uids.js;
+ * the gid the group that may use the updater socket), web_port (8470), web_iface
  * (wlan_bridge), web_secret (/run/mgu-updater/web-secret), and the updater's
  * socket and log_file.
  *
@@ -66,8 +66,6 @@ const crypto = require('crypto');
 const cp = require('child_process');
 
 const DEFAULTS = {
-    web_uid: 12996,
-    web_gid: 12202,
     web_port: 8470,
     web_iface: 'wlan_bridge',
     web_secret: '/run/mgu-updater/web-secret'

@@ -5,7 +5,7 @@
  * Node 8.
  *
  * The repo's files are written to a folder of their own in state_dir and
- * handed to the build uid (conf build_uid: no account, not in the uplink's
+ * handed to the build uid (uids.js: no account, not in the uplink's
  * lists, so no network); the script runs there as that uid, under this Node
  * or conf `python` (the mgu-python tool), cwd = the repo copy, with
  *   MGU_SDK_DONOR  the SDK donor bundle the deploy tool names (read-only)

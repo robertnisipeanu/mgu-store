@@ -459,9 +459,10 @@ function testShipped() {
     ok('shipped: no catalog key and no signing settings',
         !shipped.some((f) => /\.pem$/.test(f)) && conf.public_key === undefined && conf.catalog === undefined &&
         !fs.readdirSync(ROOT).some((f) => /\.pem$/.test(f)));
-    ok('shipped: sources, credentials, the build uid and the secrets have their places',
+    ok('shipped: sources, credentials and the secrets have their places; the service uids are picked on the unit',
         conf.sources === '/var/opt/mgu-updater/sources.json' && conf.credentials_dir === '/var/opt/mgu-updater/credentials' &&
-        conf.build_uid === '12995' && conf.web_uid === '12996' && conf.web_gid === '12202' && conf.web_port === '8470' &&
+        ['build', 'fetch', 'web'].every((r) => conf[`${r}_uid`] === undefined && conf[`${r}_gid`] === undefined) &&
+        conf.socket_group === 'tm_oap_app' && conf.web_port === '8470' &&
         conf.web_iface === 'wlan_bridge' && conf.web_secret === '/run/mgu-updater/web-secret' &&
         conf.usb_roots === '/media' && conf.store_app === 'robertn_store' && 'github_client_id' in conf);
 }

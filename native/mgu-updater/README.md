@@ -9,12 +9,12 @@ second one. On the Store's request it also restarts the head unit.
 
 ```
  sources (sources.json: GitHub repos, catalog URLs; USB media under /media)
-        │ HTTPS, as uid 12990 through the apps-only uplink (native/mgu-uplink)
+        │ HTTPS, as the fetch uid through the apps-only uplink (native/mgu-uplink)
         ▼
  fetch.js ──► state/dl-<random>/<file>                (a folder root made for this download, the fetch uid's)
         │
  updater.js (root): read it (no links, regular file, bounded), check its size + sha256,
-        │            pack a repo-tree component, or run the repo's build script as uid 12995 (build.js)
+        │            pack a repo-tree component, or run the repo's build script as the build uid (build.js)
         │            write the checked bytes to state/verified/ (root only)
         ▼
  /var/opt/mgu-deploy/mgu-deploy.sh install --artifact <file> --yes   (runs current/)
@@ -179,8 +179,8 @@ commit). Without one: `releases` when the repo has a release, else
 
 **Building on the unit.** `build.node` runs under this Node, and
 `build.python` under `python` (`/var/opt/mgu-python/current/bin/python3`,
-with `SSL_CERT_FILE` its CA bundle), as `build_uid` 12995 (no account, in
-none of the uplink's lists: no network; no other service may run as it),
+with `SSL_CERT_FILE` its CA bundle), as the build uid ("Its own uids": no
+account, in none of the uplink's lists: no network),
 in a copy of the repo in `state/build-<random>/repo` that only it can
 write, with `MGU_SDK_DONOR` (the donor bundle `mgu-deploy.sh sdk-donor
 --json` names, read-only), `MGU_OUT` (an empty folder), `HOME`/`TMPDIR`
@@ -459,8 +459,8 @@ first change to the sources, writes it.
 
 The unit has no default route to the internet; mgu-uplink lets only listed
 uids out. The updater does every download in a child process (`fetch.js`)
-running as `fetch_uid` (12990), which `native/mgu-uplink/mgu-uplink.conf`
-lists under `uids`. That uid has no account and can write only the folder root makes for
+running as the fetch uid ("Its own uids"), which the uplink lets out through
+`/var/opt/mgu-uplink/uids.d/mgu-updater`. That uid has no account and can write only the folder root makes for
 each download: the HTTPS and HTTP handling runs without privileges, and the
 root daemon reads only the downloaded file, through a descriptor that
 follows no link and only if it is a regular file within the size expected.
@@ -477,6 +477,28 @@ fetcher can change nothing it installs.
   not redirected.
 - The size the source states is the most that is read; API answers at
   most 4 MiB.
+
+## Its own uids
+
+Builds, downloads and the phone page each run as a uid of the updater's
+own, with no account: the build, fetch and web uids. The updater picks
+them on the unit at its first start and keeps them in
+`state/uids.json`. A pick is a number nothing on the unit holds (no
+account or group, no app, no running process, no other component's uplink
+drop-in), above the uid ranges MainApp hands apps (`usableUidsAndGids` and
+`usableUidsAndGidsRse` in `/usr/lib/oap-mainapp/config/base.json`:
+12203–12450 and 12453–12700 on a stock unit), so no app can be given one
+later; without that file, 500 above the highest app uid on the unit.
+
+When something takes one of them later (an app, an account, a tool's
+uplink drop-in), checked at every catalog check and after every install,
+the updater picks a new one and moves what used the old one: the uplink
+drop-in for downloads, leftover download and build folders, the phone
+page. The build and fetch uids are their own gids; the web uid runs in
+`socket_group`.
+
+To fix a number instead, set `build_uid`, `fetch_uid` or `web_uid` (and
+`build_gid`, `fetch_gid`, `web_gid`) in `updater.local.conf`.
 
 ## Updating itself
 
@@ -580,9 +602,8 @@ while the state's `signin` is true; the code and the link show on the page). A c
 says so, and one providing a capability names it. Off by default; the Store turns it
 on and off (privileged `web` op) and shows its QR code.
 
-- **Server.** A child of the daemon, `node web.js serve`, as `web_uid`
-  12996 and `web_gid` 12202 (`tm_oap_app`, the socket's group) with no
-  other groups, on `web_port` 8470 at `127.0.0.1` and at `web_iface`'s
+- **Server.** A child of the daemon, `node web.js serve`, as the web uid
+  ("Its own uids") in `socket_group` (`tm_oap_app`) with no other groups, on `web_port` 8470 at `127.0.0.1` and at `web_iface`'s
   (`wlan_bridge`, the hotspot: 172.16.222.97) IPv4 address while it has
   one, looked up every 5 s. It exits when the daemon does. It serves the
   page and three API paths, nothing from disk but the updater log; a
@@ -806,7 +827,7 @@ releases, branches, tags, contents, tarballs, the device flow), with
 `test/fake_deploy.js` in the deploy tool's place:
 
 - catalogs (schema 1 and 2, a signature ignored), tar reading and packing;
-- downloads through the lease's DNS as uid 12990, a redirect that must not
+- downloads through the lease's DNS as the fetch uid, a redirect that must not
   carry the token, size limits;
 - sources, in an updater in the test process: several sources and an id
   two of them list; tokens: a private repo without one, a token GitHub

@@ -30,6 +30,7 @@ const sourcesLib = require('./sources');
 const { DeviceLogin } = require('./login');
 const { Tokens, TOKEN } = require('./tokens');
 const { runBuild, cleanBuilds } = require('./build');
+const { ServiceUids, handOver } = require('./uids');
 const { UpdaterClient } = require('./client');
 
 const ID = catalogLib.ID;
@@ -43,6 +44,8 @@ const HANDOVER_EXIT = 75;
 const TRIAL_WAIT_MS = Number(process.env.MGU_UPDATER_TRIAL_WAIT_MS || 120000);
 // A restart the unit has not carried out by then is reported as failed.
 const REBOOT_WAIT_MS = Number(process.env.MGU_UPDATER_REBOOT_WAIT_MS || 180000);
+// The uplink takes up a new fetch uid within its 5 s rescan of uids.d.
+const UPLINK_RESCAN_MS = 6000;
 
 /* ---- configuration ------------------------------------------------------ */
 
@@ -403,12 +406,19 @@ class Fetcher {
     constructor(conf) {
         this.conf = conf;
         this.state = conf.state_dir;
-        this.uid = Number(conf.fetch_uid);
-        this.gid = Number(conf.fetch_gid);
         this.ca = conf.ca_file ? fs.readFileSync(conf.ca_file, 'utf8') : null;
         // url -> { etag, body }: the answers cached() asks for again, oldest first
         this.etags = new Map();
         this.etagBytes = 0;
+    }
+
+    // the conf's: a re-picked fetch uid applies to the next download
+    get uid() {
+        return Number(this.conf.fetch_uid);
+    }
+
+    get gid() {
+        return Number(this.conf.fetch_gid);
     }
 
     asFetchUid(opts) {
@@ -620,6 +630,9 @@ class Updater {
     constructor(conf) {
         this.conf = conf;
         this.version = selfVersion();
+        // build_uid, fetch_uid, web_uid and their gids (uids.js)
+        this.uids = new ServiceUids(conf, (l) => console.log(l));
+        this.uids.ensure();
         this.fetcher = new Fetcher(conf);
         this.tokens = new Tokens(conf.credentials_dir || path.join(conf.state_dir, 'credentials'));
         this.ctx = {
@@ -1327,10 +1340,12 @@ class Updater {
         }
         this.changed();
         this.rebootError = null;
+        const settle = this.checkUids();
         this.scanUsb();
         this.scanTokens();
         this.validateTokens();
-        this.checking = Promise.all(this.defs().map((d) => this.checkSource(d.id)))
+        this.checking = new Promise((resolve) => setTimeout(resolve, settle))
+            .then(() => Promise.all(this.defs().map((d) => this.checkSource(d.id))))
             .then(() => this.pruneIcons())
             .then(() => this.refresh())
             .then(() => {
@@ -2031,7 +2046,32 @@ class Updater {
     }
 
     deploy(file) {
-        return this.deployTool(['install', '--artifact', file, '--yes']);
+        return this.deployTool(['install', '--artifact', file, '--yes']).then((code) => {
+            this.checkUids();
+            return code;
+        });
+    }
+
+    /* Picks a uid again that something else holds now (an install, an
+     * account), and moves what used the one before: leftover download and
+     * build folders, the phone page's secret and server. Returns how long
+     * to wait before downloading: the uplink reads its drop-ins every 5 s. */
+    checkUids() {
+        let changed;
+        try {
+            changed = this.uids.ensure();
+        } catch (e) {
+            console.log(`uids: ${e.message}`);
+            return 0;
+        }
+        changed.forEach((role) => handOver(this.conf, role));
+        if (changed.indexOf('web') >= 0) {
+            this.writeSecrets();
+            if (web && this.webEnabled) {
+                this.applyWeb();
+            }
+        }
+        return changed.indexOf('fetch') >= 0 ? UPLINK_RESCAN_MS : 0;
     }
 
     /* Runs the deploy tool; resolves with its exit status. deployError keeps
@@ -2585,6 +2625,9 @@ class Updater {
 
     run() {
         return this.serve().then(() => {
+            // folders an earlier uid of theirs left
+            handOver(this.conf, 'fetch');
+            handOver(this.conf, 'build');
             this.fetcher.clean();
             cleanBuilds(this.conf);
             this.writeSecrets();

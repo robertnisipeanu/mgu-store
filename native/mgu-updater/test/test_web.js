@@ -115,7 +115,7 @@ let hotspotUp = false;
 const web = require('../js/web');
 web._interfaces = () => (hotspotUp ? { wlan_bridge: [{ family: 'IPv4', address: HOT, internal: false }] } : {});
 
-const conf = { socket: sockPath, log_file: logFile, web_secret: secretFile };
+const conf = { socket: sockPath, log_file: logFile, web_secret: secretFile, web_uid: WEB_UID, web_gid: WEB_GID };
 const logs = [];
 const log = (l) => logs.push(l);
 let changes = 0;

@@ -44,9 +44,8 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.5.0';
+var VERSION = '0.5.1';
 var HERE = __dirname;
-var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
 function env(name, dflt) { return process.env[name] ? process.env[name] : dflt; }
 
@@ -127,7 +126,18 @@ function baseJson() { return path.join(CFG.mainapp, 'config', 'base.json'); }
 /* MainApp's own folder: oap-mainapp on iDrive 7, oap-mainapp21 on iDrive 8. */
 function mainappRoot() { return unitInfo().hmi === 'ID8' ? CFG.mainapp21 : CFG.mainapp; }
 function preinstalledDir() { return path.join(mainappRoot(), 'preinstalled_apps'); }
-function mgrHome() { return path.join(CFG.oap, 'oap_' + MGR_UID); }
+/* MainApp's uid: MGU_DEPLOY_MAINAPP_UID, else the first of its config's
+ * mainAppUids (the head unit's instance), else 12201. */
+var MGR_UID = null;
+function mgrUid() {
+    if (MGR_UID === null) {
+        var cfg = readJsonOrNull(path.join(mainappRoot(), 'config', 'base.json')) || readJsonOrNull(baseJson()) || {};
+        var own = Array.isArray(cfg.mainAppUids) ? Number(cfg.mainAppUids[0]) : NaN;
+        MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID) || (own > 0 && own === Math.floor(own) ? own : 12201);
+    }
+    return MGR_UID;
+}
+function mgrHome() { return path.join(CFG.oap, 'oap_' + mgrUid()); }
 function appsDir() { return path.join(mgrHome(), 'data', 'apps'); }
 function customAppsFile() { return path.join(mgrHome(), 'data', 'custom_apps.json'); }
 function localOnlyFile() { return path.join(mgrHome(), 'data', 'local-only-apps.json'); }
@@ -950,9 +960,9 @@ function validateTool(file, dir, c) {
             throw refuse(file + ': payload missing dropins/' + d.unit + '.d/' + d.name);
         }
     });
-    if (c.internet !== undefined && (c.internet !== true || !Array.isArray(c.uids) || !c.uids.length ||
-        !c.uids.every(function (u) { return u === Math.floor(u) && u > 0; }))) {
-        throw refuse(file + ': "internet": true needs "uids", the tool\'s numeric uids');
+    if (c.internet !== undefined && (c.internet !== true || (typeof c.uids === 'string' ? !safeRel(c.uids) :
+        !Array.isArray(c.uids) || !c.uids.length || !c.uids.every(function (u) { return u === Math.floor(u) && u > 0; })))) {
+        throw refuse(file + ': "internet": true needs "uids", the tool\'s numeric uids or the file under /var/opt/<id> it keeps them in');
     }
     (c.recmgr || []).concat(c.restart || []).forEach(function (n) {
         if (typeof n !== 'string' || !n) throw refuse(file + ': bad recmgr/restart entry');
@@ -1320,17 +1330,21 @@ function tileState(app, fb) {
 }
 
 /* ---- internet for selected components ------------------------------------------ */
-/* A tool whose component.json says "internet": true has its uids in
- * /var/opt/mgu-uplink/uids.d/<id>, an app whose package.json says
+/* A tool whose component.json says "internet": true has its uids (its
+ * "uids", or the numbers in the file under /var/opt/<id> that "uids" names,
+ * which the tool keeps) in /var/opt/mgu-uplink/uids.d/<id>, an app whose package.json says
  * "mguInternet": true its id in apps.d/<id>; mgu-uplink reads both folders
  * besides its conf. They are written while mgu-uplink is installed (its
  * own install writes every one) and removed with the component. */
 function wantedDropIns() {
     var want = {};
     installedTools().forEach(function (t) {
-        if (t.component.internet === true && Array.isArray(t.component.uids)) {
-            want[uplinkDropIns(t.id)[0]] = t.component.uids.join('\n') + '\n';
+        var uids = t.component.internet === true ? t.component.uids : null;
+        if (typeof uids === 'string') {
+            uids = parseColonFile(path.join(CFG.varOpt, t.id, uids)).map(Number)
+                .filter(function (u) { return u === Math.floor(u) && u > 0; });
         }
+        if (Array.isArray(uids) && uids.length) want[uplinkDropIns(t.id)[0]] = uids.join('\n') + '\n';
     });
     installedApps().forEach(function (app) {
         if (app.pkg.mguInternet === true) want[uplinkDropIns(app.id)[1]] = app.id + '\n';
@@ -1790,7 +1804,7 @@ function ensureLocalOnlyListed() {
     });
     if (!add.length) return;
     writeAtomic(file, JSON.stringify(listed.concat(add)) + '\n', 0o644);
-    chownMaybe(file, MGR_UID, MGR_UID);
+    chownMaybe(file, mgrUid(), mgrUid());
     say('app-privacy override lists ' + add.join(', ') + ': installed without the local-only marker');
 }
 function privacyApplyQuiet(extra) {
@@ -1830,7 +1844,7 @@ function readCustomApps() {
 function writeCustomApps(c) {
     mkdirp(path.dirname(customAppsFile()));
     writeAtomic(customAppsFile(), JSON.stringify(c, null, 2) + '\n', 0o660);
-    chownMaybe(customAppsFile(), MGR_UID, MGR_UID);
+    chownMaybe(customAppsFile(), mgrUid(), mgrUid());
 }
 function customAppsPut(id, cache, startType) {
     var c = readCustomApps();
