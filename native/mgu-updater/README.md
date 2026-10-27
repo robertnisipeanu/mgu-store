@@ -110,6 +110,29 @@ on the repo's default branch), `tags`
 commit). Without one: `releases` when the repo has a release, else
 `branch:<default branch>`. The state shows the channel in use.
 
+**GitHub requests.** A check reads only what can have changed:
+
+- Every API answer is asked for again with its `ETag` (`If-None-Match`);
+  an unchanged one is a 304, which GitHub does not count against a
+  token's rate limit, and the answer kept from before is used (the 64
+  newest of at most 1 MiB, in memory).
+- A branch's head is asked for as its sha alone
+  (`application/vnd.github.sha`). The files of a commit, a `catalog.json`
+  asset (by its URL, size and upload time) and a releases layout's assets
+  are read again only when they changed: the listing made from them is
+  kept with the source's cache (`state/sources/<id>.json`, `memo`) and
+  used again after a restart by the same updater version.
+- No channel: the `catalog` release is asked for first, then the
+  releases (100), then the default branch.
+
+One check of an unchanged source is 2 requests (the repo, then the
+`catalog` release, the branch head or the tags), 3 for a releases layout
+(the repo, the missing `catalog` release, the releases), each a 304 with a
+token. A change is read in the same check: a moved branch or a new tag
+adds `mgu-repo.json` and each component's manifest, a new `catalog.json`
+its download. Each check also asks GitHub about each token
+(`api.github.com/user`, "Tokens").
+
 **Repo trees.** `mgu-repo.json`:
 
 ```json
@@ -304,13 +327,18 @@ or not `tokens.json` names it yet; the deploy tool writes both too
 the folder again every `usb_poll_s` and on each check.
 
 - A GitHub source is read with the token that read it last, else each
-  stored token in turn (those GitHub rejects last) until one reaches the
-  repo; the one that does is kept for it (in `state/sources/<id>.json`, a
-  cache) and its downloads use it. A repo whose own answer said it is
-  public is read without a token first; any other repo without one last.
-  A source no token reaches (the repo answers 401 or 404 to each) is
-  `auth-needed`. When the tokens change, the sources that need one, or
-  lost theirs, are read again.
+  stored token in turn until one reaches the repo, then without one; the
+  one that does is kept for it (in `state/sources/<id>.json`, a cache)
+  and its downloads use it. Public repos are read with a token too: a
+  token's rate limit is 5000 requests an hour, an anonymous one 60 an
+  address. A token GitHub rejects comes last, after no token for a repo
+  whose own answer said it is public. A repo is read without a token only
+  when every token is refused for it (401, 404, or a 403 that is no rate
+  limit, such as an organisation's SSO). A source no token reaches is
+  `auth-needed`; one whose read hits the rate limit (a 429, or a 403 with
+  `x-ratelimit-remaining: 0` or `retry-after`) is an `error` saying
+  `GitHub rate limit reached`. When the tokens change, the sources that
+  need one, or lost theirs, are read again.
 - `token-add` asks `api.github.com/user` whose the token is: `login`, and
   a classic token's `X-OAuth-Scopes` as `scopes` (a fine-grained or GitHub
   App token has none: null). One GitHub rejects (401) is refused; without
@@ -814,10 +842,14 @@ releases, branches, tags, contents, tarballs, the device flow), with
   rejects, one that reads two private repos (the second added later, no
   token asked for), a third repo only a token the deploy tool writes
   reaches, the same token twice, removal (each source falls back to
-  another token, else needs one), a public repo read without one, a token
+  another token, else needs one), a token
   added by the device flow (pending, slow_down, denied, renewed by its
   refresh token), no token anywhere but `api.github.com`, and the
-  per-source files of 0.2 converted; the releases layout, a branch (a new commit of the same
+  per-source files of 0.2 converted; GitHub requests: public repos read
+  with a stored token (also with the anonymous limit spent), without it
+  where it is refused, a clear error on a spent limit with no token; the
+  requests each layout's check makes (first, unchanged: all 304s, changed,
+  after a restart); the releases layout, a branch (a new commit of the same
   version is an update) and tags, repo-tree apps and tools, build scripts
   that succeed, fail, run too long or write outside their folder,
   requirements installed first, uninstall and its refusals, USB media

@@ -391,6 +391,10 @@ function readLease(conf) {
     }
 }
 
+// the answers Fetcher.cached() keeps: how many, and the most bytes of one
+const CACHE_ENTRIES = 64;
+const CACHE_BYTES = 1 << 20;
+
 /* Downloads run in a child as the fetch uid, each into a folder of its own
  * that root makes in state_dir and hands to that uid. Root reads the result
  * only through a descriptor opened without following links and checked to
@@ -403,6 +407,8 @@ class Fetcher {
         this.uid = Number(conf.fetch_uid);
         this.gid = Number(conf.fetch_gid);
         this.ca = conf.ca_file ? fs.readFileSync(conf.ca_file, 'utf8') : null;
+        // url -> { etag, body }: the answers cached() asks for again
+        this.etags = new Map();
     }
 
     asFetchUid(opts) {
@@ -452,6 +458,32 @@ class Fetcher {
         return this.request({ url, headers, name, maxBytes, onProgress });
     }
 
+    /* get() for an answer that carries an ETag: asked for again with
+     * If-None-Match, a 304 (unchanged; GitHub does not count it against a
+     * token's rate limit) gives the body kept from before. The newest
+     * CACHE_ENTRIES answers of at most CACHE_BYTES each are kept. */
+    cached(url, headers, name, maxBytes) {
+        const have = this.etags.get(url);
+        const ask = have ? Object.assign({}, headers, { 'If-None-Match': have.etag }) : headers;
+        return this.request({ url, headers: ask, name, maxBytes, keep: ['etag'] }).then((b) => {
+            this.etags.delete(url);
+            if (b.notModified) {
+                if (!have) {
+                    throw new Error(`${name}: 304 with nothing kept`);
+                }
+                this.etags.set(url, have);
+                return have.body;
+            }
+            if (b.headers.etag && b.length <= CACHE_BYTES) {
+                this.etags.set(url, { etag: b.headers.etag, body: b });
+                if (this.etags.size > CACHE_ENTRIES) {
+                    this.etags.delete(this.etags.keys().next().value);
+                }
+            }
+            return b;
+        });
+    }
+
     /* Downloads url (method GET, or POST with body); resolves with its bytes,
      * the response headers named in job.keep as their .headers. A failure
      * carries the HTTP status as err.status when the server answered. */
@@ -488,14 +520,16 @@ class Fetcher {
                     }
                     if (ev.progress !== undefined && onProgress) {
                         onProgress(ev.progress, ev.total || maxBytes || null);
-                    } else if (ev.done || ev.error) {
+                    } else if (ev.done || ev.error || ev.notModified) {
                         result = ev;
                     }
                 }
             });
             child.on('error', reject);
             child.on('close', () => {
-                if (result && result.done) {
+                if (result && result.notModified) {
+                    resolve(Object.assign(Buffer.alloc(0), { headers: result.headers || {}, notModified: true }));
+                } else if (result && result.done) {
                     try {
                         resolve(Object.assign(this.collect(dest, maxBytes), { headers: result.headers || {} }));
                     } catch (err) {
@@ -756,17 +790,22 @@ class Updater {
     }
 
     /* A source's runtime state, with the components it listed when last read,
-     * the token that read it (tokenId) and whether its repo said it is
-     * public. */
+     * the token that read it (tokenId), whether its repo said it is public,
+     * and what the listing was made from (memo: a commit, a catalog.json or
+     * release assets, as the GitHub reader keys it), so an unchanged one is
+     * not read again; one an earlier updater version made is not used. */
     addRuntime(def) {
         const rt = { def, reader: sourcesLib.reader(def, this.ctx), status: 'ok', error: null, checkedAt: null,
             channel: def.channel || null, mode: null, commit: null, components: [], checking: null, answered: false,
-            tokenId: null, public: false };
+            tokenId: null, public: false, memo: null };
         if (def.type !== 'usb') {
             try {
                 const c = readJson(this.cacheFile(def.id));
                 Object.assign(rt, { mode: c.mode, channel: c.channel || rt.channel, commit: c.commit, components: c.components, checkedAt: c.checkedAt,
                     tokenId: c.token || null, public: c.public === true });
+                if (c.memo && typeof c.memo.key === 'string' && c.memo.version === this.version) {
+                    rt.memo = { key: c.memo.key, cat: { mode: c.mode, commit: c.commit, components: c.components, skipped: c.memo.skipped || [], memoKey: c.memo.key } };
+                }
             } catch (e) { /* not read yet */ }
         }
         this.src.set(def.id, rt);
@@ -1102,12 +1141,16 @@ class Updater {
     }
 
     /* The tokens to read a GitHub source with, in order: the one that read it
-     * last, then the others (those GitHub rejects last); no token (null)
-     * first for a repo known to be public, else last. */
+     * last, then the others GitHub accepts, and no token (null) after them,
+     * for a public repo too (GitHub allows a token 5000 requests an hour, an
+     * address without one 60). Tokens GitHub rejects come before no token,
+     * or after it for a repo known to be public. */
     candidates(rt) {
-        const ids = this.tokens.all().filter((t) => !t.rejected).concat(this.tokens.all().filter((t) => t.rejected)).map((t) => t.id);
+        const ids = this.tokens.all().map((t) => t.id);
         const order = (ids.indexOf(rt.tokenId) >= 0 ? [rt.tokenId] : []).concat(ids.filter((id) => id !== rt.tokenId));
-        return rt.public ? [null].concat(order) : order.concat([null]);
+        const good = order.filter((id) => !this.tokens.get(id).rejected);
+        const rejected = order.filter((id) => this.tokens.get(id).rejected);
+        return rt.public ? good.concat([null], rejected) : good.concat(rejected, [null]);
     }
 
     /* A source's listing. A GitHub source is read with each candidate token
@@ -1120,7 +1163,8 @@ class Updater {
         const cands = this.candidates(rt);
         const attempt = (i) => {
             const text = cands[i] ? this.tokens.text(cands[i]) : '';
-            const reader = sourcesLib.reader(rt.def, Object.assign({}, this.ctx, { tokenFor: () => text }));
+            const reader = sourcesLib.reader(rt.def, Object.assign({}, this.ctx, { tokenFor: () => text,
+                reuse: (key) => (rt.memo && rt.memo.key === key ? JSON.parse(JSON.stringify(rt.memo.cat)) : null) }));
             return reader.catalog().then((cat) => {
                 rt.tokenId = cands[i];
                 rt.public = cat.public === true;
@@ -1162,12 +1206,14 @@ class Updater {
             .then((cat) => {
                 Object.assign(rt, { components: cat.components, mode: cat.mode, channel: cat.channel || rt.channel, commit: cat.commit || null,
                     copyOf: typeof cat.copyOf === 'string' ? cat.copyOf : null,
+                    memo: cat.memoKey ? { key: cat.memoKey, cat: JSON.parse(JSON.stringify(cat)) } : null,
                     status: 'ok', error: cat.skipped && cat.skipped.length ? `left out: ${cat.skipped.join('; ')}` : null,
                     checkedAt: Date.now(), answered: true });
                 if (rt.def.type !== 'usb') {
                     mkdirp(path.dirname(this.cacheFile(id)), 0o700);
                     writeAtomic(this.cacheFile(id), JSON.stringify({ mode: rt.mode, channel: rt.channel, commit: rt.commit,
-                        components: rt.components, checkedAt: rt.checkedAt, token: rt.tokenId, public: rt.public }));
+                        components: rt.components, checkedAt: rt.checkedAt, token: rt.tokenId, public: rt.public,
+                        memo: rt.memo && { key: rt.memo.key, skipped: cat.skipped || [], version: this.version } }));
                 }
                 console.log(`source ${id}${rt.channel ? ` (${rt.channel})` : ''}${rt.tokenId ? ` with token ${rt.tokenId}` : ''}: ` +
                     `${rt.mode}${rt.commit ? ` ${rt.commit.slice(0, 7)}` : ''}, ` +

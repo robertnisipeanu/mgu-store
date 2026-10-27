@@ -124,7 +124,7 @@ const seen = [];
 const API = `https://api.github.com:${HTTPS_PORT}`;
 const GH_WEB = `https://github.com:${HTTPS_PORT}`;
 const gh = { repos: {}, users: { 'tok-all': 'tester', 'tok-third': 'other-acct', 'tok-device': 'tester' }, polls: 0, refreshes: 0, device: null,
-    deviceExpired: false, rateLimited: false };
+    deviceExpired: false, rateLimited: false, anonLimited: false, notModified: 0 };
 
 /* A repo: private ones answer only to one of their tokens (404 without, 401
  * with a wrong one). trees: commit sha -> { path: [data, mode] }. */
@@ -166,9 +166,17 @@ function ghTarball(repo, sha) {
 
 function ghApi(req, res, auth) {
     const u = new URL(req.url, API);
+    // a 200 carries an ETag of its body (and of the token's account, as GitHub's varies with it); asked with it, a 304
     const send = (code, body, headers) => {
         const data = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
-        res.writeHead(code, Object.assign({ 'Content-Length': data.length }, headers || {}));
+        const etag = code === 200 ? `"${sha256(Buffer.concat([data, Buffer.from(String(auth))])).slice(0, 32)}"` : null;
+        if (etag && req.headers['if-none-match'] === etag) {
+            gh.notModified += 1;
+            res.writeHead(304, { ETag: etag });
+            res.end();
+            return;
+        }
+        res.writeHead(code, Object.assign({ 'Content-Length': data.length }, etag ? { ETag: etag } : {}, headers || {}));
         res.end(data);
     };
     if (u.pathname === '/user') {
@@ -195,7 +203,7 @@ function ghApi(req, res, auth) {
         send(404, { message: 'Not Found' });
         return;
     }
-    if (gh.rateLimited) {
+    if (gh.rateLimited || (gh.anonLimited && !auth)) {
         send(403, { message: 'API rate limit exceeded' }, { 'X-RateLimit-Remaining': '0' });
         return;
     }
@@ -206,11 +214,13 @@ function ghApi(req, res, auth) {
     }
     const rest = m[2] || '';
     const assetUrl = (name) => `${API}/repos/${m[1]}/releases/assets/${encodeURIComponent(name)}`;
+    // an asset's upload time: its bytes' hash stands for it
+    const updated = (data) => sha256(Buffer.from(data)).slice(0, 16);
     if (!rest) {
         send(200, { full_name: m[1], default_branch: repo.default_branch, private: repo.private });
     } else if (rest === '/releases/tags/catalog') {
         if (repo.catalog) {
-            send(200, { assets: [{ name: 'catalog.json', url: assetUrl('catalog.json'), size: repo.catalog.length }] });
+            send(200, { assets: [{ name: 'catalog.json', url: assetUrl('catalog.json'), size: repo.catalog.length, updated_at: updated(repo.catalog) }] });
         } else {
             send(404, { message: 'Not Found' });
         }
@@ -231,10 +241,12 @@ function ghApi(req, res, auth) {
         // the catalog release is a release too
         const all = (repo.catalog ? [{ assets: [{ name: 'catalog.json', data: repo.catalog }] }] : []).concat(repo.releases);
         send(200, all.slice(0, n).map((r) => ({ draft: !!r.draft, prerelease: !!r.prerelease,
-            assets: r.assets.map((x) => ({ name: x.name, size: x.data.length, url: assetUrl(x.name) })) })));
+            assets: r.assets.map((x) => ({ name: x.name, size: x.data.length, url: assetUrl(x.name), updated_at: updated(x.data) })) })));
     } else if (rest.indexOf('/commits/') === 0) {
         const sha = repo.branches[decodeURIComponent(rest.slice('/commits/'.length))];
-        send(sha ? 200 : 422, sha ? { sha } : { message: 'No commit found' });
+        // the sha media type: the sha alone
+        const bare = req.headers.accept === 'application/vnd.github.sha';
+        send(sha ? 200 : 422, sha ? (bare ? sha : { sha }) : { message: 'No commit found' });
     } else if (rest === '/tags') {
         send(200, repo.tags.map((t) => ({ name: t.name, commit: { sha: t.sha } })));
     } else if (rest === '/branches') {
@@ -3576,6 +3588,135 @@ function testConversion() {
     ok('convert: nothing left to convert', u.tokens.all().length === 2 && u.src.get('idrive7-apps').tokenId === null);
 }
 
+/* GitHub requests: a stored token reads public repos too (anonymous reads
+ * share 60 an hour per address), none only where the token is refused;
+ * each layout's check costs as few requests as it can, unchanged answers
+ * are 304s, and a listing is read again only when what it is made of
+ * changed, also across a restart. */
+function testRequests(certs) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'req');
+    const pub = path.join(M, 'pub');
+    [M, pub, path.join(M, 'state')].forEach(mkdirp);
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    const catalogOf = (repo, version) => {
+        const file = appTgz(pub, 'req_cat', version);
+        gh.repos[repo].files = { [path.basename(file)]: fs.readFileSync(file) };
+        const e = entry(file, 'app', 'Req');
+        e.artifact.url = `${API}/repos/${repo}/releases/assets/${encodeURIComponent(path.basename(file))}`;
+        gh.repos[repo].catalog = Buffer.from(JSON.stringify({ schema: 1, components: [e] }));
+    };
+    ghRepo('req/cat');
+    catalogOf('req/cat', '1.0.0');
+    ghRepo('req/rel', { releases: [{ assets: [{ name: 'req_rel@1.0.0.tgz', data: fs.readFileSync(appTgz(pub, 'req_rel', '1.0.0')) },
+        { name: 'mgu-store.json', data: Buffer.from(JSON.stringify({ apps: { req_rel: { title: 'Rel' } } })) }] }] });
+    const tree = (version) => ({
+        'mgu-repo.json': JSON.stringify({ schema: 1, components: ['a', 'b', 'c'].map((x) => ({ id: `req_${x}`, kind: 'tool', path: x })) }),
+        'a/component.json': JSON.stringify({ id: 'req_a', kind: 'tool', version, files: [] }),
+        'b/component.json': JSON.stringify({ id: 'req_b', kind: 'tool', version: '1.0.0', files: [] }),
+        'c/component.json': JSON.stringify({ id: 'req_c', kind: 'tool', version: '1.0.0', files: [] })
+    });
+    ghRepo('req/branch');
+    gh.repos['req/branch'].branches.main = ghCommit('req/branch', tree('1.0.0'));
+    ghRepo('req/tags');
+    gh.repos['req/tags'].tags = [{ name: 'v1.0.0', sha: ghCommit('req/tags', tree('1.0.0')) }];
+    // public, but refusing the stored token (an organisation's SSO)
+    ghRepo('req/sso', { forbid: ['tok-all'] });
+    catalogOf('req/sso', '1.0.0');
+    fs.writeFileSync(path.join(M, 'sources.json'), JSON.stringify({ schema: 1, sources: [
+        { id: 'mgu-store', type: 'github', repo: 'req/cat', builtin: true },
+        { id: 'rel', type: 'github', repo: 'req/rel' },
+        { id: 'branch', type: 'github', repo: 'req/branch', channel: 'branch' },
+        { id: 'tags', type: 'github', repo: 'req/tags', channel: 'tags' },
+        { id: 'sso', type: 'github', repo: 'req/sso' }] }));
+    const conf = { state_dir: path.join(M, 'state'), sources: path.join(M, 'sources.json'), credentials_dir: path.join(M, 'cred'),
+        lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'), github_api: API,
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID) };
+    let u = new Updater(conf);
+    u.tokens.add('tok-all', { login: 'tester', label: 'tester' });
+    const ids = ['mgu-store', 'rel', 'branch', 'tags'];
+    const repoOf = { 'mgu-store': 'req/cat', rel: 'req/rel', branch: 'req/branch', tags: 'req/tags', sso: 'req/sso' };
+    const rt = (id) => u.src.get(id);
+    const version = (id, c) => (rt(id).components.find((x) => x.id === c) || {}).version;
+    // the requests one check of a source makes: [all, file reads (assets, contents)]
+    const counted = (id) => {
+        const from = seen.length;
+        return u.checkSource(id).then(() => {
+            const mine = seen.slice(from).filter((x) => x.url.indexOf(`/repos/${repoOf[id]}`) === 0);
+            return [mine.length, mine.filter((x) => /\/(releases\/assets|contents)\//.test(x.url)).length];
+        });
+    };
+    const each = () => ids.reduce((p, id) => p.then((out) => counted(id).then((n) => Object.assign(out, { [id]: n }))), Promise.resolve({}));
+    const from = seen.length;
+    let first;
+    return each()
+        .then((n) => {
+            first = n;
+            ok('requests: first check, every layout read', ids.every((id) => rt(id).status === 'ok') &&
+                JSON.stringify(n) === JSON.stringify({ 'mgu-store': [3, 1], rel: [4, 1], branch: [6, 4], tags: [6, 4] }), JSON.stringify(n));
+            ok('token: public repos are read with the stored token', ids.every((id) => rt(id).tokenId) &&
+                seen.slice(from).every((x) => !/^api\.github\.com/.test(x.host) || x.auth === 'Bearer tok-all'));
+            gh.notModified = 0;
+            return each();
+        })
+        .then((n) => {
+            ok('requests: nothing changed, a check is 2 requests a source (3 for releases), all 304s, no file read',
+                JSON.stringify(n) === JSON.stringify({ 'mgu-store': [2, 0], rel: [3, 0], branch: [2, 0], tags: [2, 0] }) && gh.notModified === 8 &&
+                ids.every((id) => rt(id).status === 'ok') && version('branch', 'req_a') === '1.0.0' && version('mgu-store', 'req_cat') === '1.0.0',
+                JSON.stringify([n, gh.notModified]));
+            // changes are seen by the next check
+            gh.repos['req/branch'].branches.main = ghCommit('req/branch', tree('1.1.0'));
+            gh.repos['req/tags'].tags.push({ name: 'v1.1.0', sha: ghCommit('req/tags', tree('1.1.0')) });
+            catalogOf('req/cat', '1.1.0');
+            return each();
+        })
+        .then((n) => {
+            ok('requests: a moved branch, a new tag, a new catalog.json are read in the same check',
+                version('branch', 'req_a') === '1.1.0' && version('tags', 'req_a') === '1.1.0' && version('mgu-store', 'req_cat') === '1.1.0' &&
+                n.branch[1] === 4 && n.tags[1] === 4 && n['mgu-store'][1] === 1, JSON.stringify(n));
+            // a restart: no ETags kept, the listings are
+            u = new Updater(conf);
+            return each();
+        })
+        .then((n) => {
+            ok('requests: after a restart, an unchanged commit or catalog.json is not read again',
+                JSON.stringify(n) === JSON.stringify({ 'mgu-store': [2, 0], rel: [3, 0], branch: [2, 0], tags: [2, 0] }) &&
+                version('branch', 'req_a') === '1.1.0' && rt('branch').components.length === 3, JSON.stringify(n));
+            ok('requests: a listing an earlier updater version made is read again', (() => {
+                const file = path.join(M, 'state', 'sources', 'branch.json');
+                const c = JSON.parse(fs.readFileSync(file, 'utf8'));
+                c.memo.version = '0.0.1';
+                fs.writeFileSync(file, JSON.stringify(c));
+                return new Updater(conf).src.get('branch').memo === null;
+            })());
+            // the anonymous limit spent: the token still reads; where it is refused, no token, then the limit
+            gh.anonLimited = true;
+            return Promise.all([u.checkSource('mgu-store'), u.checkSource('sso')]);
+        })
+        .then(() => {
+            ok('token: with the anonymous limit spent, a public repo reads with the token', rt('mgu-store').status === 'ok' && rt('mgu-store').tokenId);
+            ok('token: refused for a public repo, no token is tried; a spent limit then says so', rt('sso').status === 'error' &&
+                rt('sso').error === 'GitHub rate limit reached' && seen.some((x) => x.url === '/repos/req/sso' && x.auth === null), rt('sso').error);
+            gh.anonLimited = false;
+            return u.checkSource('sso');
+        })
+        .then(() => {
+            ok('token: refused for a public repo, read without it', rt('sso').status === 'ok' && rt('sso').tokenId === null &&
+                version('sso', 'req_cat') === '1.0.0', JSON.stringify([rt('sso').status, rt('sso').error]));
+            u.tokens.remove(u.tokens.all()[0].id);
+            u.tokensChanged();
+            gh.anonLimited = true;
+            return u.checkSource('rel');
+        })
+        .then(() => {
+            gh.anonLimited = false;
+            ok('token: none stored and the anonymous limit spent: a clear error', rt('rel').status === 'error' &&
+                rt('rel').error === 'GitHub rate limit reached', rt('rel').error);
+            ok('token: never sent anywhere but the API host', !seen.slice(from).some((x) => x.auth && !/^api\.github\.com/.test(x.host)));
+        });
+}
+
 /* ---- run ---------------------------------------------------------------------- */
 
 function main() {
@@ -3591,6 +3732,7 @@ function main() {
         .then(() => Promise.all([startDns(), startHttps(certs, pubDir)]))
         .then(([dnsSrv, httpsSrv]) => testFetch(certs, pubDir)
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
+            .then(() => testRequests(certs).catch((e) => ok('requests scenario', false, e.stack)))
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
             .then(() => testAppManager(certs, pubDir).catch((e) => ok('App Manager scenario', false, e.stack)))
