@@ -23,6 +23,8 @@ void cfg_defaults(struct cfg *c)
     c->tick_early = 1;
     c->readback_pbo = 1;
     c->embed_finish = 0;
+    c->embed_bridge = 1;
+    c->embed_bridge_ms = 400;
     snprintf(c->hmi_display, sizeof c->hmi_display, "wayland-1");
     c->embed_surface_id = 0x500;
     c->embed_area[0] = 104; c->embed_area[1] = 88; c->embed_area[2] = 1796; c->embed_area[3] = 632;
@@ -146,6 +148,8 @@ int cfg_set(struct cfg *c, const char *key, const char *value)
     else if (!strcmp(key, "tick_early")) c->tick_early = n != 0;
     else if (!strcmp(key, "readback_pbo")) c->readback_pbo = n != 0;
     else if (!strcmp(key, "embed_finish")) c->embed_finish = n != 0;
+    else if (!strcmp(key, "embed_bridge")) c->embed_bridge = n != 0;
+    else if (!strcmp(key, "embed_bridge_ms")) c->embed_bridge_ms = n < 0 ? 0 : n > 2000 ? 2000 : (int)n;
     else if (!strcmp(key, "gate_legacy")) c->gate_legacy = n != 0;
     else if (!strcmp(key, "touch")) c->touch = n != 0;
     else if (!strcmp(key, "verbose")) c->verbose = n != 0;

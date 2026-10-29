@@ -1,7 +1,7 @@
 {
   "id": "mgu-render",
   "kind": "tool",
-  "version": "0.6.1",
+  "version": "0.6.3",
   "title": "Renderer",
   "description": "Draws apps' screens on the GPU, over the HMI or inside the app's page",
   "mguProvides": "renderer",

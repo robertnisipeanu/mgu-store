@@ -83,6 +83,8 @@ enum {
     X_PIXELS = 0x4d520004,  /* u32 id, u32 n (1..64), (u32 x y w h)*n, then each rect's pixels in turn, rows top-down,
                                packed (w * bytes per pixel per row), the whole padded to 4 */
     X_PALETTE = 0x4d520005, /* u32 id, 256 * 3 bytes RGB: an INDEX8 pixmap's colours, for the whole picture */
+    X_BRIDGE = 0x4d520006,  /* u32 on (embed, CAP_BRIDGE): 1 the HMI changes the app's page now, its frames are shown
+                               over the HMI's box for embed_bridge_ms; 0 hide them now (a popup) */
 };
 
 /* pixmap formats */
@@ -130,6 +132,7 @@ enum {
     CAP_PIXMAP = 8,         /* X_PIXMAP / X_PIXELS / X_PALETTE */
     CAP_VIDEO = 16,         /* MI_VIDEO / MI_DROP_VIDEO / OP_VIDEO */
     CAP_EMBED_ZERO_COPY = 32, /* embed frames are drawn straight into the HMI compositor's GPU buffers (no readback) */
+    CAP_BRIDGE = 64,        /* X_BRIDGE: the HMI's page changes are bridged (embed_bridge) */
 };
 
 /* draw opcodes, all dialects */

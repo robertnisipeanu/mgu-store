@@ -1,5 +1,9 @@
 # mgu-render changelog
 
+## 0.6.3
+
+- Page changes of an embed app show no black box: when the app says its HMI page changes (X_BRIDGE 1, caps 64), its frames show on a layer of the renderer's own over exactly the box, above the HMI, for `embed_bridge_ms` (400), while the HMI shows neither page. The layer goes at once on X_BRIDGE 0 (an HMI popup, menu or HOME took the page's focus), when another app comes in front, a camera or video surface shows, or the app leaves the box, hides, goes silent or disconnects. `embed_bridge = 0` turns it off; apps that do not send X_BRIDGE get no layer (README.md, "Page changes").
+
 ## 0.6.1
 
 - The HMI page template, its folder and the boot's copy of the HMI's widgets are made readable by the HMI's user (0644 files, 0755 folders) whatever umask the install or the boot runs with. An install that ran with umask 077 left the template readable by root only, and the HMI, which runs as its own user, showed the app's page empty. An install whose template is in place for its HmiMain3D makes it readable without making it again, and each boot copies it readable.
