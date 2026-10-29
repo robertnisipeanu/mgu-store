@@ -3,7 +3,7 @@
 ## 0.9.12
 
 Opening or leaving a page of the drawn screens, and the HMI's BACK, keep
-the page on screen while the HMI changes its state: with mgu-render 0.6.0
+the page on screen while the HMI changes its state: with mgu-render 0.6.3
 the Store tells the renderer of each page change, and the renderer shows the
 new page over the HMI's box for that moment, which the HMI leaves black. An
 HMI popup over the page hides it at once. An older renderer shows the

@@ -60,7 +60,7 @@ Confirm steps are a sheet over the page, Cancel first. Every page is a host
 state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
 `ST_OnlineApps_StoreEmbed1..3` on the renderer's page template), so BACK
 leaves it. In embed mode each page change (a page opened or closed, the
-HMI's BACK) is told to the renderer (`bridge`, mgu-render 0.6.0), which
+HMI's BACK) is told to the renderer (`bridge`, mgu-render 0.6.3), which
 shows the page over the box while the HMI changes the state; the top page
 losing the HMI's focus (a popup) hides that at once. Each host state's focusable buttons stand for what the page has
 to press, in focus order: the controller moves the HMI's focus over them
