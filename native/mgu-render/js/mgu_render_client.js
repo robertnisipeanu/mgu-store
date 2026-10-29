@@ -285,8 +285,8 @@ class RenderClient extends EventEmitter {
         this.claims.forEach((r, i) => [r.x, r.y, r.w, r.h].forEach((v, k) => b.writeFloatLE(v, 4 + i * 16 + k * 4)));
         this._write(msg(M.CLAIM, b));
     }
-    /** Embed (info.bridge): the HMI changes the app's page now (true), its frames show over the HMI's box until the
-     * HMI shows the page again; false hides them now (an HMI popup over the page). */
+    /** Embed (info.bridge): the HMI changes the app's page now (true), its frames show over the HMI's box for a
+     * moment (the renderer's embed_bridge_ms); false hides them now (an HMI popup over the page). */
     bridge(on) {
         if (this.ready && this.native && this.info && this.info.bridge) this._write(u32msg(X.BRIDGE, [on ? 1 : 0]));
     }

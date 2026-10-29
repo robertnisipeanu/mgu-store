@@ -84,7 +84,7 @@ enum {
                                packed (w * bytes per pixel per row), the whole padded to 4 */
     X_PALETTE = 0x4d520005, /* u32 id, 256 * 3 bytes RGB: an INDEX8 pixmap's colours, for the whole picture */
     X_BRIDGE = 0x4d520006,  /* u32 on (embed, CAP_BRIDGE): 1 the HMI changes the app's page now, its frames are shown
-                               over the HMI's box until the HMI shows the page again; 0 hide them now (a popup) */
+                               over the HMI's box for embed_bridge_ms; 0 hide them now (a popup) */
 };
 
 /* pixmap formats */

@@ -39,7 +39,7 @@ static int ask(void)
 /* X_BRIDGE 0 */
 static void ask_off(void)
 {
-    if (b.on) { b.on = 0; layer(0, "the app asked"); }
+    if (bridge_stop(&b)) layer(0, "the app asked");
 }
 
 /* the main loop's pass at time t */
@@ -89,9 +89,19 @@ int main(void)
     ask();
     tick(now + 50000);
     ask_off();
-    CHECK(!shown && !strcmp(why, "the app asked"), "popup: gone at once (%s)", why);
+    CHECK(!shown && !b.on && !strcmp(why, "the app asked"), "popup: gone at once (%s)", why);
     tick(now + 10000);
     CHECK(shows == 1 && hides == 1, "and stays gone");
+    ask_off();
+    CHECK(hides == 1, "a second X_BRIDGE 0 hides nothing");
+
+    /* an app asking again and again is held at most twice the hold from when it showed */
+    reset();
+    ask();
+    uint64_t gone = 0;
+    for (int k = 1; k <= 20 && !gone; k++) { tick(1000000 + k * 50000); if (shown) ask(); else gone = now; }
+    CHECK(gone == 1000000 + 2 * HOLD, "repeated X_BRIDGE 1: gone at twice the hold (at +%llu us)",
+          (unsigned long long)(gone - 1000000));
 
     /* another app comes in front (MENU, HOME, a phone call): gone at the next pass */
     reset();

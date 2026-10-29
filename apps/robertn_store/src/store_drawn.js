@@ -284,6 +284,7 @@ class Drawn extends EventEmitter {
         if (visible) {
             this.visibleHosts.add(depth);
             if (depth < this.stack.length) {
+                this.focusLost = false;
                 this._bridge();
                 this.stack.length = depth;
                 this._backTo();
@@ -301,6 +302,7 @@ class Drawn extends EventEmitter {
      * close (BACK); the top one loses it to an HMI popup. */
     hostFocus(depth, focus) {
         if (focus && depth < this.stack.length) {
+            this.focusLost = false;             // BACK: the page below has the focus
             this._bridge();
             this.stack.length = depth;
             this._backTo();
@@ -341,9 +343,10 @@ class Drawn extends EventEmitter {
     }
 
     /* The HMI changes the page's host state now: the renderer shows the drawn
-     * page over the HMI's box meanwhile, so the box does not go black. */
+     * page over the HMI's box meanwhile, so the box does not go black. Not
+     * while an HMI popup has the focus: the layer would cover it. */
     _bridge() {
-        if (this.mode === 'embed' && this.on_) {
+        if (this.mode === 'embed' && this.on_ && !this.focusLost) {
             this.gpu.bridge(true);
         }
     }

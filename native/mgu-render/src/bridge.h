@@ -28,8 +28,11 @@ struct bridge_app {
 /* what makes showing the app's frames over the box unsafe, or NULL */
 const char *bridge_unsafe(const struct bridge_app *a);
 
-/* X_BRIDGE 1: shown from now (1), or held until now + hold_us when it shows already (0); refused (-1) when unsafe */
+/* X_BRIDGE 1: shown from now (1), or held until now + hold_us when it shows already (0), never past twice hold_us
+   from when it showed; refused (-1) when unsafe */
 int bridge_start(struct bridge *b, uint64_t now, uint64_t hold_us, const char *unsafe);
+/* X_BRIDGE 0: off; 1 when it was on */
+int bridge_stop(struct bridge *b);
 /* why it goes now (it is then off), or NULL while it stays: unsafe (what makes it so, NULL: nothing), or its time up */
 const char *bridge_check(struct bridge *b, uint64_t now, const char *unsafe);
 /* until it goes by itself, us (0 when off) */

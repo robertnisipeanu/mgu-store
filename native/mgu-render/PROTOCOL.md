@@ -125,7 +125,7 @@ Client to daemon:
 | 0x4d520003 | X_PIXMAP | u32 id, w, h (1..2048), format (1 premultiplied RGBA, 2 RGBA shown opaque, 3 INDEX8), filter (0 nearest, 1 linear): an image written in regions, drawn with op 18 |
 | 0x4d520004 | X_PIXELS | u32 id, n (1..64), n × u32 x, y, w, h, then each rect's pixels in turn, rows top-down, packed (w × 1 or 4 bytes a row) |
 | 0x4d520005 | X_PALETTE | u32 id, 768 bytes RGB: an INDEX8 pixmap's colours, for the whole picture from now on |
-| 0x4d520006 | X_BRIDGE | u32 on (embed, caps 64): 1 the HMI changes the app's page now, the app's frames show on the renderer's layer over the box for `embed_bridge_ms` (a second one holds it longer); 0 hide that layer now (an HMI popup took the page's focus). README.md, "Page changes" |
+| 0x4d520006 | X_BRIDGE | u32 on (embed, caps 64): 1 the HMI changes the app's page now, the app's frames show on the renderer's layer over the box for `embed_bridge_ms` (a second one holds it longer, up to twice that from when it showed); 0 hide that layer now (an HMI popup took the page's focus). README.md, "Page changes" |
 
 Daemon to client:
 

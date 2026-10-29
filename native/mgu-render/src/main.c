@@ -597,9 +597,12 @@ static void bridge_begin(client *c) {
     int r = bridge_start(&bridge, now_us(), (uint64_t)cfg.embed_bridge_ms * 1000, unsafe);
     if (r < 0) { if (unsafe) log_info("bridge: %s: not shown (%s)", c->app, unsafe); return; }
     if (r == 1) {
-        if (bridge_make() < 0) { bridge.on = 0; return; }
+        if (bridge_make() < 0 || (unsafe = bridge_unsafe_for(c))) {   /* making it waited for the compositor */
+            bridge.on = 0;
+            if (unsafe) log_info("bridge: %s: not shown (%s)", c->app, unsafe);
+            return;
+        }
         bridged = c;
-        bridge_layer.visible = 0;
     }
     bridge_draw();
 }
@@ -1087,7 +1090,7 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
     case X_BRIDGE:
         if (nw < 1) return -1;
         if (w[0]) bridge_begin(c);
-        else if (c == bridged) bridge_hide("the app asked");
+        else if (c == bridged && bridge_stop(&bridge)) bridge_hide("the app asked");
         return 0;
     case X_PIXMAP:
         if (nw < 5) return -1;
@@ -1574,7 +1577,7 @@ int main(int argc, char **argv) {
             if (c->mode == MODE_LAYER) render_layer(c);
         }
         render_embed();
-        if (cfg.embed_bridge && embed_owner && embed_owner->dialect == DIALECT_NATIVE) bridge_make();
+        if (cfg.embed_bridge && cfg.embed_bridge_ms > 0 && embed_owner && embed_owner->dialect == DIALECT_NATIVE) bridge_make();
         bridge_tick();
         ctl_gate_update(tnow);
         if (touch_on) touch_tick(any_claim());

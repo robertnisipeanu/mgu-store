@@ -1393,6 +1393,9 @@ function runDrawn() {
             bridges.length = 0;
             app._states[host(1)].emit('focus', { focus: false });
             eq([bridges, gpu.visible], [[false], true], 'embed: an HMI popup hides the bridge, the page stays shown');
+            drawn.push({ name: 'accounts' });
+            drawn.pop();
+            eq(bridges, [false], 'a page the Store opens or closes under the popup is not bridged over it');
             app._states[host(1)].emit('focus', { focus: true });
             eq(bridges, [false], 'the focus back bridges nothing');
         }

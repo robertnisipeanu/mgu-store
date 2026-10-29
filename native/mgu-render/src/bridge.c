@@ -16,12 +16,22 @@ int bridge_start(struct bridge *b, uint64_t now, uint64_t hold_us, const char *u
 {
     if (unsafe || !hold_us)
         return -1;
-    b->until = now + hold_us;
-    if (b->on)
+    if (b->on) {
+        uint64_t last = b->since + 2 * hold_us;
+        b->until = now + hold_us < last ? now + hold_us : last;
         return 0;
+    }
     b->on = 1;
     b->since = now;
+    b->until = now + hold_us;
     return 1;
+}
+
+int bridge_stop(struct bridge *b)
+{
+    int was = b->on;
+    b->on = 0;
+    return was;
 }
 
 const char *bridge_check(struct bridge *b, uint64_t now, const char *unsafe)
