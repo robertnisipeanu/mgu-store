@@ -24,7 +24,8 @@ either on the app's own layer over the HMI or inside the app's own HMI page.
   - `embed`: inside the app's HMI page, on the page template
     `LT_State_A4A_WelcomeApp`, through the HMI's own compositor (`wayland-1`):
     the HMI's title bar, popups, camera, BACK and HOME behave as on any stock
-    page (display-bridge's placement).
+    page (display-bridge's placement). While the HMI changes the app's page,
+    the app's frames show on a layer over the page's box ("Page changes").
 - **Only the app in front shows**: a foreground gate reads the HMI's
   `RemoteHmiApplication` (iDrive 8: `RemoteHmiApplication2`) stack and the
   kernel's peer uid of each connection.
@@ -131,6 +132,28 @@ with red and blue swapped once the same surface id has shown a shared-memory buf
 emulator and on the car), so a connection never mixes the two. Once reading back, mgu-render stays so until it restarts, and
 zero-copy after a readback shows right only on a freshly started HMI. The journal names the path (`embed: zero-copy` or `embed: readback fallback (<why>)`);
 apps see it in X_READY's caps (32) and STATS' fourth word.
+
+## Page changes
+
+Each page of an embed app is its own HMI state (the Store's depths), so the HMI's BACK works on them as on any
+stock page. When the app opens or leaves one, the HMI fades the old state out, shows neither for about 100-200 ms
+(measured in the emulator), then fades the new one in: the box goes black, while the app's surface
+has the right picture all along. Nothing the HMI sends marks when the new state shows again: its state events all
+come as the change starts, and its frame callbacks go on throughout.
+
+So the app says when a change starts (X_BRIDGE 1, PROTOCOL.md): before it opens or closes a page's state itself, and
+as the HMI tells it of a BACK. mgu-render then shows the app's frames on a layer of its own (layer `0x4d520010`,
+surface `0x4d520110`, made hidden once the app holds the box) over exactly the box, above the HMI, for
+`embed_bridge_ms` (400), each new frame of the app drawn there as it comes: the box goes from the old page to the
+new one with no black between. The layer goes at once when:
+
+- the app sends X_BRIDGE 0: an HMI popup, menu or HOME took the page's focus (the Store sends it whenever the top
+  page loses the focus);
+- the foreground gate no longer has the app in front, or a camera or video surface (`yield_surfaces`) shows;
+- another app takes the box, the HMI's compositor goes, or the app hides, goes silent for 3 s or disconnects.
+
+The layer has no input region, so touch goes to the HMI and to the app's claims as before. An app that never sends
+X_BRIDGE (every app but the Store 0.9.12 or later) gets no layer; `embed_bridge = 0` turns it off for all.
 
 ## display-bridge's apps
 
@@ -253,6 +276,7 @@ The unit-specific ones:
 | `touch_area` | 84,76,1836,644 (`auto` by screen size) | 0,76,2880,764 |
 | `embed`, `embed_area` | 1, 104,88,1796,632 | never offered: no HmiMain3D, so no template is loaded |
 | `embed_zero_copy`, `tick_early`, `readback_pbo`, `embed_finish` | 1, 1, 1, 0 (embed: "Embed buffers") | same |
+| `embed_bridge`, `embed_bridge_ms` | 1, 400 ("Page changes") | not offered (no embed) |
 | `foreground_gate`, `hmi_process` | node + `foreground_gate.js`, `HmiMain3D` | the gate reads `RemoteHmiApplication2` from `oap-mainapp21` |
 
 ## Apps
@@ -310,7 +334,7 @@ HMI only where the HMI's controller gate is loaded (`info.controller`).
 |---|---|
 | `make target` | `build/target/mgu-render`: x86-64, glibc 2.27, loader `/lib/ld-linux-x86-64.so.2`, built in Ubuntu 18.04 (Docker, linux/amd64) |
 | `make check-target` | the binary's architecture, loader, libraries (`libwayland-client`, `libwayland-egl`, `libEGL`, `libGLESv2`, libc, libm, libdl) and glibc versions |
-| `make test` | in Ubuntu 24.04 with Mesa's llvmpipe (Docker): `test/test_embed.c` (embed's buffer paths against a mock HMI compositor, `test/mock_hmi.c`: zero-copy through `wl_drm` with memfds standing in for dmabufs, readback with and without a pixel buffer, no `wl_drm`, no PRIME, buffers refused; every committed frame's CRC equal to the frame GL drew), `test/test_dialect.c`, `test/test_touch.c` (routing; our table and ports only, in while claimed, out when not and when the renderer dies), `test/test_share.c` (the community socket beside a fake second renderer: handover, restart, take-back, the drop race, foreign sockets kept), `test/test_video.c` (a frame file shorter than its header, the frame file's owner, the video limits), `test/test_hmi.sh` (the page-template script: built at install, only mounted at boot, a refused build not retried, a timeout or signal retried, the template and the boot's copy readable by the HMI's user under umask 077), and `test/replay.sh`: every session in `test/sessions/` (recorded from upstream's and IterioDev's kits, `test/sessions/README.md`) and the synthetic ones (`test/gen_sessions.js`) replayed through the original daemons (`test/reference/`) and mgu-render, every frame compared byte for byte; native pixmaps compared with the same pictures sent as IterioDev pictures; video sessions read frame files in `/dev/shm` and their last frame is checked for the videos' colours; a frame file of another uid is refused |
+| `make test` | in Ubuntu 24.04 with Mesa's llvmpipe (Docker): `test/test_embed.c` (embed's buffer paths against a mock HMI compositor, `test/mock_hmi.c`: zero-copy through `wl_drm` with memfds standing in for dmabufs, readback with and without a pixel buffer, no `wl_drm`, no PRIME, buffers refused; every committed frame's CRC equal to the frame GL drew), `test/test_dialect.c`, `test/test_bridge.c` (when the page-change layer shows: from X_BRIDGE 1 for its time, held by a second one, gone at once on X_BRIDGE 0, another app in front, a camera, the box lost or the app hidden, never shown while any of those holds), `test/test_touch.c` (routing; our table and ports only, in while claimed, out when not and when the renderer dies), `test/test_share.c` (the community socket beside a fake second renderer: handover, restart, take-back, the drop race, foreign sockets kept), `test/test_video.c` (a frame file shorter than its header, the frame file's owner, the video limits), `test/test_hmi.sh` (the page-template script: built at install, only mounted at boot, a refused build not retried, a timeout or signal retried, the template and the boot's copy readable by the HMI's user under umask 077), and `test/replay.sh`: every session in `test/sessions/` (recorded from upstream's and IterioDev's kits, `test/sessions/README.md`) and the synthetic ones (`test/gen_sessions.js`) replayed through the original daemons (`test/reference/`) and mgu-render, every frame compared byte for byte; native pixmaps compared with the same pictures sent as IterioDev pictures; video sessions read frame files in `/dev/shm` and their last frame is checked for the videos' colours; a frame file of another uid is refused |
 | `deploy/hu install mgu-render` | build and install on a unit or the emulator (deploy/README.md) |
 
 `mgu-render --replay FILE --out F.pam [--raw F.rgba]` draws a recorded
@@ -325,6 +349,7 @@ the car can show:
 
 **iDrive 7**
 - [ ] Layer: an upstream app (car_vitals) draws at 60 fps under our unit (upstream measured 56-61 fps with its own); our layer's z-order over HMI popups and the camera, and the yield surface ids of the reversing camera.
+- [ ] Page changes (`embed_bridge`): opening and leaving a Store page and hardware BACK show no black box; an HMI popup, MENU, HOME or the reversing camera during one is never covered (`bridge:` lines in the journal); the HMI's own gap fits in `embed_bridge_ms`.
 - [ ] Embed: DOOM-style pixmap frames inside the page: presented rate (`fps` in `test/pixel_client.js`), and the readback cost at 1796×632 (STATS avg µs) on the HD 505.
 - [ ] display-bridge's apps: after the update and a head-unit restart, display-bridge's units inactive (condition), DOOM, draw_gallery and display_bridge_demo drawn in their pages, DOOM's presented rate (`doom fps` in `/tmp/doom.log`) and touch on display_bridge_demo.
 - [ ] Embed: HmiMain3D's compositor offers `wl_drm` v2 with PRIME (`embed:` lines in the journal), takes the GPU buffers and shows them (`embed: zero-copy`), and the Store's drawn screens' frame rate while dragging (`tools/car-test/CAR-TEST.md`).

@@ -24,6 +24,8 @@ struct cfg {
     int tick_early;             /* embed: TICK once the app's frame is drawn, not when the compositor shows it */
     int readback_pbo;           /* embed readback through a pixel buffer (GLES 3) */
     int embed_finish;           /* embed zero-copy: a frame waits for the GPU (glFinish) before it is committed */
+    int embed_bridge;           /* embed: the app's frames on a layer over the HMI's box while the HMI changes its page */
+    int embed_bridge_ms;        /* how long the layer shows for one page change */
     char embed_marker[128];     /* written by mgu-render-hmi.sh once the template is mounted */
     char hmi_process[32];       /* the HMI's process name: the template is loaded if it started after the marker */
     char foreground_gate[256];  /* command reporting "foreground [uid ...]" on fd 3; empty: none */

@@ -1,4 +1,4 @@
-# robertn_store 0.9.10
+# robertn_store 0.9.12
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -59,7 +59,10 @@ USB, Settings) beside:
 Confirm steps are a sheet over the page, Cancel first. Every page is a host
 state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
 `ST_OnlineApps_StoreEmbed1..3` on the renderer's page template), so BACK
-leaves it. Each host state's focusable buttons stand for what the page has
+leaves it. In embed mode each page change (a page opened or closed, the
+HMI's BACK) is told to the renderer (`bridge`, mgu-render 0.6.0), which
+shows the page over the box while the HMI changes the state; the top page
+losing the HMI's focus (a popup) hides that at once. Each host state's focusable buttons stand for what the page has
 to press, in focus order: the controller moves the HMI's focus over them
 and the drawn page shows it as a ring; a press presses it. In embed mode,
 until the HMI reports a press on one of the page template's buttons (the
@@ -314,15 +317,15 @@ tools/test_screens.js      every drawn screen in iDrive 7's and 8's boxes: in th
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.10/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.12/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.10.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.10.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.12.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.12.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js
 (cd ../../native/mgu-render && make test) && node tools/shots.js <out dir>     # screenshots

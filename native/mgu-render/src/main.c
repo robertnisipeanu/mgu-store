@@ -50,6 +50,7 @@
 #include <unistd.h>
 #include <wayland-client.h>
 #include <wayland-egl.h>
+#include "bridge.h"
 #include "config.h"
 #include "dbr.h"
 #include "dialect.h"
@@ -121,6 +122,7 @@ typedef struct client {
     struct wl_callback *frame_cb;
     /* frames */
     uint32_t *frame; size_t frame_words, frame_cap;
+    uint32_t frame_seq;     /* frames received */
     int dirty;              /* a frame arrived that is not on screen yet */
     int want_tick;          /* tell the app when we can take the next frame */
     uint32_t frames_shown, ticks;
@@ -168,6 +170,7 @@ static void c_screen(void *d, struct ivi_controller *c, uint32_t id, struct ivi_
 static void c_layer(void *d, struct ivi_controller *c, uint32_t id) { (void)d, (void)c, (void)id; }
 
 static void update_all(void);
+static void bridge_tick(void);
 static void y_visibility(void *d, struct ivi_controller_surface *s, int32_t v) {
     (void)s;
     int i = (int)(intptr_t)d, any = 0;
@@ -403,6 +406,7 @@ static void update_all(void) {
         apply_visibility(c);
         send_state(c);
     }
+    bridge_tick();
 }
 
 /* ---------------- layer surfaces ---------------- */
@@ -523,6 +527,89 @@ static void render_layer(client *c) {
     dbr_committed(c);
     if (c->frames_shown++ == 0) { apply_visibility(c); send_state(c); }
     stats(c, now_us() - t0);
+}
+
+/* ---------------- embed bridge (bridge.h): the embed app's frames over the HMI's box while the HMI changes its page ---- */
+#define BRIDGE_SLOT MAX_CLIENTS     /* its ivi ids follow the apps': layer 0x4d520010, surface 0x4d520110 */
+static client bridge_layer;         /* a layer surface over exactly the HMI's box (surface_create); not one of clients[] */
+static client *bridged;             /* the app whose frames it shows, while it shows */
+static struct bridge bridge;
+static uint32_t bridge_seq;         /* the app's frame drawn on it last */
+
+static const char *bridge_unsafe_for(const client *c) {
+    struct bridge_app a = { c == embed_owner && embed_visible(), c->visible && c->frame_words && !c->stale, in_front(c),
+                            yielding };
+    return bridge_unsafe(&a);
+}
+
+static void bridge_hide(const char *why) {
+    if (!bridged) return;
+    log_info("bridge: %s: hidden after %u ms (%s)", bridged->app, (unsigned)((now_us() - bridge.since) / 1000), why);
+    bridged = NULL;
+    bridge.on = 0;
+    if (bridge_layer.cl) {
+        ivi_controller_layer_set_visibility(bridge_layer.cl, 0);
+        ivi_controller_surface_set_visibility(bridge_layer.cs, 0);
+        ivi_controller_commit_changes(ictl);
+    }
+    bridge_layer.visible = 0;
+}
+
+/* each frame of the app as it comes (a page change brings a few), the first one before the layer shows */
+static void bridge_draw(void) {
+    client *c = bridged;
+    if (!c || (bridge_layer.visible && bridge_seq == c->frame_seq)) return;
+    eglMakeCurrent(edpy, bridge_layer.es, bridge_layer.es, ectx);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    gfx_draw(&c->g, &c->xf, bridge_layer.w, bridge_layer.h, c->frame, c->frame_words, 1);
+    eglSwapBuffers(edpy, bridge_layer.es);
+    bridge_seq = c->frame_seq;
+    if (!bridge_layer.visible) {
+        bridge_layer.visible = 1;
+        ivi_controller_layer_set_visibility(bridge_layer.cl, 1);
+        ivi_controller_surface_set_visibility(bridge_layer.cs, 1);
+        ivi_controller_commit_changes(ictl);
+        log_info("bridge: %s: shown over the HMI's box", c->app);
+    }
+}
+
+/* the layer, hidden, made once an app holds the HMI's box (from the main loop: it waits for the compositor), so a
+   page change shows it at once */
+static int bridge_make(void) {
+    static int refused;             /* the compositor refused it once: no bridge until the renderer restarts */
+    if (bridge_layer.cl) return 0;
+    if (refused) return -1;
+    bridge_layer.slot = BRIDGE_SLOT; bridge_layer.es = EGL_NO_SURFACE; bridge_layer.xf.s = 1;
+    snprintf(bridge_layer.app, sizeof bridge_layer.app, "bridge");
+    bridge_layer.x = cfg.embed_area[0]; bridge_layer.y = cfg.embed_area[1];
+    bridge_layer.w = cfg.embed_area[2]; bridge_layer.h = cfg.embed_area[3];
+    if (surface_create(&bridge_layer) == 0) return 0;
+    surface_destroy(&bridge_layer);
+    refused = 1;
+    log_warn("bridge: no layer surface; page changes are not bridged");
+    return -1;
+}
+
+/* X_BRIDGE 1: the HMI changes the app's page now */
+static void bridge_begin(client *c) {
+    if (!cfg.embed_bridge || !dpy || (bridged && bridged != c)) return;
+    const char *unsafe = bridge_unsafe_for(c);
+    int r = bridge_start(&bridge, now_us(), (uint64_t)cfg.embed_bridge_ms * 1000, unsafe);
+    if (r < 0) { if (unsafe) log_info("bridge: %s: not shown (%s)", c->app, unsafe); return; }
+    if (r == 1) {
+        if (bridge_make() < 0) { bridge.on = 0; return; }
+        bridged = c;
+        bridge_layer.visible = 0;
+    }
+    bridge_draw();
+}
+
+/* the layer goes as soon as it is unsafe or its time is up */
+static void bridge_tick(void) {
+    if (!bridged) return;
+    const char *why = bridge_check(&bridge, now_us(), bridge_unsafe_for(bridged));
+    if (why) bridge_hide(why);
+    else bridge_draw();
 }
 
 /* ---------------- embed: drawn into the HMI compositor's buffer (embed.h, embed_gl.h) ---------------- */
@@ -761,6 +848,7 @@ static int ctl_gate_loaded(void) {
 static void client_free(client *c) {
     log_info("%s: disconnected", c->app[0] ? c->app : "client");
     touch_forget(c->slot);
+    if (c == bridged) bridge_hide("the app disconnected");
     if (c == embed_owner) embed_owner = NULL;
     if (dpy) {
         eglMakeCurrent(edpy, init_es, init_es, ectx);
@@ -795,7 +883,8 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         int emb = embed_available(), area[4];
         app_area(area);
         uint32_t caps = CAP_PIXMAP | CAP_VIDEO | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
-                        (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0);
+                        (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
+                        (emb && cfg.embed_bridge && cfg.embed_bridge_ms > 0 ? CAP_BRIDGE : 0);
         uint32_t x[15] = { MGU_NATIVE_VERSION, (1u << (MODE_LAYER - 1)) | (emb ? 1u << (MODE_EMBED - 1) : 0), caps };
         for (int k = 0; k < 4; k++) { x[3 + k] = emb ? (uint32_t)cfg.embed_area[k] : 0; x[7 + k] = (uint32_t)area[k]; }
         x[11] = GFX_PIXMAP_SIDE; x[12] = (uint32_t)refresh_mhz;
@@ -981,6 +1070,7 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
         if (nw > c->frame_cap) { c->frame_cap = nw + 1024; c->frame = realloc(c->frame, c->frame_cap * 4); }
         memcpy(c->frame, p, nw * 4);
         c->frame_words = nw;
+        c->frame_seq++;
         c->dirty = 1;
         c->want_tick = 1;
         if (first && c->mode == MODE_EMBED) update_all();
@@ -994,6 +1084,11 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
         return set_mode(c, w[0]);
     case X_GRAB:
         return grab(c, w, nw);
+    case X_BRIDGE:
+        if (nw < 1) return -1;
+        if (w[0]) bridge_begin(c);
+        else if (c == bridged) bridge_hide("the app asked");
+        return 0;
     case X_PIXMAP:
         if (nw < 5) return -1;
         make_current_any(c);
@@ -1479,6 +1574,8 @@ int main(int argc, char **argv) {
             if (c->mode == MODE_LAYER) render_layer(c);
         }
         render_embed();
+        if (cfg.embed_bridge && embed_owner && embed_owner->dialect == DIALECT_NATIVE) bridge_make();
+        bridge_tick();
         ctl_gate_update(tnow);
         if (touch_on) touch_tick(any_claim());
         if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); }
@@ -1513,6 +1610,8 @@ int main(int argc, char **argv) {
             uint64_t us = cap_wait(clients[i], tnow);
             if (us && (int)(us / 1000) + 1 < wait_ms) wait_ms = (int)(us / 1000) + 1;
         }
+        uint64_t left = bridge_left(&bridge, now_us());                       /* in time to hide the bridge */
+        if (left && (int)(left / 1000) + 1 < wait_ms) wait_ms = (int)(left / 1000) + 1;
         int r = poll(pf, np, wait_ms);
         if (r < 0 && errno != EINTR) { wl_display_cancel_read(dpy); break; }
         if (pf[0].revents & POLLIN) wl_display_read_events(dpy); else wl_display_cancel_read(dpy);

@@ -223,6 +223,7 @@ class Drawn extends EventEmitter {
             this.stack[DEPTHS - 1] = page;
         } else {
             this.stack.push(page);
+            this._bridge();
             this.host.openState(this.hostOf(this.stack.length));
         }
         this.focus = 0;
@@ -242,6 +243,7 @@ class Drawn extends EventEmitter {
             const depth = this.stack.length;
             this.stack.pop();
             this._backTo();
+            this._bridge();
             this.host.closeState(this.hostOf(depth));
             this.render();
         }
@@ -282,6 +284,7 @@ class Drawn extends EventEmitter {
         if (visible) {
             this.visibleHosts.add(depth);
             if (depth < this.stack.length) {
+                this._bridge();
                 this.stack.length = depth;
                 this._backTo();
             }
@@ -298,6 +301,7 @@ class Drawn extends EventEmitter {
      * close (BACK); the top one loses it to an HMI popup. */
     hostFocus(depth, focus) {
         if (focus && depth < this.stack.length) {
+            this._bridge();
             this.stack.length = depth;
             this._backTo();
             this.render();
@@ -306,6 +310,8 @@ class Drawn extends EventEmitter {
             this.focusLost = !focus;
             if (focus) {
                 this.emit('page-focus', this.top());
+            } else if (this.mode === 'embed') {
+                this.gpu.bridge(false);         // an HMI popup over the page, or BACK (the page below then bridges)
             }
         }
         this._updateShow();
@@ -331,6 +337,14 @@ class Drawn extends EventEmitter {
     _proxyInput() {
         if (this.mode === 'embed') {
             this.embedProxies = true;
+        }
+    }
+
+    /* The HMI changes the page's host state now: the renderer shows the drawn
+     * page over the HMI's box meanwhile, so the box does not go black. */
+    _bridge() {
+        if (this.mode === 'embed' && this.on_) {
+            this.gpu.bridge(true);
         }
     }
 

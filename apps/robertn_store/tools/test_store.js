@@ -144,6 +144,7 @@ const WIFI = { enabled: true, link: 'idle', saved: [], scanning: false, error: n
     networks: [{ ssid: 'Home', signal: -50, secure: true, saved: false, current: false }, { ssid: 'Cafe', signal: -70, secure: false }] };
 /* mgu-render's client: what the Store asks of it. */
 const gpuLog = [];
+const bridges = [];             // bridge(on) asked, in order
 let fpsAsked = null;
 const frames = [];
 class RenderClient extends EventEmitter {
@@ -163,6 +164,7 @@ class RenderClient extends EventEmitter {
     claim(r) { this.claims = r; }
     fps(n) { fpsAsked = n; }
     grab(on) { this.grabbing = on; }
+    bridge(on) { bridges.push(on); }
     frame(rec) { frames.push(rec); return true; }
 }
 // FrontCCU: the sample callback the app subscribes with
@@ -946,15 +948,18 @@ function runDrawn() {
         eq(drawn.focus, 9);
         // a tile press opens its page at depth 2
         reset();
+        bridges.length = 0;
         app._components[proxy(1, 7)].emit('action', {});
         return tick();
     }).then(() => {
         eq(states, [`open ${host(2)}`], 'the app page is the next host state');
+        eq(bridges, mode === 'embed' ? [true] : [], 'embed: the renderer bridges the HMI\'s page change');
         eq({ name: drawn.top().name, id: drawn.top().id }, { name: 'app', id: 'doom' });
         // as the HMI reports it: the state below loses the focus but stays visible
         app._states[host(1)].emit('focus', { focus: false });
         app._states[host(2)].emit('visible', { visible: true });
         app._states[host(2)].emit('focus', { focus: true });
+        eq(bridges, mode === 'embed' ? [true] : [], 'the HMI\'s focus moving to the new page ends nothing');
         return tick();
     }).then(() => {
         const labels = drawn.items.map((i) => i.label);
@@ -980,10 +985,13 @@ function runDrawn() {
         eq(sent.map(secretless), [{ op: 'uninstall', id: 'doom' }], 'Remove removes it');
         eq(states, [`close ${host(3)}`], 'and the dialog closes');
         eq(drawn.stack.length, 2);
+        eq(bridges.slice(-1), mode === 'embed' ? [true] : [], 'closing a page bridges too');
         // BACK: as the HMI reports it, the page's state loses the focus and hides, the one below gets the focus
+        bridges.length = 0;
         app._states[host(2)].emit('focus', { focus: false });
         app._states[host(2)].emit('visible', { visible: false });
         app._states[host(1)].emit('focus', { focus: true });
+        eq(bridges, mode === 'embed' ? [false, true] : [], 'BACK: the page losing the focus hides, the page below bridges');
         return tick();
     }).then(() => {
         eq(drawn.stack.length, 1, 'BACK leaves the page');
@@ -1379,6 +1387,14 @@ function runDrawn() {
             ccu(103);
             eq(drawn.focus, 5, 'with the controller gate the renderer\'s dial counts instead');
             drawn.controller = false;
+        }
+        // a popup over an embed page: the bridge hides at once, the page stays
+        if (mode === 'embed') {
+            bridges.length = 0;
+            app._states[host(1)].emit('focus', { focus: false });
+            eq([bridges, gpu.visible], [[false], true], 'embed: an HMI popup hides the bridge, the page stays shown');
+            app._states[host(1)].emit('focus', { focus: true });
+            eq(bridges, [false], 'the focus back bridges nothing');
         }
         // a popup over a layer page hides the layer
         if (mode === 'layer') {

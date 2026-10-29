@@ -62,6 +62,8 @@ in-test: build/$(OUT)/mgu-render
 	build/$(OUT)/test_dbr
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_touch test/test_touch.c
 	build/$(OUT)/test_touch
+	$(CC) $(CFLAGS) -o build/$(OUT)/test_bridge test/test_bridge.c src/bridge.c
+	build/$(OUT)/test_bridge
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_share test/test_share.c src/log.c
 	build/$(OUT)/test_share
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_video test/test_video.c src/gfx.c src/log.c -lEGL -lGLESv2 -lm
