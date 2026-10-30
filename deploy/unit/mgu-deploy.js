@@ -1379,6 +1379,8 @@ function toolTouched(c) {
         paths.push(path.join(CFG.systemd, en.target + '.wants', en.unit));
     });
     (c.dropins || []).forEach(function (d) { paths.push(dropinPath(d)); });
+    /* a hook may hand over files, which installs the cleanup unit */
+    if (c.activate || c.deactivate) paths = paths.concat(cleanupTouched());
     return paths;
 }
 function recmgrBase(unit) { return unit.replace(/\.(service|socket|target)$/, ''); }
@@ -1522,7 +1524,10 @@ function runHook(id, dir, c, which, state) {
  * removes it at a later start, once nothing runs it. Only a regular file is
  * removed. */
 var UNUSED_FILE = path.join(DEPLOY_DIR, 'remove-when-unused.json');
-var CLEANUP_UNIT = 'mgu-deploy-cleanup.service', CLEANUP_NAME = 'mgu-deploy-cleanup';
+var CLEANUP_UNIT = 'mgu-deploy-cleanup.service', CLEANUP_NAME = 'mgu-deploy-cleanup', CLEANUP_WANTS = 'multi-user.target.wants';
+function cleanupTouched() {
+    return [path.join(CFG.systemd, CLEANUP_UNIT), path.join(CFG.systemd, CLEANUP_WANTS, CLEANUP_UNIT), UNUSED_FILE];
+}
 function readUnused() {
     var j = readJsonOrNull(UNUSED_FILE);
     return j && Array.isArray(j.paths) ? j.paths.filter(function (p) { return typeof p === 'string'; }) : [];
@@ -1532,7 +1537,6 @@ function writeUnused(paths) {
     mkdirp(DEPLOY_DIR);
     writeAtomic(UNUSED_FILE, JSON.stringify({ paths: paths }, null, 2) + '\n', 0o644);
 }
-/* A process runs p: its <proc>/<pid>/exe is p's inode. */
 function executed(p) {
     var st = statOrNull(p);
     if (!st) return false;
@@ -1543,7 +1547,6 @@ function executed(p) {
         return !!x && x.ino === st.ino && x.dev === st.dev;
     });
 }
-/* Removes the paths no process runs; returns the ones kept. */
 function removeUnused(paths) {
     var keep = [], ops = [];
     paths.forEach(function (p) {
@@ -1571,29 +1574,8 @@ function handOver(id, paths, state) {
     keep.forEach(function (p) { if (queued.indexOf(p) < 0) queued.push(p); });
     writeUnused(queued);
     if (keep.length) {
-        ensureCleanupUnit(state);
+        if (ensureBootUnit(CLEANUP_UNIT, CLEANUP_NAME, CLEANUP_WANTS, state)) say(CLEANUP_UNIT + ' installed');
         say(id + ': ' + keep.join(', ') + ' removed at a later start, once no process runs it');
-    }
-}
-/* The boot unit that removes them: written, enabled and listed in recmgr. */
-function ensureCleanupUnit(state) {
-    var src = path.join(HERE, CLEANUP_UNIT);
-    if (!fs.existsSync(src)) throw refuse(CLEANUP_UNIT + ' missing beside mgu-deploy.js');
-    selfInstall(); // the unit runs the installed tool through its shim
-    var unitDest = path.join(CFG.systemd, CLEANUP_UNIT), link = path.join(CFG.systemd, 'multi-user.target.wants', CLEANUP_UNIT), cur = null, ops = [];
-    if (!bytesEqualFile(fs.readFileSync(src), unitDest)) ops.push({ type: 'copy', src: src, path: unitDest, mode: 0o644 });
-    try { cur = fs.readlinkSync(link); } catch (e) { /* not enabled */ }
-    if (cur !== '../' + CLEANUP_UNIT) {
-        if (!fs.existsSync(path.dirname(link))) noteCreatedDir(state, path.dirname(link));
-        ops.push({ type: 'mkdir', path: path.dirname(link) });
-        ops.push({ type: 'symlink', path: link, target: '../' + CLEANUP_UNIT });
-    }
-    var rec = recmgrOp(recmgrWith(recmgrText(), [CLEANUP_NAME], []));
-    if (rec) ops.push(rec);
-    if (ops.length) {
-        rootfsWindow(ops);
-        runOk(CFG.systemctl, ['daemon-reload']);
-        say(CLEANUP_UNIT + ' installed');
     }
 }
 function cmdRemoveUnused() {
@@ -2449,7 +2431,6 @@ function dasEnableLine(id) {
     return '<' + id + ' enabled="true" allowed="true" appStartType="autostart" userLoginRequired="false"/>';
 }
 function dasFile(d) { return path.join(CFG.prov, d + '.xml'); }
-function applyUnitSource() { return path.join(HERE, APPLY_UNIT); }
 function applyTouched() {
     return [path.join(CFG.systemd, APPLY_UNIT), path.join(CFG.systemd, APPLY_WANTS, APPLY_UNIT), CFG.recmgr];
 }
@@ -2473,28 +2454,31 @@ function dasApps() {
     });
     return ids;
 }
-/* The boot unit that applies the queue: written, enabled and listed in
- * recmgr (where the unit has the list) with the first change queued. */
-function ensureApplyUnit(state) {
-    if (!fs.existsSync(applyUnitSource())) throw refuse(APPLY_UNIT + ' missing beside mgu-deploy.js');
+/* One of this tool's boot units (beside mgu-deploy.js): written, enabled in
+ * wants and listed in recmgr (where the unit has the list). True when
+ * anything changed. */
+function ensureBootUnit(unit, name, wants, state) {
+    var src = path.join(HERE, unit);
+    if (!fs.existsSync(src)) throw refuse(unit + ' missing beside mgu-deploy.js');
     selfInstall(); // the unit runs the installed tool through its shim
-    var unitDest = path.join(CFG.systemd, APPLY_UNIT), link = path.join(CFG.systemd, APPLY_WANTS, APPLY_UNIT), cur = null, ops = [];
-    if (!bytesEqualFile(fs.readFileSync(applyUnitSource()), unitDest)) {
-        ops.push({ type: 'copy', src: applyUnitSource(), path: unitDest, mode: 0o644 });
-    }
+    var unitDest = path.join(CFG.systemd, unit), link = path.join(CFG.systemd, wants, unit), cur = null, ops = [];
+    if (!bytesEqualFile(fs.readFileSync(src), unitDest)) ops.push({ type: 'copy', src: src, path: unitDest, mode: 0o644 });
     try { cur = fs.readlinkSync(link); } catch (e) { /* not enabled */ }
-    if (cur !== '../' + APPLY_UNIT) {
+    if (cur !== '../' + unit) {
         if (!fs.existsSync(path.dirname(link))) noteCreatedDir(state, path.dirname(link));
         ops.push({ type: 'mkdir', path: path.dirname(link) });
-        ops.push({ type: 'symlink', path: link, target: '../' + APPLY_UNIT });
+        ops.push({ type: 'symlink', path: link, target: '../' + unit });
     }
-    var rec = recmgrOp(recmgrWith(recmgrText(), [APPLY_NAME], []));
+    var rec = recmgrOp(recmgrWith(recmgrText(), [name], []));
     if (rec) ops.push(rec);
-    if (ops.length) {
-        rootfsWindow(ops);
-        runOk(CFG.systemctl, ['daemon-reload']);
-        say(APPLY_UNIT + ' installed: queued app changes apply at the next start');
-    }
+    if (!ops.length) return false;
+    rootfsWindow(ops);
+    runOk(CFG.systemctl, ['daemon-reload']);
+    return true;
+}
+/* The boot unit that applies the queue, with the first change queued. */
+function ensureApplyUnit(state) {
+    if (ensureBootUnit(APPLY_UNIT, APPLY_NAME, APPLY_WANTS, state)) say(APPLY_UNIT + ' installed: queued app changes apply at the next start');
 }
 /* The package MainApp-21 installs: an npm-format package as published; a
  * source package built here; any other one (flat, .mgu) repacked with its

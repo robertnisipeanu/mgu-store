@@ -1642,6 +1642,24 @@ function testRemoveWhenUnused() {
     r = root.run(['remove-unused']);
     check('unused: with nothing queued it has nothing to do', r.status === 0 && r.out.includes('nothing to remove'), r.out);
 
+    // a removal that fails after its deactivate handed a file over is rolled
+    // back whole: the cleanup unit, its link and the queue with the recmgr list
+    const fl = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+    fl.run(['install', '--artifact', hookArtifact('1.0.0'), '--yes'], { FAKE_HOOK_LOG: `${fl.R}.hooks.log` });
+    const held = fl.p('usr/bin/held.woc-running');
+    write(held, 'old binary\n', 0o755);
+    fs.mkdirSync(fl.p('proc/778'), { recursive: true });
+    fs.symlinkSync(held, fl.p('proc/778/exe'));
+    const recBefore = fs.readFileSync(fl.p('etc/recmgr-restartlist.conf'), 'utf8');
+    r = fl.run(['uninstall', 'fixture-tool', '--yes'], { FAKE_HOOK_LOG: `${fl.R}.hooks.log`, FAKE_HOOK_UNUSED: JSON.stringify([held]),
+        FAKE_FAIL: 'stop fixture-tool.service' });
+    check('unused: a removal failing after the hand-over rolls back the cleanup unit, its link, the queue and the recmgr list',
+        r.status === 1 && fs.existsSync(fl.tool('fixture-tool')) && r.out.includes('mgu-deploy-cleanup.service installed') &&
+        !fs.existsSync(fl.p('etc/systemd/system/mgu-deploy-cleanup.service')) &&
+        !fs.existsSync(fl.p('etc/systemd/system/multi-user.target.wants/mgu-deploy-cleanup.service')) &&
+        !fs.existsSync(fl.p('var/opt/mgu-deploy/remove-when-unused.json')) &&
+        fs.readFileSync(fl.p('etc/recmgr-restartlist.conf'), 'utf8') === recBefore, r.out);
+
     const now = fakeRoot({ recmgr: ['fixture-tool'] });
     now.run(['install', '--artifact', hookArtifact('1.0.0'), '--yes'], { FAKE_HOOK_LOG: `${now.R}.hooks.log` });
     const free = now.p('usr/bin/free.woc-running');
