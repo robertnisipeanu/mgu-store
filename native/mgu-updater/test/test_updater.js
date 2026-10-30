@@ -4090,7 +4090,7 @@ function testDefaultSources() {
         stored().length === 2, JSON.stringify(stored()));
     u = new Updater(conf());
     ok('default sources: one the owner removed is not added again', stored().length === 2 && u.stored.length === 2 &&
-        JSON.parse(fs.readFileSync(path.join(D, 'state', 'default-sources.json'), 'utf8')).added.join() === 'theonelt83/idrive7-apps');
+        JSON.parse(fs.readFileSync(path.join(D, 'state', 'default-sources.json'), 'utf8')).added.join() === 'cauliflowermossgrape/idrive7-apps');
     // a unit the installers seeded with it (as deploy/sources.json): recorded, not doubled
     fs.unlinkSync(path.join(D, 'state', 'default-sources.json'));
     fs.writeFileSync(file, JSON.stringify({ schema: 1, sources: [

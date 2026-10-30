@@ -675,7 +675,7 @@ const REPLACED = { [APP_MANAGER]: 'Replaced by Store', 'ipheth-tether': 'Replace
 // the origin of an app the App Manager installed from no source the updater reads
 const IMPORTED = 'imported';
 // the repository whose own installer (deploy/mgu-app-install.sh) the deploy tool recognises
-const IDRIVE7_REPO = 'theonelt83/idrive7-apps';
+const IDRIVE7_REPO = 'cauliflowermossgrape/idrive7-apps';
 
 /* entry as it installs under id, its own id as listedId (Updater.place). */
 function under(entry, id) {
