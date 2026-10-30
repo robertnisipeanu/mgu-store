@@ -849,7 +849,7 @@ class Updater {
     }
 
     builtin() {
-        return { id: SELF_SOURCE_ID, type: 'github', repo: this.conf.builtin_repo || 'TheoneLT83/mgu-store', builtin: true };
+        return { id: SELF_SOURCE_ID, type: 'github', repo: this.conf.builtin_repo || 'robertnisipeanu/mgu-store', builtin: true };
     }
 
     /* sources.json (seeded by the installers, then written by the updater);

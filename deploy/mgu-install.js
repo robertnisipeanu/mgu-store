@@ -37,7 +37,7 @@
  * stick is in. Inputs: github:<owner>/<repo>, an https:// catalog.json URL,
  * a folder holding catalog.json or mgu-repo.json, or package files (*.tgz,
  * *.mgu: apps, source packages, tool kits; together in mgu-repo/local/).
- * Without inputs: github:TheoneLT83/mgu-store.
+ * Without inputs: github:robertnisipeanu/mgu-store.
  *
  * Without --host or --port it finds the head unit itself: the
  * car's hotspot (172.16.222.97) when its SSH answers, else over ENET (an
@@ -66,7 +66,7 @@ const net = require('net');
 const dgram = require('dgram');
 const tty = require('tty');
 
-const STORE_REPO = 'TheoneLT83/mgu-store';
+const STORE_REPO = 'robertnisipeanu/mgu-store';
 const GITHUB_API = process.env.MGU_INSTALL_GITHUB_API || 'https://api.github.com';
 const HOTSPOT_IP = '172.16.222.97';
 /* the hotspot address detection tries first (<host>[:<port>]; the tests point it elsewhere) */
@@ -83,7 +83,7 @@ const LAST_ENET = path.join(os.homedir(), '.cache', 'mgu-store', 'last_hu_enet_i
 const FROM_STDIN = __filename === '[stdin]';
 /* the updater's sources first-install seeds when it has none (deploy/sources.json) */
 const SOURCES = { schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: STORE_REPO, builtin: true },
-    { id: 'idrive7-apps', type: 'github', repo: 'TheoneLT83/idrive7-apps', channel: 'branch' }] };
+    { id: 'idrive7-apps', type: 'github', repo: 'cauliflowermossgrape/idrive7-apps', channel: 'branch' }] };
 /* the installed deploy tool */
 const DEPLOY = '/var/opt/mgu-deploy/mgu-deploy.sh';
 const UPDATER_JS = '/var/opt/mgu-updater/current/updater.js';

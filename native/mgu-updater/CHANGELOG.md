@@ -51,7 +51,7 @@
 
 ## 0.7.4
 
-- The Store's own source is TheoneLT83/mgu-store and the default source TheoneLT83/idrive7-apps; the apps that repository's own installer put on the unit are adopted with it as their origin.
+- The apps idrive7-apps' own installer put on the unit are adopted with the default source (cauliflowermossgrape/idrive7-apps) as their origin.
 
 ## 0.7.3
 

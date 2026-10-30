@@ -56,12 +56,12 @@ cable), then run the installer with root's SSH key:
 
 ```sh
 # macOS, Linux
-curl -fsSL https://raw.githubusercontent.com/TheoneLT83/mgu-store/main/deploy/mgu-install.js | node - first-install --identity ~/.ssh/mgu_root_key
+curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/mgu-install.js | node - first-install --identity ~/.ssh/mgu_root_key
 ```
 
 ```powershell
 # Windows PowerShell
-irm https://raw.githubusercontent.com/TheoneLT83/mgu-store/main/deploy/mgu-install.js -OutFile mgu-install.js; if ($?) { node mgu-install.js first-install --identity $HOME\.ssh\mgu_root_key }
+irm https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/mgu-install.js -OutFile mgu-install.js; if ($?) { node mgu-install.js first-install --identity $HOME\.ssh\mgu_root_key }
 ```
 
 It needs Node 18 or newer, finds the head unit by itself and says which
@@ -97,7 +97,7 @@ restart (Settings → **Restart head unit**).
 ### Sources
 
 The Store comes with two sources: this repository and
-[idrive7-apps](https://github.com/TheoneLT83/idrive7-apps).
+[idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps).
 
 To add one: Settings → **Add source**, then type `owner/repo`, a GitHub
 link, or the `https://` address of a `catalog.json`. For a GitHub

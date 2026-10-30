@@ -119,7 +119,7 @@ ok(g.max % 1 !== 0, 'the grid scrolls to its last row flush with the bottom');
 f = screen('app-update');
 eq(own(f), ['Update to 1.2.0', 'Remove', 'Back'], 'a page: its buttons, Back, the side menu');
 eq(f.items.find((i) => i.label === 'Version 1.2.0').act, { do: 'open', page: { name: 'changelog', id: 'gauges' } }, 'the version opens the changelog');
-eq(text(f, 'author'), 'by robertn · from TheoneLT83/idrive7-apps');
+eq(text(f, 'author'), 'by robertn · from cauliflowermossgrape/idrive7-apps');
 eq(f.items[1].act, { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'gauges' } });
 ok(/^Speed, revs/.test(text(f, 'desc')), 'the description');
 eq(f.values.facts.items.map((c) => c.text), ['Version 1.2.0', 'App', 'iDrive 7 and iDrive 8']);
@@ -258,7 +258,7 @@ eq(text(f, 'title'), 'Remove Gauges 1.2.0?');
 eq(screen('confirm-restart').items[1].act, { do: 'restart' });
 f = screen('confirm-account');
 eq(f.items[1].act, { do: 'account-remove', id: '3f9a01c2' });
-eq(text(f, 'text'), 'robertn · TheoneLT83/mgu-store');
+eq(text(f, 'text'), 'robertn · robertnisipeanu/mgu-store');
 
 // Installed: Update all for what can update now; a row's Update chip is no button (the row opens its page)
 f = screen('installed');
@@ -307,7 +307,7 @@ eq(text(f, 'subtitle'), 'USB STICK · 2 packages');
 
 // Settings: sources, Add source, Wi-Fi, Accounts, Phone access, the unit; no restart while busy
 f = screen('settings');
-eq(f.labels.slice(4), ['iDrive 7', 'iDrive 8', 'TheoneLT83/mgu-store', 'TheoneLT83/idrive7-apps', 'IterioDev/car-apps', 'USB STICK',
+eq(f.labels.slice(4), ['iDrive 7', 'iDrive 8', 'robertnisipeanu/mgu-store', 'cauliflowermossgrape/idrive7-apps', 'IterioDev/car-apps', 'USB STICK',
     'Add source', 'Wi-Fi', 'Internet', 'Accounts', 'Phone access', 'Information', 'Check now']);
 // the look: the head unit's own until one is picked; each pick is a press
 eq(f.items.filter((i) => /^iDrive/.test(i.label)).map((i) => i.act), [{ do: 'look', look: 'id7' }, { do: 'look', look: 'id8' }]);

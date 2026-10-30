@@ -19,9 +19,9 @@ function state() {
         allProviders: { renderer: [{ id: 'mgu-renderd', version: '1.1.0' }] },
         catalog: { commit: 'x', checkedAt: Date.UTC(2026, 9, 26, 12, 2), checking: false, error: null },
         sources: [
-            { id: 'mgu-store', type: 'github', label: 'TheoneLT83/mgu-store', builtin: true, usb: false, channel: 'releases',
+            { id: 'mgu-store', type: 'github', label: 'robertnisipeanu/mgu-store', builtin: true, usb: false, channel: 'releases',
                 status: 'ok', error: null, auth: { kind: 'github', token: '3f9a01c2', login: 'robertn' }, checkedAt: 1, components: 6 },
-            { id: 'idrive7-apps', type: 'github', label: 'TheoneLT83/idrive7-apps', builtin: false, usb: false, channel: 'branch:main',
+            { id: 'idrive7-apps', type: 'github', label: 'cauliflowermossgrape/idrive7-apps', builtin: false, usb: false, channel: 'branch:main',
                 status: 'ok', error: null, auth: null, checkedAt: 1, components: 4 },
             { id: 'car-apps', type: 'github', label: 'IterioDev/car-apps', builtin: false, usb: false, channel: 'releases',
                 status: 'auth-needed', error: 'no account reaches IterioDev/car-apps', auth: null, checkedAt: 1, components: 0 },
