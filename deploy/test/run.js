@@ -1226,9 +1226,9 @@ function testSelf() {
     check('self: deploy/hu artifact deploy builds mgu-deploy@<version>.tgz', builds.every((b) => b.r.status === 0 && fs.existsSync(b.file)),
         builds.map((b) => b.r.stderr).join('\n'));
     check('self: two builds are byte-identical', sha256(fs.readFileSync(builds[0].file)) === sha256(fs.readFileSync(builds[1].file)));
-    check('self: the artifact holds its seven files and its manifest', JSON.stringify(tarList(builds[0].file)) === JSON.stringify([
+    check('self: the artifact holds its eight files and its manifest', JSON.stringify(tarList(builds[0].file)) === JSON.stringify([
         'component.json', 'files/fallback_build.js', 'files/mgu-app-fallback.service', 'files/mgu-deploy-apply.service',
-        'files/mgu-deploy.js', 'files/mgu-deploy.sh',
+        'files/mgu-deploy-cleanup.service', 'files/mgu-deploy.js', 'files/mgu-deploy.sh',
         'files/oap_link.js', 'files/oap_pack.js']),
     tarList(builds[0].file).join(' '));
     const built = untar(builds[0].file)['component.json'].data;
@@ -1256,7 +1256,8 @@ function testSelf() {
 
     // the kit layout: component.json beside the script
     const kit = fs.mkdtempSync(path.join(T, 'kit-'));
-    ['mgu-deploy.js', 'mgu-deploy.sh', 'fallback_build.js', 'mgu-app-fallback.service', 'mgu-deploy-apply.service'].forEach((n) =>
+    ['mgu-deploy.js', 'mgu-deploy.sh', 'fallback_build.js', 'mgu-app-fallback.service', 'mgu-deploy-apply.service',
+        'mgu-deploy-cleanup.service'].forEach((n) =>
         fs.copyFileSync(path.join(DEPLOY, 'unit', n), path.join(kit, n)));
     LINK_FILES.forEach((n) => fs.copyFileSync(path.join(TOOLS, n), path.join(kit, n)));
     fs.copyFileSync(path.join(DEPLOY, 'component.json'), path.join(kit, 'component.json'));
@@ -1605,6 +1606,60 @@ function testHooks() {
     check('hooks: an executable file of the tool runs directly', r.status === 0 && r.out.includes('hook activate@1.1.0 says hello'), r.out);
 }
 
+/* A hook's "removeWhenUnused": a file no process runs goes at once; one a
+ * process runs waits for mgu-deploy-cleanup.service, installed, enabled and
+ * in the recmgr list, whose remove-unused removes it once nothing runs it. */
+function testRemoveWhenUnused() {
+    const root = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+    const hookLog = `${root.R}.hooks.log`;
+    root.run(['install', '--artifact', hookArtifact('1.0.0'), '--yes'], { FAKE_HOOK_LOG: hookLog });
+    const kept = root.p('usr/bin/thing.woc-running');
+    write(kept, 'old binary\n', 0o755);
+    // a process runs it: its fake /proc exe is that file
+    fs.mkdirSync(root.p('proc/777'), { recursive: true });
+    fs.symlinkSync(kept, root.p('proc/777/exe'));
+    let r = root.run(['uninstall', 'fixture-tool', '--yes'], { FAKE_HOOK_LOG: hookLog, FAKE_HOOK_UNUSED: JSON.stringify([kept]) });
+    const unit = root.p('etc/systemd/system/mgu-deploy-cleanup.service');
+    check('unused: a file a process runs is kept and queued, the removal goes on', r.status === 0 && fs.existsSync(kept) &&
+        !fs.existsSync(root.tool('fixture-tool')) && JSON.stringify(root.status().remove_when_unused) === JSON.stringify([kept]) &&
+        r.out.includes('removed at a later start, once no process runs it'), r.out);
+    check('unused: the cleanup unit is installed, enabled and in the recmgr list',
+        fs.readFileSync(unit, 'utf8') === fs.readFileSync(path.join(HERE, '..', 'unit', 'mgu-deploy-cleanup.service'), 'utf8') &&
+        fs.readlinkSync(root.p('etc/systemd/system/multi-user.target.wants/mgu-deploy-cleanup.service')) === '../mgu-deploy-cleanup.service' &&
+        /\[Whitelist\][^[]*mgu-deploy-cleanup[^[]*\[WhitelistExitSuccess\][^[]*mgu-deploy-cleanup/.test(fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8')));
+    check('unused: the unit runs only with something queued and stays active after it ran',
+        /ConditionPathExists=\/var\/opt\/mgu-deploy\/remove-when-unused\.json/.test(fs.readFileSync(unit, 'utf8')) &&
+        /RemainAfterExit=yes/.test(fs.readFileSync(unit, 'utf8')) && /mgu-deploy\.sh remove-unused/.test(fs.readFileSync(unit, 'utf8')));
+    r = root.run(['remove-unused']);
+    check('unused: remove-unused keeps it while a process runs it', r.status === 0 && fs.existsSync(kept) &&
+        JSON.stringify(root.status().remove_when_unused) === JSON.stringify([kept]) && r.out.includes('still run by a process'), r.out);
+    // the next start: nothing runs it
+    cp.execFileSync('rm', ['-rf', root.p('proc/777')]);
+    r = root.run(['remove-unused']);
+    check('unused: once nothing runs it, remove-unused removes it and empties the queue', r.status === 0 && !fs.existsSync(kept) &&
+        !fs.existsSync(root.p('var/opt/mgu-deploy/remove-when-unused.json')) && root.status().remove_when_unused.length === 0 &&
+        r.out.includes('removed ' + kept), r.out);
+    r = root.run(['remove-unused']);
+    check('unused: with nothing queued it has nothing to do', r.status === 0 && r.out.includes('nothing to remove'), r.out);
+
+    const now = fakeRoot({ recmgr: ['fixture-tool'] });
+    now.run(['install', '--artifact', hookArtifact('1.0.0'), '--yes'], { FAKE_HOOK_LOG: `${now.R}.hooks.log` });
+    const free = now.p('usr/bin/free.woc-running');
+    write(free, 'old binary\n', 0o755);
+    const dir = now.p('usr/bin/somedir');
+    fs.mkdirSync(dir, { recursive: true });
+    const link = now.p('usr/bin/link');
+    fs.symlinkSync(free, link);
+    r = now.run(['uninstall', 'fixture-tool', '--yes'], { FAKE_HOOK_LOG: `${now.R}.hooks.log`,
+        FAKE_HOOK_UNUSED: JSON.stringify([free, dir, link, 'relative/path', `${now.R}/usr/bin/../etc/passwd`, now.p('usr/bin/gone')]) });
+    check('unused: a file no process runs goes at once, nothing queued, no unit', r.status === 0 && !fs.existsSync(free) &&
+        !fs.existsSync(now.p('var/opt/mgu-deploy/remove-when-unused.json')) && !fs.existsSync(now.p('etc/systemd/system/mgu-deploy-cleanup.service')), r.out);
+    check('unused: a folder or a symlink is left as it is, a relative or ".." path ignored, each said',
+        fs.existsSync(dir) && fs.lstatSync(link).isSymbolicLink() && fs.existsSync(now.p('etc/passwd')) &&
+        r.out.includes('somedir is not a regular file') && r.out.includes('"relative/path" is not an absolute file path') &&
+        r.out.includes('../etc/passwd') && r.out.includes('is not an absolute file path'), r.out);
+}
+
 /* stock and the newest ten snapshots stay */
 function testBackupRetention() {
     const root = fakeRoot();
@@ -1922,7 +1977,7 @@ function testHuToken() {
         x.stdin(1).toString() === `${TOKEN}\n`, `${x.r.stderr}\n${x.calls.join('\n')}`);
     const staged = Object.keys(untarBuf(x.stdin(0))).sort().join(' ');
     check('hu: the staging upload carries the deploy tool with its linker and packer', staged ===
-        'component.json fallback_build.js mgu-app-fallback.service mgu-deploy-apply.service mgu-deploy.js mgu-deploy.sh oap_link.js oap_pack.js', staged);
+        'component.json fallback_build.js mgu-app-fallback.service mgu-deploy-apply.service mgu-deploy-cleanup.service mgu-deploy.js mgu-deploy.sh oap_link.js oap_pack.js', staged);
     check('hu token: not in any ssh argument, the staging upload or the output',
         x.calls.every((c) => !c.includes(TOKEN)) && !zlib.gunzipSync(x.stdin(0)).includes(TOKEN) &&
         !`${x.r.stdout}${x.r.stderr}`.includes(TOKEN));
@@ -3763,6 +3818,7 @@ const SUITES = [
     testRollback,
     testPrivacyTool,
     testHooks,
+    testRemoveWhenUnused,
     testRestoreRefusals,
     testStaleFiles,
     testProvisioningSection,

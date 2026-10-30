@@ -325,6 +325,7 @@ mgu-deploy.sh updater-token --list [--json] | --remove <id>
 mgu-deploy.sh updater-sources                 # sources.json on stdin
 mgu-deploy.sh sdk-donor [--json]
 mgu-deploy.sh apply-pending                   # iDrive 8, at boot
+mgu-deploy.sh remove-unused                   # at boot: files hooks handed over
 mgu-deploy.sh appmanager [--json] | appmanager adopt [--yes]
 ```
 
@@ -340,7 +341,8 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /etc/systemd/system/<unit>               units; <target>.wants/<unit> for enable
 /etc/recmgr-restartlist.conf             recmgr's restart list
 /var/opt/mgu-deploy/versions/<v>/        the deploy tool itself (mgu-deploy.js, .sh, fallback_build.js,
-                                         mgu-app-fallback.service, oap_link.js, oap_pack.js)
+                                         mgu-app-fallback.service, mgu-deploy-apply.service,
+                                         mgu-deploy-cleanup.service, oap_link.js, oap_pack.js)
 /var/opt/mgu-deploy/current -> versions/<v>
 /var/opt/mgu-deploy/mgu-deploy.sh        shim: runs current/mgu-deploy.sh
 /var/opt/mgu-deploy/state.json           pending reboots, apps' uids, the last bounce
@@ -358,6 +360,8 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /var/opt/mgu-deploy/id8/last-apply.json  iDrive 8: what the last apply-pending did; trash/<time>/ what it removed
 /var/opt/mgu-deploy/appmanager.json      what was taken over from IterioDev's App Manager; appmanager-removed/ its folder
 /etc/systemd/system/mgu-deploy-apply.service   iDrive 8: applies the queue at boot (late.target.wants)
+/var/opt/mgu-deploy/remove-when-unused.json   files hooks handed over that a process still ran
+/etc/systemd/system/mgu-deploy-cleanup.service removes them at boot once unused (multi-user.target.wants)
 /usr/lib/oap-mainapp/preinstalled_apps/<id>@<version>.tgz
 /usr/lib/oap-mainapp21/preinstalled_apps/<id>@<version>.tgz   iDrive 8
 /usr/share/tm/prov/das_000.xml ... das_005.xml                 iDrive 8: provisioning, our apps' lines
@@ -603,7 +607,9 @@ environment, in the version's folder, for at most 120 s
 (`MGU_DEPLOY_HOOK_TIMEOUT_MS`), and its stdout and stderr go to this tool's
 output, prefixed `<id> activate:`. When its last non-empty stdout line is a
 JSON object, `"reboot"` is why the change needs a head-unit start (the tool
-is then pending with that reason) and `"status"` a line for the output.
+is then pending with that reason), `"status"` a line for the output, and
+`"removeWhenUnused"` a list of files on `/` to remove once no process runs
+them (below).
 
 - `activate` runs on every install of the tool (the same version again too)
   and a rollback to a version that has one, once the version's files, units,
@@ -617,6 +623,21 @@ is then pending with that reason) and `"status"` a line for the output.
   and files in place. A non-zero exit refuses the removal (exit 2) and the
   tool stays whole. A restart it asks for stays pending under `mgu-deploy`
   (`<id> removed: <reason>`), since the tool's own entries go with it.
+
+**Files removed once unused.** A hook that replaced a binary a process still
+runs keeps the old file linked (an unlinked file a process holds keeps `/`
+from going read-only) and hands it over with `"removeWhenUnused": [<absolute
+path>...]`; after a removal nothing of the tool is left to remove it. A
+file no process runs (no `/proc/<pid>/exe` is its inode) is removed at once,
+in a rootfs window. One a process runs waits in
+`/var/opt/mgu-deploy/remove-when-unused.json` (`status --json`
+`remove_when_unused`): `mgu-deploy-cleanup.service`, installed, enabled in
+`multi-user.target` and added to the recmgr list on the first such file, runs
+`remove-unused` at each start while that file exists (oneshot, it stays
+active after it ran), which removes what no process runs any more and keeps
+the rest for a later start. Only regular files are removed; a folder, a
+symlink, a relative path or one with `..` is left as it is, said in the
+output.
 
 **Prune boundary.** A second update in the same boot prunes the version a
 running service may still execute from (it keeps only the new one and the

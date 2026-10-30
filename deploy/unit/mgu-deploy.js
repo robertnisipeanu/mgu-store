@@ -17,6 +17,7 @@
  *   mgu-deploy.sh updater-sources            (sources.json on stdin)
  *   mgu-deploy.sh sdk-donor [--json]
  *   mgu-deploy.sh apply-pending              (iDrive 8, at boot: queued app changes)
+ *   mgu-deploy.sh remove-unused              (at boot: files a tool handed over)
  *   mgu-deploy.sh appmanager [--json] | appmanager adopt [--yes]   (IterioDev's App Manager)
  *   mgu-deploy.sh help
  *
@@ -108,7 +109,7 @@ var SELF_DESCRIPTION = 'Installs, updates, rolls back and removes our tools and 
     'with a snapshot before every change';
 var SELF_FILES = [{ path: 'mgu-deploy.js', mode: '0644' }, { path: 'mgu-deploy.sh', mode: '0755' },
     { path: 'fallback_build.js', mode: '0644' }, { path: 'mgu-app-fallback.service', mode: '0644' },
-    { path: 'mgu-deploy-apply.service', mode: '0644' },
+    { path: 'mgu-deploy-apply.service', mode: '0644' }, { path: 'mgu-deploy-cleanup.service', mode: '0644' },
     { path: 'oap_link.js', mode: '0644' }, { path: 'oap_pack.js', mode: '0644' }];
 /* A file of this tool: beside the script, or in the repository's tools/
  * (the linker and packer, when it runs from deploy/unit/). */
@@ -168,6 +169,7 @@ function rmrf(p) {
     }
 }
 function lstatOrNull(p) { try { return fs.lstatSync(p); } catch (e) { return null; } }
+function statOrNull(p) { try { return fs.statSync(p); } catch (e) { return null; } }
 function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 function readJsonOrNull(p) { try { return readJson(p); } catch (e) { return null; } }
 function sha256File(p) {
@@ -1470,8 +1472,10 @@ function privacyApplyAndBounce() {
  * other arguments passed as they are, no shell. It runs as root with this
  * tool's environment, in the version's folder, for at most hookTimeoutMs, and
  * its output goes to this tool's log. When its last non-empty stdout line is
- * a JSON object, "reboot" is why the change needs a head-unit restart and
- * "status" a line for the log. Returns { ok, why } or { ok, reboot }. */
+ * a JSON object, "reboot" is why the change needs a head-unit restart,
+ * "status" a line for the log, and "removeWhenUnused" files on / for this
+ * tool to remove once no process runs them (handOver). Returns { ok, why } or
+ * { ok, reboot }. */
 var HOOK_SHAPE = 'is ["node", <argument>...] or [<an executable file of the tool>, <argument>...], non-empty strings without ".."';
 function hookOk(c, k) {
     var v = c[k];
@@ -1480,7 +1484,7 @@ function hookOk(c, k) {
     }) && (v[0] === 'node' || (c.files || []).some(function (f) { return f && f.path === v[0] && (octalMode(f.mode) & 0o111); }));
 }
 function oneLine(s) { return String(s).replace(/\s+/g, ' ').trim().slice(0, 200); }
-function runHook(id, dir, c, which) {
+function runHook(id, dir, c, which, state) {
     var argv = c[which], prefix = id + ' ' + which + ': ';
     var lines = function (s) { return (s || '').split('\n').filter(function (l) { return l.trim(); }); };
     if (!hookOk(c, which)) return { ok: false, why: HOOK_SHAPE };
@@ -1505,7 +1509,100 @@ function runHook(id, dir, c, which) {
     var reboot = result && typeof result.reboot === 'string' && result.reboot.trim() ? oneLine(result.reboot) : null;
     if (result && result.reboot !== undefined && !reboot) warn(prefix + '"reboot" is not a reason; ignored');
     if (reboot) say(prefix + 'a head-unit restart is pending: ' + reboot);
+    if (result && result.removeWhenUnused !== undefined) handOver(id, result.removeWhenUnused, state);
     return { ok: true, reboot: reboot };
+}
+
+/* ---- files removed once unused ---------------------------------------------- */
+/* A file on / a hook hands over ("removeWhenUnused") is one a process may
+ * still run: a binary the hook replaced while it ran, kept linked because an
+ * unlinked file a process holds keeps / from going read-only. It is removed at
+ * once when no process runs it; else it waits in UNUSED_FILE, and
+ * mgu-deploy-cleanup.service (enabled and in the recmgr list from then on)
+ * removes it at a later start, once nothing runs it. Only a regular file is
+ * removed. */
+var UNUSED_FILE = path.join(DEPLOY_DIR, 'remove-when-unused.json');
+var CLEANUP_UNIT = 'mgu-deploy-cleanup.service', CLEANUP_NAME = 'mgu-deploy-cleanup';
+function readUnused() {
+    var j = readJsonOrNull(UNUSED_FILE);
+    return j && Array.isArray(j.paths) ? j.paths.filter(function (p) { return typeof p === 'string'; }) : [];
+}
+function writeUnused(paths) {
+    if (!paths.length) { rmrf(UNUSED_FILE); return; }
+    mkdirp(DEPLOY_DIR);
+    writeAtomic(UNUSED_FILE, JSON.stringify({ paths: paths }, null, 2) + '\n', 0o644);
+}
+/* A process runs p: its <proc>/<pid>/exe is p's inode. */
+function executed(p) {
+    var st = statOrNull(p);
+    if (!st) return false;
+    var pids = [];
+    try { pids = fs.readdirSync(CFG.proc).filter(function (n) { return /^\d+$/.test(n); }); } catch (e) { /* no proc */ }
+    return pids.some(function (pid) {
+        var x = statOrNull(path.join(CFG.proc, pid, 'exe'));
+        return !!x && x.ino === st.ino && x.dev === st.dev;
+    });
+}
+/* Removes the paths no process runs; returns the ones kept. */
+function removeUnused(paths) {
+    var keep = [], ops = [];
+    paths.forEach(function (p) {
+        var st = lstatOrNull(p);
+        if (!st) return;
+        if (!st.isFile()) { warn(p + ' is not a regular file; left as it is'); return; }
+        if (executed(p)) keep.push(p);
+        else ops.push({ type: 'delete', path: p });
+    });
+    if (ops.length) {
+        rootfsWindow(ops);
+        ops.forEach(function (op) { say('removed ' + op.path + ': no process runs it'); });
+    }
+    return keep;
+}
+function handOver(id, paths, state) {
+    if (!Array.isArray(paths)) { warn(id + ': "removeWhenUnused" is not a list; ignored'); return; }
+    var ok = paths.filter(function (p) {
+        var good = typeof p === 'string' && path.isAbsolute(p) && path.normalize(p) === p && p !== '/' && !/\/$/.test(p);
+        if (!good) warn(id + ': ' + JSON.stringify(p) + ' is not an absolute file path; ignored');
+        return good;
+    });
+    var keep = removeUnused(ok);
+    var queued = readUnused();
+    keep.forEach(function (p) { if (queued.indexOf(p) < 0) queued.push(p); });
+    writeUnused(queued);
+    if (keep.length) {
+        ensureCleanupUnit(state);
+        say(id + ': ' + keep.join(', ') + ' removed at a later start, once no process runs it');
+    }
+}
+/* The boot unit that removes them: written, enabled and listed in recmgr. */
+function ensureCleanupUnit(state) {
+    var src = path.join(HERE, CLEANUP_UNIT);
+    if (!fs.existsSync(src)) throw refuse(CLEANUP_UNIT + ' missing beside mgu-deploy.js');
+    selfInstall(); // the unit runs the installed tool through its shim
+    var unitDest = path.join(CFG.systemd, CLEANUP_UNIT), link = path.join(CFG.systemd, 'multi-user.target.wants', CLEANUP_UNIT), cur = null, ops = [];
+    if (!bytesEqualFile(fs.readFileSync(src), unitDest)) ops.push({ type: 'copy', src: src, path: unitDest, mode: 0o644 });
+    try { cur = fs.readlinkSync(link); } catch (e) { /* not enabled */ }
+    if (cur !== '../' + CLEANUP_UNIT) {
+        if (!fs.existsSync(path.dirname(link))) noteCreatedDir(state, path.dirname(link));
+        ops.push({ type: 'mkdir', path: path.dirname(link) });
+        ops.push({ type: 'symlink', path: link, target: '../' + CLEANUP_UNIT });
+    }
+    var rec = recmgrOp(recmgrWith(recmgrText(), [CLEANUP_NAME], []));
+    if (rec) ops.push(rec);
+    if (ops.length) {
+        rootfsWindow(ops);
+        runOk(CFG.systemctl, ['daemon-reload']);
+        say(CLEANUP_UNIT + ' installed');
+    }
+}
+function cmdRemoveUnused() {
+    var queued = readUnused();
+    if (!queued.length) { say('nothing to remove'); return 0; }
+    var keep = removeUnused(queued);
+    writeUnused(keep);
+    keep.forEach(function (p) { say(p + ' is still run by a process; kept for a later start'); });
+    return 0;
 }
 
 /* ---- tool install ------------------------------------------------------------ */
@@ -1624,7 +1721,7 @@ function installTool(a, state, tx) {
         if (!pr.ok) { e = fail('app-privacy ' + c.version + ': ' + pr.why); e.privacy = true; throw e; }
     }
     if (c.activate) {
-        var hr = runHook(c.id, dest, c, 'activate');
+        var hr = runHook(c.id, dest, c, 'activate', state);
         if (!hr.ok) { e = fail(c.id + ' ' + c.version + ': activate ' + hr.why); e.activate = touched; throw e; }
         if (hr.reboot) addPending(state, c.id, hr.reboot);
     }
@@ -1684,7 +1781,7 @@ function rollbackTool(a, tx, backup, e, state) {
         restartAgain(again, c.id + ' ' + tx.before);
         var prev = tx.before && tx.before !== c.version ? readJsonOrNull(path.join(tx.root, 'versions', tx.before, 'component.json')) : null;
         if (prev && prev.activate) {
-            var hr = runHook(c.id, path.join(tx.root, 'versions', tx.before), prev, 'activate');
+            var hr = runHook(c.id, path.join(tx.root, 'versions', tx.before), prev, 'activate', state);
             if (hr.ok && hr.reboot) addPending(state, c.id, hr.reboot);
             say(hr.ok ? c.id + ' ' + tx.before + ' activated again' : c.id + ' ' + tx.before + ' activate failed too: ' + hr.why);
         }
@@ -2263,7 +2360,7 @@ function uninstallTool(id, state) {
      * keeps the tool. A restart it asks for is pending under the deploy tool,
      * since the tool's own entries go with it. */
     if (c.deactivate) {
-        var hr = runHook(id, path.join(root, 'versions', currentTarget(root)), c, 'deactivate');
+        var hr = runHook(id, path.join(root, 'versions', currentTarget(root)), c, 'deactivate', state);
         if (!hr.ok) throw refuse(id + ' ' + c.version + ': deactivate ' + hr.why + '; ' + id + ' stays installed');
         if (hr.reboot) addPending(state, 'mgu-deploy', id + ' removed: ' + hr.reboot);
     }
@@ -3335,6 +3432,7 @@ function collectStatus(state) {
     var unit = unitInfo();
     return { version: VERSION, unit: { hmi: unit.hmi, firmware: unit.firmware }, components: components, pending_reboot: pending,
         last_apply: readJsonOrNull(ID8_LAST),
+        remove_when_unused: readUnused(),
         display_bridge_socket: fs.existsSync(CFG.socketPath),
         display_bridge_todo_on_car: bridgeTodoLines(),
         fallback: fb, backups: backupCount,
@@ -3901,13 +3999,13 @@ function cmdRollback(args) {
             }
         }
         if (tc.activate) {
-            var hr = runHook(id, path.join(root, 'versions', target), tc, 'activate');
+            var hr = runHook(id, path.join(root, 'versions', target), tc, 'activate', state);
             if (!hr.ok) {
                 switchCurrent(root, cur);
                 say(cur + ' is current again');
                 restartAgain(touched, id + ' ' + cur);
                 if (tool.component.activate) {
-                    var back = runHook(id, path.join(root, 'versions', cur), tool.component, 'activate');
+                    var back = runHook(id, path.join(root, 'versions', cur), tool.component, 'activate', state);
                     if (!back.ok) say(id + ' ' + cur + ' activate failed too: ' + back.why);
                     else if (back.reboot) addPending(state, id, back.reboot);
                 }
@@ -4091,6 +4189,7 @@ var HELP = [
     '  updater-sources                  seed the updater\'s sources.json from stdin (kept when present)',
     '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle, and its oap-sdk module',
     '  apply-pending                    iDrive 8: apply the queued app changes (at boot, before MainApp)',
+    '  remove-unused                    remove the files tools handed over that no process runs (at boot)',
     '  appmanager [--json]              IterioDev\'s App Manager on this unit: its service and what was adopted',
     '  appmanager adopt [--yes]         take over what it installed; uninstall oap-appmanager removes it',
     '  help                             this text',
@@ -4122,7 +4221,7 @@ function main() {
 function runCommand() {
     var args = parseArgs(process.argv.slice(2)), locked = false;
     var rootOnly = ['install', 'uninstall', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending',
-        'appmanager']
+        'appmanager', 'remove-unused']
         .indexOf(args.command) >= 0;
     try {
         if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0 && rootOnly) {
@@ -4146,6 +4245,7 @@ function runCommand() {
         if (args.command === 'updater-sources') return cmdUpdaterSources();
         if (args.command === 'sdk-donor') return cmdSdkDonor(args);
         if (args.command === 'apply-pending') return cmdApplyPending();
+        if (args.command === 'remove-unused') return cmdRemoveUnused();
         if (args.command === 'appmanager') return cmdAppManager(args);
         throw refuse('unknown command ' + args.command + '\n' + HELP);
     } catch (e) {

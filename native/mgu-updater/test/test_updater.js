@@ -2342,7 +2342,9 @@ function testUnitServices(certs, pubDir) {
  * there and a newer deploy tool from mgu-store's. Installing the app
  * installs, in order, the deploy tool update, the renderer, the tool and
  * the app; the tool whose install the deploy tool reports restart-pending
- * shows so. */
+ * shows so. Removing them: the tool is refused while the app that needs it
+ * is installed; the app, then the tool, go through the deploy tool; the
+ * renderer and the deploy tool stay. */
 function testCrossSource(certs) {
     const { Updater } = require('../js/updater');
     const M = path.join(T, 'xs');
@@ -2371,8 +2373,8 @@ function testCrossSource(certs) {
     const tool = { requires: { 'mgu-deploy': '0.6.0', 'cluster-render': '0.1.0' }, mguHmi: ['ID7'] };
     publish(apps, [
         Object.assign(entry(kit(apps, 'cluster-render', '0.1.0', { mguHmi: ['ID7'] }), 'tool', 'Cluster renderer'), { mguHmi: ['ID7'] }),
-        Object.assign(entry(kit(apps, 'waze-on-cluster', '0.5.0', Object.assign({}, tool, hooks)), 'tool', 'Waze on cluster'), tool),
-        Object.assign(entry(appTgz(apps, 'robertn_waze_cluster', '0.3.0'), 'app', 'Waze Cluster'), { requires: { 'waze-on-cluster': '0.5.0' } })
+        Object.assign(entry(kit(apps, 'waze-on-cluster', '0.5.0', Object.assign({}, tool, hooks)), 'tool', 'Waze on cluster'), tool, { uninstallable: true }),
+        Object.assign(entry(appTgz(apps, 'robertn_waze_cluster', '0.3.0'), 'app', 'Waze Cluster'), { requires: { 'waze-on-cluster': '0.5.0' }, uninstallable: true })
     ], { schema: 2 });
     const sources = path.join(M, 'sources.json');
     fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [
@@ -2393,6 +2395,8 @@ function testCrossSource(certs) {
     const u = new Updater(conf);
     const st = () => u.state();
     const comp = (id) => st().components.find((c) => c.id === id) || {};
+    const priv = (req) => ask(conf.socket, Object.assign({ secret: u.secret }, req));
+    const idle = (what) => until(st, () => !st().busy && !st().components.some((c) => c.queued), 60000, what);
     return u.serve()
         .then(() => u.check())
         .then(() => {
@@ -2413,6 +2417,27 @@ function testCrossSource(certs) {
                 comp('waze-on-cluster').pendingReboot === true && comp('cluster-render').pendingReboot === false &&
                 comp('robertn_waze_cluster').pendingReboot === false, JSON.stringify(st().components.map((c) => [c.id, c.pendingReboot])));
             delete process.env.FAKE_PENDING;
+            fs.writeFileSync(deployLog, '');
+            return Promise.all([priv({ op: 'uninstall', id: 'waze-on-cluster' }), priv({ op: 'uninstall', id: 'cluster-render' })]);
+        })
+        .then((errs) => {
+            ok('cross-source removal: the tool is refused while the app needs it; the renderer is not removable',
+                errs[0] === 'Waze Cluster needs waze-on-cluster' && errs[1] === 'cluster-render cannot be removed' && !deployed().length,
+                JSON.stringify(errs));
+            return priv({ op: 'uninstall', id: 'robertn_waze_cluster' });
+        })
+        .then((err) => idle('the app removed').then(() => err))
+        .then((err) => {
+            ok('cross-source removal: the app goes first', err === null && comp('robertn_waze_cluster').status === 'available' &&
+                comp('waze-on-cluster').status === 'installed', `${err} ${JSON.stringify(deployed())}`);
+            return priv({ op: 'uninstall', id: 'waze-on-cluster' });
+        })
+        .then((err) => idle('the tool removed').then(() => err))
+        .then((err) => {
+            ok('cross-source removal: then the tool, through the deploy tool, the renderer and the deploy tool stay',
+                err === null && JSON.stringify(deployed()) === JSON.stringify(['uninstall robertn_waze_cluster --yes', 'uninstall waze-on-cluster --yes']) &&
+                comp('waze-on-cluster').status === 'available' && comp('cluster-render').status === 'installed' &&
+                comp('mgu-deploy').installed === '0.6.0', `${err} ${JSON.stringify(deployed())} ${JSON.stringify(st().components.map((c) => [c.id, c.status]))}`);
             u.server.close();
         });
 }

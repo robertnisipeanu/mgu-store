@@ -6,7 +6,8 @@
 // fake_systemctl.sh>" to $FAKE_HOOK_LOG and prints a line on stdout and one
 // on stderr. "<command>@<version>" listed in $FAKE_HOOK_SLOW sleeps 5 s
 // first; listed in $FAKE_HOOK_FAIL, it exits 3. Its last stdout line is
-// {"status", "reboot"}, "reboot" being $FAKE_HOOK_REBOOT when set.
+// {"status", "reboot", "removeWhenUnused"}, "reboot" being $FAKE_HOOK_REBOOT
+// and "removeWhenUnused" the JSON in $FAKE_HOOK_UNUSED when set.
 const fs = require('fs');
 const path = require('path');
 
@@ -40,5 +41,8 @@ if (listed(env.FAKE_HOOK_FAIL)) {
 const result = { status: me + ' done' };
 if (env.FAKE_HOOK_REBOOT) {
     result.reboot = env.FAKE_HOOK_REBOOT;
+}
+if (env.FAKE_HOOK_UNUSED) {
+    result.removeWhenUnused = JSON.parse(env.FAKE_HOOK_UNUSED);
 }
 console.log(JSON.stringify(result));

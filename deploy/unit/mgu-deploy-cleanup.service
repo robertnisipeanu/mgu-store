@@ -1,0 +1,14 @@
+[Unit]
+Description=mgu-deploy: remove files a tool handed over once no process runs them
+RequiresMountsFor=/var/opt
+After=local-fs.target
+ConditionPathExists=/var/opt/mgu-deploy/remove-when-unused.json
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh /var/opt/mgu-deploy/mgu-deploy.sh remove-unused
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
