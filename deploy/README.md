@@ -609,10 +609,10 @@ is then pending with that reason) and `"status"` a line for the output.
   and a rollback to a version that has one, once the version's files, units,
   the recmgr list and the restarts are done and `/` is read-only again: a
   command that writes to `/` remounts it itself. It must be idempotent. A non-zero exit or the
-  timeout fails the install like a failed health check: the units it started
-  or restarted are restarted on the previous version (or stopped when their
-  unit went with it), the previous version's `activate` runs again, and a
-  first install is removed.
+  timeout fails the install: the units it started or restarted are
+  restarted on the previous version (or stopped when their unit went with
+  it), the previous version's `activate` runs again, and a first install is
+  removed.
 - `deactivate` runs before a removal changes anything, with the tool's units
   and files in place. A non-zero exit refuses the removal (exit 2) and the
   tool stays whole. A restart it asks for stays pending under `mgu-deploy`

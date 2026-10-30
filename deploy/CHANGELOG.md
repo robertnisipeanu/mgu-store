@@ -2,7 +2,7 @@
 
 ## 0.6.0
 
-- A tool's `activate` and `deactivate` (`component.json`, kept by `deploy/hu artifact` with `requires` and `uninstallable`): commands run as root, without a shell, in the version's folder, for at most 120 s. `activate` runs on every install, update and rollback once the version is in place and `/` is read-only again; a failure is rolled back like a failed health check, and the previous version's `activate` runs again. `deactivate` runs before a removal changes anything; a failure keeps the tool. A `{"reboot": "<why>"}` last line marks the tool restart-pending (a removal's, the deploy tool).
+- A tool's `activate` and `deactivate` (`component.json`, kept by `deploy/hu artifact` with `requires` and `uninstallable`): commands run as root, without a shell, in the version's folder, for at most 120 s. `activate` runs on every install, update and rollback once the version is in place and `/` is read-only again; a failure is rolled back: an update returns to the previous version and runs its `activate` again, a first install is removed. `deactivate` runs before a removal changes anything; a failure keeps the tool. A `{"reboot": "<why>"}` last line marks the tool restart-pending (a removal's, the deploy tool).
 
 ## 0.5.0
 
