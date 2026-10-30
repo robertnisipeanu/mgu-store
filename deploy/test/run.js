@@ -1485,6 +1485,126 @@ function testPrivacyTool() {
         fs.existsSync(path.join(root.tool('app-privacy'), 'current')), r.out);
 }
 
+/* A copy of the fixture tool with an activate and a deactivate hook
+ * (fake_hook.js as hook.js, run by "node"), at the given version. */
+function hookArtifact(version, edit) {
+    const dir = fixtureCopy(version, (c) => {
+        c.files.push({ path: 'hook.js', from: 'hook.js', mode: '0644' });
+        c.activate = ['node', 'hook.js', 'activate'];
+        c.deactivate = ['node', 'hook.js', 'deactivate'];
+        c.requires = { 'cluster-render': '0.1.0' };
+        if (edit) {
+            edit(c);
+        }
+    });
+    fs.copyFileSync(path.join(HERE, 'fake_hook.js'), path.join(dir, 'hook.js'));
+    // the same hook as a program of the tool, run directly
+    fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'bin', 'hook'), `#!/bin/sh\nexec "$FAKE_NODE" "$(dirname "$0")/../hook.js" "$@"\n`, { mode: 0o755 });
+    const out = fs.mkdtempSync(path.join(T, 'art-'));
+    const r = hu(['artifact', dir, '--out', out]);
+    if (r.status !== 0) {
+        throw new Error(`deploy/hu artifact failed: ${r.stderr}`);
+    }
+    return path.join(out, `fixture-tool@${version}.tgz`);
+}
+
+function testHooks() {
+    const art = (v) => hookArtifact(v);
+    const m = JSON.parse(untar(art('1.0.0'))['component.json'].data);
+    check('hooks: deploy/hu artifact keeps activate, deactivate and requires',
+        JSON.stringify(m.activate) === '["node","hook.js","activate"]' && JSON.stringify(m.deactivate) === '["node","hook.js","deactivate"]' &&
+        m.requires['cluster-render'] === '0.1.0', JSON.stringify(m));
+
+    const root = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+    const hookLog = `${root.R}.hooks.log`;
+    const hooks = () => (fs.existsSync(hookLog) ? fs.readFileSync(hookLog, 'utf8').split('\n').filter(Boolean) : []);
+    const env = (extra) => Object.assign({ FAKE_HOOK_LOG: hookLog }, extra || {});
+    const current = () => fs.readlinkSync(path.join(root.tool('fixture-tool'), 'current'));
+    const pending = () => root.status().pending_reboot;
+
+    let r = root.run(['install', '--artifact', art('1.0.0'), '--yes'], env({ FAKE_HOOK_REBOOT: 'patch written; takes effect at the next head-unit start' }));
+    check('hooks: an install runs activate once, as the installed version, in its folder, units in place and started',
+        r.status === 0 && JSON.stringify(hooks()) === JSON.stringify(['activate 1.0.0 cwd=fixture-tool/versions/1.0.0 current=versions/1.0.0 unit=yes active=active']),
+        `${r.out}\n${hooks().join('\n')}`);
+    check('hooks: its stdout and stderr go to the log, its JSON result line does not',
+        r.out.includes('fixture-tool activate: hook activate@1.0.0 says hello') && r.out.includes('fixture-tool activate: hook activate@1.0.0 on stderr') &&
+        r.out.includes('fixture-tool activate: activate@1.0.0 done') && !r.out.includes('{"status"'), r.out);
+    check('hooks: a "reboot" reason is a pending reboot of the tool, which status --json lists',
+        pending().some((p) => p.id === 'fixture-tool' && p.reason === 'patch written; takes effect at the next head-unit start'), JSON.stringify(pending()));
+
+    r = root.run(['install', '--artifact', art('1.0.0'), '--yes'], env());
+    check('hooks: installing the same version again runs activate again', r.status === 0 && hooks().length === 2 &&
+        hooks()[1].startsWith('activate 1.0.0 '), `${r.out}\n${hooks().join('\n')}`);
+
+    r = root.run(['install', '--artifact', art('1.0.1'), '--yes'], env());
+    check('hooks: an update runs the new version\'s activate', r.status === 0 && current() === 'versions/1.0.1' &&
+        hooks()[2] === 'activate 1.0.1 cwd=fixture-tool/versions/1.0.1 current=versions/1.0.1 unit=yes active=active', `${r.out}\n${hooks().join('\n')}`);
+
+    r = root.run(['install', '--artifact', art('1.0.2'), '--yes'], env({ FAKE_HOOK_FAIL: 'activate@1.0.2' }));
+    check('hooks: a failed activate rolls the update back, runs the previous version\'s activate again, exit 1',
+        r.status === 1 && current() === 'versions/1.0.1' && !fs.existsSync(path.join(root.tool('fixture-tool'), 'versions/1.0.2')) &&
+        JSON.stringify(hooks().slice(3).map((l) => l.split(' ').slice(0, 2).join(' '))) === JSON.stringify(['activate 1.0.2', 'activate 1.0.1']) &&
+        r.out.includes('activate exited 3: hook activate@1.0.2 failing as asked'), `${r.out}\n${hooks().join('\n')}`);
+
+    r = root.run(['install', '--artifact', art('1.0.3'), '--yes'], env({ FAKE_HOOK_SLOW: 'activate@1.0.3', MGU_DEPLOY_HOOK_TIMEOUT_MS: '1000' }));
+    check('hooks: an activate past the timeout is killed and rolled back like a failure',
+        r.status === 1 && current() === 'versions/1.0.1' && r.out.includes('activate timed out after 1 s'), r.out);
+
+    root.run(['install', '--artifact', art('1.0.4'), '--yes'], env());
+    let n = hooks().length;
+    r = root.run(['rollback', 'fixture-tool', '--yes'], env());
+    check('hooks: rollback runs the older version\'s activate', r.status === 0 && current() === 'versions/1.0.1' &&
+        hooks().slice(n).length === 1 && hooks()[n].startsWith('activate 1.0.1 '), `${r.out}\n${hooks().slice(n).join('\n')}`);
+    root.run(['install', '--artifact', art('1.0.4'), '--yes'], env());
+    n = hooks().length;
+    r = root.run(['rollback', 'fixture-tool', '--yes'], env({ FAKE_HOOK_FAIL: 'activate@1.0.1' }));
+    check('hooks: a rollback whose activate fails returns to the current version and activates it again, exit 1',
+        r.status === 1 && current() === 'versions/1.0.4' &&
+        JSON.stringify(hooks().slice(n).map((l) => l.split(' ').slice(0, 2).join(' '))) === JSON.stringify(['activate 1.0.1', 'activate 1.0.4']), `${r.out}\n${hooks().slice(n).join('\n')}`);
+
+    n = hooks().length;
+    r = root.run(['uninstall', 'fixture-tool', '--yes'], env({ FAKE_HOOK_FAIL: 'deactivate@1.0.4' }));
+    check('hooks: a failed deactivate refuses the removal, exit 2, the tool stays whole',
+        r.status === 2 && current() === 'versions/1.0.4' && fs.existsSync(root.p('etc/systemd/system/fixture-tool.service')) &&
+        r.out.includes('deactivate exited 3') && r.out.includes('fixture-tool stays installed'), r.out);
+    r = root.run(['uninstall', 'fixture-tool', '--yes'], env({ FAKE_HOOK_REBOOT: 'patch removed; the original runs from the next start' }));
+    check('hooks: deactivate runs before anything is removed (units in place, still running), then the tool goes',
+        r.status === 0 && hooks()[n + 1] === 'deactivate 1.0.4 cwd=fixture-tool/versions/1.0.4 current=versions/1.0.4 unit=yes active=active' &&
+        !fs.existsSync(root.tool('fixture-tool')) && !fs.existsSync(root.p('etc/systemd/system/fixture-tool.service')), `${r.out}\n${hooks().join('\n')}`);
+    check('hooks: its reboot reason stays pending under the deploy tool, the tool\'s own entries gone',
+        pending().some((p) => p.id === 'mgu-deploy' && p.reason === 'fixture-tool removed: patch removed; the original runs from the next start'),
+        JSON.stringify(pending()));
+
+    const fresh = fakeRoot({ recmgr: ['fixture-tool'] });
+    r = fresh.run(['install', '--artifact', art('1.0.0'), '--yes'], { FAKE_HOOK_LOG: `${fresh.R}.hooks.log`, FAKE_HOOK_FAIL: 'activate@1.0.0' });
+    check('hooks: a first install whose activate fails is removed again, units and all, exit 1',
+        r.status === 1 && !fs.existsSync(fresh.tool('fixture-tool')) && !fs.existsSync(fresh.p('etc/systemd/system/fixture-tool.service')) &&
+        !fs.existsSync(fresh.p('etc/systemd/system/sockets.target.wants/fixture-tool.socket')), r.out);
+
+    const bad = [
+        ['an empty activate', (c) => { c.activate = []; }],
+        ['activate as a string', (c) => { c.activate = 'node hook.js activate'; }],
+        ['an argument with ..', (c) => { c.activate = ['node', '../hook.js']; }],
+        ['an absolute program', (c) => { c.deactivate = ['/bin/sh', '-c', 'true']; }],
+        ['a program the tool does not ship as executable', (c) => { c.activate = ['hook.js', 'activate']; }],
+        ['an empty argument', (c) => { c.activate = ['node', '']; }]
+    ];
+    bad.forEach(([what, edit]) => {
+        const rr = fakeRoot();
+        const before = rr.hash();
+        const res = rr.run(['install', '--artifact', hookArtifact('1.1.0', edit), '--yes']);
+        check(`hooks: ${what} is refused, exit 2, nothing changed`, res.status === 2 && /(activate|deactivate) is \["node"/.test(res.out) &&
+            rr.hash().hash === before.hash, res.out);
+    });
+    const ok = fakeRoot({ recmgr: ['fixture-tool'] });
+    r = ok.run(['install', '--artifact', hookArtifact('1.1.0', (c) => {
+        c.files.push({ path: 'bin/hook', from: 'bin/hook', mode: '0755' });
+        c.activate = ['bin/hook', 'activate'];
+    }), '--yes'], { FAKE_HOOK_LOG: `${ok.R}.hooks.log` });
+    check('hooks: an executable file of the tool runs directly', r.status === 0 && r.out.includes('hook activate@1.1.0 says hello'), r.out);
+}
+
 /* stock and the newest ten snapshots stay */
 function testBackupRetention() {
     const root = fakeRoot();
@@ -3642,6 +3762,7 @@ const SUITES = [
     testHealth,
     testRollback,
     testPrivacyTool,
+    testHooks,
     testRestoreRefusals,
     testStaleFiles,
     testProvisioningSection,

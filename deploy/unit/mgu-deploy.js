@@ -44,7 +44,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.5.0';
+var VERSION = '0.6.0';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -83,6 +83,7 @@ var CFG = {
     inplaceReportMs: Number(env('MGU_DEPLOY_INPLACE_REPORT_MS', '15000')),
     bounceTimeoutMs: Number(env('MGU_DEPLOY_BOUNCE_TIMEOUT_MS', '30000')),
     healthMs: Number(env('MGU_DEPLOY_HEALTH_MS', '10000')),
+    hookTimeoutMs: Number(env('MGU_DEPLOY_HOOK_TIMEOUT_MS', '120000')),
     bounceMinUpS: Number(env('MGU_DEPLOY_BOUNCE_MIN_UP_S', '60')),
     lockWaitMs: Number(env('MGU_DEPLOY_LOCK_WAIT_MS', '3600000')),
     migrateSettleMs: Number(env('MGU_DEPLOY_MIGRATE_SETTLE_MS', '45000'))
@@ -962,6 +963,9 @@ function validateTool(file, dir, c) {
         throw refuse(file + ': mguProvides is one lower-case name, e.g. "renderer"');
     }
     if (c.keepRunning !== undefined && typeof c.keepRunning !== 'boolean') throw refuse(file + ': keepRunning is true or false');
+    ['activate', 'deactivate'].forEach(function (k) {
+        if (c[k] !== undefined && !hookOk(c, k)) throw refuse(file + ': ' + k + ' ' + HOOK_SHAPE);
+    });
     return { kind: 'tool', file: file, dir: dir, component: c, id: c.id, version: c.version,
         hmi: hmiList(c.mguHmi, file + ' component.json'), hmiFrom: c.mguHmi ? 'declared' : null,
         provides: c.mguProvides || null };
@@ -1459,12 +1463,58 @@ function privacyApplyAndBounce() {
     return { ok: true };
 }
 
+/* ---- activate and deactivate ------------------------------------------------- */
+/* A tool's component.json may name a command run once a version is in place,
+ * "activate", and one run before the tool is removed, "deactivate": argv[0]
+ * "node" (the Node this tool runs on) or an executable file of the tool, the
+ * other arguments passed as they are, no shell. It runs as root with this
+ * tool's environment, in the version's folder, for at most hookTimeoutMs, and
+ * its output goes to this tool's log. When its last non-empty stdout line is
+ * a JSON object, "reboot" is why the change needs a head-unit restart and
+ * "status" a line for the log. Returns { ok, why } or { ok, reboot }. */
+var HOOK_SHAPE = 'is ["node", <argument>...] or [<an executable file of the tool>, <argument>...], non-empty strings without ".."';
+function hookOk(c, k) {
+    var v = c[k];
+    return Array.isArray(v) && v.length > 0 && v.every(function (s) {
+        return typeof s === 'string' && s !== '' && s.split('/').indexOf('..') < 0;
+    }) && (v[0] === 'node' || (c.files || []).some(function (f) { return f && f.path === v[0] && (octalMode(f.mode) & 0o111); }));
+}
+function oneLine(s) { return String(s).replace(/\s+/g, ' ').trim().slice(0, 200); }
+function runHook(id, dir, c, which) {
+    var argv = c[which], prefix = id + ' ' + which + ': ';
+    var lines = function (s) { return (s || '').split('\n').filter(function (l) { return l.trim(); }); };
+    if (!hookOk(c, which)) return { ok: false, why: HOOK_SHAPE };
+    say(prefix + argv.join(' '));
+    var r = cp.spawnSync(argv[0] === 'node' ? process.execPath : path.join(dir, argv[0]), argv.slice(1), {
+        cwd: dir, encoding: 'utf8', timeout: CFG.hookTimeoutMs, killSignal: 'SIGKILL', maxBuffer: 16 << 20
+    });
+    var out = lines(r.stdout), err = lines(r.stderr), result = null;
+    if (!r.error && r.status === 0 && out.length) {
+        try { result = JSON.parse(out[out.length - 1]); } catch (e) { result = null; }
+        if (result && typeof result === 'object' && !Array.isArray(result)) out.pop();
+        else result = null;
+    }
+    out.concat(err).forEach(function (l) { say(prefix + l); });
+    if (r.error || r.status !== 0) {
+        var last = (err.length ? err : out).slice(-1)[0];
+        var why = r.error && r.error.code === 'ETIMEDOUT' ? 'timed out after ' + Math.round(CFG.hookTimeoutMs / 1000) + ' s'
+            : r.error ? 'could not run: ' + r.error.message : r.status === null ? 'was killed (' + r.signal + ')' : 'exited ' + r.status;
+        return { ok: false, why: why + (last ? ': ' + oneLine(last) : '') };
+    }
+    if (result && typeof result.status === 'string' && result.status.trim()) say(prefix + oneLine(result.status));
+    var reboot = result && typeof result.reboot === 'string' && result.reboot.trim() ? oneLine(result.reboot) : null;
+    if (result && result.reboot !== undefined && !reboot) warn(prefix + '"reboot" is not a reason; ignored');
+    if (reboot) say(prefix + 'a head-unit restart is pending: ' + reboot);
+    return { ok: true, reboot: reboot };
+}
+
 /* ---- tool install ------------------------------------------------------------ */
 
 /* Installs one tool artifact; tx records what was there before, for
- * rollbackTool. A failed health check or app-privacy apply throws with
- * e.health / e.privacy set. Versions other than the new one and the one
- * current pointed to are pruned only once it is up. */
+ * rollbackTool. A failed health check, app-privacy apply or activate throws
+ * with e.health / e.privacy / e.activate set. The activate runs on every
+ * install, the same version's again too. Versions other than the new one and
+ * the one current pointed to are pruned only once it is up. */
 function installTool(a, state, tx) {
     var c = a.component, root = path.join(CFG.varOpt, c.id);
     var versions = path.join(root, 'versions');
@@ -1573,6 +1623,11 @@ function installTool(a, state, tx) {
         var pr = privacyApplyAndBounce();
         if (!pr.ok) { e = fail('app-privacy ' + c.version + ': ' + pr.why); e.privacy = true; throw e; }
     }
+    if (c.activate) {
+        var hr = runHook(c.id, dest, c, 'activate');
+        if (!hr.ok) { e = fail(c.id + ' ' + c.version + ': activate ' + hr.why); e.activate = touched; throw e; }
+        if (hr.reboot) addPending(state, c.id, hr.reboot);
+    }
     fs.readdirSync(versions).forEach(function (v) {
         if (v !== c.version && v !== before) rmrf(path.join(versions, v));
     });
@@ -1583,7 +1638,10 @@ function installTool(a, state, tx) {
  * reported as such. Otherwise current returns to the previous version,
  * the snapshot puts units and the recmgr list back, a version folder this
  * install created goes, a socket it started whose unit is gone again is
- * stopped, and units it restarted restart on the previous version. */
+ * stopped, and units it restarted restart on the previous version. After a
+ * failed activate, the units it started or restarted are restarted on the
+ * previous version, or stopped when their unit went with the failed one, and
+ * the previous version's activate runs again. */
 function rollbackTool(a, tx, backup, e, state) {
     var c = a.component;
     if ((e.health || e.privacy) && !tx.before) {
@@ -1619,6 +1677,17 @@ function rollbackTool(a, tx, backup, e, state) {
     if (e.privacy) {
         var pr = privacyApplyAndBounce();
         say(pr.ok ? 'app-privacy ' + tx.before + ' applied again' : 'app-privacy ' + tx.before + ' apply failed too: ' + pr.why);
+    }
+    if (e.activate) {
+        var again = e.activate.filter(function (u) { return fs.existsSync(path.join(CFG.systemd, u)); });
+        e.activate.forEach(function (u) { if (again.indexOf(u) < 0) { systemctl(['stop', u]); say('stopped ' + u); } });
+        restartAgain(again, c.id + ' ' + tx.before);
+        var prev = tx.before && tx.before !== c.version ? readJsonOrNull(path.join(tx.root, 'versions', tx.before, 'component.json')) : null;
+        if (prev && prev.activate) {
+            var hr = runHook(c.id, path.join(tx.root, 'versions', tx.before), prev, 'activate');
+            if (hr.ok && hr.reboot) addPending(state, c.id, hr.reboot);
+            say(hr.ok ? c.id + ' ' + tx.before + ' activated again' : c.id + ' ' + tx.before + ' activate failed too: ' + hr.why);
+        }
     }
 }
 /* The deploy tool is a tool like the others: /var/opt/mgu-deploy/
@@ -2190,6 +2259,14 @@ function uninstallTool(id, state) {
     say('uninstalling tool ' + id + ' ' + c.version);
     /* the stock bundles go back first; a failed revert keeps the tool */
     if (id === 'app-privacy' && privacyRevert() && managerPid()) bounceManager();
+    /* the tool's deactivate runs with all of it still in place; a failed one
+     * keeps the tool. A restart it asks for is pending under the deploy tool,
+     * since the tool's own entries go with it. */
+    if (c.deactivate) {
+        var hr = runHook(id, path.join(root, 'versions', currentTarget(root)), c, 'deactivate');
+        if (!hr.ok) throw refuse(id + ' ' + c.version + ': deactivate ' + hr.why + '; ' + id + ' stays installed');
+        if (hr.reboot) addPending(state, 'mgu-deploy', id + ' removed: ' + hr.reboot);
+    }
     (c.units || []).forEach(function (u) {
         if (unitState(u.name, 'is-active') !== 'active') return;
         if (recmgrLoaded(recmgrBase(u.name))) { runOk(CFG.systemctl, ['stop', u.name]); say('stopped ' + u.name); }
@@ -3822,6 +3899,21 @@ function cmdRollback(args) {
                 if (!again.ok) say('app-privacy ' + cur + ' apply failed too: ' + again.why);
                 throw fail('app-privacy ' + target + ': ' + pr.why);
             }
+        }
+        if (tc.activate) {
+            var hr = runHook(id, path.join(root, 'versions', target), tc, 'activate');
+            if (!hr.ok) {
+                switchCurrent(root, cur);
+                say(cur + ' is current again');
+                restartAgain(touched, id + ' ' + cur);
+                if (tool.component.activate) {
+                    var back = runHook(id, path.join(root, 'versions', cur), tool.component, 'activate');
+                    if (!back.ok) say(id + ' ' + cur + ' activate failed too: ' + back.why);
+                    else if (back.reboot) addPending(state, id, back.reboot);
+                }
+                throw fail(id + ' ' + target + ': activate ' + hr.why);
+            }
+            if (hr.reboot) addPending(state, id, hr.reboot);
         }
     } finally { saveState(state); }
     say(id + ' rolled back to ' + target);

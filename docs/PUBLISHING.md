@@ -49,6 +49,14 @@ read as a repo tree. So a repository that has both releases and
   `component.json` (deploy/README.md, "Artifacts"), listed in a catalog or
   committed prebuilt in a repo tree, or as one of IterioDev's App Manager
   service packages (below). An app's own javascript cannot install one.
+- **Install hooks.** A tool that must change something outside its own
+  files when installed or removed (waze-on-cluster writes the CarPlay patch)
+  names commands in its `component.json`: `"activate"` and `"deactivate"`
+  (deploy/README.md, "Activate and deactivate"; mgu-deploy 0.6.0 and later,
+  so the tool requires that version). They run as root, never through a
+  shell; an `activate` whose change takes effect at the next head-unit start
+  says so on its last stdout line (`{"reboot": "<why>"}`) and the Store shows
+  the tool as restart-pending.
 - **Renderers** say so: `"mguProvides": "renderer"` in the tool's
   `component.json` and catalog entry. An app that requires a renderer is
   satisfied by any installed one, and renderers install side by side

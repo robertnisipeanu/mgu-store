@@ -191,8 +191,8 @@ tool itself):
 - the artifact's `component.json` is `{id, kind, version, title,
   description, files[{path, mode, sha256}], units[{name}], enable, recmgr,
   restart}`, `dropins[{unit, name}]` (each read from `from`), and `internet`
-  with `uids`, `mguHmi`, `mguProvides` and `keepRunning` when the tool
-  declares them;
+  with `uids`, `mguHmi`, `mguProvides`, `keepRunning`, `requires`,
+  `uninstallable`, `activate` and `deactivate` when the tool declares them;
 - members are sorted, owned 0:0, with the listed modes (`component.json` and
   units 0644) and one mtime: `SOURCE_DATE_EPOCH` when set, else the packer's
   fixed one (`tools/oap_pack.js`, which also writes the gzip header's OS byte
@@ -593,6 +593,30 @@ in the same window as the units, in the snapshot, and removed on uninstall,
 so the unit is as it was. A drop-in of that name that no tool of ours
 installed refuses the install (exit 2). Nothing is restarted for it: the
 unit reads it when it next starts.
+
+**Activate and deactivate.** A tool may name a command its installs run,
+`"activate"`, and one its removal runs, `"deactivate"`: `["node", <argument>...]`
+(the Node this tool runs on) or `[<an executable file of the tool>,
+<argument>...]`, non-empty strings without `..`, no shell. Anything else
+refuses the install (exit 2). Each runs as root with this tool's
+environment, in the version's folder, for at most 120 s
+(`MGU_DEPLOY_HOOK_TIMEOUT_MS`), and its stdout and stderr go to this tool's
+output, prefixed `<id> activate:`. When its last non-empty stdout line is a
+JSON object, `"reboot"` is why the change needs a head-unit start (the tool
+is then pending with that reason) and `"status"` a line for the output.
+
+- `activate` runs on every install of the tool (the same version again too)
+  and a rollback to a version that has one, once the version's files, units,
+  the recmgr list and the restarts are done and `/` is read-only again: a
+  command that writes to `/` remounts it itself. It must be idempotent. A non-zero exit or the
+  timeout fails the install like a failed health check: the units it started
+  or restarted are restarted on the previous version (or stopped when their
+  unit went with it), the previous version's `activate` runs again, and a
+  first install is removed.
+- `deactivate` runs before a removal changes anything, with the tool's units
+  and files in place. A non-zero exit refuses the removal (exit 2) and the
+  tool stays whole. A restart it asks for stays pending under `mgu-deploy`
+  (`<id> removed: <reason>`), since the tool's own entries go with it.
 
 **Prune boundary.** A second update in the same boot prunes the version a
 running service may still execute from (it keeps only the new one and the
