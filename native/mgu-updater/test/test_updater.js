@@ -2337,6 +2337,86 @@ function testUnitServices(certs, pubDir) {
         });
 }
 
+/* Requirements across sources, as mgu-apps and mgu-store publish them: an
+ * app that requires a tool of its own catalog, which requires a renderer
+ * there and a newer deploy tool from mgu-store's. Installing the app
+ * installs, in order, the deploy tool update, the renderer, the tool and
+ * the app; the tool whose install the deploy tool reports restart-pending
+ * shows so. */
+function testCrossSource(certs) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'xs');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const state = path.join(M, 'state');
+    const store = path.join(M, 'store');
+    const apps = path.join(M, 'apps');
+    [M, opt, oap, state, store, apps, path.join(M, 'shm'), path.join(M, 'media')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog, FAKE_PENDING: 'waze-on-cluster' });
+    delete process.env.FAKE_LEASE;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    const deployed = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^(install|uninstall)/.test(l));
+    // the deploy tool installed, one version before the one that runs install hooks
+    mkdirp(path.join(opt, 'mgu-deploy', 'versions', '0.5.0'));
+    fs.writeFileSync(path.join(opt, 'mgu-deploy', 'versions', '0.5.0', 'component.json'), JSON.stringify({ id: 'mgu-deploy', kind: 'tool', version: '0.5.0' }));
+    fs.symlinkSync('versions/0.5.0', path.join(opt, 'mgu-deploy', 'current'));
+    const kit = (dir, id, version, extra) => toolKit(dir, id, version, { [`${id}.sh`]: ['#!/bin/sh\n', 0o755] }, extra);
+    publish(store, [entry(kit(store, 'mgu-deploy', '0.6.0'), 'tool', 'Deploy tool')], { schema: 2 });
+    const hooks = { activate: ['node', 'patchd.js', 'activate'], deactivate: ['node', 'patchd.js', 'deactivate'] };
+    const tool = { requires: { 'mgu-deploy': '0.6.0', 'cluster-render': '0.1.0' }, mguHmi: ['ID7'] };
+    publish(apps, [
+        Object.assign(entry(kit(apps, 'cluster-render', '0.1.0', { mguHmi: ['ID7'] }), 'tool', 'Cluster renderer'), { mguHmi: ['ID7'] }),
+        Object.assign(entry(kit(apps, 'waze-on-cluster', '0.5.0', Object.assign({}, tool, hooks)), 'tool', 'Waze on cluster'), tool),
+        Object.assign(entry(appTgz(apps, 'robertn_waze_cluster', '0.3.0'), 'app', 'Waze Cluster'), { requires: { 'waze-on-cluster': '0.5.0' } })
+    ], { schema: 2 });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [
+        { id: 'mgu-store', type: 'file', path: store, builtin: true },
+        { id: 'mgu-apps', type: 'file', path: apps }
+    ] }));
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
+        github_api: API, github_web: GH_WEB, github_client_id: 'Iv1.test', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    fs.writeFileSync(conf.mounts, '');
+    const u = new Updater(conf);
+    const st = () => u.state();
+    const comp = (id) => st().components.find((c) => c.id === id) || {};
+    return u.serve()
+        .then(() => u.check())
+        .then(() => {
+            ok('cross-source: the tool lists its requirements and hooks\' iDrive', JSON.stringify(comp('waze-on-cluster').mguHmi) === '["ID7"]' &&
+                comp('cluster-render').source === 'mgu-apps' && comp('mgu-deploy').source === 'mgu-store', JSON.stringify(st().components));
+            return ask(conf.socket, { op: 'install', id: 'robertn_waze_cluster' });
+        })
+        .then((err) => until(st, () => !st().busy && !st().components.some((c) => c.queued) &&
+            comp('robertn_waze_cluster').status === 'installed', 60000, 'the app installed').then(() => err))
+        .then((err) => {
+            const order = deployed().map((l) => (/([a-z_-]+)@(\d+\.\d+\.\d+)\.tgz/.exec(l) || [])[0]);
+            ok('cross-source: installing the app installs the deploy tool update, the renderer, the tool, then the app',
+                err === null && JSON.stringify(order) === JSON.stringify(['mgu-deploy@0.6.0.tgz', 'cluster-render@0.1.0.tgz',
+                    'waze-on-cluster@0.5.0.tgz', 'robertn_waze_cluster@0.3.0.tgz']), `${err} ${JSON.stringify(deployed())}`);
+            ok('cross-source: each from its own source', u.origins['mgu-deploy'].source === 'mgu-store' &&
+                u.origins['cluster-render'].source === 'mgu-apps' && u.origins['waze-on-cluster'].source === 'mgu-apps', JSON.stringify(u.origins));
+            ok('cross-source: the tool the deploy tool reports restart-pending shows so, the others do not',
+                comp('waze-on-cluster').pendingReboot === true && comp('cluster-render').pendingReboot === false &&
+                comp('robertn_waze_cluster').pendingReboot === false, JSON.stringify(st().components.map((c) => [c.id, c.pendingReboot])));
+            delete process.env.FAKE_PENDING;
+            u.server.close();
+        });
+}
+
 /* An App Manager index version 2 (listed from the index alone, icons kept by
  * the updater), and icons a catalog in a folder and a repo's mgu-store.json
  * name (an updater in this process; the index served from pubDir). */
@@ -3754,6 +3834,7 @@ function main() {
             .then(() => testRequests(certs).catch((e) => ok('requests scenario', false, e.stack)))
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
+            .then(() => testCrossSource(certs).catch((e) => ok('cross-source requirements scenario', false, e.stack)))
             .then(() => testAppManager(certs, pubDir).catch((e) => ok('App Manager scenario', false, e.stack)))
             .then(() => testIdrive7(certs).catch((e) => ok('idrive7-apps installer scenario', false, e.stack)))
             .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
