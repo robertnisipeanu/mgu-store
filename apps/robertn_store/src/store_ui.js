@@ -40,7 +40,7 @@
  * uplink's state (state.uplink: mgu-uplink 0.7.0's status.json through the
  * updater) and are there only with its Wi-Fi.
  */
-const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
+const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount, sourceInstallLabel,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
     notForUnit, removable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
 
@@ -410,7 +410,7 @@ function sourceView(m, id) {
             typeof s.components === 'number' && { text: plural(s.components, 'component') }].filter(Boolean) },
         desc: { text: s.error ? String(s.error) : '' },
         panel: { hidden: !installUrl },
-        appLabel: { text: installUrl ? 'Install on GitHub' : '' },
+        appLabel: { text: installUrl ? sourceInstallLabel(s, tokens(m)) : '' },
         appQr: { text: installUrl },
         appUrl: { text: installUrl },
         remove: sourceActions(s).remove ? button('Remove', { do: 'open', page: { name: 'confirm', kind: 'source-remove', id: s.id } },

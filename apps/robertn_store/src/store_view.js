@@ -208,6 +208,14 @@ function sourceAccount(src) {
     return (src.auth && src.auth.login) || '';
 }
 
+/* The title over the GitHub App's install page on a source's page: only
+ * the repo's owner can install the App on it. */
+function sourceInstallLabel(src, tokens) {
+    const owner = String(src.label || '').split('/')[0].toLowerCase();
+    const own = (tokens || []).some((t) => !t.rejected && t.login && t.login.toLowerCase() === owner);
+    return own ? 'Install on GitHub' : 'Ask the owner to install';
+}
+
 /* ---- accounts (the updater's tokens) ---- */
 
 function tokenLabel(token) {
@@ -379,5 +387,5 @@ function sourcesMessage(m) {
 }
 
 module.exports = { listed, startPending, sourceNames, withSources, removable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
-    sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
+    sourcesState, sourceActions, sourceChannel, sourceAccount, sourceInstallLabel, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.13
+
+A private source no signed-in account reaches shows the GitHub App's
+install page titled *Install on GitHub* when the repo belongs to a
+signed-in account, else *Ask the owner to install*: only a repo's owner
+can install the App on it.
+
 ## 0.9.12
 
 Installed lists the apps and the tools that something runs or waits on

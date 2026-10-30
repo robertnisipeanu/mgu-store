@@ -72,7 +72,7 @@ const { spell } = require('./speller.js');
 const { Drawn, DEPTHS } = require('./store_drawn.js');
 const { typeKey, wifiOf } = require('./store_ui.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
-    sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
+    sourcesState, sourceActions, sourceChannel, sourceAccount, sourceInstallLabel, tokenLabel, tokenState, tokenSources, accountsState,
     loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage,
     removable, withSources, listed } = require('./store_view.js');
 
@@ -1436,7 +1436,7 @@ class Store extends OnlineApp {
         const app = src && src.status === 'auth-needed' && this._st && this._st.signinApp;
         const signedIn = Array.isArray(this._st && this._st.tokens) && this._st.tokens.some((t) => !t.rejected);
         const installUrl = app && signedIn && app.installUrl ? String(app.installUrl) : '';
-        this._show(C.srcAppLabel, !!installUrl);
+        this._text(C.srcAppLabel, installUrl ? sourceInstallLabel(src, this._st.tokens) : '');
         this._text(C.srcAppUrl, installUrl);
         this._showQr('app', C.srcAppQr, installUrl, '');
     }

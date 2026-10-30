@@ -314,7 +314,10 @@ f = screen('source');
 eq(own(f), ['Remove', 'Back']);
 eq([f.values.appQr.text, f.values.panel.hidden], ['', true], 'a source that reads needs no install page');
 f = screen('source-install-app');
-eq([f.values.appLabel.text, f.values.appQr.text], ['Install on GitHub', 'https://github.com/apps/mgu-store/installations/new']);
+eq([f.values.appLabel.text, f.values.appQr.text], ['Ask the owner to install', 'https://github.com/apps/mgu-store/installations/new'],
+    'a repo of another account: its owner installs the App');
+eq(screen('source-install-app', {}, { tokens: [{ id: 'a1', kind: 'github', label: null, login: 'iteriodev', rejected: false, usedBy: [] }] })
+    .values.appLabel.text, 'Install on GitHub', 'a repo of the signed-in account');
 eq(screen('source-install-app', {}, { signinApp: null }).values.appQr.text, '', 'none without the App');
 eq(screen('source-install-app', {}, { tokens: [] }).values.appQr.text, '', 'none before a sign-in');
 

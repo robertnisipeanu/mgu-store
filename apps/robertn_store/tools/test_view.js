@@ -7,7 +7,7 @@
  */
 const assert = require('assert');
 const { listed, sourceNames, withSources, rowState, rowAction, removable, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
-    sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress,
+    sourceChannel, sourceAccount, sourceInstallLabel, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress,
     parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
@@ -192,6 +192,9 @@ const cases = [
     [sourceChannel(src({ channel: 'other' })), ''],
     [sourceAccount(src({ auth: { kind: 'github', login: 'someone' } })), 'someone'],
     [sourceAccount(src({})), ''],
+    [sourceInstallLabel(src({ label: 'Someone/repo' }), [tok({})]), 'Install on GitHub'],
+    [sourceInstallLabel(src({ label: 'other/repo' }), [tok({})]), 'Ask the owner to install'],
+    [sourceInstallLabel(src({ label: 'someone/repo' }), [tok({ rejected: true })]), 'Ask the owner to install'],
     [tokenLabel(tok({})), 'someone'],
     [tokenLabel(tok({ label: null })), 'someone'],
     [tokenLabel(tok({ label: null, login: null })), '3f9a01c2'],
