@@ -50,7 +50,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '1.6.1';
+const VERSION = '1.6.2';
 const MARKER_KEY = 'mguLocalOnly';
 const OAP_ROOT = '/var/opt/public/oap/';
 const OVERRIDE_FILE = OAP_ROOT + 'oap_12201/data/local-only-apps.json';
@@ -176,6 +176,8 @@ const CRASH_EDITS = [
 
 const KEEP_APP = '.filter(app=>!isLocalOnlyApp(app.getAppId()))';
 const KEEP_APP_ID = '.filter(appId=>!isLocalOnlyApp(appId))';
+// AppManagementController.getAvailableUpdatesFromBackend's sweep.
+const SWEEP_EDIT = ins('this.appRegistry.getAll()', KEEP_APP, ',app=>{const appId', 1);
 
 const MAIN_PATCHES = [
     // Predicate, one copy per bundle module that uses it.
@@ -190,7 +192,7 @@ const MAIN_PATCHES = [
     ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';', 1),
     ins('getAllAppIds()', KEEP_APP_ID, ',resultArgs=', 1),
     // Update-availability sweep against the app repository.
-    ins('this.appRegistry.getAll()', KEEP_APP, ',app=>{const appId', 1),
+    SWEEP_EDIT,
     // Platform analytics APP_INSTALL events, success and failure.
     ins('appId&&', '!isLocalOnlyApp(appId)&&', 'AnalyticsServiceBuilders_1', 2),
     // Crash recovery, and no APP_CRASH analytics event for local-only apps.
@@ -281,6 +283,17 @@ const MAIN_PATCHES_8_1_1 = [
     ins('getAllAppIds()', KEEP_APP_ID, ';return logger.info(`${logPrefix} Trying', 1)
 ];
 const PATCH_SETS_8_1_1 = { main: MAIN_PATCHES_8_1_1, appmanagement: APPMANAGEMENT_PATCHES_1_4_0.concat([certEdit(1)]) };
+
+// oap-mainapp 8.2.8 (a G30 LCI, issue #83). It has no update-availability
+// sweep (getAvailableUpdatesFromBackend); its other edits are 8.3.2's, so
+// 8.3.2's bundles fit these too and 8.3.2 is tried first. Only its main.js
+// has been seen: AppManagement.js has no reference fingerprint yet (the car
+// reported that it takes 8.3.2's edits).
+const KNOWN_SHA256_8_2_8 = {
+    main: 'c503acab2300360b4f29502b7abbf7a27b42e835666dedfa512315cd16d50bb3',
+    appmanagement: null
+};
+const PATCH_SETS_8_2_8 = { main: MAIN_PATCHES.filter((p) => p !== SWEEP_EDIT), appmanagement: APPMANAGEMENT_PATCHES };
 
 // MainApp-21 (iDrive 8). Its predicate decides an app MainApp-21 is
 // installing by MainApp-21's own preinstalled_apps; registry, app folders
@@ -406,6 +419,7 @@ function bundlePaths(root) {
 const UNITS = {
     ID7: { paths: DEFAULT_PATHS, mainapps: [
         { version: '8.3.2', sets: { current: PATCH_SETS, earlier: EARLIER_PATCH_SETS }, known: KNOWN_SHA256 },
+        { version: '8.2.8', sets: { current: PATCH_SETS_8_2_8, earlier: [] }, known: KNOWN_SHA256_8_2_8 },
         { version: '8.1.1', sets: { current: PATCH_SETS_8_1_1, earlier: [] }, known: KNOWN_SHA256_8_1_1 }
     ] },
     ID8: { paths: bundlePaths('/usr/lib/oap-mainapp21'), mainapps: [
@@ -993,7 +1007,7 @@ function main(argv) {
 
 module.exports = {
     VERSION, MARKER_KEY, OVERRIDE_FILE, PREINSTALLED_DIR, HELPER_JS, PATCH_SETS, EARLIER_PATCH_SETS, KNOWN_SHA256,
-    PATCH_SETS_8_1_1, KNOWN_SHA256_8_1_1, PREINSTALLED_DIR_21, HELPER_JS_21, PATCH_SETS_21, KNOWN_SHA256_21,
+    PATCH_SETS_8_1_1, KNOWN_SHA256_8_1_1, PATCH_SETS_8_2_8, KNOWN_SHA256_8_2_8, PREINSTALLED_DIR_21, HELPER_JS_21, PATCH_SETS_21, KNOWN_SHA256_21,
     PATCH_SETS_21_9_2_15, KNOWN_SHA256_21_9_2_15,
     UNITS, unitOf,
     classify, applyPatches, removePatches, run, stampPackage, checkApps, main

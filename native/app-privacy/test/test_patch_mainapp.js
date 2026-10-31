@@ -303,6 +303,16 @@ test('the MainApp-21 9.2.15 patch set is recorded', () => {
         '(its UNITS.ID8.mainapps entry\'s sets.earlier) and bump the version; then record ' + sha + ' here');
 });
 
+// sha256 of JSON.stringify(PATCH_SETS_8_2_8) as shipped by 1.6.2.
+const PATCH_SETS_8_2_8_SHA256 = 'b42b04bb1293905464536ec29ff54f2de82f746195478bd3b906c8a269bf627b';
+
+test('the MainApp 8.2.8 patch set is recorded', () => {
+    const sha = setsSha(patcher.PATCH_SETS_8_2_8);
+    assert.strictEqual(sha, PATCH_SETS_8_2_8_SHA256,
+        'PATCH_SETS_8_2_8 differs from the released one: keep the released sets as 8.2.8\'s earlier release ' +
+        '(its UNITS.ID7.mainapps entry\'s sets.earlier) and bump the version; then record ' + sha + ' here');
+});
+
 /* Synthetic bundles of one release's anchors as the given MainApp release. */
 function withReleaseBundles(unit, sets, fn) {
     const dir = tmpdir();
@@ -321,9 +331,10 @@ function withReleaseBundles(unit, sets, fn) {
 }
 
 test('bundles take the edits of the MainApp release they fit', () => {
-    assert.deepStrictEqual(patcher.UNITS.ID7.mainapps.map((m) => m.version), ['8.3.2', '8.1.1']);
+    assert.deepStrictEqual(patcher.UNITS.ID7.mainapps.map((m) => m.version), ['8.3.2', '8.2.8', '8.1.1']);
     assert.deepStrictEqual(patcher.UNITS.ID8.mainapps.map((m) => m.version), ['9.3.4', '9.2.15']);
-    [['ID7', patcher.PATCH_SETS, '8.3.2'], ['ID7', patcher.PATCH_SETS_8_1_1, '8.1.1'], ['ID8', patcher.PATCH_SETS_21, '9.3.4'],
+    [['ID7', patcher.PATCH_SETS, '8.3.2'], ['ID7', patcher.PATCH_SETS_8_2_8, '8.2.8'], ['ID7', patcher.PATCH_SETS_8_1_1, '8.1.1'],
+        ['ID8', patcher.PATCH_SETS_21, '9.3.4'],
         ['ID8', patcher.PATCH_SETS_21_9_2_15, '9.2.15']].forEach((release) => withReleaseBundles(release[0], release[1], (b) => {
         const stock = { main: b.read('main'), appmanagement: b.read('appmanagement') };
         let r = runTool(b.args('check'));
@@ -342,9 +353,11 @@ test('bundles take the edits of the MainApp release they fit', () => {
 });
 
 test('each iDrive 7 release\'s edits fit only its own bundles', () => {
-    const sets = { '8.3.2': patcher.PATCH_SETS, '8.1.1': patcher.PATCH_SETS_8_1_1 };
+    const sets = { '8.3.2': patcher.PATCH_SETS, '8.2.8': patcher.PATCH_SETS_8_2_8, '8.1.1': patcher.PATCH_SETS_8_1_1 };
+    // 8.2.8's edits are 8.3.2's but for one, so 8.3.2's bundles fit both (8.3.2 is tried first)
+    const sharedBy = (mine, other, kind) => mine === '8.3.2' && other === '8.2.8' || sets[mine][kind] === sets[other][kind];
     Object.keys(sets).forEach((mine) => Object.keys(sets).filter((other) => other !== mine).forEach((other) => {
-        ['main', 'appmanagement'].forEach((kind) => {
+        ['main', 'appmanagement'].filter((kind) => !sharedBy(mine, other, kind)).forEach((kind) => {
             const stock = syntheticBundle(sets[mine][kind]);
             assert.ok(Array.isArray(patcher.classify(stock, sets[other][kind])), mine + ' ' + kind + ' fits ' + other);
             assert.ok(Array.isArray(patcher.classify(patcher.applyPatches(stock, sets[mine][kind]), sets[other][kind])),
