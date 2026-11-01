@@ -156,11 +156,12 @@ void touch_tick(int claimed)
     if (!rule[0]) return;
     double t = now_ms();
     /* a firewall reload while diverted (an overlay diverts all the time) would drop every touch on its way here:
-     * the rule and the firewall's accept go in again every REFRESH_MS */
-    if (claimed && loaded && t - refreshed > REFRESH_MS) {
+     * while an overlay claims (2), the rule and the firewall's accept go in again every REFRESH_MS */
+    if (claimed == 2 && loaded && t - refreshed > REFRESH_MS) {
         refreshed = t;
         if (rule_in() != 0) fprintf(stderr, "[mgu-render] touch: refreshing the nft rule failed\n");
     }
+    claimed = claimed != 0;
     if (claimed != loaded) {
         if (!claimed) { rule_out(); loaded = 0; fprintf(stderr, "[mgu-render] touch: nothing claimed, straight to the HMI\n"); }
         else if (t - failed > 5000) {                         /* nft missing / refusing: not every loop turn */

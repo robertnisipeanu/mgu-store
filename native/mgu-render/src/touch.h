@@ -12,7 +12,7 @@
 int touch_init(const char *iface, const char *saddr, const int area[4]);
 int touch_fd(void);                  /* the diverted PDUs (poll it), -1 when off */
 void touch_read(void);               /* route what came in */
-void touch_tick(int claimed);        /* every loop turn: claimed = a visible app has claims -> rule in or out */
+void touch_tick(int claimed);        /* every loop turn: claimed = a visible app has claims (2: an overlay) -> rule in or out */
 void touch_forget(int slot);         /* that app is gone: the rest of its gesture is dropped */
 void touch_stop(void);               /* rule out */
 

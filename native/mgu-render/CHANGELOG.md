@@ -2,8 +2,10 @@
 
 ## 0.6.10
 
-- Layer apps hide for a yield surface (`yield_surfaces`) only while it shows a picture: visible and with a buffer (its `configuration` larger than 0x0). On a G82 the HMI keeps cameraplayer's `SID_VIDEO_DIGITAL_HU` 0x198 visible from boot with no buffer, which hid every layer app (the Store fell back to its widget screens). The renderer logs each yield surface's visibility and buffer size as they change.
-- Overlays (`overlay_apps`): the listed apps' layers are always shown, first for touch, and may claim outside the app area.
+Both changes are for iDrive 8 only (centre display 2880x960); on iDrive 7 the renderer behaves as 0.6.9.
+
+- iDrive 8: layer apps hide for a yield surface (`yield_surfaces`) only while it shows a picture: visible and with a buffer (its `configuration` larger than 0x0). On a G82 the HMI keeps cameraplayer's `SID_VIDEO_DIGITAL_HU` 0x198 visible from boot with no buffer, which hid every layer app for good (the Store kept its widget screens). The renderer logs each yield surface's visibility and buffer size as they change.
+- iDrive 8: overlays (`overlay_apps`, default `iteriodev-overlays`): a root client with a listed app id stays shown over the yield surfaces, is never closed by a touch on the HMI, gets touch first and may claim outside `touch_area` (the climate bar), and its layer is put back on top when another app's layer goes on the screen. While an overlay claims, the touch rule and the firewall's accept go in again every 10 s. On iDrive 7 a listed app is an ordinary app (logged).
 
 ## 0.6.9
 

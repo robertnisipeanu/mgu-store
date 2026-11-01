@@ -95,6 +95,8 @@ static EGLConfig ecfg;
 static EGLContext ectx;
 static EGLSurface init_es = EGL_NO_SURFACE;
 static int screen_w = 1920, screen_h = 720, refresh_mhz;
+/* the centre display of iDrive 8 (iDrive 7: 1920x720); overlays and the picture check on yield surfaces are for it only */
+static int idrive8(void) { return screen_w == 2880 && screen_h == 960; }
 
 /* yield surfaces (camera, video): layer mode hides while one shows a picture (visible, with a buffer) */
 static struct { uint32_t id; struct ivi_controller_surface *s; int visible, w, h; } yield[CFG_MAX_YIELD];
@@ -177,11 +179,11 @@ static void c_screen(void *d, struct ivi_controller *c, uint32_t id, struct ivi_
 static void c_layer(void *d, struct ivi_controller *c, uint32_t id) { (void)d, (void)c, (void)id; }
 
 static void update_all(void);
-/* Visible alone is not a picture: on a G82 (2026-11-01) the HMI keeps cameraplayer's SID_VIDEO_DIGITAL_HU 0x198
- * visible from boot with no buffer (configuration 0x0), which hid every layer app for good. */
+/* iDrive 8: visible alone is not a picture: on a G82 (2026-11-01) the HMI keeps cameraplayer's SID_VIDEO_DIGITAL_HU
+ * 0x198 visible from boot with no buffer (configuration 0x0), which hid every layer app for good. iDrive 7: visible. */
 static void y_update(int i) {
     int any = 0;
-    for (int k = 0; k < nyield; k++) any |= yield[k].visible && yield[k].w > 0 && yield[k].h > 0;
+    for (int k = 0; k < nyield; k++) any |= yield[k].visible && (!idrive8() || (yield[k].w > 0 && yield[k].h > 0));
     if (any != yielding) {
         yielding = any;
         log_info(any ? "surface %#x shows a picture: layer apps yield the screen" : "surface %#x shows no picture: layer apps may show", yield[i].id);
@@ -802,9 +804,11 @@ void touch_outside(void) {
     }
 }
 
-static int any_claim(void) {
-    for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] && clients[i]->nclaim && shown(clients[i])) return 1;
-    return 0;
+static int any_claim(void) {                           /* 0 none, 1 a shown app claims, 2 an overlay claims */
+    int any = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++)
+        if (clients[i] && clients[i]->nclaim && shown(clients[i])) { if (clients[i]->overlay) return 2; any = 1; }
+    return any;
 }
 
 static void touch_defaults(int area[4]) {
@@ -915,8 +919,10 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         x[11] = GFX_PIXMAP_SIDE; x[12] = (uint32_t)refresh_mhz;
         send_msg(c, X_READY, x, 13 * 4);
     }
-    c->overlay = c->uid == 0 && listed(cfg.overlay_apps, c->app);
-    log_info("%s: connected (uid %u%s%s)", c->app, c->uid, native ? ", mgu-render/1" : "", c->overlay ? ", overlay" : "");
+    int listed_root = c->uid == 0 && listed(cfg.overlay_apps, c->app);
+    c->overlay = listed_root && idrive8();
+    log_info("%s: connected (uid %u%s%s)", c->app, c->uid, native ? ", mgu-render/1" : "",
+             c->overlay ? ", overlay" : listed_root ? ", overlay_apps is for iDrive 8 only" : "");
     uint32_t r[4] = { MGU_PROTO_VERSION, (uint32_t)screen_w, (uint32_t)screen_h, (uint32_t)touch_on };
     send_msg(c, E_READY, r, sizeof r);
 }

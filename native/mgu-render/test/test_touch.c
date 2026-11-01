@@ -86,6 +86,8 @@ int main(void)
     CHECK(loads() == 1 && strstr(slurp(), "udp dport set 30570"), "claimed: rule not in");
     touch_tick(1);
     CHECK(loads() == 1, "claimed twice: loaded twice");
+    touch_tick(2);
+    CHECK(loads() == 1, "an overlay's claim (2) with the rule in: loaded again before REFRESH_MS");
     touch_tick(0);
     CHECK(outs() == 2, "nothing claimed: rule not out");
 
