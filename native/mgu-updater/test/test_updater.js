@@ -84,6 +84,31 @@ function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
 
+/* The pids of fn() (a list) still running: a zombie is not, it has ended.
+ * A killed process ends a few ms after kill() returns and stays a zombie
+ * until its parent reaps it (an orphan's parent is PID 1: in Docker, the
+ * shell or node itself). Polls until none is, for at most 5 s; resolves
+ * with what still runs. */
+function stillRunning(fn) {
+    const end = Date.now() + 5000;
+    const live = () => fn().filter((pid) => {
+        try {
+            return !/^[ZX]/.test(fs.readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /, ''));
+        } catch (e) {
+            return false;
+        }
+    });
+    const poll = () => {
+        const left = live();
+        return left.length === 0 || Date.now() > end ? Promise.resolve(left) : sleep(20).then(poll);
+    };
+    return poll();
+}
+
+function uidPids(uid) {
+    return sh(`pgrep -u ${uid} || true`).trim().split('\n').filter(Boolean);
+}
+
 function mkdirp(d) {
     if (!fs.existsSync(d)) {
         mkdirp(path.dirname(d));
@@ -2176,12 +2201,9 @@ function testSources(certs) {
             return ask(sock, { op: 'install', id: 'b_slow' });
         })
         .then(() => until(st, () => !st().busy && comp('b_slow').error, 30000, 'b_slow'))
-        .then(() => {
-            let left = '';
-            try {
-                left = sh('pgrep -u 12995 || true').trim();
-            } catch (e) { /* none */ }
-            ok('build: a script past build_timeout_s is stopped, its processes too', /took longer than 3 s/.test(comp('b_slow').error) && left === '',
+        .then(() => stillRunning(() => uidPids(12995)))
+        .then((left) => {
+            ok('build: a script past build_timeout_s is stopped, its processes too', /took longer than 3 s/.test(comp('b_slow').error) && !left.length,
                 `${comp('b_slow').error} ${left}`);
             return ask(sock, { op: 'install', id: 'b_escape' });
         })
@@ -2194,8 +2216,9 @@ function testSources(certs) {
                 fs.readdirSync(state).join(' '));
             return ask(sock, { op: 'install', id: 'b_detach' }).then(() => installed('b_detach'));
         })
-        .then(() => {
-            ok('build: a process the script leaves running outside its group is killed', sh('pgrep -u 12995 || true').trim() === '');
+        .then(() => stillRunning(() => uidPids(12995)))
+        .then((left) => {
+            ok('build: a process the script leaves running outside its group is killed', !left.length, `${left}`);
             // tags, and a repo without releases, added through the socket
             return Promise.all([priv({ op: 'source-add', type: 'github', repo: 'third/tagged', channel: 'tags' }),
                 priv({ op: 'source-add', type: 'github', repo: 'third/plain' }),
@@ -4851,18 +4874,11 @@ function testDeployTimeout() {
     u.conf = { deploy: tool, deploy_timeout_s: '1' };
     const t0 = Date.now();
     return u.deployTool(['install', '--artifact', 'x', '--yes']).then((code) => {
-        const child = Number(fs.readFileSync(pidFile, 'utf8'));
-        let alive = true;
-        try {
-            process.kill(child, 0);
-        } catch (e) {
-            alive = false;
-        }
         ok('deploy timeout: a deploy tool run past deploy_timeout_s fails with that reason',
             code === 1 && u.deployError === 'the deploy tool did not finish within 1 s and was stopped' &&
             Date.now() - t0 < 15000, `${code} ${u.deployError}`);
-        ok('deploy timeout: what the deploy tool started is stopped with it', !alive);
-    });
+        return stillRunning(() => [fs.readFileSync(pidFile, 'utf8').trim()]);
+    }).then((left) => ok('deploy timeout: what the deploy tool started is stopped with it', !left.length, `${left}`));
 }
 
 /* The uplink's requests, relayed for the Store to a fake mgu-uplink ctl.sock
