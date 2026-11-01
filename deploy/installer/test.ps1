@@ -54,3 +54,4 @@ Check 'no download is left in the temp folder' (-not (Get-ChildItem ([IO.Path]::
 
 if ($failed) { Write-Output "$failed failed"; exit 1 }
 Write-Output 'all passed'
+exit 0
