@@ -84,7 +84,12 @@ function Run([string[]]$argv) {
         $global:LASTEXITCODE = $p.ExitCode
         if ($asFile) { exit $p.ExitCode }
     } finally {
-        Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+        # a virus scanner can hold a file it has just seen for a moment
+        foreach ($i in 1..20) {
+            Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+            if (-not (Test-Path $dir)) { break }
+            Start-Sleep -Milliseconds 500
+        }
     }
 }
 

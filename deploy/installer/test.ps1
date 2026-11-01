@@ -49,8 +49,9 @@ Check 'as a file: a checksum mismatch exits 1' ($LASTEXITCODE -eq 1)
 
 $env:MGU_INSTALL_DOWNLOAD = $Base
 Remove-Item -Recurse -Force $tmp
-Check 'no download is left in the temp folder' (-not (Get-ChildItem ([IO.Path]::GetTempPath()) -Filter 'mgu-install-*' -Directory |
-    Where-Object { $_.Name -notlike 'mgu-install-test-*' }))
+$left = @(Get-ChildItem ([IO.Path]::GetTempPath()) -Filter 'mgu-install-*' -Directory | Where-Object { $_.Name -notlike 'mgu-install-test-*' })
+$left | Get-ChildItem -Recurse | ForEach-Object { Write-Output "left: $($_.FullName)" }
+Check 'no download is left in the temp folder' ($left.Count -eq 0)
 
 if ($failed) { Write-Output "$failed failed"; exit 1 }
 Write-Output 'all passed'
