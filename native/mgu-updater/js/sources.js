@@ -979,6 +979,8 @@ function folderReader(root, ctx) {
 
 const INDEX_PACKAGES = 50;
 const INDEX_PACKAGE_BYTES = 32 << 20;
+// the most the packages kept under cacheDir come to, every index source's
+const INDEX_CACHE_BYTES = 128 << 20;
 // an index version 2 kind: an app, or a root-service package (packageEntry)
 const INDEX_KINDS = ['app'].concat(SERVICE_KINDS);
 const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : undefined);
@@ -1009,21 +1011,47 @@ function indexEntry(item, url) {
     });
 }
 
+/* The bytes of the files in each folder under dir. */
+function keptBytes(dir) {
+    let n = 0;
+    try {
+        fs.readdirSync(dir).forEach((d) => fs.readdirSync(path.join(dir, d)).forEach((f) => {
+            n += fs.statSync(path.join(dir, d, f)).size;
+        }));
+    } catch (e) { /* none yet */ }
+    return n;
+}
+
 /* An https source: catalog.json at a URL, artifacts absolute or relative
  * to it; or an App Manager index there (index mode), packages https,
- * absolute or relative to the index, each kept in
- * <cacheDir>/<source id>/<sha256>.tgz (root's, 0600; the ones the index no
- * longer lists go) once downloaded and checked against its sha256. Version
- * 2 lists its entries as they stand, a package downloaded on install and
- * checked to be the one its entry names; version 1, {"packages": [{url,
- * sha256}]}, has each package downloaded and read for what it is
- * (packageEntry). */
+ * absolute or relative to the index. A package downloaded and checked
+ * against its sha256 is kept in <cacheDir>/<source id>/<sha256>.tgz (root's,
+ * 0600) while it is the newest the index lists of its id, and while every
+ * source's kept packages come to at most INDEX_CACHE_BYTES; one not kept is
+ * downloaded again when needed. Version 2 lists its entries as they stand, a
+ * package downloaded on install and checked to be the one its entry names;
+ * version 1, {"packages": [{url, sha256}]}, has each package downloaded once
+ * and read for what it is (packageEntry), which <cacheDir>/<source
+ * id>/index.json keeps by its sha256. */
 function httpsReader(s, ctx) {
     const cache = ctx.cacheDir ? path.join(ctx.cacheDir, s.id) : null;
     const cached = (sha) => (cache ? path.join(cache, `${sha}.tgz`) : null);
+    const memoFile = cache ? path.join(cache, 'index.json') : null;
     const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
-    // a version 2 index: one entry per package from the index itself; the
-    // packages kept from an earlier read that it still lists stay
+    const keep = (sha, b) => {
+        if (cache && keptBytes(ctx.cacheDir) + b.length <= INDEX_CACHE_BYTES) {
+            mkdirPrivate(cache);
+            writePrivate(cached(sha), b);
+        }
+    };
+    // removes the source's files but the newest package of each id and the ones named
+    const prune = (newest, names) => {
+        const stay = Array.from(newest.values()).map((e) => `${e.artifact.sha256}.tgz`).concat(names);
+        if (cache && fs.existsSync(cache)) {
+            fs.readdirSync(cache).filter((n) => stay.indexOf(n) < 0).forEach((n) => fs.unlinkSync(path.join(cache, n)));
+        }
+    };
+    // a version 2 index: one entry per package from the index itself
     const fromIndex2 = (doc) => {
         const skipped = [];
         const newest = new Map();
@@ -1043,16 +1071,20 @@ function httpsReader(s, ctx) {
                 skipped.push(`${name}: ${err.message}`);
             }
         });
-        const keep = Array.from(newest.values()).map((e) => `${e.artifact.sha256}.tgz`);
-        if (cache && fs.existsSync(cache)) {
-            fs.readdirSync(cache).filter((n) => keep.indexOf(n) < 0).forEach((n) => fs.unlinkSync(path.join(cache, n)));
-        }
+        prune(newest, []);
         return { mode: 'index', commit: null, skipped, components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) };
     };
+    // a version 1 index: what a package is comes from index.json, written by
+    // this version of the updater or, while the package is not kept, an
+    // earlier one; else from the package
     const fromIndex = (doc) => {
         const skipped = [];
         const newest = new Map();
-        const keep = [];
+        let seen = {};
+        try {
+            seen = JSON.parse(fs.readFileSync(memoFile, 'utf8'));
+        } catch (e) { /* none yet */ }
+        const memo = {};
         return doc.packages.slice(0, INDEX_PACKAGES).reduce((p, item) => p.then(() => {
             const sha = String((item && item.sha256) || '').toLowerCase();
             let url = null;
@@ -1066,39 +1098,78 @@ function httpsReader(s, ctx) {
                     if (!/^[0-9a-f]{64}$/.test(sha) || !url || !/^https:\/\//.test(url)) {
                         throw new Error('needs an https url and a sha256');
                     }
-                    const file = cached(sha);
-                    if (file && fs.existsSync(file)) {
-                        return fs.readFileSync(file);
+                    const was = seen[sha];
+                    const kept = fs.existsSync(cached(sha) || '');
+                    if (was && (was.updater === ctx.version || (!kept && was.entry))) {
+                        return was;
                     }
-                    return ctx.net.get(url, ua(ctx.version), name, INDEX_PACKAGE_BYTES).then((b) => {
-                        if (sha256(b) !== sha) {
-                            throw new Error('does not match the sha256 in the index');
-                        }
-                        if (file) {
-                            mkdirPrivate(cache);
-                            writePrivate(file, b);
-                        }
-                        return b;
-                    });
+                    const got = kept ? Promise.resolve(fs.readFileSync(cached(sha))) :
+                        ctx.net.get(url, ua(ctx.version), name, INDEX_PACKAGE_BYTES).then((b) => {
+                            if (sha256(b) !== sha) {
+                                throw new Error('does not match the sha256 in the index');
+                            }
+                            keep(sha, b);
+                            return b;
+                        });
+                    // a package that does not read is not read again by this version
+                    return got.then((data) => tar.untgz(data, ctx.maxBuildBytes)
+                        .then((members) => ({ updater: ctx.version, entry: packageEntry(members, data, { url, index: 1 }, 'tgz') }))
+                        .catch((err) => ({ updater: ctx.version, error: err.message })));
                 })
-                .then((data) => {
-                    keep.push(`${sha}.tgz`);
-                    return tar.untgz(data, ctx.maxBuildBytes).then((members) => {
-                        const entry = packageEntry(members, data, { url }, 'tgz');
-                        const have = newest.get(entry.id);
-                        if (!have || catalogLib.compareVersions(entry.version, have.version) > 0) {
-                            newest.set(entry.id, entry);
-                        }
-                    });
+                .then((m) => {
+                    memo[sha] = m;
+                    if (m.error) {
+                        throw new Error(m.error);
+                    }
+                    const entry = Object.assign({}, m.entry, { artifact: Object.assign({}, m.entry.artifact, { url }) });
+                    const have = newest.get(entry.id);
+                    if (!have || catalogLib.compareVersions(entry.version, have.version) > 0) {
+                        newest.set(entry.id, entry);
+                    }
                 })
                 .catch((err) => {
                     skipped.push(`${name}: ${err.message}`);
                 });
         }), Promise.resolve()).then(() => {
-            if (cache && fs.existsSync(cache)) {
-                fs.readdirSync(cache).filter((n) => keep.indexOf(n) < 0).forEach((n) => fs.unlinkSync(path.join(cache, n)));
+            prune(newest, ['index.json']);
+            if (cache) {
+                mkdirPrivate(cache);
+                writePrivate(memoFile, JSON.stringify(memo));
             }
             return { mode: 'index', commit: null, skipped, components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) };
+        });
+    };
+    /* An artifact's bytes; an index's package is checked against its sha256 and kept (keep). */
+    const artifact = (entry, onProgress) => {
+        const index = entry.artifact.index;
+        const file = index && cached(entry.artifact.sha256);
+        // what a version 2 index says of a package is the package's own word
+        const own = (b) => (index !== 2 ? Promise.resolve(b) : tar.untgz(b, ctx.maxBuildBytes).then((members) => {
+            const p = packageEntry(members, b, {}, 'tgz');
+            if (p.id !== entry.id || p.version !== entry.version || p.service !== entry.service) {
+                throw new Error(`the package is ${p.id}@${p.version}${p.service ? ` (${p.service})` : ''}, not what the index says`);
+            }
+            return b;
+        }));
+        if (file && fs.existsSync(file)) {
+            const b = fs.readFileSync(file);
+            if (sha256(b) === entry.artifact.sha256) {
+                return own(b);
+            }
+        }
+        const url = new URL(entry.artifact.url || entry.artifact.name, s.url).toString();
+        const got = ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress);
+        if (!index) {
+            return got;
+        }
+        return got.then((b) => {
+            if (sha256(b) !== entry.artifact.sha256) {
+                throw new Error('download does not match the catalog (size or sha256)');
+            }
+            return own(b).then(() => {
+                keep(entry.artifact.sha256, b);
+                return b;
+            });
         });
     };
     return {
@@ -1114,46 +1185,11 @@ function httpsReader(s, ctx) {
             }
             return Object.assign({ mode: 'catalog' }, catalogLib.parse(text));
         }),
-        artifact: (entry, onProgress) => {
-            const file = entry.artifact.sha256 && cached(entry.artifact.sha256);
-            // what a version 2 index says of a package is the package's own word
-            const own = (b) => (entry.artifact.index !== 2 ? Promise.resolve(b) : tar.untgz(b, ctx.maxBuildBytes).then((members) => {
-                const p = packageEntry(members, b, {}, 'tgz');
-                if (p.id !== entry.id || p.version !== entry.version || p.service !== entry.service) {
-                    throw new Error(`the package is ${p.id}@${p.version}${p.service ? ` (${p.service})` : ''}, not what the index says`);
-                }
-                return b;
-            }));
-            if (file && fs.existsSync(file)) {
-                const b = fs.readFileSync(file);
-                if (sha256(b) === entry.artifact.sha256) {
-                    return own(b);
-                }
-            }
-            const url = new URL(entry.artifact.url || entry.artifact.name, s.url).toString();
-            const got = ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress);
-            if (entry.artifact.index !== 2) {
-                return got;
-            }
-            return got.then((b) => {
-                if (sha256(b) !== entry.artifact.sha256) {
-                    throw new Error('download does not match the catalog (size or sha256)');
-                }
-                return own(b).then(() => {
-                    if (file) {
-                        mkdirPrivate(cache);
-                        writePrivate(file, b);
-                    }
-                    return b;
-                });
-            });
-        },
+        artifact,
         icon: (entry) => {
             if (entry.icon.packaged) {
-                // a version 1 index's package, kept by its sha256
-                const file = cached(entry.artifact.sha256);
-                return file && fs.existsSync(file) ? packagedIcon(fs.readFileSync(file), entry, ctx.maxBuildBytes)
-                    : Promise.reject(new Error('the package is not kept'));
+                // a version 1 index's package
+                return artifact(entry).then((b) => packagedIcon(b, entry, ctx.maxBuildBytes));
             }
             const url = new URL(entry.icon.ref, s.url).toString();
             if (!/^https:\/\//.test(url)) {
