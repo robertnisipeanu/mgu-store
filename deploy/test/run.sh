@@ -9,5 +9,5 @@ FROM node:8.16.2-stretch AS unit
 FROM node:22.12.0-bookworm
 COPY --from=unit /usr/local/bin/node /usr/local/bin/node8
 DOCKERFILE
-docker run --rm -v "$PWD:/src:ro" -e MGU_TEST_UNIT_NODE=/usr/local/bin/node8 -e MGU_TEST_ONLY mgu-deploy-test \
+docker run --rm -v "$PWD:/src:ro" -e MGU_TEST_UNIT_NODE=/usr/local/bin/node8 -e MGU_TEST_ONLY -e MGU_TEST_INSTALL_EXE mgu-deploy-test \
     sh -c 'cp -R /src /w && cd /w && node deploy/test/run.js'

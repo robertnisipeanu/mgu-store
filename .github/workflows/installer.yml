@@ -1,0 +1,178 @@
+# Builds deploy/mgu-install.js into standalone executables for Windows,
+# macOS and Linux (deploy/installer/build.sh), tests them and the
+# bootstrap scripts deploy/install.sh and deploy/install.ps1 on each
+# system, and on main publishes them with SHA256SUMS as the assets of the
+# `installer` release, whose download URLs the bootstrap scripts read.
+name: Installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/mgu-install.js
+      - deploy/install.sh
+      - deploy/install.ps1
+      - deploy/installer/**
+      - .github/workflows/installer.yml
+  pull_request:
+    paths:
+      - deploy/mgu-install.js
+      - deploy/install.sh
+      - deploy/install.ps1
+      - deploy/installer/**
+      - .github/workflows/installer.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24.22.0
+
+# Actions are pinned to commits.
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-24.04 }
+          - { name: linux-arm64, os: ubuntu-24.04-arm }
+          - { name: macos-arm64, os: macos-15 }
+          - { name: macos-x64, os: macos-15-intel }
+          - { name: windows-x64, os: windows-2025, ext: .exe }
+          - { name: windows-arm64, os: windows-11-arm, ext: .exe }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build
+        run: sh deploy/installer/build.sh out ${{ matrix.name }}
+
+      - name: Run
+        run: |
+          exe=out/mgu-install-${{ matrix.name }}${{ matrix.ext }}
+          ls -l out
+          "$exe" --help > help.txt
+          head -3 help.txt
+          set +e
+          "$exe" bogus; status=$?
+          set -e
+          test "$status" = 2
+
+      # first-install, token and usb-repo against a fake unit and a stand-in
+      # GitHub, the executable in place of node mgu-install.js
+      - name: Deploy tests with the executable
+        if: startsWith(matrix.name, 'linux-')
+        env:
+          MGU_TEST_ONLY: testMguInstall,testMguInstallUsb,testMguInstallFrom,testMguInstallPaths
+          MGU_TEST_INSTALL_EXE: /w/out/mgu-install-${{ matrix.name }}
+        run: sh deploy/test/run.sh
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mgu-install-${{ matrix.name }}
+          path: out/mgu-install-${{ matrix.name }}${{ matrix.ext }}.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  # the bootstrap scripts against the built files, served on this runner
+  bootstrap:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-11-arm, ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: serve/good
+          merge-multiple: true
+
+      - name: Serve
+        run: |
+          cd serve/good
+          sha256sum mgu-install-*.gz > SHA256SUMS 2>/dev/null || shasum -a 256 mgu-install-*.gz > SHA256SUMS
+          cat SHA256SUMS
+          mkdir ../bad
+          cp mgu-install-*.gz ../bad/
+          sed 's/^./x/' SHA256SUMS > ../bad/SHA256SUMS
+          cd ..
+          $(command -v python3 || command -v python) -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &
+          for i in $(seq 50); do curl -fs http://127.0.0.1:8765/good/SHA256SUMS >/dev/null && break; sleep 0.2; done
+
+      - name: install.ps1 in Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: deploy/installer/test.ps1 -Base http://127.0.0.1:8765/good -BadBase http://127.0.0.1:8765/bad
+
+      - name: install.ps1 in PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: deploy/installer/test.ps1 -Base http://127.0.0.1:8765/good -BadBase http://127.0.0.1:8765/bad
+
+      - name: install.sh
+        if: runner.os != 'Windows'
+        run: |
+          export MGU_INSTALL_DOWNLOAD=http://127.0.0.1:8765/good
+          mkdir -p "/tmp/my stick" "/tmp/repo with spaces"
+          echo '{"schema":2,"components":[]}' > "/tmp/repo with spaces/catalog.json"
+          sh deploy/install.sh --help > help.txt
+          head -3 help.txt
+          sh -s -- usb-repo "/tmp/my stick" "/tmp/repo with spaces" < deploy/install.sh
+          test -f "/tmp/my stick/mgu-repo/repo-with-spaces/catalog.json"
+          set +e
+          sh deploy/install.sh bogus; test $? = 2 || exit 1
+          MGU_INSTALL_DOWNLOAD=http://127.0.0.1:8765/bad sh deploy/install.sh --help; test $? = 1 || exit 1
+          true
+
+  publish:
+    needs: [build, bootstrap]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: out
+          merge-multiple: true
+
+      # the executables first, SHA256SUMS last: a bootstrap reading the new
+      # SHA256SUMS finds the new files there
+      - name: Publish to the installer release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          cd out
+          sha256sum mgu-install-*.gz > SHA256SUMS
+          cat SHA256SUMS
+          if ! gh release view installer -R "$REPO" >/dev/null 2>&1; then
+            gh release create installer -R "$REPO" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title 'mgu-install executables' \
+              --notes 'mgu-install with Node built in, for the one-line install in the README. Replaced on each change to deploy/mgu-install.js.'
+          fi
+          gh release upload installer -R "$REPO" --clobber mgu-install-*.gz
+          gh release upload installer -R "$REPO" --clobber SHA256SUMS

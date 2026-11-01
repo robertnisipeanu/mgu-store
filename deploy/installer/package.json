@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Builds mgu-install.js into standalone executables (build.sh)",
+  "devDependencies": {
+    "postject": "1.0.0-alpha.6"
+  }
+}
