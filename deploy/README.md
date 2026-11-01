@@ -936,11 +936,12 @@ The app manager installs our apps itself.
   it.
 - **Coding.** On iDrive 7, oapcontroller starts MainApp only when the head
   unit's coding (`/dev/shm/rawcodingdata`) is valid and is not the default
-  values; its journal then says only `Coding base: Default values flag is
-  set, default values will be used`. With no app manager running and such a
-  coding, an install with an app to install or update is refused before
-  anything changes (exit 2), telling the user to have the head unit coded to
-  the car, restart it and install again. Tools install as usual.
+  values (with the default values, its journal says only `Coding base:
+  Default values flag is set, default values will be used`). With no app
+  manager running and such a coding, an install with an app to install or
+  update is refused before anything changes (exit 2), telling the user to
+  have the head unit coded to the car, restart it and install again. Tools
+  install as usual.
 - **Fresh install.** The manager installs an app it has no registry entry
   for: a full install from `preinstalled_apps` (its someip interfaces and
   their ACLs, its folders, its CertificateManager keychain, and the lowest

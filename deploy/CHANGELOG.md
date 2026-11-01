@@ -2,7 +2,7 @@
 
 ## 0.7.8
 
-- iDrive 7: when the head unit's coding is not valid or is the default values (oapcontroller's journal: `Coding base: Default values flag is set, default values will be used`), oapcontroller never starts MainApp. With no app manager running then, an install with an app in it is refused before anything changes, saying so: the head unit needs coding to the car, a restart, then the install again.
+- iDrive 7: when the head unit's coding is not valid or is the default values (for the default values, oapcontroller's journal says only `Coding base: Default values flag is set, default values will be used`), oapcontroller never starts MainApp. With no app manager running then, an install with an app in it is refused before anything changes, saying so: the head unit needs coding to the car, a restart, then the install again.
 
 ## 0.7.7
 

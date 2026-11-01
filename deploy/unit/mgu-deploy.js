@@ -524,7 +524,7 @@ function codingStopsOap() {
     if (buf.length !== 0x1030) return null;
     f = buf[0x28];
     if (!(f & 0x08)) return 'its coding is not valid';
-    return f & 0x06 ? 'its coding is the default values (journalctl -u oapcontroller: "Default values flag is set")' : null;
+    return f & 0x06 ? 'its coding is the default values' : null;
 }
 /* What tells why no app manager runs, a screen at most. MainApp's uid's
  * processes come from /proc, whatever ps shows; a long line keeps its
