@@ -1,5 +1,10 @@
 # mgu-render changelog
 
+## 0.6.10
+
+- Layer apps hide for a yield surface (`yield_surfaces`) only while it shows a picture: visible and with a buffer (its `configuration` larger than 0x0). On a G82 the HMI keeps cameraplayer's `SID_VIDEO_DIGITAL_HU` 0x198 visible from boot with no buffer, which hid every layer app (the Store fell back to its widget screens). The renderer logs each yield surface's visibility and buffer size as they change.
+- Overlays (`overlay_apps`): the listed apps' layers are always shown, first for touch, and may claim outside the app area.
+
 ## 0.6.9
 
 - The foreground gate finds the HMI's `RemoteHmiApplication` description on iDrive 7 firmware that keeps it elsewhere: after `/usr/lib/oap-mainapp/src-gen/` and the iDrive 8 one, `/usr/lib/oap-mainapp/src-gen/someip/`, then the copy MainApp's installer writes for each app whose manifest names the interface (`/var/opt/public/oap/oap_<uid>/someipInterfaces/`, the one with the most instances).

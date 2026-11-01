@@ -193,7 +193,7 @@ taken for hung and hidden until it talks again, as IterioDev's kit does.
   renderers use `0x4d47…`) on top of the
   centre screen, input region empty, placed by PLACE in screen pixels. Shown
   while: SHOW, at least one frame drawn, not silent for 3 s, in front (below),
-  and no camera or video surface (`yield_surfaces`) visible.
+  and no camera or video surface (`yield_surfaces`) showing a picture (visible with a buffer).
 - **embed** (native, X_MODE 2): inside the app's HMI page. The page names the
   template `LT_State_A4A_WelcomeApp` as its state's widget; the HMI draws the
   ivi surface `embed_surface_id` from its own compositor (`wayland-1`) in the
