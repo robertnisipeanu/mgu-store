@@ -31,7 +31,7 @@ function Quote([string]$a) {
 }
 
 function Run([string[]]$argv) {
-    # mgu-install's exit status replaces it
+    # 1 until mgu-install's own exit status replaces it
     $global:LASTEXITCODE = 1
     if ([Environment]::OSVersion.Platform -ne 'Win32NT') {
         return Fail 'this script is for Windows; on macOS and Linux run install.sh (deploy/README.md)'
