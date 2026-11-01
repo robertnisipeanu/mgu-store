@@ -39,7 +39,7 @@
 #include <unistd.h>
 #include "touch.h"
 
-enum { PORT_HMI = 30567, PORT_IN = 30570, PORT_OUT = 30571, PORT_OTHER_OUT = 30569, GUARD_MS = 1500 };
+enum { PORT_HMI = 30567, PORT_IN = 30570, PORT_OUT = 30571, PORT_OTHER_OUT = 30569, GUARD_MS = 1500, REFRESH_MS = 10000 };
 #define TABLE "ip mgu_render"
 enum { DOWN = 1, MOVE = 2, UP = 3 };
 enum { NONE = -1, HMI = -2, GONE = -3 };       /* gesture owner, else a client slot; GONE: its app left */
@@ -152,13 +152,19 @@ static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &
 
 void touch_tick(int claimed)
 {
-    static double last_beat, failed;
+    static double last_beat, failed, refreshed;
     if (!rule[0]) return;
     double t = now_ms();
+    /* a firewall reload while diverted (an overlay diverts all the time) would drop every touch on its way here:
+     * the rule and the firewall's accept go in again every REFRESH_MS */
+    if (claimed && loaded && t - refreshed > REFRESH_MS) {
+        refreshed = t;
+        if (rule_in() != 0) fprintf(stderr, "[mgu-render] touch: refreshing the nft rule failed\n");
+    }
     if (claimed != loaded) {
         if (!claimed) { rule_out(); loaded = 0; fprintf(stderr, "[mgu-render] touch: nothing claimed, straight to the HMI\n"); }
         else if (t - failed > 5000) {                         /* nft missing / refusing: not every loop turn */
-            if (rule_in() == 0) { loaded = 1; fprintf(stderr, "[mgu-render] touch: diverted (an app claims an area)\n"); }
+            if (rule_in() == 0) { loaded = 1; refreshed = t; fprintf(stderr, "[mgu-render] touch: diverted (an app claims an area)\n"); }
             else { failed = t; fprintf(stderr, "[mgu-render] touch: loading the nft rule failed, touch stays the HMI's\n"); }
         }
         last_beat = 0;
@@ -179,7 +185,7 @@ static int route_finger(const unsigned char *p)
     /* every DOWN starts a gesture (one finger): an UP we never saw - the rule went (HMI touched, app gone) or a
      * lost datagram - must not hand the next gesture to the last owner */
     if (ev == DOWN) {
-        int slot = aw && (x < ax || y < ay || x >= ax + aw || y >= ay + ah) ? -1 : touch_owner_at(x, y);
+        int slot = touch_owner_at(x, y, !aw || (x >= ax && y >= ay && x < ax + aw && y < ay + ah));
         owner = slot >= 0 ? slot : HMI;
         if (owner == HMI) touch_outside();       /* e.g. the HMI's home button: the shown app is left */
     }

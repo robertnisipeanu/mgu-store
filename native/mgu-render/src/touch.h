@@ -17,7 +17,8 @@ void touch_forget(int slot);         /* that app is gone: the rest of its gestur
 void touch_stop(void);               /* rule out */
 
 /* provided by main.c */
-int touch_owner_at(int x, int y);                   /* the client slot claiming screen pixel x, y, or -1 */
+int touch_owner_at(int x, int y, int in_area);      /* the client slot claiming screen pixel x, y, or -1; outside
+                                                       the area only an overlay's claim counts */
 void touch_send(int slot, int phase, int x, int y); /* E_TOUCH to it (phase 1 down, 2 move, 3 up; screen px) */
 void touch_outside(void);                           /* a gesture went to the HMI: the claiming apps close */
 

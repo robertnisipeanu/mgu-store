@@ -134,6 +134,8 @@ typedef struct client {
     uint64_t last_msg; int stale;
     /* touch claims, logical px (CLAIM) */
     int nclaim; float claim[16][4];
+    int overlay;            /* a root client named in overlay_apps: shown over camera surfaces, never closed by an HMI
+                               touch, its claims first and outside touch_area too, its layer kept above the others */
     /* frame cap (MI_FPS): at least min_us between two frames drawn; 0 = none */
     uint64_t min_us, last_draw;
     uint32_t tr_frames, tr_touches, tr_drawn, tr_committed;   /* trace.h: frames and touches on this connection */
@@ -331,7 +333,19 @@ static void drop_gated(void) {
 
 static int shown(const client *c) {
     if (c->mode == MODE_EMBED) return c == embed_owner && embed_visible() && c->frames_shown > 0;
-    return c->cl && c->visible && c->frames_shown > 0 && !c->stale && in_front(c) && !yielding;
+    return c->cl && c->visible && c->frames_shown > 0 && !c->stale && in_front(c) && (!yielding || c->overlay);
+}
+
+/* app is one of the comma-separated ids in list */
+static int listed(const char *list, const char *app) {
+    size_t n = strlen(app);
+    for (const char *p = list; n && *p;) {
+        while (*p == ',' || *p == ' ') p++;
+        size_t k = strcspn(p, ", ");
+        if (k == n && !strncmp(p, app, n)) return 1;
+        p += k;
+    }
+    return 0;
 }
 
 /* where the app's logical (0, 0) + placement offset sits on the screen */
@@ -447,6 +461,9 @@ static void surface_destroy(client *c) {
  * the screen since. A connection made for it sees the list as it is (relist.h). */
 static void layer_put(client *c) {
     if (relist_put(cfg.wayland_display, cfg.screen_id, LAYER_BASE + c->slot, screen_w, screen_h) == 0) c->listed = 1;
+    if (!c->overlay)                                      /* overlays stay above: back on top after another layer */
+        for (int i = 0; i < MAX_CLIENTS; i++)
+            if (clients[i] && clients[i]->overlay && clients[i]->cl) layer_put(clients[i]);
 }
 
 /* The compositor says which screen the layer is on: none once another program set the screen's layers without it.
@@ -716,10 +733,10 @@ static int embed_settling(uint64_t t) { return cfg.embed && embed_connecting() &
 static int embed_available(void) { return cfg.embed && embed_connected() && template_loaded(); }
 
 /* ---------------- touch (touch.c asks) ---------------- */
-int touch_owner_at(int x, int y) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        client *c = clients[i];
-        if (!c || !shown(c)) continue;
+int touch_owner_at(int x, int y, int in_area) {
+    for (int k = 0; k < 2 * MAX_CLIENTS; k++) {           /* overlays first, wherever they claim; then the others */
+        client *c = clients[k % MAX_CLIENTS];
+        if (!c || !shown(c) || c->overlay != (k < MAX_CLIENTS) || (!c->overlay && !in_area)) continue;
         if (c->mode == MODE_EMBED) {                      /* only in the HMI's box */
             const int *b = cfg.embed_area;
             if (x < b[0] || y < b[1] || x >= b[0] + b[2] || y >= b[1] + b[3]) continue;
@@ -728,7 +745,7 @@ int touch_owner_at(int x, int y) {
         for (int j = 0; j < c->nclaim; j++) {
             const float *r = c->claim[j], s = c->xf.s;
             float x0 = bx + c->xf.ox + r[0] * s, y0 = by + c->xf.oy + r[1] * s;
-            if (x >= x0 && y >= y0 && x < x0 + r[2] * s && y < y0 + r[3] * s) return i;
+            if (x >= x0 && y >= y0 && x < x0 + r[2] * s && y < y0 + r[3] * s) return k % MAX_CLIENTS;
         }
     }
     return -1;
@@ -762,7 +779,7 @@ void touch_send(int slot, int phase, int x, int y) {
 void touch_outside(void) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         client *c = clients[i];
-        if (!c || !c->nclaim || c->mode != MODE_LAYER || c->dialect == DIALECT_DBR || !shown(c)) continue;
+        if (!c || !c->nclaim || c->mode != MODE_LAYER || c->dialect == DIALECT_DBR || c->overlay || !shown(c)) continue;
         c->visible = 0;
         apply_visibility(c);
         send_msg(c, EI_CLOSED, NULL, 0);
@@ -884,7 +901,8 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         x[11] = GFX_PIXMAP_SIDE; x[12] = (uint32_t)refresh_mhz;
         send_msg(c, X_READY, x, 13 * 4);
     }
-    log_info("%s: connected (uid %u%s)", c->app, c->uid, native ? ", mgu-render/1" : "");
+    c->overlay = c->uid == 0 && listed(cfg.overlay_apps, c->app);
+    log_info("%s: connected (uid %u%s%s)", c->app, c->uid, native ? ", mgu-render/1" : "", c->overlay ? ", overlay" : "");
     uint32_t r[4] = { MGU_PROTO_VERSION, (uint32_t)screen_w, (uint32_t)screen_h, (uint32_t)touch_on };
     send_msg(c, E_READY, r, sizeof r);
 }
