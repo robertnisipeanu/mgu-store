@@ -16,7 +16,7 @@
 #define MAX_FRONT 16
 
 static pid_t pid;
-static int out = -1, in = -1, reported;
+static int out = -1, in = -1, reported, unavailable;
 static uint32_t front[MAX_FRONT];
 static int nfront;
 static char line[256];
@@ -61,6 +61,7 @@ int gate_start(const char *command)
 
 int gate_fd(void) { return out; }
 int gate_reported(void) { return reported; }
+int gate_unavailable(void) { return unavailable; }
 
 int gate_any_front(void) { return nfront > 0; }
 
@@ -75,6 +76,11 @@ int gate_front(uint32_t uid)
 static void report(const char *l)
 {
     nfront = 0;
+    if (!strcmp(l, "unavailable")) {
+        unavailable = 1;
+        log_warn("foreground gate: it cannot tell which app is in front on this unit; it is not started again");
+        return;
+    }
     reported = 1;
     if (strncmp(l, "foreground", 10)) {
         log_warn("foreground gate: unexpected line '%s': no app in front", l);

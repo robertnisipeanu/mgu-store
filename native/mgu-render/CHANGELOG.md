@@ -1,5 +1,10 @@
 # mgu-render changelog
 
+## 0.6.9
+
+- The foreground gate finds the HMI's `RemoteHmiApplication` description on iDrive 7 firmware that keeps it elsewhere: after `/usr/lib/oap-mainapp/src-gen/` and the iDrive 8 one, `/usr/lib/oap-mainapp/src-gen/someip/`, then the copy MainApp's installer writes for each app whose manifest names the interface (`/var/opt/public/oap/oap_<uid>/someipInterfaces/`, the one with the most instances).
+- With no description anywhere, the gate says so (`unavailable`) and is not started again. mgu-render/1 apps it gates are offered no mode, so they keep their own screens (the Store its widget screens); those connected before are disconnected once and get that on their next connection.
+
 ## 0.6.8
 
 - `render_check.js`, the deploy tool's check after an update (`check` in `component.json`; needs mgu-deploy 0.6.9): a client connects to the renderer's socket and must get its native answer (X_READY, then READY with a screen size); 20 s later the service must still run with no restart, and a second connection must get READY again. It draws nothing. A renderer that fails it goes back to the version before, at the install or at the next start of the head unit.

@@ -318,6 +318,17 @@ static int in_front(const client *c) {
     return gate_reported() && gate_front(c->uid);
 }
 
+/* The gate cannot tell which app is in front: the mgu-render/1 apps it gates were offered modes it can never show,
+ * so they are disconnected once; they connect again to a READY that offers none. */
+static int gate_dropped;
+static void client_free(client *c);
+static void drop_gated(void) {
+    gate_dropped = 1;
+    for (int i = 0; i < MAX_CLIENTS; i++)
+        if (clients[i] && clients[i]->dialect == DIALECT_NATIVE && gate_applies(clients[i])) client_free(clients[i]);
+    update_all();
+}
+
 static int shown(const client *c) {
     if (c->mode == MODE_EMBED) return c == embed_owner && embed_visible() && c->frames_shown > 0;
     return c->cl && c->visible && c->frames_shown > 0 && !c->stale && in_front(c) && !yielding;
@@ -866,7 +877,9 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         app_area(area);
         uint32_t caps = CAP_PIXMAP | CAP_VIDEO | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
                         (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0);
-        uint32_t x[15] = { MGU_NATIVE_VERSION, (1u << (MODE_LAYER - 1)) | (emb ? 1u << (MODE_EMBED - 1) : 0), caps };
+        /* a gate that cannot tell which app is in front would never show the app: no mode, the app keeps its own screens */
+        uint32_t modes = gate_applies(c) && gate_unavailable() ? 0 : (1u << (MODE_LAYER - 1)) | (emb ? 1u << (MODE_EMBED - 1) : 0);
+        uint32_t x[15] = { MGU_NATIVE_VERSION, modes, caps };
         for (int k = 0; k < 4; k++) { x[3 + k] = emb ? (uint32_t)cfg.embed_area[k] : 0; x[7 + k] = (uint32_t)area[k]; }
         x[11] = GFX_PIXMAP_SIDE; x[12] = (uint32_t)refresh_mhz;
         send_msg(c, X_READY, x, 13 * 4);
@@ -1555,7 +1568,7 @@ int main(int argc, char **argv) {
         if (touch_on) touch_tick(any_claim());
         trace_check(now_us());
         if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); }
-        if (cfg.foreground_gate[0] && gate_fd() < 0 && tnow > gate_retry) {
+        if (cfg.foreground_gate[0] && !gate_unavailable() && gate_fd() < 0 && tnow > gate_retry) {
             gate_retry = tnow + 5000000;
             gate_start(cfg.foreground_gate);
         }
@@ -1593,7 +1606,10 @@ int main(int argc, char **argv) {
         wl_display_dispatch_pending(dpy);
         if (pf[1].revents & POLLIN) accept_client();
         if (pf[2].revents & POLLIN) touch_read();
-        if (pf[3].revents & (POLLIN | POLLHUP)) { if (gate_read() != 0) update_all(); }
+        if (pf[3].revents & (POLLIN | POLLHUP)) {
+            if (gate_read() != 0) update_all();
+            if (gate_unavailable() && !gate_dropped) drop_gated();
+        }
         if (pf[4].revents & POLLIN) ccu_read();
         embed_dispatch(&pf[5]);
         for (int k = 6; k < np; k++) {
