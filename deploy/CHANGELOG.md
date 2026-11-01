@@ -1,5 +1,9 @@
 # Deploy tool changelog
 
+## 0.7.8
+
+- iDrive 7: when the head unit's coding is not valid or is the default values (for the default values, oapcontroller's journal says only `Coding base: Default values flag is set, default values will be used`), oapcontroller never starts MainApp. With no app manager running then, an install with an app in it is refused before anything changes, saying so: the head unit needs coding to the car, a restart, then the install again.
+
 ## 0.7.7
 
 - `main.js` (`main.bundle.js` on MainApp 6.5.5) is bound only to the fallback copy as it is. A failed first app install, a restore or a rollback that removes or replaces the copy unmounts the bind left on the old file, and binds the copy there again while the fallback's unit is present; with no copy, `main.js` stays the stock file. `restore` and app-privacy's revert first unmount such a bind, so `restore stock` succeeds in one run from it, and never bind a copy that is not there.

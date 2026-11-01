@@ -45,7 +45,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.7';
+var VERSION = '0.7.8';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -68,6 +68,7 @@ var CFG = {
     proc: env('MGU_DEPLOY_PROC', '/proc'),
     procStat: env('MGU_DEPLOY_PROC_STAT', '/proc/stat'),
     procMounts: env('MGU_DEPLOY_PROC_MOUNTS', '/proc/mounts'),
+    coding: env('MGU_DEPLOY_CODING', '/dev/shm/rawcodingdata'),
     bootId: env('MGU_DEPLOY_BOOT_ID', '/proc/sys/kernel/random/boot_id'),
     systemctl: env('MGU_DEPLOY_SYSTEMCTL', 'systemctl'),
     journalctl: env('MGU_DEPLOY_JOURNALCTL', 'journalctl'),
@@ -511,6 +512,19 @@ function managerSoon() {
     var waited = 0, pid;
     while (!(pid = managerPid()) && waited < CFG.bounceTimeoutMs) { sleepMs(1000); waited += 1000; }
     return pid;
+}
+/* oapcontroller reads the head unit's coding from the segment CodingShmApp
+ * publishes (0x1030 bytes; status flags in byte 0x28: 0x08 header valid,
+ * 0x01 data available, 0x02 and 0x04 default values) and starts no MainApp
+ * when that coding is not valid or is the default values. What it found,
+ * or null when the segment is unreadable or holds the car's coding. */
+function codingStopsOap() {
+    var buf, f;
+    try { buf = fs.readFileSync(CFG.coding); } catch (e) { return null; }
+    if (buf.length !== 0x1030) return null;
+    f = buf[0x28];
+    if (!(f & 0x08)) return 'its coding is not valid';
+    return f & 0x06 ? 'its coding is the default values' : null;
 }
 /* What tells why no app manager runs, a screen at most. MainApp's uid's
  * processes come from /proc, whatever ps shows; a long line keeps its
@@ -5205,6 +5219,14 @@ function cmdInstall(args) {
                 say('the queued removal of ' + a.id + ' is dropped');
             }
         });
+        var noOap = !id8 && validated.some(function (a) {
+            return a.kind === 'app' && ['current', 'older'].indexOf(decisions[a.id].action) < 0;
+        }) && !managerPid() && codingStopsOap();
+        if (noOap) {
+            throw refuse('the app manager cannot run on this head unit: ' + noOap + ', and with that oapcontroller ' +
+                'never starts MainApp, so no app can be installed. Have the head unit coded to the car (HU_MGU, ' +
+                'for example with E-Sys or ISTA), restart it, then run the install again. Nothing was changed.');
+        }
         var work = validated.filter(function (a) {
             return a.kind !== 'app' || ['current', 'older'].indexOf(decisions[a.id].action) < 0;
         }).map(function (a) { return a.kind !== 'app' ? a : id8 ? id8Package(a, stage) : prepareApp(a, stage); });
