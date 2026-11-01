@@ -95,9 +95,11 @@ static EGLConfig ecfg;
 static EGLContext ectx;
 static EGLSurface init_es = EGL_NO_SURFACE;
 static int screen_w = 1920, screen_h = 720, refresh_mhz;
+/* the centre display of iDrive 8 (iDrive 7: 1920x720); overlays and the picture check on yield surfaces are for it only */
+static int idrive8(void) { return screen_w == 2880 && screen_h == 960; }
 
-/* yield surfaces (camera, video): layer mode hides while one is visible */
-static struct { uint32_t id; struct ivi_controller_surface *s; int visible; } yield[CFG_MAX_YIELD];
+/* yield surfaces (camera, video): layer mode hides while one shows a picture (visible, with a buffer) */
+static struct { uint32_t id; struct ivi_controller_surface *s; int visible, w, h; } yield[CFG_MAX_YIELD];
 static int nyield, yielding;
 
 typedef struct client {
@@ -134,6 +136,8 @@ typedef struct client {
     uint64_t last_msg; int stale;
     /* touch claims, logical px (CLAIM) */
     int nclaim; float claim[16][4];
+    int overlay;            /* a root client named in overlay_apps: shown over camera surfaces, never closed by an HMI
+                               touch, its claims first and outside touch_area too, its layer kept above the others */
     /* frame cap (MI_FPS): at least min_us between two frames drawn; 0 = none */
     uint64_t min_us, last_draw;
     uint32_t tr_frames, tr_touches, tr_drawn, tr_committed;   /* trace.h: frames and touches on this connection */
@@ -175,20 +179,33 @@ static void c_screen(void *d, struct ivi_controller *c, uint32_t id, struct ivi_
 static void c_layer(void *d, struct ivi_controller *c, uint32_t id) { (void)d, (void)c, (void)id; }
 
 static void update_all(void);
-static void y_visibility(void *d, struct ivi_controller_surface *s, int32_t v) {
-    (void)s;
-    int i = (int)(intptr_t)d, any = 0;
-    yield[i].visible = v != 0;
-    for (int k = 0; k < nyield; k++) any |= yield[k].visible;
+/* iDrive 8: visible alone is not a picture: on a G82 (2026-11-01) the HMI keeps cameraplayer's SID_VIDEO_DIGITAL_HU
+ * 0x198 visible from boot with no buffer (configuration 0x0), which hid every layer app for good. iDrive 7: visible. */
+static void y_update(int i) {
+    int any = 0;
+    for (int k = 0; k < nyield; k++) any |= yield[k].visible && (!idrive8() || (yield[k].w > 0 && yield[k].h > 0));
     if (any != yielding) {
         yielding = any;
-        log_info(any ? "surface %#x visible: layer apps yield the screen" : "surface %#x hidden: layer apps may show", yield[i].id);
+        log_info(any ? "surface %#x shows a picture: layer apps yield the screen" : "surface %#x shows no picture: layer apps may show", yield[i].id);
         update_all();
     }
 }
+static void y_visibility(void *d, struct ivi_controller_surface *s, int32_t v) {
+    (void)s;
+    int i = (int)(intptr_t)d;
+    if (yield[i].visible != (v != 0)) log_info("surface %#x %s, buffer %dx%d", yield[i].id, v ? "visible" : "hidden", yield[i].w, yield[i].h);
+    yield[i].visible = v != 0;
+    y_update(i);
+}
 static void y_opacity(void *d, struct ivi_controller_surface *s, wl_fixed_t o) { (void)d, (void)s, (void)o; }
 static void y_rect(void *d, struct ivi_controller_surface *s, int32_t x, int32_t y, int32_t w, int32_t h) { (void)d, (void)s, (void)x, (void)y, (void)w, (void)h; }
-static void y_config(void *d, struct ivi_controller_surface *s, int32_t w, int32_t h) { (void)d, (void)s, (void)w, (void)h; }
+static void y_config(void *d, struct ivi_controller_surface *s, int32_t w, int32_t h) {
+    (void)s;
+    int i = (int)(intptr_t)d;
+    if (yield[i].w != w || yield[i].h != h) log_info("surface %#x buffer %dx%d", yield[i].id, w, h);
+    yield[i].w = w, yield[i].h = h;
+    y_update(i);
+}
 static void y_int(void *d, struct ivi_controller_surface *s, int32_t v) { (void)d, (void)s, (void)v; }
 static void y_layer(void *d, struct ivi_controller_surface *s, struct ivi_controller_layer *l) { (void)d, (void)s, (void)l; }
 static void y_stats(void *d, struct ivi_controller_surface *s, uint32_t a, uint32_t b, uint32_t c, uint32_t p, const char *n) {
@@ -198,6 +215,7 @@ static void y_destroyed(void *d, struct ivi_controller_surface *s) {
     int i = (int)(intptr_t)d;
     wl_proxy_destroy((struct wl_proxy *)s);
     yield[i].s = NULL;
+    yield[i].w = yield[i].h = 0;
     y_visibility(d, NULL, 0);
 }
 static const struct ivi_controller_surface_listener yield_listener = {
@@ -212,7 +230,7 @@ static void c_surface(void *d, struct ivi_controller *c, uint32_t id) {
         while (k < nyield && yield[k].id != id) k++;
         if (k == nyield) { if (nyield == CFG_MAX_YIELD) return; nyield++; }
         if (yield[k].s) return;
-        yield[k].id = id; yield[k].visible = 0;
+        yield[k].id = id; yield[k].visible = yield[k].w = yield[k].h = 0;
         yield[k].s = ivi_controller_surface_create(c, id);
         ivi_controller_surface_add_listener(yield[k].s, &yield_listener, (void *)(intptr_t)k);
         log_info("watching surface %#x", id);
@@ -331,7 +349,19 @@ static void drop_gated(void) {
 
 static int shown(const client *c) {
     if (c->mode == MODE_EMBED) return c == embed_owner && embed_visible() && c->frames_shown > 0;
-    return c->cl && c->visible && c->frames_shown > 0 && !c->stale && in_front(c) && !yielding;
+    return c->cl && c->visible && c->frames_shown > 0 && !c->stale && in_front(c) && (!yielding || c->overlay);
+}
+
+/* app is one of the comma-separated ids in list */
+static int listed(const char *list, const char *app) {
+    size_t n = strlen(app);
+    for (const char *p = list; n && *p;) {
+        while (*p == ',' || *p == ' ') p++;
+        size_t k = strcspn(p, ", ");
+        if (k == n && !strncmp(p, app, n)) return 1;
+        p += k;
+    }
+    return 0;
 }
 
 /* where the app's logical (0, 0) + placement offset sits on the screen */
@@ -447,6 +477,9 @@ static void surface_destroy(client *c) {
  * the screen since. A connection made for it sees the list as it is (relist.h). */
 static void layer_put(client *c) {
     if (relist_put(cfg.wayland_display, cfg.screen_id, LAYER_BASE + c->slot, screen_w, screen_h) == 0) c->listed = 1;
+    if (!c->overlay)                                      /* overlays stay above: back on top after another layer */
+        for (int i = 0; i < MAX_CLIENTS; i++)
+            if (clients[i] && clients[i]->overlay && clients[i]->cl) layer_put(clients[i]);
 }
 
 /* The compositor says which screen the layer is on: none once another program set the screen's layers without it.
@@ -716,10 +749,10 @@ static int embed_settling(uint64_t t) { return cfg.embed && embed_connecting() &
 static int embed_available(void) { return cfg.embed && embed_connected() && template_loaded(); }
 
 /* ---------------- touch (touch.c asks) ---------------- */
-int touch_owner_at(int x, int y) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        client *c = clients[i];
-        if (!c || !shown(c)) continue;
+int touch_owner_at(int x, int y, int in_area) {
+    for (int k = 0; k < 2 * MAX_CLIENTS; k++) {           /* overlays first, wherever they claim; then the others */
+        client *c = clients[k % MAX_CLIENTS];
+        if (!c || !shown(c) || c->overlay != (k < MAX_CLIENTS) || (!c->overlay && !in_area)) continue;
         if (c->mode == MODE_EMBED) {                      /* only in the HMI's box */
             const int *b = cfg.embed_area;
             if (x < b[0] || y < b[1] || x >= b[0] + b[2] || y >= b[1] + b[3]) continue;
@@ -728,7 +761,7 @@ int touch_owner_at(int x, int y) {
         for (int j = 0; j < c->nclaim; j++) {
             const float *r = c->claim[j], s = c->xf.s;
             float x0 = bx + c->xf.ox + r[0] * s, y0 = by + c->xf.oy + r[1] * s;
-            if (x >= x0 && y >= y0 && x < x0 + r[2] * s && y < y0 + r[3] * s) return i;
+            if (x >= x0 && y >= y0 && x < x0 + r[2] * s && y < y0 + r[3] * s) return k % MAX_CLIENTS;
         }
     }
     return -1;
@@ -762,7 +795,7 @@ void touch_send(int slot, int phase, int x, int y) {
 void touch_outside(void) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         client *c = clients[i];
-        if (!c || !c->nclaim || c->mode != MODE_LAYER || c->dialect == DIALECT_DBR || !shown(c)) continue;
+        if (!c || !c->nclaim || c->mode != MODE_LAYER || c->dialect == DIALECT_DBR || c->overlay || !shown(c)) continue;
         c->visible = 0;
         apply_visibility(c);
         send_msg(c, EI_CLOSED, NULL, 0);
@@ -771,9 +804,11 @@ void touch_outside(void) {
     }
 }
 
-static int any_claim(void) {
-    for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] && clients[i]->nclaim && shown(clients[i])) return 1;
-    return 0;
+static int any_claim(void) {                           /* 0 none, 1 a shown app claims, 2 an overlay claims */
+    int any = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++)
+        if (clients[i] && clients[i]->nclaim && shown(clients[i])) { if (clients[i]->overlay) return 2; any = 1; }
+    return any;
 }
 
 static void touch_defaults(int area[4]) {
@@ -884,7 +919,10 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         x[11] = GFX_PIXMAP_SIDE; x[12] = (uint32_t)refresh_mhz;
         send_msg(c, X_READY, x, 13 * 4);
     }
-    log_info("%s: connected (uid %u%s)", c->app, c->uid, native ? ", mgu-render/1" : "");
+    int listed_root = c->uid == 0 && listed(cfg.overlay_apps, c->app);
+    c->overlay = listed_root && idrive8();
+    log_info("%s: connected (uid %u%s%s)", c->app, c->uid, native ? ", mgu-render/1" : "",
+             c->overlay ? ", overlay" : listed_root ? ", overlay_apps is for iDrive 8 only" : "");
     uint32_t r[4] = { MGU_PROTO_VERSION, (uint32_t)screen_w, (uint32_t)screen_h, (uint32_t)touch_on };
     send_msg(c, E_READY, r, sizeof r);
 }

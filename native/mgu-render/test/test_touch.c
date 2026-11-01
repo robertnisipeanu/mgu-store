@@ -10,7 +10,8 @@ static int fails, checks;
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { fails++; printf("FAIL %s:%d ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 static int sent[16][4], nsent, outside;
-int touch_owner_at(int x, int y) { return x >= 1000 ? 0 : -1; }     /* slot 0 claims x >= 1000 */
+/* slot 0 claims x >= 1000 inside the area; slot 1, an overlay, claims y >= 840 wherever it is (main.c's rule) */
+int touch_owner_at(int x, int y, int in_area) { return y >= 840 ? 1 : in_area && x >= 1000 ? 0 : -1; }
 void touch_send(int slot, int phase, int x, int y) { if (nsent < 16) { int *s = sent[nsent++]; s[0] = slot; s[1] = phase; s[2] = x; s[3] = y; } }
 void touch_outside(void) { outside++; }
 
@@ -85,6 +86,8 @@ int main(void)
     CHECK(loads() == 1 && strstr(slurp(), "udp dport set 30570"), "claimed: rule not in");
     touch_tick(1);
     CHECK(loads() == 1, "claimed twice: loaded twice");
+    touch_tick(2);
+    CHECK(loads() == 1, "an overlay's claim (2) with the rule in: loaded again before REFRESH_MS");
     touch_tick(0);
     CHECK(outs() == 2, "nothing claimed: rule not out");
 
@@ -127,6 +130,18 @@ int main(void)
     unsigned char two[512];
     size_t n1 = pdu(two, 0, 1, 1500, 300, DOWN, 0), n2 = pdu(two + n1, 0, 0, 0, 0, 0, 0);
     CHECK(route(two, n1 + n2) == (ssize_t)n2 && nsent == 1, "mixed datagram: forwarded part");
+
+    /* iDrive 8's area (title strip and climate bar out): the overlay's claim in the climate bar is still its, the
+     * title strip outside every claim the HMI's */
+    ax = 0; ay = 76; aw = 2880; ah = 764;
+    nsent = 0; outside = 0;
+    n = pdu(b, 0, 1, 1100, 900, DOWN, 0);
+    CHECK(route(b, n) == 0 && nsent == 1 && sent[0][0] == 1 && outside == 0, "DOWN on the overlay below the area");
+    n = pdu(b, 0, 1, 1100, 900, UP, 0); route(b, n);
+    n = pdu(b, 0, 1, 1500, 50, DOWN, 0);
+    CHECK(route(b, n) == (ssize_t)n && nsent == 2 && outside == 1, "DOWN in the title strip: not the HMI's");
+    n = pdu(b, 0, 1, 1500, 50, UP, 0); route(b, n);
+    aw = 0;
 
     /* the renderer dies with the rule in: its guard takes it out */
     touch_tick(1);

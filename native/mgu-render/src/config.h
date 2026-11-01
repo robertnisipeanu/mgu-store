@@ -35,6 +35,7 @@ struct cfg {
     char touch_iface[32];       /* "auto": vlan73 when it exists, else lo */
     char touch_saddr[32];       /* the display's address (not for lo) */
     int touch_area[4];          /* where apps may claim; w 0: by screen size */
+    char overlay_apps[256];     /* root clients with one of these app ids are overlays (always shown, first for touch) */
     char controller_gate[128];  /* the HMI controller gate's file (upstream inputgate) */
     char controller_lib[64];    /* its library name, looked for in the HMI's maps */
     char record_dir[128];       /* debug: each connection's incoming bytes to <dir>/<app>-<pid>-<n>.bin */
