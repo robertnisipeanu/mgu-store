@@ -1139,7 +1139,7 @@ function httpsReader(s, ctx) {
                         if (fresh) {
                             keep(sha, fresh);
                         }
-                    } else if (!fresh) {
+                    } else if (!fresh && !Array.from(newest.values()).some((e) => e.artifact.sha256 === sha)) {
                         drop(sha);
                     }
                 })

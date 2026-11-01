@@ -843,6 +843,34 @@ function testIndexV1Cache() {
         .then((cat) => {
             ok('index v1: an index.json that cannot be written still lists the components', !cat.failed &&
                 listed(cat) === 'v1big@1.4.0 v1other@2.0.0', JSON.stringify(cat.failed || cat.skipped));
+            const big = ['1.2.0', '1.3.0', '1.4.0'].map((v) => ({ url: `v1big@${v}.tgz`, sha256: sha256(files[`v1big@${v}.tgz`]) }));
+            const at = (id) => {
+                const dir = path.join(T, `v1${id}`);
+                const r = () => {
+                    gets.length = 0;
+                    return sourcesLib.reader({ id, type: 'https', url: 'https://updates.test/index.json' },
+                        { net, version: '0.7.3', cacheDir: dir, maxBuildBytes: 8 << 20 }).catalog();
+                };
+                return { r, kept: () => fs.readdirSync(path.join(dir, id)).sort() };
+            };
+            const dup = at('dup');
+            const ooo = at('ooo');
+            const want = JSON.stringify([tgz(big[2]), tgz(other), 'index.json'].sort());
+            const twice = (s) => s.r().then(() => s.kept()).then((first) => s.r().then(() => [first, s.kept(), gets.slice()]));
+            // one package under two URLs
+            index([big[2], { url: 'copy/v1big@1.4.0.tgz', sha256: big[2].sha256 }, other]);
+            return twice(dup)
+                .then(([first, second]) => {
+                    ok('index v1: a package the index lists twice stays kept, read after read',
+                        JSON.stringify(first) === want && JSON.stringify(second) === want, JSON.stringify([first, second]));
+                    index([big[2], big[1], big[0], other]);
+                    return twice(ooo);
+                })
+                .then(([first, second, again]) => {
+                    ok('index v1: the newest listed first is kept, the older ones after it are not, read after read',
+                        JSON.stringify(first) === want && JSON.stringify(second) === want && JSON.stringify(again) === '["index.json"]',
+                        JSON.stringify([first, second, again]));
+                });
         });
 }
 
