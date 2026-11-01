@@ -56,7 +56,7 @@ gzip -dc "$dir/$name" >"$dir/mgu-install" || fail "could not unpack $name"
 chmod 755 "$dir/mgu-install"
 
 # Through `curl | sh` stdin is the script, so prompts read the terminal.
-if [ ! -t 0 ] && { : </dev/tty; } 2>/dev/null; then
+if [ ! -t 0 ] && (: </dev/tty) 2>/dev/null; then
     "$dir/mgu-install" "$@" </dev/tty
 else
     "$dir/mgu-install" "$@"

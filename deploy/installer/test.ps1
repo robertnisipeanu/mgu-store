@@ -4,7 +4,8 @@
 # $BadBase serves a SHA256SUMS the executables do not match.
 param([Parameter(Mandatory)] [string]$Base, [Parameter(Mandatory)] [string]$BadBase)
 
-$ErrorActionPreference = 'Stop'
+# mgu-install's messages on stderr are not PowerShell errors
+$ErrorActionPreference = 'Continue'
 $script = Join-Path $PSScriptRoot '..\install.ps1'
 $text = Get-Content -Raw $script
 $host_ = (Get-Process -Id $PID).Path
