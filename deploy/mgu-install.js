@@ -1217,8 +1217,26 @@ async function usbRepo(o) {
 
 /* ---- command line ---------------------------------------------------------------------------- */
 
+/* This script's text: the file, the copy a standalone executable carries
+ * (deploy/installer), or null from stdin. */
+function ownSource() {
+    if (FROM_STDIN) {
+        return null;
+    }
+    try {
+        const sea = require('node:sea');
+        if (sea.isSea()) {
+            return sea.getAsset('mgu-install.js', 'utf8');
+        }
+    } catch (e) {
+        // a Node without node:sea runs the file
+    }
+    return fs.readFileSync(__filename, 'utf8');
+}
+
 /* The header comment; from stdin there is no file to read it from. */
-const USAGE = FROM_STDIN ? 'usage: deploy/README.md, "mgu-install"' : fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').slice(3)
+const SOURCE = ownSource();
+const USAGE = SOURCE === null ? 'usage: deploy/README.md, "mgu-install"' : SOURCE.split('*/')[0].split('\n').slice(3)
     .map((l) => l.replace(/^ \* ?/, '')).join('\n').trimEnd();
 
 function parse(argv) {

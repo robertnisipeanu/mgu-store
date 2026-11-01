@@ -4241,8 +4241,9 @@ function mguInstall(args, opts) {
     fs.writeFileSync(log, '');
     const env = Object.assign({}, process.env, { PATH: `${opts.bin.bin}:${process.env.PATH}`, FAKE_SSH_LOG: log,
         FAKE_SSH_ENV: opts.bin.envFile, MGU_INSTALL_GITHUB_API: opts.api, FAKE_GH_TOKEN: '' }, opts.env || {});
-    // stdin: the script itself on stdin (node -), with no terminal
+    // stdin: the script itself on stdin (node -), with no terminal; MGU_TEST_INSTALL_EXE: a standalone executable of it
     const r = opts.stdin ? cp.spawnSync(process.execPath, ['-'].concat(args), { encoding: 'utf8', env, input: fs.readFileSync(MGU_INSTALL), detached: true }) :
+        process.env.MGU_TEST_INSTALL_EXE ? cp.spawnSync(process.env.MGU_TEST_INSTALL_EXE, args, { encoding: 'utf8', env, input: opts.input || '' }) :
         cp.spawnSync(process.execPath, [MGU_INSTALL].concat(args), { encoding: 'utf8', env, input: opts.input || '' });
     r.out = `${r.stdout}${r.stderr}`;
     r.calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((a) => a[0] !== '-V');
