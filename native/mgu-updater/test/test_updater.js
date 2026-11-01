@@ -815,6 +815,34 @@ function testIndexV1Cache() {
         .then((cat) => {
             ok('index v1: past the cap a new package is listed, not kept', listed(cat) === 'v1many@1.6.0 v1other@2.0.0' &&
                 JSON.stringify(kept()) === JSON.stringify([tgz(other), 'index.json'].sort()), JSON.stringify(kept()));
+            // room for 100 KiB under the cap; four older versions of 30 KiB come before the newest
+            const capDir = path.join(T, 'v1cap');
+            mkdirp(path.join(capDir, 'full'));
+            fs.writeFileSync(path.join(capDir, 'full', 'x.tgz'), '');
+            fs.truncateSync(path.join(capDir, 'full', 'x.tgz'), (128 << 20) - (100 << 10));
+            const big = ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0'].map((v) => pkg('v1big', v,
+                [{ name: 'package/blob', data: crypto.randomBytes(30 << 10), mode: 0o644 }]));
+            index(big.concat([other]));
+            const capRead = () => {
+                gets.length = 0;
+                return sourcesLib.reader({ id: 'cap', type: 'https', url: 'https://updates.test/index.json' },
+                    { net, version: '0.7.3', cacheDir: capDir, maxBuildBytes: 8 << 20 }).catalog();
+            };
+            const capKept = () => fs.readdirSync(path.join(capDir, 'cap')).sort();
+            return capRead().then((c) => ({ c, capDir, capRead, capKept, big }));
+        })
+        .then(({ c, capDir, capRead, capKept, big }) => {
+            ok('index v1: older versions take no room under the cap: the newest of each id is kept',
+                listed(c) === 'v1big@1.4.0 v1other@2.0.0' &&
+                JSON.stringify(capKept()) === JSON.stringify([tgz(big[4]), tgz(other), 'index.json'].sort()), JSON.stringify(capKept()));
+            // index.json cannot be written (a folder at its name)
+            fs.unlinkSync(path.join(capDir, 'cap', 'index.json'));
+            fs.mkdirSync(path.join(capDir, 'cap', 'index.json'));
+            return capRead().then((again) => again, (e) => ({ failed: e.message }));
+        })
+        .then((cat) => {
+            ok('index v1: an index.json that cannot be written still lists the components', !cat.failed &&
+                listed(cat) === 'v1big@1.4.0 v1other@2.0.0', JSON.stringify(cat.failed || cat.skipped));
         });
 }
 

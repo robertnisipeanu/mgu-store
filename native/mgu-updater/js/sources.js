@@ -1011,7 +1011,6 @@ function indexEntry(item, url) {
     });
 }
 
-/* The bytes of the files in each folder under dir. */
 function keptBytes(dir) {
     let n = 0;
     try {
@@ -1040,11 +1039,19 @@ function httpsReader(s, ctx) {
     const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
     const keep = (sha, b) => {
         if (cache && keptBytes(ctx.cacheDir) + b.length <= INDEX_CACHE_BYTES) {
-            mkdirPrivate(cache);
-            writePrivate(cached(sha), b);
+            try {
+                mkdirPrivate(cache);
+                writePrivate(cached(sha), b);
+            } catch (e) {
+                console.log(`source ${s.id}: ${sha}.tgz not kept: ${e.message}`);
+            }
         }
     };
-    // removes the source's files but the newest package of each id and the ones named
+    const drop = (sha) => {
+        try {
+            fs.unlinkSync(cached(sha));
+        } catch (e) { /* not kept */ }
+    };
     const prune = (newest, names) => {
         const stay = Array.from(newest.values()).map((e) => `${e.artifact.sha256}.tgz`).concat(names);
         if (cache && fs.existsSync(cache)) {
@@ -1101,22 +1108,23 @@ function httpsReader(s, ctx) {
                     const was = seen[sha];
                     const kept = fs.existsSync(cached(sha) || '');
                     if (was && (was.updater === ctx.version || (!kept && was.entry))) {
-                        return was;
+                        return { m: was };
                     }
-                    const got = kept ? Promise.resolve(fs.readFileSync(cached(sha))) :
+                    // fresh: the bytes downloaded now, kept only while the newest of their id
+                    const got = kept ? Promise.resolve({ data: fs.readFileSync(cached(sha)) }) :
                         ctx.net.get(url, ua(ctx.version), name, INDEX_PACKAGE_BYTES).then((b) => {
                             if (sha256(b) !== sha) {
                                 throw new Error('does not match the sha256 in the index');
                             }
-                            keep(sha, b);
-                            return b;
+                            return { data: b, fresh: b };
                         });
                     // a package that does not read is not read again by this version
-                    return got.then((data) => tar.untgz(data, ctx.maxBuildBytes)
+                    return got.then(({ data, fresh }) => tar.untgz(data, ctx.maxBuildBytes)
                         .then((members) => ({ updater: ctx.version, entry: packageEntry(members, data, { url, index: 1 }, 'tgz') }))
-                        .catch((err) => ({ updater: ctx.version, error: err.message })));
+                        .catch((err) => ({ updater: ctx.version, error: err.message }))
+                        .then((m) => ({ m, fresh })));
                 })
-                .then((m) => {
+                .then(({ m, fresh }) => {
                     memo[sha] = m;
                     if (m.error) {
                         throw new Error(m.error);
@@ -1125,6 +1133,14 @@ function httpsReader(s, ctx) {
                     const have = newest.get(entry.id);
                     if (!have || catalogLib.compareVersions(entry.version, have.version) > 0) {
                         newest.set(entry.id, entry);
+                        if (have) {
+                            drop(have.artifact.sha256);
+                        }
+                        if (fresh) {
+                            keep(sha, fresh);
+                        }
+                    } else if (!fresh) {
+                        drop(sha);
                     }
                 })
                 .catch((err) => {
@@ -1133,8 +1149,12 @@ function httpsReader(s, ctx) {
         }), Promise.resolve()).then(() => {
             prune(newest, ['index.json']);
             if (cache) {
-                mkdirPrivate(cache);
-                writePrivate(memoFile, JSON.stringify(memo));
+                try {
+                    mkdirPrivate(cache);
+                    writePrivate(memoFile, JSON.stringify(memo));
+                } catch (e) {
+                    console.log(`source ${s.id}: index.json not written: ${e.message}`);
+                }
             }
             return { mode: 'index', commit: null, skipped, components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) };
         });
