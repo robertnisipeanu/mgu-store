@@ -320,6 +320,7 @@ function fakeRoot(opts) {
         MGU_DEPLOY_PROC: p('proc'),
         MGU_DEPLOY_PROC_STAT: p('proc/stat'),
         MGU_DEPLOY_PROC_MOUNTS: p('proc/mounts'),
+        MGU_DEPLOY_CODING: p('dev/shm/rawcodingdata'),
         MGU_DEPLOY_BOOT_ID: p('proc/boot_id'),
         MGU_DEPLOY_SYSTEMCTL: path.join(HERE, 'fake_systemctl.sh'),
         MGU_DEPLOY_JOURNALCTL: path.join(HERE, 'fake_journalctl.sh'),
@@ -739,6 +740,46 @@ function testNoManagerInstall() {
         root.systemctlCalls().some((l) => l.startsWith('show ') && l.endsWith('oapcontroller.service')), r.out);
     check('no manager: rolled back: not listed, no package, no registry entry', !('fixture_app' in custom()) &&
         !fs.existsSync(root.preinstalled('fixture_app', '1.0.0')) && !fs.existsSync(root.entry('fixture_app')), r.out);
+}
+
+/* The head unit's coding segment with the given status flags (byte 0x28). */
+function writeCoding(root, flags) {
+    const buf = Buffer.alloc(0x1030);
+    buf[0x28] = flags;
+    write(root.p('dev/shm/rawcodingdata'), buf);
+}
+
+/* Default coding values: oapcontroller never starts MainApp, so an app
+ * install is refused before anything changes, with what to do. */
+function testDefaultCodingInstall() {
+    const root = fakeRoot({ noManager: true });
+    writeCoding(root, 0x0a);
+    const app = appArtifact('fixture_app', '1.0.0', true);
+    const r = root.run(['install', '--artifact', app, '--yes']);
+    check('default coding: the app install is refused at once', r.status === 2 &&
+        r.out.includes('the app manager cannot run on this head unit: its coding is the default values') &&
+        r.out.includes('Have the head unit coded to the car') && r.out.includes('Nothing was changed.') &&
+        !r.out.includes('app-privacy') && !r.out.includes('backup:') && !r.out.includes('no app manager is running'), r.out);
+    check('default coding: nothing installed or snapshotted', !fs.existsSync(root.preinstalled('fixture_app', '1.0.0')) &&
+        !fs.existsSync(root.p('var/opt/mgu-deploy/backups/stock')), r.out);
+    const bad = fakeRoot({ noManager: true });
+    writeCoding(bad, 0x00);
+    const rb = bad.run(['install', '--artifact', app, '--yes']);
+    check('invalid coding header: refused the same way', rb.status === 2 && rb.out.includes('its coding is not valid'), rb.out);
+    const coded = fakeRoot({ noManager: true });
+    writeCoding(coded, 0x09);
+    const rc = coded.run(['install', '--artifact', app, '--yes'], { MGU_DEPLOY_BOUNCE_TIMEOUT_MS: '1000' });
+    check('car coding, no manager: the install goes on to the manager check', rc.status === 1 &&
+        !rc.out.includes('cannot run on this head unit') && rc.out.includes('no app manager is running on this head unit'), rc.out);
+    const running = fakeRoot({});
+    writeCoding(running, 0x0a);
+    const rr = running.run(['install', '--artifact', app, '--yes']);
+    check('default coding with a manager running: the app installs', rr.status === 0 &&
+        !rr.out.includes('cannot run on this head unit'), rr.out);
+    const tools = fakeRoot({ noManager: true });
+    writeCoding(tools, 0x0a);
+    const rt = tools.run(['install', '--artifact', toolArtifact('1.0.0'), '--yes']);
+    check('default coding: a tool installs', rt.status === 0 && !rt.out.includes('cannot run on this head unit'), rt.out);
 }
 
 function readJsonOrNull(p) {
@@ -5914,6 +5955,7 @@ const SUITES = [
     testApps,
     testBounceGuard,
     testNoManagerInstall,
+    testDefaultCodingInstall,
     testMainBind,
     testRestore,
     testPrivacyRevert,
