@@ -66,6 +66,8 @@ curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/depl
 ```
 
 It finds the head unit by itself and says which connection it used.
+The other commands below (`token`, `usb-repo`, `first-install --from`) run
+the same way, in place of `first-install …` in the one-liner.
 Restart the head unit when the installer asks. The Store's tile then
 appears among the car's apps, and every later update comes through the
 Store.

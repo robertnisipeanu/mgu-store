@@ -31,12 +31,14 @@ function Quote([string]$a) {
 }
 
 function Run([string[]]$argv) {
-    $cpu = $env:PROCESSOR_ARCHITEW6432
-    if (-not $cpu) { $cpu = $env:PROCESSOR_ARCHITECTURE }
-    $cpu = @{ AMD64 = 'x64'; ARM64 = 'arm64' }[$cpu]
+    # mgu-install's exit status replaces it
+    $global:LASTEXITCODE = 1
     if ([Environment]::OSVersion.Platform -ne 'Win32NT') {
         return Fail 'this script is for Windows; on macOS and Linux run install.sh (deploy/README.md)'
     }
+    $cpu = $env:PROCESSOR_ARCHITEW6432
+    if (-not $cpu) { $cpu = $env:PROCESSOR_ARCHITECTURE }
+    $cpu = @{ AMD64 = 'x64'; ARM64 = 'arm64' }["$cpu"]
     if (-not $cpu) {
         return Fail "no executable for $env:PROCESSOR_ARCHITECTURE; run mgu-install.js with Node 18+ instead (deploy/README.md)"
     }
