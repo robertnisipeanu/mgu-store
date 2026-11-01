@@ -10,7 +10,11 @@
  * The HMI serves every app's RHMI as an instance of
  * de.bmw.infotainment.hmi.remote.RemoteHmiApplication (iDrive 7) or
  * remote2.RemoteHmiApplication2 (iDrive 8), described where the unit's app
- * manager keeps it (INTERFACES, the first there). The instance's uuid
+ * manager keeps it (INTERFACES, the first there; some iDrive 7 firmware has
+ * none of them, and then the copy of the iDrive 7 one MainApp's installer
+ * writes into <apps>/oap_<uid>/someipInterfaces/ for each app whose manifest
+ * names the interface, the one with the most instances). Without any, it
+ * prints one line, "unavailable", and exits. The instance's uuid
  * field is the app's RHMI uuid, and its applicationStack field has a ROOT_APP
  * entry while the app's screen is in front. Installed apps live in
  * <apps>/oap_<uid>/, which only the app manager creates, with the RHMI uuid in
@@ -32,16 +36,69 @@ const fs = require('fs');
 const path = require('path');
 
 const MAX_APP_JSON = 65536;
+const MAX_INTERFACE_JSON = 4 << 20;
 
+const ID7_INTERFACE = 'de_bmw_infotainment_hmi_remote_RemoteHmiApplication.json';
 const INTERFACES = [
-    '/usr/lib/oap-mainapp/src-gen/de_bmw_infotainment_hmi_remote_RemoteHmiApplication.json',
-    '/usr/lib/oap-mainapp21/src-gen/someip/de_bmw_infotainment_hmi_remote2_RemoteHmiApplication2.json'
+    `/usr/lib/oap-mainapp/src-gen/${ID7_INTERFACE}`,
+    '/usr/lib/oap-mainapp21/src-gen/someip/de_bmw_infotainment_hmi_remote2_RemoteHmiApplication2.json',
+    `/usr/lib/oap-mainapp/src-gen/someip/${ID7_INTERFACE}`
 ];
 const DEFAULTS = {
     someip: '/usr/lib/someip.node',
-    interface: INTERFACES.find((f) => fs.existsSync(f)) || INTERFACES[0],
     apps: '/var/opt/public/oap'
 };
+
+/* The parsed JSON of a regular file of at most max bytes; undefined otherwise. */
+function readJson(file, max) {
+    let fd = -1;
+    try {
+        fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+        const st = fs.fstatSync(fd);
+        if (st.isFile() && st.size <= max) {
+            const buf = Buffer.alloc(st.size);
+            fs.readSync(fd, buf, 0, st.size, 0);
+            return JSON.parse(buf.toString('utf8'));
+        }
+    } catch (e) {
+        // missing or not JSON
+    } finally {
+        if (fd >= 0) {
+            fs.closeSync(fd);
+        }
+    }
+    return undefined;
+}
+
+function instanceCount(config) {
+    return config && config.instances && typeof config.instances === 'object'
+        ? Object.keys(config.instances).length : 0;
+}
+
+/* The interface description: { file, config }, or null when there is none. */
+function findInterface(files, appsDir) {
+    for (const file of files) {
+        const config = readJson(file, MAX_INTERFACE_JSON);
+        if (instanceCount(config)) {
+            return { file, config };
+        }
+    }
+    let best = null;
+    let names = [];
+    try {
+        names = fs.readdirSync(appsDir).filter((n) => /^oap_\d+$/.test(n)).sort();
+    } catch (e) {
+        // no apps
+    }
+    names.forEach((name) => {
+        const file = path.join(appsDir, name, 'someipInterfaces', ID7_INTERFACE);
+        const config = readJson(file, MAX_INTERFACE_JSON);
+        if (instanceCount(config) > (best ? instanceCount(best.config) : 0)) {
+            best = { file, config };
+        }
+    });
+    return best;
+}
 
 /* RHMI uuid -> uid of the installed apps, leaving out uuids claimed twice. */
 function readApps(dir, log) {
@@ -57,23 +114,8 @@ function readApps(dir, log) {
         if (!m) {
             return;
         }
-        let uuid;
-        let fd = -1;
-        try {
-            fd = fs.openSync(path.join(dir, name, 'rhmiData', 'application.json'),
-                fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
-            const st = fs.fstatSync(fd);
-            if (st.isFile() && st.size <= MAX_APP_JSON) {
-                const buf = Buffer.alloc(st.size);
-                fs.readSync(fd, buf, 0, st.size, 0);
-                uuid = JSON.parse(buf.toString('utf8')).application.uuid;
-            }
-        } catch (e) {
-            // not a readable app description: no claim
-        }
-        if (fd >= 0) {
-            fs.closeSync(fd);
-        }
+        const desc = readJson(path.join(dir, name, 'rhmiData', 'application.json'), MAX_APP_JSON);
+        const uuid = desc && desc.application && desc.application.uuid;
         if (typeof uuid === 'string') {
             claims.set(uuid, (claims.get(uuid) || []).concat(Number(m[1])));
         }
@@ -160,15 +202,28 @@ if (require.main === module) {
         opt[process.argv[i].replace(/^--/, '')] = process.argv[i + 1];
     }
     const reportFd = Number(process.env.MGU_RENDER_REPORT_FD) || 1;
+    const write = (s) => fs.writeSync(reportFd, s);
+    const log = (s) => process.stderr.write(`foreground gate: ${s}\n`);
+    const found = opt.interface
+        ? { file: opt.interface, config: JSON.parse(fs.readFileSync(opt.interface, 'utf8')) }
+        : findInterface(INTERFACES, opt.apps);
+    if (!found) {
+        log(`no RemoteHmiApplication interface description (${INTERFACES.join(', ')}, ${opt.apps}/oap_*/someipInterfaces/)`);
+        write('unavailable\n');
+        process.exit(0);
+    }
+    if (found.file !== INTERFACES[0]) {
+        log(`interface: ${found.file}`);
+    }
     process.stdin.on('end', () => process.exit(0));
     process.stdin.resume();
     startGate({
         someip: require(opt.someip),
-        interfaceConfig: JSON.parse(fs.readFileSync(opt.interface, 'utf8')),
+        interfaceConfig: found.config,
         appsDir: opt.apps,
-        write: (s) => fs.writeSync(reportFd, s),
-        log: (s) => process.stderr.write(`foreground gate: ${s}\n`)
+        write,
+        log
     });
 }
 
-module.exports = { startGate, readApps, hasRootApp };
+module.exports = { startGate, readApps, hasRootApp, findInterface, INTERFACES };

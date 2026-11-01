@@ -209,7 +209,10 @@ taken for hung and hidden until it talks again, as IterioDev's kit does.
 from `SO_PEERCRED`) shows only while the HMI's `RemoteHmiApplication` for its
 uid holds `ROOT_APP`. Legacy apps hide themselves when their screen goes; the
 gate hides them only while it names another app in front, so a gate that reads
-nothing leaves them as they would be without it.
+nothing leaves them as they would be without it. A gate that finds no description of the
+interface says `unavailable` and is not started again: X_READY then offers
+no modes to the mgu-render/1 apps it gates, and those connected are
+disconnected once so they connect again to that.
 
 ## Touch and controller
 
