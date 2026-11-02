@@ -12,7 +12,8 @@
  *   MGU_OUT        an empty folder, where it leaves <id>@<version>.tgz,
  *                  unless the build names its `output` in the repo
  * HOME and TMPDIR point into its folder too, and this Node's and Python's
- * folders are on PATH. A build with `sdk` finds the oap-sdk module the
+ * folders are on PATH. Python's TLS takes no account of certificate dates
+ * (py/sitecustomize.py). A build with `sdk` finds the oap-sdk module the
  * deploy tool generates from the donor (index.js, package.json) in that
  * folder of the repo copy. A build with `network` gets the internet through
  * an HTTP proxy the fetch uid runs for it alone (proxy.js; http_proxy and
@@ -267,8 +268,9 @@ function runBuild(opts) {
             const env = { MGU_SDK_DONOR: donor, MGU_OUT: out, HOME: tmp, TMPDIR: tmp,
                 PATH: [path.dirname(process.execPath)].concat(python ? [path.dirname(interpreter)] : [], ['/usr/bin', '/bin']).join(':') };
             if (python) {
-                // the CA bundle mgu-python carries: the unit's own may be missing
-                Object.assign(env, { PYTHONDONTWRITEBYTECODE: '1', PYTHONNOUSERSITE: '1',
+                // the CA bundle mgu-python carries: the unit's own may be missing; py/sitecustomize.py:
+                // certificates checked but for their dates, for a unit whose clock is off
+                Object.assign(env, { PYTHONDONTWRITEBYTECODE: '1', PYTHONNOUSERSITE: '1', PYTHONPATH: path.join(__dirname, 'py'),
                     SSL_CERT_FILE: path.join(path.dirname(path.dirname(interpreter)), 'ssl', 'cacert.pem') });
             }
             if (proxy) {

@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.17
+
+- A Python build's downloads work on a head unit whose clock is off: Python's TLS (urllib, pip, requests) is given `py/sitecustomize.py`, which sets OpenSSL's `X509_V_FLAG_NO_CHECK_TIME` on every SSL context. The chain to a trusted root, every signature in it, CA constraints, key usages and the host name are still checked.
+
 ## 0.8.16
 
 - An app whose requirement failed to install says where from and why: "needs mgu-inputgate 1.0.0 or newer, which did not install from <source>: <the requirement's own error>".

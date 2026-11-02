@@ -10,6 +10,12 @@
  *   dir: the PKI's folder, kept; its certificates are made only where
  *   missing, so a folder made elsewhere serves a unit without openssl's
  *   key generation
+ *
+ * With MGU_TEST_PYTHON naming a Python 3.6 or newer (mgu-python on the
+ * unit), each chain is also fetched by that Python's own TLS (urllib, the
+ * test root as its only CA): with js/py/ on PYTHONPATH, as a build runs, the
+ * same chains are taken and refused; without it, a chain whose dates
+ * don't fit the clock is refused too.
  */
 const fs = require('fs');
 const os = require('os');
@@ -134,10 +140,13 @@ issue('expired', 'inter', 'leaf_ext', -90, -1);
 issue('self-future', null, 'self_ext', 2, 90);
 issue('self-now', null, 'self_ext', -1, 90);
 issue('untrusted-future', 'other-inter', 'leaf_ext', 2, 90);
+issue('untrusted-now', 'other-inter', 'leaf_ext', -1, 90);
 issue('badsig-ca-expired', 'inter-expired', 'leaf_ext', 2, 90);
 tampered('badsig-ca-expired');
 issue('badsig-future', 'inter', 'leaf_ext', 2, 90);
 tampered('badsig-future');
+issue('badsig-now', 'inter', 'leaf_ext', -1, 90);
+tampered('badsig-now');
 issue('wrong-future', 'inter', 'wrong_ext', 2, 90);
 issue('wrong-now', 'inter', 'wrong_ext', -1, 90);
 issue('from-not-ca', 'not-ca', 'leaf_ext', 2, 90);
@@ -162,8 +171,10 @@ const CASES = [
     { name: 'a self-signed certificate not yet valid', leaf: 'self-future', chain: [] },
     { name: 'a self-signed certificate at the right clock', leaf: 'self-now', chain: [] },
     { name: 'a chain to an untrusted root, not yet valid', leaf: 'untrusted-future', chain: ['other-inter', 'other-root'] },
+    { name: 'a chain to an untrusted root at the right clock', leaf: 'untrusted-now', chain: ['other-inter', 'other-root'] },
     { name: 'a bad server signature under an expired CA', leaf: 'badsig-ca-expired-bad', chain: ['inter-expired'] },
     { name: 'a bad server signature, not yet valid', leaf: 'badsig-future-bad', chain: ['inter'] },
+    { name: 'a bad server signature at the right clock', leaf: 'badsig-now-bad', chain: ['inter'] },
     { name: 'a wrong host name, not yet valid', leaf: 'wrong-future', chain: ['inter'] },
     { name: 'a wrong host name at the right clock', leaf: 'wrong-now', chain: ['inter'] },
     { name: 'an issuer that is not a CA, not yet valid', leaf: 'from-not-ca', chain: ['not-ca'] },
@@ -253,6 +264,46 @@ function testFetch() {
             r.code !== 0 && r.requests === 0, JSON.stringify(r.events)));
 }
 
+/* python -c PY_FETCH <url> <cafile> [assign]: prints "ok" once the body is read, else "error <why>";
+ * with assign, the context's verify_flags are set over after it is made. */
+const PY_FETCH = `
+import ssl, sys, urllib.request
+try:
+    ctx = ssl.create_default_context(cafile=sys.argv[2])
+    if sys.argv[3:] == ['assign']:
+        ctx.verify_flags = ssl.VERIFY_DEFAULT
+    urllib.request.urlopen(sys.argv[1], context=ctx, timeout=20).read()
+    print('ok')
+except Exception as e:
+    print('error %s' % e)
+`;
+
+/* Each case through Python's TLS, as a build's (py/ on PYTHONPATH) and
+ * without it. */
+function testPython(python) {
+    const run = (url, hook, assign) => new Promise((resolve) => {
+        const env = { PATH: process.env.PATH, PYTHONDONTWRITEBYTECODE: '1' };
+        if (hook) {
+            env.PYTHONPATH = path.join(ROOT, 'js', 'py');
+        }
+        cp.execFile(python, ['-c', PY_FETCH, url, path.join(T, 'root.pem')].concat(assign ? ['assign'] : []), { env, encoding: 'utf8' },
+            (err, out) => resolve(String(out).trim() || (err && err.message)));
+    });
+    return CASES.reduce((p, c) => p.then(() => serve(c)).then((s) => {
+        const url = `https://localhost:${s.address().port}/x`;
+        return run(url, true).then((withHook) => run(url, true, true).then((assigned) => run(url, false).then((without) => {
+            s.close();
+            const fits = c.accept && !c.dates;
+            ok(`python (build): ${c.name}: ${c.accept ? 'downloaded' : 'refused'}`,
+                c.accept ? withHook === 'ok' : /^error /.test(withHook), withHook);
+            ok(`python (build, verify_flags set over): ${c.name}: ${c.accept ? 'downloaded' : 'refused'}`,
+                c.accept ? assigned === 'ok' : /^error /.test(assigned), assigned);
+            ok(`python (no hook): ${c.name}: ${fits ? 'downloaded' : 'refused'}`, fits ? without === 'ok' : /^error /.test(without), without);
+            ok(`python: ${c.name}: a request only from a fetch taken`, s.requests === (c.accept ? 2 : 0) + (fits ? 1 : 0), s.requests);
+        })));
+    }), Promise.resolve());
+}
+
 function testLogOnce() {
     const { Fetcher } = require('../js/updater');
     const f = new Fetcher({ state_dir: path.join(T, 'state') });
@@ -273,6 +324,7 @@ function testLogOnce() {
 testDirect();
 testLogOnce();
 testFetch()
+    .then(() => (process.env.MGU_TEST_PYTHON ? testPython(process.env.MGU_TEST_PYTHON) : null))
     .catch((e) => {
         failed++;
         console.log(`FAIL ${e.stack}`);

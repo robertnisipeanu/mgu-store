@@ -220,7 +220,11 @@ commit). Without one: `releases` when the repo has a release, else
 
 **Building on the unit.** `build.node` runs under this Node, and
 `build.python` under `python` (`/var/opt/mgu-python/current/bin/python3`,
-with `SSL_CERT_FILE` its CA bundle), as the build uid ("Its own uids": no
+with `SSL_CERT_FILE` its CA bundle, and `PYTHONPATH` the updater's `py/`,
+whose `sitecustomize.py` has every SSL context check certificates without
+their validity dates, OpenSSL's `X509_V_FLAG_NO_CHECK_TIME`: the chain to a
+trusted root, its signatures, CA constraints, key usages and the host name
+are still checked), as the build uid ("Its own uids": no
 account, in none of the uplink's lists: no network),
 in a copy of the repo in `state/build-<random>/repo` that only it can
 write, with `MGU_SDK_DONOR` (the donor bundle `mgu-deploy.sh sdk-donor
@@ -961,6 +965,7 @@ js/build.js              a repo's build script, as the build uid
 js/login.js              GitHub device-flow sign-in
 js/fetch.js              one download, as the fetch uid
 js/certs.js              a server's certificate chain checked without its dates
+js/py/sitecustomize.py   a Python build's TLS: certificates checked without their dates
 js/client.js             socket client (Store app, command line)
 js/web.js                the phone page
 updater.conf             defaults
@@ -990,7 +995,10 @@ files), with
   (also under an expired CA), a wrong host name, an issuer that is not a CA,
   a certificate not for TLS servers (extended key usage or Netscape cert
   type) and 12 CAs that sign one another (settled within 2 s) are refused
-  before any request, each also through `verifyChain` directly;
+  before any request, each also through `verifyChain` directly; with
+  `MGU_TEST_PYTHON` naming a Python, the same chains through its TLS with
+  `js/py/` on `PYTHONPATH` (taken and refused alike) and without it (the
+  dates refused too);
 - sources, in an updater in the test process: several sources and an id
   two of them list; tokens: a private repo without one, a token GitHub
   rejects, one that reads two private repos (the second added later, no
