@@ -44,6 +44,15 @@ const HANDOVER_EXIT = 75;
 const TRIAL_WAIT_MS = Number(process.env.MGU_UPDATER_TRIAL_WAIT_MS || 120000);
 // A restart the unit has not carried out by then is reported as failed.
 const REBOOT_WAIT_MS = Number(process.env.MGU_UPDATER_REBOOT_WAIT_MS || 180000);
+// The limits on restarts the updater asks for (README.md, "Restarting the
+// head unit"): none before the unit has been up REBOOT_MIN_UPTIME_S, so one
+// asked for at every start cannot restart it in a loop; at most one per
+// REBOOT_SPACING_MS and REBOOT_HOUR_MAX an hour, kept across restarts in
+// state_dir/reboots.json.
+const REBOOT_MIN_UPTIME_S = Number(process.env.MGU_UPDATER_REBOOT_MIN_UPTIME_S || 240);
+const REBOOT_SPACING_MS = 10 * 60 * 1000;
+const REBOOT_HOUR_MAX = 3;
+const HOUR_MS = 60 * 60 * 1000;
 // how long after the start that put an app in place (iDrive 8) MainApp may take to list it
 const PLACED_GRACE_MS = 5 * 60 * 1000;
 // A Store this new or newer says hello when it connects; its update stands once it has (storeTrial).
@@ -228,6 +237,35 @@ function rmIfThere(file) {
 function writeAtomic(file, text) {
     fs.writeFileSync(`${file}.tmp`, text);
     fs.renameSync(`${file}.tmp`, file);
+}
+
+/* writeAtomic, on disk before it returns: the file and its folder synced. */
+function writeDurable(file, text) {
+    const tmp = `${file}.tmp`;
+    const fd = fs.openSync(tmp, 'w', 0o644);
+    try {
+        fs.writeSync(fd, text);
+        fs.fsyncSync(fd);
+    } finally {
+        fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+    const dir = fs.openSync(path.dirname(file), 'r');
+    try {
+        fs.fsyncSync(dir);
+    } finally {
+        fs.closeSync(dir);
+    }
+}
+
+/* Seconds since this start of the head unit, or null when unknown. */
+function uptimeS(conf) {
+    try {
+        const s = Number(fs.readFileSync(path.join(conf.proc || '/proc', 'uptime'), 'utf8').split(' ')[0]);
+        return Number.isFinite(s) ? s : null;
+    } catch (e) {
+        return null;
+    }
 }
 
 function readJson(file) {
@@ -691,8 +729,9 @@ const IDRIVE7_REPO = 'cauliflowermossgrape/idrive7-apps';
 function under(entry, id) {
     return Object.assign({}, entry, { id, listedId: entry.id, artifact: Object.assign({}, entry.artifact, { name: `${id}@${entry.version}.tgz` }) });
 }
-// Requests only the Store and the phone page may make (they hold the secret).
-const PRIVILEGED = ['uninstall', 'rollback', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
+// Requests only the Store and the phone page may make (they hold the secret);
+// the phone page offers no restart (web.js).
+const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
     'uplink-prefer', 'wifi-enable', 'wifi-scan', 'wifi-connect', 'wifi-forget'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
@@ -847,6 +886,7 @@ class Updater {
         this.sendTimer = null;
         this.rebooting = false;
         this.rebootError = null;
+        this.rebootErrorTimer = null;
         this.secret = crypto.randomBytes(32).toString('hex');
         // the uplink's status.json as read last (readUplink)
         this.uplinkText = null;
@@ -2113,12 +2153,47 @@ class Updater {
         return null;
     }
 
+    /* The restarts asked for within the last hour (ms), from reboots.json;
+     * times ahead of the clock (set back since) are left out. */
+    rebootTimes(now) {
+        let at = [];
+        try {
+            at = readJson(path.join(this.conf.state_dir, 'reboots.json')).at;
+        } catch (e) { /* none yet */ }
+        return (Array.isArray(at) ? at : []).filter((t) => Number.isFinite(t) && t <= now && now - t < HOUR_MS);
+    }
+
+    /* Why a restart cannot be asked for yet and in how many ms it can, or
+     * null when it can (REBOOT_MIN_UPTIME_S, REBOOT_SPACING_MS, REBOOT_HOUR_MAX). */
+    rebootWait(now) {
+        const up = uptimeS(this.conf);
+        if (up === null) {
+            return { why: 'the head unit\'s uptime is unknown', ms: 0 };
+        }
+        if (up < REBOOT_MIN_UPTIME_S) {
+            return { why: 'too soon after start-up', ms: (REBOOT_MIN_UPTIME_S - up) * 1000 };
+        }
+        const times = this.rebootTimes(now);
+        const last = Math.max.apply(null, [-Infinity].concat(times));
+        if (now - last < REBOOT_SPACING_MS) {
+            return { why: 'too soon after the last restart', ms: last + REBOOT_SPACING_MS - now };
+        }
+        if (times.length >= REBOOT_HOUR_MAX) {
+            return { why: `${times.length} restarts in the last hour`, ms: Math.min.apply(null, times) + HOUR_MS - now };
+        }
+        return null;
+    }
+
     /* Restarts the head unit with the `reboot` command (updater.conf), on the
      * Store's request. Refused while an install runs or waits, so a restart
-     * never cuts one short; installs asked for afterwards are refused. A
-     * command that cannot run, exits non-zero or prints nsm_control's
-     * "[Error. <why>]" (it exits 0 then too), or a unit still up after
-     * REBOOT_WAIT_MS, ends the restart with rebootError until the next check. */
+     * never cuts one short, and within the limits (rebootWait), with
+     * rebootError saying why and when a restart can be asked for, until
+     * then. The request is in reboots.json, on disk, before the command runs;
+     * installs asked for afterwards are refused. A command that cannot run,
+     * exits non-zero or prints nsm_control's "[Error. <why>]" (it exits 0
+     * then too) does not count against the limits; it, or a unit still up
+     * after REBOOT_WAIT_MS, ends the restart with rebootError until the next
+     * check. */
     reboot() {
         if (this.busy || this.queue.length) {
             return 'an install is running';
@@ -2130,7 +2205,19 @@ class Updater {
         if (!argv.length) {
             return 'no reboot command configured';
         }
-        const failed = (why) => {
+        const now = Date.now();
+        const wait = this.rebootWait(now);
+        if (wait) {
+            return this.rebootRefused(wait.ms > 0 ? `${wait.why}, possible in ${Math.max(1, Math.ceil(wait.ms / 60000))} min` : wait.why, wait.ms);
+        }
+        const record = (times) => writeDurable(path.join(this.conf.state_dir, 'reboots.json'), JSON.stringify({ at: times }));
+        try {
+            mkdirp(this.conf.state_dir, 0o755);
+            record(this.rebootTimes(now).concat(now));
+        } catch (e) {
+            return this.rebootRefused(`cannot record the restart: ${e.message}`, 0);
+        }
+        const failed = (why, counts) => {
             if (!this.rebooting) {
                 return;
             }
@@ -2138,20 +2225,49 @@ class Updater {
             this.rebooting = false;
             this.rebootError = why;
             console.log(`restart failed: ${why}`);
+            if (!counts) {
+                try {
+                    record(this.rebootTimes(Date.now()).filter((t) => t !== now));
+                } catch (e) {
+                    console.log(`restart record: ${e.message}`);
+                }
+            }
             this.changed();
         };
+        clearTimeout(this.rebootErrorTimer);
         this.rebooting = true;
         this.rebootError = null;
         this.changed();
         console.log(`restarting the head unit: ${argv.join(' ')}`);
-        const timer = setTimeout(() => failed('the head unit did not restart'), REBOOT_WAIT_MS);
+        const timer = setTimeout(() => failed('the head unit did not restart', true), REBOOT_WAIT_MS);
         cp.execFile(argv[0], argv.slice(1), { timeout: 60000, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
             const refused = /\[Error\.\s*([^\]]*)\]/.exec(stdout);
             if (err || refused) {
-                failed(refused ? refused[1] : String(stderr).trim().split('\n').pop() || err.message.split('\n')[0]);
+                failed(refused ? refused[1] : String(stderr).trim().split('\n').pop() || err.message.split('\n')[0], false);
             }
         });
         return null;
+    }
+
+    /* A restart refused for why: rebootError says so for ms (until the next
+     * check without ms), and the request is answered with it. */
+    rebootRefused(why, ms) {
+        console.log(`restart refused: ${why}`);
+        clearTimeout(this.rebootErrorTimer);
+        this.rebootError = why;
+        if (ms > 0) {
+            this.rebootErrorTimer = setTimeout(() => {
+                if (this.rebootError === why) {
+                    this.rebootError = null;
+                    this.changed();
+                }
+            }, ms);
+            if (this.rebootErrorTimer.unref) {
+                this.rebootErrorTimer.unref();
+            }
+        }
+        this.changed();
+        return why;
     }
 
     /* Takes the next request: the first that does not need a newer updater

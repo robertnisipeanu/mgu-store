@@ -276,6 +276,11 @@ function run() {
         return tick();
     }).then(() => {
         eq(last(/storeStatus\.\d*\.?Text/).split('=')[1], 'Updater not running');
+        // Restart head unit carries the secret
+        reset();
+        app._restart();
+        eq(sent.map(secretless), [{ op: 'reboot' }]);
+        eq(sent[0].secret, 'deadbeef');
         // an error of any length is written whole: the status line and a source's error wrap over their rows
         app._sourceId = 'idrive7-apps';
         app._client.emit('state', Object.assign({}, ST, { components: [comp({ error: LONG })],
@@ -1091,7 +1096,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.15', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.16', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));

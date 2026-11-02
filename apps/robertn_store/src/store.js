@@ -14,9 +14,9 @@
  * root daemon, reads the sources' catalogs, downloads and installs; this app
  * shows the state it streams over its socket and sends it requests: "check"
  * (Check for updates), "install <id>" (a row whose component is not
- * installed, has an update, or failed), "reboot" (Restart head unit, once
- * confirmed), and the privileged ones, which carry the secret the updater
- * leaves in this app's data folder: "uninstall" (a removable installed
+ * installed, has an update, or failed), and the privileged ones, which carry
+ * the secret the updater leaves in this app's data folder: "reboot" (Restart
+ * head unit, once confirmed), "uninstall" (a removable installed
  * component, once confirmed), "source-add", "source-probe", "source-remove", "token-add",
  * "token-remove" (an account, once confirmed), "login-start" / "login-cancel" (GitHub
  * sign-in, which adds an account), "web" (Phone access on or off), and the
@@ -766,11 +766,12 @@ class Store extends OnlineApp {
             .catch((err) => logger.warn(`closeState ${name} failed: ${err && err.message}`));
     }
 
-    /* The confirm step's Restart; the updater refuses it while an install runs. */
+    /* The confirm step's Restart; the updater refuses it while an install
+     * runs and within its restart limits, and says why in rebootError. */
     _restart() {
         this._closePage('restart', isConfirm('restart'));
         logger.info('restart head unit');
-        this._send({ op: 'reboot' });
+        this._privileged({ op: 'reboot' });
     }
 
     /* Sends a request that needs the updater's secret; without the secret

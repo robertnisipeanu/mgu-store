@@ -620,7 +620,9 @@ pointed to before), so the way back never needs a download.
 
 ## Restarting the head unit
 
-The Store's Restart head unit sends `{"op":"reboot"}`, and the daemon runs
+The Store's Restart head unit sends `{"op":"reboot"}` with the secret
+(only the Store asks for a restart; the phone page offers none), and the
+daemon runs
 the `reboot` command: `/usr/bin/nsm_control --requestRestart 7 --normal`,
 which asks the Node State Manager (NSM) for a restart
 (`LifecycleControl.RequestNodeRestart`) with reason 7 (Application) and a
@@ -643,6 +645,20 @@ which no BMW unit hooks, and it stops the services by their `KillSignal`
   restart with that reason. Any other restart that does not happen shows
   as a unit still up 3 minutes later: `rebootError` is `the head unit did
   not restart`. `rebootError` stays until the next catalog check.
+- Limited, so that nothing can restart the unit in a loop (on a car,
+  recmgr answers repeated failed starts with a data wipe). A request is
+  refused, with `rebootError` saying why and when a restart is possible
+  (`too soon after start-up, possible in 3 min`) until then:
+  - before the unit has been up 4 minutes (`/proc/uptime`, so a restart of
+    any cause counts). The unit and its apps are up within about 2
+    minutes of a start, so a request made at every start is always
+    refused, and a restart never follows one that has not settled;
+  - within 10 minutes of the last restart the updater asked for, and after
+    3 in the last hour. Each request is recorded in `state/reboots.json`
+    (written to a temporary file, synced, renamed, and the folder synced)
+    before the command runs, so the record outlives the restart; one
+    whose command fails is taken out again. A request that cannot be
+    recorded is refused.
 
 ## Phone page
 
@@ -842,13 +858,14 @@ each request, and whenever it changes (at most every 250 ms):
   `rebootError`: "Restarting the head unit".
 
 Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
-(with its missing requirements first), `{"op":"reboot"}`, from any app.
+(with its missing requirements first), from any app.
 `{"op":"hello","id","version"}` (no answer): a client says what it is; the
 Store says it at each connection (below, "The Store's update").
 **Privileged** ones carry `"secret"`:
 
 | Request | Does |
 |---|---|
+| `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit") |
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component (every app but the Store) |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
