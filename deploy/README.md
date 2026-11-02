@@ -977,8 +977,8 @@ The app manager installs our apps itself.
   default values (with the default values, its journal says only `Coding
   base: Default values flag is set, default values will be used`). With no
   app manager running and such a coding, an install with an app to install
-  or update is refused (exit 2) right after its artifacts are read, before
-  any other check or change, telling the user to restore the head unit's
+  or update is refused (exit 2) once its artifacts are read and checked,
+  before app-privacy's check and any change, telling the user to restore the head unit's
   coding from a backup or have HU_MGU coded, restart it and install again.
   Tools install as usual.
 - **Fresh install.** The manager installs an app it has no registry entry

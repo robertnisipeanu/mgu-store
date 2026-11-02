@@ -5197,8 +5197,9 @@ function cmdInstall(args) {
             if (why) say(a.id + ' ' + a.version + ' skipped: ' + why);
             return !why;
         });
-        /* first, before anything else looks at or changes the unit */
-        var noOap = !managerPid() && codingStopsOap();
+        /* before app-privacy's check and anything that changes the unit */
+        var noOap = codingStopsOap();
+        if (noOap && managerPid()) noOap = null;
         if (noOap && validated.some(function (a) {
             return a.kind === 'app' && ['current', 'older'].indexOf(appDecision(a, args.skipOlder).action) < 0;
         })) throw refuse(codingMissing(noOap));

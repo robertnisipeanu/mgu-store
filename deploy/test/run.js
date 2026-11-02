@@ -4671,8 +4671,9 @@ function testMguInstallFrom() {
         data[data.length >> 1] ^= 0xff;
         fs.writeFileSync(path.join(bad, victim), data);
         r = mguInstall(['first-install', '--from', bad, '--host', '10.0.0.9'], opts);
-        check('mgu-install first-install --from: an artifact that does not match the catalog stops it before connecting',
-            r.status === 1 && r.stderr.includes('sha256 does not match') && !r.calls.length, r.out);
+        check('mgu-install first-install --from: an artifact that does not match the catalog stops it before anything is sent',
+            r.status === 1 && r.stderr.includes('sha256 does not match') && r.calls.length === 1 &&
+            r.calls[0][r.calls[0].length - 1].includes('rawcodingdata'), r.out);
         r = mguInstall(['first-install', '--from', fs.mkdtempSync(path.join(T, 'from-empty-')), '--host', '10.0.0.9'], opts);
         check('mgu-install first-install --from: a folder without catalog.json is refused before connecting',
             r.status === 2 && r.stderr.includes('no catalog.json') && !r.calls.length, r.out);
@@ -4689,7 +4690,8 @@ function testMguInstallFrom() {
         r = mguInstall(['first-install', '--from', nodeploy, '--host', '10.0.0.9'], opts);
         check('mgu-install first-install --from: a catalog without mgu-deploy names the folder',
             r.status === 1 && r.stderr.includes(`${path.resolve(nodeploy)}: the catalog has no mgu-deploy`) &&
-            !r.stderr.includes(`${STORE_REPO}: the catalog`) && !r.calls.length, r.out);
+            !r.stderr.includes(`${STORE_REPO}: the catalog`) && r.calls.length === 1 &&
+            r.calls[0][r.calls[0].length - 1].includes('rawcodingdata'), r.out);
         r = mguInstall(['token', '--from', from, '--host', '10.0.0.9'], opts);
         check('mgu-install: --from goes with first-install only', r.status === 2 &&
             r.stderr.includes('unknown option --from') && !r.calls.length, r.out);
