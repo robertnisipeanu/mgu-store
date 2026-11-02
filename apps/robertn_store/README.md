@@ -135,6 +135,14 @@ it is: the Store's own words at 48 px, and GB2312's 3,755 most used
 characters at 24 px, for names and descriptions. Its two atlases take
 about 3,040 rows of the renderer's shared 2048 x 4096 glyph texture.
 
+Russian is drawn with Inter Medium, the Inter 4.1 face of the Store's own
+atlases at weight 500 (`src/LICENSE-Inter.txt`), baked by
+`tools/bake_cyrillic.py` into `src/font_cyrillic.js`, used for text Inter's
+atlases cannot draw while Russian is the language and loaded the first time
+it is: ASCII, the Cyrillic block and the Russian punctuation at 24 px for
+names and descriptions, 48 px for the Store's own words and 77 px for its
+titles. Its three atlases take about 1,230 rows of the glyph texture.
+
 ## The widget screens
 
 | Row (`LT_Button_1Row_2Col7030_2Text`) | Press |
@@ -344,15 +352,18 @@ locales/<code>.json        a language's words (README "Languages")
 src/i18n.js                the words in the display language
 src/locales.js             the languages, written by tools/gen_locales.js
 src/kit_*.js               the kit: record, canvas, vicons, png, themes (MIT, src/LICENSE-kit.txt);
-                           kit_fonts.js maps its families onto Inter, and Chinese onto Noto Sans SC
+                           kit_fonts.js maps its families onto Inter, Chinese onto Noto Sans SC and
+                           Russian onto Inter Medium with Cyrillic
 src/font_regular.js, src/font_semibold.js   Inter glyph atlases (tools/bake_fonts.py)
 src/font_chinese.js        Noto Sans SC glyph atlases (tools/bake_chinese.py)
+src/font_cyrillic.js       Inter Medium glyph atlases with Cyrillic (tools/bake_cyrillic.py)
 lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
 tools/gen_locales.js       src/locales.js from locales/*.json
 tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table, and the RHMI texts
 tools/build.js             languages, RHMI, lib/, the source package, and given a donor the OAP tgz
 tools/bake_fonts.py        the Inter atlases (Pillow, Inter 4.1's TTFs)
 tools/bake_chinese.py      the Noto Sans SC atlases (Pillow, NotoSansSC[wght].ttf of google/fonts, SHA-256 checked)
+tools/bake_cyrillic.py     the Cyrillic atlases (Pillow, Inter 4.1's Inter-Medium.ttf, SHA-256 checked)
 tools/gen_screens.py       src/am_screens.js from App Manager 2's screens.json
 tools/fixture.js           an updater state with one of everything, and the drawn screens over it
 tools/test_view.js         the texts for every row, source, account, sign-in and phone state

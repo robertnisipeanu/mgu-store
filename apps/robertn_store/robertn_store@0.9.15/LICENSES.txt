@@ -24,7 +24,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-==== Inter font (src/font_regular.js, src/font_semibold.js) ====
+==== Inter font (src/font_regular.js, src/font_semibold.js, src/font_cyrillic.js) ====
 
 Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
 

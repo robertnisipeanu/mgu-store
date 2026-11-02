@@ -9,16 +9,17 @@
  * While the display language has a font of its own (src/i18n.js font()),
  * text with a character Inter does not have is drawn with it, every family
  * alike: "chinese", Noto Sans SC (SIL OFL 1.1, src/LICENSE-NotoSansSC.txt),
- * baked by tools/bake_chinese.py into src/font_chinese.js. It is loaded when
- * first used, and its atlases' pixels are let go while another language is
- * in use.
+ * baked by tools/bake_chinese.py into src/font_chinese.js; "cyrillic", Inter
+ * Medium with the Cyrillic block, baked by tools/bake_cyrillic.py into
+ * src/font_cyrillic.js. Each is loaded when first used, and its atlases'
+ * pixels are let go while another language is in use.
  */
 const zlib = require('zlib');
 const i18n = require('./i18n.js');
 
 const FACES = { regular: require('./font_regular.js'), semibold: require('./font_semibold.js') };
 const FAMILY = { label: 'regular', light: 'regular', bold: 'semibold', num: 'semibold', gear: 'semibold' };
-const OWN = { chinese: () => require('./font_chinese.js') };
+const OWN = { chinese: () => require('./font_chinese.js'), cyrillic: () => require('./font_cyrillic.js') };
 const families = Object.create(null);
 const owned = Object.create(null);      // a language font's atlases, by name, once loaded
 let inUse = null;                       // the name of the one whose pixels are held
