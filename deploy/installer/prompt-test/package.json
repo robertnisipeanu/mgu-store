@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Drives install.ps1 in a console for the restart question (prompt_test.js)",
+  "devDependencies": {
+    "node-pty": "1.1.0"
+  }
+}

@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.7.12
+
+- iDrive 7: an install with an app, on a unit where the running app manager can list no app of ours (no provisioning fallback yet, as at a first install), restarts the manager once: app-privacy's restart waits for the app's, so the manager comes back with the patch, the fallback and the app. Until then it runs the stock code it started with, which knows nothing of the app. A restart still owed when the install ends is made then. Elsewhere, and for app-privacy on its own, app-privacy restarts the manager as it applies.
+- `mgu-install.js first-install` ends with `Restart the head unit to finish setup.` when a restart is needed, then at a terminal asks `Restart the head unit now? [y/N]`; `y` restarts the head unit the way the Store's Restart head unit does. Not asked under CI or with `--no-restart-prompt`.
+
 ## 0.7.11
 
 - Every service and socket unit a tool installs has its name in recmgr's `[Whitelist]` and `[WhitelistExitSuccess]`, and every ELF file it ships executable has its file name in the crash handler's `[Whitelist]` (the crash handler matches the file name of the crashed process's executable), besides the tool's `recmgr` and `crashNames` names, which go in as they are (a `recmgr` name other than letters, digits and `:._+@-` is refused at install): a crash or exit of a tool's own program does not restart the head unit. A name a tool does not declare is left out when the firmware has it (in `[ForceRestartList]`, a unit in `/lib/systemd/system` or `/usr/lib/systemd/system`, a program in `/bin`, `/sbin`, `/usr/bin` or `/usr/sbin`). An uninstall takes out the names no other installed tool has. `status`, run as root, adds the names missing from either list for the tools already installed, so the updater's status check after this update brings them; they count from the next start of the head unit. One list `status` cannot edit leaves the other's names added.

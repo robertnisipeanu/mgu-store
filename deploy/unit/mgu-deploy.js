@@ -45,7 +45,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.11';
+var VERSION = '0.7.12';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -501,6 +501,8 @@ function bounceManager() {
     if (!old) { warn('app manager node child not found; nothing to bounce'); return false; }
     say('bouncing the app manager node child (pid ' + old + ')');
     recordBounce(Math.ceil(nowS()));
+    privacyBounceOwed = false;
+    privacyMayWait = false;
     if (CFG.kill) runOk(CFG.kill, [String(old)]);
     else {
         try { process.kill(old); } catch (e) { throw fail('kill ' + old + ': ' + e.message); }
@@ -2149,8 +2151,32 @@ function privacyApplyAndBounce(state) {
             addPending(state, 'app-privacy', PENDING_NEXT_START);
             say('app-privacy: in effect from the next start of the head unit');
         }
-    } else if ((result.changed || result.restartNeeded) && managerPid()) bounceManager();
+    } else if ((result.changed || result.restartNeeded) && managerPid()) {
+        if (!privacyMayWait) bounceManager();
+        else if (!privacyBounceOwed) {
+            privacyBounceOwed = true;
+            say('app-privacy: the app manager loads it at the app install\'s restart');
+        }
+    }
     return { ok: true };
+}
+/* An install with an app, on an iDrive 7 unit where the running manager
+ * can list no app of ours (no fallback present or bound, none listed in
+ * custom_apps.json): app-privacy's bounce waits for the bounce the app's
+ * install makes anyway, as the fallback goes on then (the manager runs
+ * older code than main.js), so the manager restarts once, with the patch,
+ * the fallback and the app. Until then it runs stock code, which knows
+ * nothing of the app; a manager that restarts meanwhile loads the patched
+ * bundles. A bounce still owed when the install ends is made then. */
+var privacyMayWait = false, privacyBounceOwed = false;
+function managerListsNoApp() {
+    return !fallbackPresent() && !(binds() && bindMounted(mainJs())) && !Object.keys(readCustomApps()).length;
+}
+function settlePrivacyBounce() {
+    privacyMayWait = false;
+    if (!privacyBounceOwed) return;
+    privacyBounceOwed = false;
+    if (managerPid()) bounceManager();
 }
 /* The skipped line this run printed last: a run that applies app-privacy
  * once per app names the same skipped edits once. */
@@ -3437,7 +3463,7 @@ function installApp(a, state, decision) {
         say('no app manager is running on this head unit:');
         managerReport().forEach(function (l) { say('  ' + l); });
         throw fail('the app manager is not running, so ' + a.id + ' ' + a.version + ' cannot be installed now: ' +
-            'restart the head unit (a normal ignition cycle does it), wait for the home screen, then run the install again');
+            'restart the head unit, wait for the home screen, then run the install again');
     }
     if (!uid) {
         say('installing ' + a.id + ' through a bounce: ' + r.why);
@@ -5529,6 +5555,7 @@ function cmdInstall(args) {
         });
         var apps = work.some(function (a) { return a.kind === 'app'; }), migrated = id8;
         if (apps && !id8) preflightFallback();
+        privacyMayWait = apps && !id8 && managerListsNoApp();
         if (work.length) {
             ensureStock('install', work.reduce(function (all, a) { return all.concat(artifactTouched(a)); },
                 apps && !id8 && retiredBackups().length ? retiredTouched(null) : []));
@@ -5585,8 +5612,11 @@ function cmdInstall(args) {
                 throw e;
             }
         });
+        settlePrivacyBounce();
     } finally {
         try {
+            try { settlePrivacyBounce(); }
+            catch (e) { warn('the app manager was not restarted for app-privacy: ' + e.message); }
             if (done.length) selfInstall();
             if (attempted) saveState(state);
         } finally { rmrf(stage); }
