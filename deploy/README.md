@@ -605,8 +605,8 @@ update (`keepRunning`, as his App Manager does). The tool provides its kind
 kind, a version that is not x.y.z, or a program that is not a 64-bit x86-64
 ELF of at most 16 MiB is refused.
 
-A unit without `/etc/recmgr-restartlist.conf` (none is known on iDrive 8)
-has no recmgr to restart it: nothing is written there, and units start,
+iDrive 7 and iDrive 8 both have `/etc/recmgr-restartlist.conf` and the same
+recmgr. A unit without the list has no recmgr to restart it: nothing is written there, and units start,
 restart and stop at once.
 
 ### IterioDev's App Manager
@@ -1304,6 +1304,47 @@ another run holds the lock, and tries again at the next `status`. `status
 `changed`, `pending` or `error`; a change is also one line on stderr. The
 crash handler reads the list when it starts: a change counts from the next
 boot. A unit without the file is left alone.
+
+### Limits for the services tools install
+
+Every service unit (`.service`) an installed tool lists, whatever its source
+(our tools, mgu-apps', other repositories' and service packages), gets the
+drop-in `/etc/systemd/system/<unit>.d/zz-mgu-deploy-limits.conf`:
+
+```ini
+[Unit]
+StartLimitIntervalSec=600
+StartLimitBurst=20
+
+[Service]
+LimitCORE=1
+```
+
+- `LimitCORE=1`: the kernel pipes core dumps to the crash handler, which
+  restarts the head unit for a program its list does not name, and it writes
+  no piped core dump for a process whose core limit is 1. A crash of the
+  service, or of a program it starts (they inherit the limit), stays the
+  service's own; with its recmgr entry, a crash restarts the service, never
+  the head unit.
+- The start limit: a service that has started 20 times within 10 minutes is
+  left failed (`start-limit-hit`) instead of restarting for ever, also when
+  its unit sets `StartLimitIntervalSec=0`. A service that restarts every 5 s
+  gives up after about 100 s, one that restarts every 3 s after about 60 s,
+  which leaves room for a service waiting at boot for what it needs. It
+  starts again at the next boot, or when an install or rollback of its tool
+  starts it.
+
+A tool install writes the drop-ins of its services and an uninstall removes
+them, with the folder when nothing else is in it; they are in the
+snapshot. `status`, run as root, gives every installed tool's services the
+drop-in and removes it from units no installed tool lists, under the crash
+list's rules (lock, read-only `/`, a snapshot of its own): a deploy tool
+update brings it to the tools installed before it at the updater's check
+after it, and a restore leaves the drop-ins as the restored tools want them.
+A change is followed by `daemon-reload`; a running service takes the limits at
+its next start (the unit has no `prlimit` to change a running process).
+`status --json` reports the step as `service_limits: {state, reason}`. Units of other components and the car's
+own are never given one.
 
 ### One transaction per artifact
 
