@@ -2162,7 +2162,8 @@ function privacyApplyAndBounce(state) {
 }
 /* An install with an app, on an iDrive 7 unit where the running manager
  * can list no app of ours (no fallback present or bound, none listed in
- * custom_apps.json, none in its registry): app-privacy's bounce waits for the bounce the app's
+ * custom_apps.json, none in its registry, no retired installer's edit):
+ * app-privacy's bounce waits for the bounce the app's
  * install makes anyway, as the fallback goes on then (the manager runs
  * older code than main.js), so the manager restarts once, with the patch,
  * the fallback and the app. Until then it runs stock code, which knows
@@ -2170,7 +2171,8 @@ function privacyApplyAndBounce(state) {
  * bundles. A bounce still owed when the install ends is made then. */
 var privacyMayWait = false, privacyBounceOwed = false;
 function managerListsNoApp() {
-    return !fallbackPresent() && !(binds() && bindMounted(mainJs())) && !Object.keys(readCustomApps()).length && !ourApps().length;
+    return !fallbackPresent() && !(binds() && bindMounted(mainJs())) && !Object.keys(readCustomApps()).length && !ourApps().length &&
+        !retiredBackups().length;
 }
 function settlePrivacyBounce() {
     privacyMayWait = false;

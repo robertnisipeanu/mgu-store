@@ -2616,18 +2616,20 @@ function testPrivacyOneBounce() {
         r.out.includes('app-privacy: the app manager loads it at the app install\'s restart') &&
         (r.out.match(/bouncing the app manager/g) || []).length === 1 && !r.out.includes('waiting'), r.out);
     check('privacy one bounce: the patch is applied, the fallback on and the app listed before that bounce',
-        plog(root).includes('1.0.0 apply --json') && at(r.out, 'app-privacy: patched') < at(r.out, 'provisioning fallback turned on') &&
+        plog(root).includes('1.0.0 apply --json') && at(r.out, 'app-privacy: patched') >= 0 &&
+        at(r.out, 'app-privacy: patched') < at(r.out, 'provisioning fallback turned on') &&
         at(r.out, 'provisioning fallback turned on') < at(r.out, 'bouncing the app manager') &&
         at(r.out, 'bouncing the app manager') > 0 && custom(root).fixture_app, r.out);
 
-    // the state a run cut short after app-privacy's apply leaves: the tool and its patch in place, the manager not restarted
+    // app-privacy installed by an earlier run, as a run cut short after its apply leaves it; this one's apply (the
+    // fake reports a change each time) waits for the app's bounce the same way
     root = fakeRoot({ privacy: false });
     root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--yes']);
     const k0 = root.kills().length;
     r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
     check('privacy one bounce: run again after an interruption, one bounce, after the apply, installs the app',
         r.status === 0 && root.kills().length === k0 + 1 && (readJsonOrNull(root.entry('fixture_app')) || {}).installationSource === 'PREINSTALLED' &&
-        at(r.out, 'app-privacy: patched') < at(r.out, 'bouncing the app manager'), r.out);
+        at(r.out, 'app-privacy: patched') >= 0 && at(r.out, 'app-privacy: patched') < at(r.out, 'bouncing the app manager'), r.out);
 
     // a manager that may list an app of ours (the fallback on): app-privacy's bounce comes before the next app is placed
     r = root.run(['install', '--artifact', privacyTool('1.0.1', 0), '--artifact', appArtifact('second_app', '1.0.0', true), '--yes']);
@@ -2643,6 +2645,14 @@ function testPrivacyOneBounce() {
     check('privacy one bounce: with an app of ours in the registry, app-privacy bounces at once, before the app is placed',
         r.status === 0 && !r.out.includes('loads it at the app install') &&
         at(r.out, 'bouncing the app manager') >= 0 && at(r.out, 'bouncing the app manager') < at(r.out, 'installing app fixture_app'), r.out);
+
+    // the retired installer's leftovers: app-privacy's bounce does not wait
+    root = fakeRoot({ privacy: false });
+    write(root.p('usr/lib/oap-mainapp/src/main.js.capbak'), stockMain(), 0o755);
+    r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    check('privacy one bounce: with the retired installer\'s leftovers, app-privacy bounces at once',
+        at(r.out, 'bouncing the app manager') >= 0 && at(r.out, 'bouncing the app manager') < at(r.out, 'installing app fixture_app') &&
+        !r.out.includes('loads it at the app install'), r.out);
 
     // app-privacy alone: its own bounce
     root = fakeRoot({ privacy: false });
