@@ -57,7 +57,10 @@ const RUNS = {
 };
 
 function env(log) {
-    const e = Object.assign({}, process.env, { MGU_INSTALL_DOWNLOAD: base, FAKE_SSH_LOG: log, PATH: `${sshDir};${process.env.PATH}` });
+    const e = Object.assign({}, process.env, { MGU_INSTALL_DOWNLOAD: base, FAKE_SSH_LOG: log });
+    // Windows names it Path; one entry, with the fake ssh first
+    const key = Object.keys(e).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+    e[key] = `${sshDir};${e[key] || ''}`;
     // a prompt is never offered under CI; each PowerShell finds its own modules
     delete e.CI;
     delete e.PSModulePath;
