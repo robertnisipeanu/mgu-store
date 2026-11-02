@@ -1,5 +1,11 @@
 # Updater changelog
 
+## 0.8.13
+
+- A version 1 App Manager index keeps only the newest package of each id, as version 2 does, and remembers what each listed package is (`state/index/<source id>/index.json`), so a check downloads only packages it has not read; the packages kept, every source's together, come to at most 128 MiB, and one not kept is downloaded again for its install or icon.
+- Each start removes the checked artifacts an install cut short left in `state/verified/`, and every build folder an earlier run left, root's included (a build that failed before root handed the repo copy over); a build that fails that way leaves no folder.
+- A build's output in the log is at most 256 KiB (and 2000 lines), its proxy's lines included, then one line says the rest is left out.
+
 ## 0.8.12
 
 - A build whose `output` names its package installs when the build also leaves a file of that name in `MGU_OUT`: the declared output replaces it.

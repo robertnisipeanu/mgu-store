@@ -3384,6 +3384,12 @@ class Updater {
                 this.fetcher.clean();
                 cleanBuilds(this.conf);
             });
+            // what an install cut short handed the deploy tool: no install resumes from it
+            try {
+                cp.execFileSync('rm', ['-rf', path.join(this.conf.state_dir, 'verified')], { stdio: 'ignore' });
+            } catch (e) {
+                console.log(`state/verified not removed: ${e.message}; the next start retries`);
+            }
             this.writeSecrets();
             if (web) {
                 // also with false: it removes a firewall rule an earlier run left

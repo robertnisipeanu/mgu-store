@@ -1,7 +1,7 @@
 {
   "id": "mgu-updater",
   "kind": "tool",
-  "version": "0.8.12",
+  "version": "0.8.13",
   "title": "Updater",
   "description": "Installs, updates and removes apps and head-unit tools from its sources",
   "requires": { "mgu-deploy": "0.6.9", "mgu-python": "1.0.2" },

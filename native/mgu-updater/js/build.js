@@ -22,7 +22,9 @@
  * before root hands it the repo copy) and after it ends, so nothing a
  * script left running, in its process group or not, reaches the next
  * build. Root reads the result only as a regular file inside MGU_OUT,
- * bounded, and removes the folder's contents as the build uid.
+ * bounded, and removes the folder (removeBuild).
+ * At most MAX_LOG_LINES lines and MAX_LOG_BYTES of a build's output and its
+ * proxy's requests go to the log.
  */
 const fs = require('fs');
 const path = require('path');
@@ -30,6 +32,7 @@ const crypto = require('crypto');
 const cp = require('child_process');
 
 const MAX_LOG_LINES = 2000;
+const MAX_LOG_BYTES = 256 << 10;
 
 /* node -e COPY_OUTPUT <from> <to> <max bytes>: copies a regular file of at
  * most that size, opened without following a link and without blocking (a
@@ -154,6 +157,30 @@ function startProxy(conf, lease, log, id) {
     });
 }
 
+/* Removes a build folder, each part as the uid that owns it: a build uid's
+ * as that uid, so root follows nothing it planted; root's (a build that
+ * failed before root handed it over) as root. */
+function removeBuild(dir) {
+    const parts = ['repo', 'out', 'tmp'].map((p) => path.join(dir, p));
+    return parts.reduce((p, part) => p.then(() => new Promise((resolve) => {
+        let st;
+        try {
+            st = fs.lstatSync(part);
+        } catch (e) {
+            resolve();
+            return;
+        }
+        const rm = cp.spawn('rm', ['-rf', part], Object.assign({ stdio: 'ignore' },
+            process.getuid() === 0 ? { uid: st.uid, gid: st.gid } : {}));
+        rm.on('error', () => resolve());
+        rm.on('close', () => resolve());
+    })), Promise.resolve()).then(() => parts.concat([dir]).forEach((d) => {
+        try {
+            fs.rmdirSync(d);
+        } catch (e) { /* gone, or not empty: the next start retries */ }
+    }));
+}
+
 /* opts: { conf, entry, files: [{ name, data, mode }] (the repo, relative to
  * its root), donor, sdk (the folder holding the generated oap-sdk module,
  * for a build with `sdk`), lease ({ online, dns }, for a network build),
@@ -177,21 +204,25 @@ function runBuild(opts) {
     const out = path.join(dir, 'out');
     const tmp = path.join(dir, 'tmp');
     const name = `${entry.id}@${entry.version}.tgz`;
-    const retire = () => killAll(uid, gid).then(() => new Promise((resolve) => {
+    const retire = () => killAll(uid, gid).then(() => {
         if (proxy) {
             proxy.stop();
         }
-        const rm = cp.spawn('rm', ['-rf', repo, out, tmp], Object.assign({ stdio: 'ignore' }, asRoot ? { uid, gid } : {}));
-        rm.on('error', () => resolve());
-        rm.on('close', () => {
-            [repo, out, tmp, dir].forEach((d) => {
-                try {
-                    fs.rmdirSync(d);
-                } catch (e) { /* not empty: the next start retries */ }
-            });
-            resolve();
-        });
-    }));
+        return removeBuild(dir);
+    });
+    let lines = 0;
+    let bytes = 0;
+    let cut = false;
+    const say = (l) => {
+        lines += 1;
+        bytes += Buffer.byteLength(l);
+        if (lines <= MAX_LOG_LINES && bytes <= MAX_LOG_BYTES) {
+            log(l);
+        } else if (!cut) {
+            cut = true;
+            log(`build ${entry.id}: the rest of its output is left out of the log`);
+        }
+    };
     return killAll(uid, gid)
         .then(() => {
             const script = entry.script.node || entry.script.python;
@@ -227,7 +258,7 @@ function runBuild(opts) {
             }
             log(`build ${entry.id}@${entry.version}: ${python ? 'python' : 'node'} ${[script].concat(entry.script.args).join(' ')}` +
                 `${entry.script.network ? ' (with internet)' : ''}`);
-            return entry.script.network ? startProxy(conf, opts.lease || { online: false }, log, entry.id).then((p) => {
+            return entry.script.network ? startProxy(conf, opts.lease || { online: false }, say, entry.id).then((p) => {
                 proxy = p;
             }) : null;
         })
@@ -251,14 +282,8 @@ function runBuild(opts) {
                     stdio: ['ignore', 'pipe', 'pipe'],
                     env
                 }, asRoot ? { uid, gid } : {}));
-                let lines = 0;
                 let stopped = null;
-                const onLine = (d) => d.toString().split('\n').filter(Boolean).forEach((l) => {
-                    lines += 1;
-                    if (lines <= MAX_LOG_LINES) {
-                        log(`build ${entry.id}: ${l}`);
-                    }
-                });
+                const onLine = (d) => d.toString().split('\n').filter(Boolean).forEach((l) => say(`build ${entry.id}: ${l}`));
                 child.stdout.on('data', onLine);
                 child.stderr.on('data', onLine);
                 const stop = (why) => {
@@ -356,22 +381,13 @@ function runBuild(opts) {
         }));
 }
 
-/* Build folders an earlier run left, emptied as the build uid. */
+/* Build folders an earlier run left. */
 function cleanBuilds(conf) {
+    let names = [];
     try {
-        fs.readdirSync(conf.state_dir).filter((n) => /^build-/.test(n)).forEach((n) => {
-            const dir = path.join(conf.state_dir, n);
-            const parts = ['repo', 'out', 'tmp'].map((p) => path.join(dir, p));
-            const rm = cp.spawn('rm', ['-rf'].concat(parts), Object.assign({ stdio: 'ignore' },
-                process.getuid() === 0 ? { uid: Number(conf.build_uid), gid: Number(conf.build_gid) } : {}));
-            rm.on('error', () => {});
-            rm.on('close', () => parts.concat([dir]).forEach((d) => {
-                try {
-                    fs.rmdirSync(d);
-                } catch (e) { /* the next start retries */ }
-            }));
-        });
+        names = fs.readdirSync(conf.state_dir).filter((n) => /^build-/.test(n));
     } catch (e) { /* no state_dir yet */ }
+    return Promise.all(names.map((n) => removeBuild(path.join(conf.state_dir, n))));
 }
 
 module.exports = { runBuild, cleanBuilds, startProxy };
