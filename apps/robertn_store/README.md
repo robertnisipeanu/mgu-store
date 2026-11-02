@@ -99,8 +99,9 @@ installs it; the same package runs on iDrive 7.
 
 ## Languages
 
-The Store is in the head unit's display language: English, and Simplified
-Chinese (translated by [JackieZ123430](https://github.com/JackieZ123430)).
+The Store is in the head unit's display language: English, Simplified
+Chinese (translated by [JackieZ123430](https://github.com/JackieZ123430))
+and Russian (translated by [Fieldistor](https://github.com/Fieldistor)).
 It reads `currentDisplayLanguage` of HMIContext (`HMI_CID`, iDrive 7) and
 HMIContext2 (`1`, iDrive 8), the manifest's proxies, at start and follows
 each change, the drawn screens and the widget
