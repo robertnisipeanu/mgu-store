@@ -51,7 +51,11 @@ on the unit, it is made installable, or any MainApp bounce):
   bundles were last written (by this call or an earlier one). If either
   is true and MainApp is running, bounce MainApp's node child (kill it;
   `oapcontroller` respawns it) before placing the app. Never stop or
-  restart `oapcontroller`.
+  restart `oapcontroller`. When the running MainApp can list no app of
+  ours (no provisioning fallback is installed or bound, and none lists
+  an app), the installer may place the app and list it first and make
+  this bounce the one that loads the list: the running MainApp knows
+  nothing of the app until it restarts, and it restarts with the patch.
 - Exit 2: refused (a required edit does not fit, or an anchor occurs
   other than as expected without being absent; nothing written). Refuse
   the app install.

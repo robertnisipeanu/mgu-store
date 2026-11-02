@@ -132,6 +132,35 @@ jobs:
         shell: pwsh
         run: deploy/installer/test.ps1 -Base http://127.0.0.1:8765/good -BadBase http://127.0.0.1:8765/bad
 
+      # first-install's restart question through install.ps1, in a console and without one
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: runner.os == 'Windows'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restart question, setup
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $csc = Join-Path ([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) 'csc.exe'
+          New-Item -ItemType Directory -Force fake-ssh | Out-Null
+          & $csc /nologo /out:fake-ssh\ssh.exe deploy\installer\prompt-test\fake_ssh.cs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Push-Location deploy\installer\prompt-test
+          npm ci --ignore-scripts --no-audit --no-fund --silent
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Pop-Location
+
+      - name: Restart question through install.ps1 in Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: node deploy/installer/prompt-test/prompt_test.js (Get-Command powershell.exe).Source http://127.0.0.1:8765/good (Resolve-Path fake-ssh).Path
+
+      - name: Restart question through install.ps1 in PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: node deploy/installer/prompt-test/prompt_test.js (Get-Command pwsh.exe).Source http://127.0.0.1:8765/good (Resolve-Path fake-ssh).Path
+
       - name: install.sh
         if: runner.os != 'Windows'
         run: |

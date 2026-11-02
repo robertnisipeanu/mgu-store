@@ -68,9 +68,9 @@ curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/depl
 It finds the head unit by itself and says which connection it used.
 The other commands below (`token`, `usb-repo`, `first-install --from`) run
 the same way, in place of `first-install …` in the one-liner.
-Restart the head unit when the installer asks. The Store's tile then
-appears among the car's apps, and every later update comes through the
-Store.
+When the installer asks `Restart the head unit now? [y/N]`, answer `y`
+and it restarts the head unit. The Store's tile then appears among the
+car's apps, and every later update comes through the Store.
 
 | Option | What it does |
 |---|---|
@@ -81,6 +81,7 @@ Store.
 | `--token` | asks for a GitHub token, for private repositories |
 | `--no-uplink` | leaves out the internet uplink |
 | `--no-renderer` | leaves out the renderer |
+| `--no-restart-prompt` | ends without asking to restart the head unit |
 
 With [Node.js](https://nodejs.org) 18 or newer, the installer also runs as
 a script:

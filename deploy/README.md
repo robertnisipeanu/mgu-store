@@ -332,10 +332,18 @@ with the default sources, mgu-store, idrive7-apps, idrive-apps and car-apps (kep
 when the unit has its own); then removes
 the folder. With `--token` a token is added (below), then `status` is
 printed. Its last line
-is `Restart the head unit to finish setup (a normal ignition cycle does
-it): the updater starts then.` (naming each of `mgu-updater.service`,
-`mgu-render.socket` and `mgu-uplink.service` installed but not active),
-else `Setup is done`. Exit status: 0 done, 1 failed, 2 refused (the coding, or the deploy tool's own).
+is `Restart the head unit to finish setup.` while any of
+`mgu-updater.service`, `mgu-render.socket` and `mgu-uplink.service` is
+installed but not active, else `Setup is done`. After that line, at a
+terminal (not under CI, nor with `--no-restart-prompt`), it asks
+`Restart the head unit now? [y/N]`; `y` or `yes` restarts the head unit
+the way the Store's Restart head unit does (`/usr/bin/nsm_control
+--requestRestart 7 --normal`) and prints `Restarting the head unit.`;
+any other answer ends it there. After `y`, no restart is requested while a
+deploy tool run of this boot holds its lock, and none is taken when
+`nsm_control` answers `[Error. <why>]`; either ends it with exit 1, saying so. Through
+`install.sh` and `install.ps1` the question is asked at the terminal they
+run in. Exit status: 0 done, 1 failed, 2 refused (the coding, or the deploy tool's own).
 
 **first-install --from <folder>** takes the component list from a folder
 `usb-repo` wrote (`<folder>/mgu-repo/mgu-store`: its `catalog.json` and the
@@ -938,7 +946,22 @@ The `app-privacy` tool must be in effect before the manager sees an app
 (`native/app-privacy/INTEGRATION.md`). After installing or rolling back the
 tool, the installer runs its `patch_mainapp.js apply --json` and bounces the
 manager when it reports `changed` or `restartNeeded`; on iDrive 8 it bounces
-nothing and reports app-privacy pending until the next start. When `apply` fails,
+nothing and reports app-privacy pending until the next start.
+
+An install with an app to install or update, on an iDrive 7 unit where the
+running manager can list no app of ours (the fallback's unit absent,
+`main.js` not bound, `custom_apps.json` listing nothing, no app of ours in
+its registry, none of the retired installer's leftovers: a first install,
+`mgu-install.js first-install` among them), leaves that bounce to the
+app's: the fallback goes on with the app, so the app install bounces the
+manager anyway, and the manager restarts once, with the patch, the
+fallback and the app (`app-privacy: the app manager loads it at the app
+install's restart`). Until then the manager runs the stock code it
+started with, which lists no app of ours, and a manager that restarts
+meanwhile loads the patched bundles. A bounce still owed when the install
+ends (it failed, say) is made then; a run cut short leaves the patch on
+disk for the next start of the manager, and the same install run again
+bounces once. When `apply` fails,
 `current` returns to the previous version and its `apply` runs again (exit
 1); with no previous version the tool stays installed and the output says
 the patch is not in effect, so app installs are refused until `apply`
@@ -992,7 +1015,8 @@ The app manager installs our apps itself.
   manager sees an app: without `/var/opt/app-privacy/current/patch_mainapp.js`
   an app install is refused. The installer runs its `apply --json` and
   bounces the manager when the patch changed or the running manager predates
-  it.
+  it, or, where the manager can list no app of ours, leaves that to the
+  app's bounce (app-privacy, above).
 - **Coding.** On iDrive 7 and 8, oapcontroller starts MainApp only when the
   head unit's coding (`/dev/shm/rawcodingdata`) is valid and is not the
   default values (with the default values, its journal says only `Coding

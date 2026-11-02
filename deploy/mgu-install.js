@@ -6,7 +6,7 @@
  * no dependencies: Node 18 or newer and the system's OpenSSH client, on
  * Windows, macOS or Linux (deploy/README.md, "mgu-install").
  *
- *   node mgu-install.js first-install [--from <folder>] [--no-renderer] [--no-uplink] [--token] [<ssh options>]
+ *   node mgu-install.js first-install [--from <folder>] [--no-renderer] [--no-uplink] [--token] [--no-restart-prompt] [<ssh options>]
  *   node mgu-install.js token [--list [--json] | --remove <id>] [<ssh options>]
  *   node mgu-install.js usb-repo <stick folder> [<input>...]
  *
@@ -18,7 +18,9 @@
  * catalog's size and sha256, sends them to the unit and installs them with
  * the release's own deploy tool, which builds the Store on the unit. Newer
  * installed components are kept; running it again is safe. --token adds a
- * GitHub token for the updater afterwards.
+ * GitHub token for the updater afterwards. When the head unit needs a
+ * restart to finish, it asks at a terminal whether to restart it now
+ * (not under CI, nor with --no-restart-prompt).
  *
  * first-install --from <folder> installs from a folder usb-repo wrote
  * (<folder>/mgu-repo/mgu-store) instead of GitHub, each file checked
@@ -741,16 +743,61 @@ async function reach(o, d = NET) {
 
 /* ---- first-install ---------------------------------------------------------------------- */
 
-/* The optional components first-install puts on too, unless told not to:
- * each one's flag, the unit that runs it, and its name in the last line. */
-const WITH = [
-    { id: 'mgu-render', skip: 'noRenderer', unit: 'mgu-render.socket', name: 'the renderer' },
-    { id: 'mgu-uplink', skip: 'noUplink', unit: 'mgu-uplink.service', name: 'the uplink' }
-];
+/* The head unit's restart, as the Store's Restart head unit makes it
+ * (native/mgu-updater/updater.conf, reboot): the Node State Manager's
+ * normal restart. Refused (exit 3) while a deploy tool run of this boot
+ * holds its lock ("<pid> <boot id>"). nsm_control exits 0 on a refusal
+ * too, printing "[Error. <why>]". No double quote or backslash: Windows
+ * passes the remote command through its own quoting. */
+const RESTART = "L=/var/opt/mgu-deploy/lock; if [ -e $L ] && [ $(cut -d ' ' -f 2 $L) = $(cat /proc/sys/kernel/random/boot_id) ] && " +
+    "kill -0 $(cut -d ' ' -f 1 $L) 2>/dev/null; then exit 3; fi; /usr/bin/nsm_control --requestRestart 7 --normal 2>&1";
 
-function sayList(names) {
-    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+/* A line typed at the terminal, which echoes it. */
+function promptLine(question, input) {
+    return new Promise((resolve) => {
+        process.stderr.write(question);
+        const rl = require('readline').createInterface({ input, terminal: false });
+        let answer = '';
+        rl.on('line', (line) => {
+            answer = line;
+            rl.close();
+        });
+        rl.on('close', () => {
+            if (input !== process.stdin) {
+                input.destroy();
+            }
+            resolve(answer);
+        });
+    });
 }
+
+/* Asks whether to restart the head unit now, at a terminal only; on yes
+ * restarts it. Its exit status. */
+async function offerRestart(o) {
+    const term = o.noRestartPrompt || process.env.CI ? null : terminal();
+    if (!term || !/^y(es)?$/i.test((await promptLine('Restart the head unit now? [y/N] ', term)).trim())) {
+        return 0;
+    }
+    const r = ssh(o, RESTART, { input: Buffer.alloc(0), capture: true });
+    const refused = /\[Error\.\s*([^\]]*)\]/.exec(r.stdout);
+    if (r.status === 3) {
+        say('An install is running on the head unit: restart it from the Store once it is done.');
+        return 1;
+    }
+    if (r.status !== 0 || refused) {
+        say(`The head unit did not take the restart${refused ? `: ${refused[1].trim()}` : ''}. Restart it from the Store.`);
+        return 1;
+    }
+    say('Restarting the head unit.');
+    return 0;
+}
+
+/* The optional components first-install puts on too, unless told not to:
+ * each one's flag and the unit that runs it. */
+const WITH = [
+    { id: 'mgu-render', skip: 'noRenderer', unit: 'mgu-render.socket' },
+    { id: 'mgu-uplink', skip: 'noUplink', unit: 'mgu-uplink.service' }
+];
 
 /* On the unit, in the staging folder: the release's deploy tool installs
  * every artifact (itself among them; newer installed ones kept) and seeds
@@ -878,15 +925,17 @@ async function firstInstall(o) {
             return t;
         }
     }
-    const services = [{ id: 'mgu-updater', unit: 'mgu-updater.service', name: 'the updater' }].concat(withs);
+    const services = [{ id: 'mgu-updater', unit: 'mgu-updater.service' }].concat(withs);
     // the status on stderr, shown as it comes; which services run on stdout (absent: not installed)
     const st = ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) =>
         `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`)).join('; '),
         { capture: true });
-    const down = services.filter((s, i) => ['active', 'absent'].indexOf((st.stdout.split('\n')[i] || '').trim()) < 0).map((s) => s.name);
-    say(down.length ? `Restart the head unit to finish setup (a normal ignition cycle does it): ${sayList(down)} ${down.length > 1 ? 'start' : 'starts'} then.` :
-        'Setup is done: the Store installs and updates everything from here on.');
-    return 0;
+    if (services.every((s, i) => ['active', 'absent'].indexOf((st.stdout.split('\n')[i] || '').trim()) >= 0)) {
+        say('Setup is done: the Store installs and updates everything from here on.');
+        return 0;
+    }
+    say('Restart the head unit to finish setup.');
+    return offerRestart(o);
 }
 
 /* ---- token -------------------------------------------------------------------------------- */
@@ -1279,7 +1328,7 @@ const USAGE = SOURCE === null ? 'usage: deploy/README.md, "mgu-install"' : SOURC
 
 function parse(argv) {
     const o = { command: argv[0], host: null, port: '22', bind: null, given: false, user: 'root', identity: null, sshOpts: [],
-        noRenderer: false, noUplink: false, token: false, list: false, json: false, remove: null, from: null, rest: [] };
+        noRenderer: false, noUplink: false, token: false, noRestartPrompt: false, list: false, json: false, remove: null, from: null, rest: [] };
     const value = (i, flag) => {
         if (i >= argv.length) {
             throw new Usage(`${flag} needs a value`);
@@ -1296,6 +1345,7 @@ function parse(argv) {
         else if (a === '--no-renderer' && o.command === 'first-install') o.noRenderer = true;
         else if (a === '--no-uplink' && o.command === 'first-install') o.noUplink = true;
         else if (a === '--token' && o.command === 'first-install') o.token = true;
+        else if (a === '--no-restart-prompt' && o.command === 'first-install') o.noRestartPrompt = true;
         else if (a === '--from' && o.command === 'first-install') o.from = value(++i, a);
         else if (a === '--list' && o.command === 'token') o.list = true;
         else if (a === '--json' && o.command === 'token') o.json = true;

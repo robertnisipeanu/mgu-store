@@ -2599,6 +2599,78 @@ function testPrivacyTool() {
         fs.existsSync(path.join(root.tool('app-privacy'), 'current')), r.out);
 }
 
+/* app-privacy installed with an app on a unit whose manager lists no app
+ * of ours: one bounce, the app's, after the patch, the fallback and the
+ * listing. Where the manager could list an app of ours, and for
+ * app-privacy alone, its own bounce comes first; a bounce still owed when
+ * the install fails is made then. */
+function testPrivacyOneBounce() {
+    const plog = (root) => (fs.existsSync(`${root.R}.privacy.log`) ? fs.readFileSync(`${root.R}.privacy.log`, 'utf8').split('\n').filter(Boolean) : []);
+    const custom = (root) => readJsonOrNull(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`)) || {};
+    const at = (out, text) => out.indexOf(text);
+    let root = fakeRoot({ privacy: false });
+    let r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    let entry = readJsonOrNull(root.entry('fixture_app')) || {};
+    check('privacy one bounce: app-privacy and an app on a fresh unit restart the manager once, which installs the app',
+        r.status === 0 && root.kills().length === 1 && entry.installationSource === 'PREINSTALLED' &&
+        r.out.includes('app-privacy: the app manager loads it at the app install\'s restart') &&
+        (r.out.match(/bouncing the app manager/g) || []).length === 1 && !r.out.includes('waiting'), r.out);
+    check('privacy one bounce: the patch is applied, the fallback on and the app listed before that bounce',
+        plog(root).includes('1.0.0 apply --json') && at(r.out, 'app-privacy: patched') >= 0 &&
+        at(r.out, 'app-privacy: patched') < at(r.out, 'provisioning fallback turned on') &&
+        at(r.out, 'provisioning fallback turned on') < at(r.out, 'bouncing the app manager') &&
+        at(r.out, 'bouncing the app manager') > 0 && custom(root).fixture_app, r.out);
+
+    // app-privacy installed by an earlier run, as a run cut short after its apply leaves it; this one's apply (the
+    // fake reports a change each time) waits for the app's bounce the same way
+    root = fakeRoot({ privacy: false });
+    root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--yes']);
+    const k0 = root.kills().length;
+    r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    check('privacy one bounce: run again after an interruption, one bounce, after the apply, installs the app',
+        r.status === 0 && root.kills().length === k0 + 1 && (readJsonOrNull(root.entry('fixture_app')) || {}).installationSource === 'PREINSTALLED' &&
+        at(r.out, 'app-privacy: patched') >= 0 && at(r.out, 'app-privacy: patched') < at(r.out, 'bouncing the app manager'), r.out);
+
+    // a manager that may list an app of ours (the fallback on): app-privacy's bounce comes before the next app is placed
+    r = root.run(['install', '--artifact', privacyTool('1.0.1', 0), '--artifact', appArtifact('second_app', '1.0.0', true), '--yes']);
+    check('privacy one bounce: with an app of ours listed, app-privacy bounces at once, before the next app is placed',
+        r.status === 0 && !r.out.includes('loads it at the app install') &&
+        at(r.out, 'bouncing the app manager') >= 0 && at(r.out, 'bouncing the app manager') < at(r.out, 'installing app second_app'), r.out);
+
+    // an app of ours in the manager's registry, with no fallback: app-privacy's bounce comes first too
+    root = fakeRoot({ privacy: false });
+    write(root.entry('old_app'), JSON.stringify({ userId: 13005, installationSource: 'PREINSTALLED' }));
+    write(path.join(root.home(13005), 'source/package.json'), JSON.stringify({ name: 'old_app', version: '1.0.0', mguLocalOnly: true }));
+    r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    check('privacy one bounce: with an app of ours in the registry, app-privacy bounces at once, before the app is placed',
+        r.status === 0 && !r.out.includes('loads it at the app install') &&
+        at(r.out, 'bouncing the app manager') >= 0 && at(r.out, 'bouncing the app manager') < at(r.out, 'installing app fixture_app'), r.out);
+
+    // the retired installer's leftovers: app-privacy's bounce does not wait
+    root = fakeRoot({ privacy: false });
+    write(root.p('usr/lib/oap-mainapp/src/main.js.capbak'), stockMain(), 0o755);
+    r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    check('privacy one bounce: with the retired installer\'s leftovers, app-privacy bounces at once',
+        at(r.out, 'bouncing the app manager') >= 0 && at(r.out, 'bouncing the app manager') < at(r.out, 'installing app fixture_app') &&
+        !r.out.includes('loads it at the app install'), r.out);
+
+    // app-privacy alone: its own bounce
+    root = fakeRoot({ privacy: false });
+    r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--yes']);
+    check('privacy one bounce: app-privacy without an app bounces at once', r.status === 0 && root.kills().length === 1 &&
+        !r.out.includes('loads it at the app install'), r.out);
+
+    // an install that fails after app-privacy's apply, before the app: the owed bounce is made, the app not installed
+    const fails = fs.mkdtempSync(path.join(T, 'checks-'));
+    fs.writeFileSync(path.join(fails, 'fail-0.7.0'), '');
+    root = fakeRoot({ privacy: false, recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+    r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', checkArtifact('0.7.0'),
+        '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes'], { FAKE_CHECK_DIR: fails });
+    check('privacy one bounce: a failure before the app still restarts the manager for app-privacy, once',
+        r.status === 1 && root.kills().length === 1 && plog(root).includes('1.0.0 apply --json') &&
+        !custom(root).fixture_app && !readJsonOrNull(root.entry('fixture_app')), r.out);
+}
+
 /* app-privacy that leaves out privacy-only edits this MainApp lacks still
  * lets apps install, and says which in one line; one that refuses a
  * required edit refuses the install. Its record is in status --json. */
@@ -4928,6 +5000,8 @@ function installBin(root) {
     fs.writeFileSync(path.join(bin, 'ssh'), `#!/bin/sh\nexec '${process.execPath}' '${path.join(HERE, 'fake_ssh_exec.js')}' "$@"\n`, { mode: 0o755 });
     fs.symlinkSync(path.join(HERE, 'fake_systemctl.sh'), path.join(bin, 'systemctl'));
     fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\n[ "$1 $2" = "auth token" ] && [ -n "$FAKE_GH_TOKEN" ] && echo "$FAKE_GH_TOKEN" && exit 0\nexit 1\n', { mode: 0o755 });
+    // the head unit's restart request: its arguments in nsm.log, nsm.out (when there) as its answer
+    fs.writeFileSync(path.join(bin, 'nsm_control'), `#!/bin/sh\necho "$*" >> '${bin}/nsm.log'\ncat '${bin}/nsm.out' 2>/dev/null\nexit 0\n`, { mode: 0o755 });
     const envFile = path.join(bin, 'env.json');
     if (root) {
         fs.writeFileSync(envFile, JSON.stringify(Object.assign({}, root.env, { PATH: `${bin}:${root.env.PATH}` })));
@@ -4946,6 +5020,57 @@ s.listen(0, '127.0.0.1', () => require('fs').writeFileSync(process.argv[1], Stri
         sleepSync(25);
     }
     return fs.readFileSync(portFile, 'utf8');
+}
+
+/* The restart requests the head unit got, through bin/nsm_control. */
+function nsmCalls(bin) {
+    const f = path.join(bin.bin, 'nsm.log');
+    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) : [];
+}
+
+/* mgu-install in a terminal (a pseudo-terminal from python3's pty): answer
+ * typed once "[y/N]" shows ('' for Enter, null for nothing; the run then
+ * ends without input), after writing file.text to file.path when given.
+ * { status, out, calls } */
+const IN_TERMINAL = `import json, os, pty, select, sys
+argv, answer, file = json.loads(sys.argv[1]), json.loads(sys.argv[2]), json.loads(sys.argv[3])
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(argv[0], argv)
+out, sent = b'', False
+while True:
+    if not select.select([fd], [], [], 120)[0]:
+        break
+    try:
+        d = os.read(fd, 4096)
+    except OSError:
+        break
+    if not d:
+        break
+    out += d
+    if not sent and answer is not None and b'[y/N]' in out:
+        if file:
+            open(file['path'], 'w').write(file['text'])
+        os.write(fd, answer.encode() + b'\\r')
+        sent = True
+st = os.waitpid(pid, 0)[1]
+sys.stdout.buffer.write(out)
+sys.exit(os.WEXITSTATUS(st) if os.WIFEXITED(st) else 128)
+`;
+function mguInstallTerminal(args, opts, answer, file) {
+    const log = path.join(fs.mkdtempSync(path.join(T, 'ssh-')), 'log');
+    fs.writeFileSync(log, '');
+    const env = Object.assign({}, process.env, { PATH: `${opts.bin.bin}:${process.env.PATH}`, FAKE_SSH_LOG: log,
+        FAKE_SSH_ENV: opts.bin.envFile, MGU_INSTALL_GITHUB_API: opts.api, FAKE_GH_TOKEN: '' }, opts.env || {});
+    if (!(opts.env && 'CI' in opts.env)) {
+        delete env.CI;
+    }
+    // opts.command: the whole command line instead of mgu-install with args
+    const argv = opts.command || (process.env.MGU_TEST_INSTALL_EXE ? [process.env.MGU_TEST_INSTALL_EXE] : [process.execPath, MGU_INSTALL]).concat(args);
+    const r = cp.spawnSync('python3', ['-c', IN_TERMINAL, JSON.stringify(argv), JSON.stringify(answer), JSON.stringify(file || null)], { encoding: 'utf8', env });
+    r.out = String(r.stdout).replace(/\r\n/g, '\n');
+    r.calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((a) => a[0] !== '-V');
+    return r;
 }
 
 function mguInstall(args, opts) {
@@ -5032,8 +5157,8 @@ function testMguInstall() {
             JSON.parse(fs.readFileSync(root.p('var/opt/mgu-updater/sources.json'), 'utf8')).sources[0].repo === STORE_REPO &&
             mode(root.p('var/opt/mgu-updater/sources.json')) === 0o600 &&
             Object.values(tokenTexts(root)).join() === TOKEN);
-        check('mgu-install first-install: ends saying a restart finishes setup while the updater is not running',
-            r.stdout.endsWith('Restart the head unit to finish setup (a normal ignition cycle does it): the updater starts then.\n'), r.stdout.slice(-500));
+        check('mgu-install first-install: ends saying a restart finishes setup while the updater is not running; with no terminal, no question',
+            r.stdout.endsWith('\nRestart the head unit to finish setup.\n') && !r.out.includes('[y/N]') && !nsmCalls(bin).length, r.out.slice(-500));
         check('mgu-install first-install: the token is in no output and no ssh argument; it went on stdin to updater-token',
             !r.out.includes(TOKEN) && r.calls.every((a) => !a.join(' ').includes(TOKEN)) &&
             r.calls.some((a) => / updater-token( |$)/.test(a[a.length - 1])), r.calls.map((a) => a[a.length - 1]).join('\n'));
@@ -5060,8 +5185,66 @@ function testMguInstall() {
         r = mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
         check('mgu-install first-install: installs the renderer and the uplink by default, which start at the next start', r.status === 0 &&
             ['mgu-uplink', 'mgu-render'].every((id) => root.status().components.some((x) => x.id === id)) &&
-            r.stdout.endsWith('Restart the head unit to finish setup (a normal ignition cycle does it): the renderer and the uplink start then.\n'),
+            r.stdout.endsWith('\nRestart the head unit to finish setup.\n'),
             r.out.slice(-2000));
+        // at a terminal, while the renderer and the uplink are not running: the question
+        const again = ['first-install', '--host', '10.0.0.9'];
+        const tOpts = Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts);
+        const QUESTION = 'Restart the head unit to finish setup.\nRestart the head unit now? [y/N] ';
+        r = mguInstallTerminal(again, tOpts, 'y');
+        check('mgu-install first-install at a terminal: asks to restart; y restarts the head unit as the Store does, says so, exit 0',
+            r.status === 0 && r.out.includes(QUESTION) && r.out.endsWith('\nRestarting the head unit.\n') &&
+            JSON.stringify(nsmCalls(bin)) === JSON.stringify(['--requestRestart 7 --normal']) &&
+            r.calls.every((a) => !/["\\]/.test(a[a.length - 1])), r.out.slice(-1500));
+        r = mguInstallTerminal(again, tOpts, 'yes');
+        check('mgu-install first-install at a terminal: yes restarts too', r.status === 0 && nsmCalls(bin).length === 2, r.out.slice(-800));
+        for (const [answer, what] of [['n', 'n'], ['', 'Enter'], ['restart', 'another answer']]) {
+            r = mguInstallTerminal(again, tOpts, answer);
+            check(`mgu-install first-install at a terminal: ${what} leaves the head unit running, exit 0`,
+                r.status === 0 && r.out.includes(QUESTION) && !r.out.includes('Restarting') && nsmCalls(bin).length === 2, r.out.slice(-800));
+        }
+        r = mguInstallTerminal(again.concat(['--no-restart-prompt']), tOpts, null);
+        check('mgu-install first-install --no-restart-prompt at a terminal: no question, ends with the restart line',
+            r.status === 0 && !r.out.includes('[y/N]') && r.out.endsWith('\nRestart the head unit to finish setup.\n') && nsmCalls(bin).length === 2, r.out.slice(-800));
+        r = mguInstallTerminal(again, Object.assign({}, tOpts, { env: { FAKE_GH_TOKEN: TOKEN, CI: 'true' } }), null);
+        check('mgu-install first-install under CI at a terminal: no question', r.status === 0 && !r.out.includes('[y/N]') &&
+            r.out.endsWith('\nRestart the head unit to finish setup.\n'), r.out.slice(-800));
+        fs.writeFileSync(path.join(bin.bin, 'nsm.out'), '[Error. Restart not allowed now]\n');
+        r = mguInstallTerminal(again, tOpts, 'y');
+        check('mgu-install first-install at a terminal: a restart the head unit refuses is said, exit 1',
+            r.status === 1 && r.out.endsWith('\nThe head unit did not take the restart: Restart not allowed now. Restart it from the Store.\n') &&
+            nsmCalls(bin).length === 3, r.out.slice(-800));
+        fs.unlinkSync(path.join(bin.bin, 'nsm.out'));
+        // a deploy tool run of this boot holds the lock when the question is answered: no restart
+        const lock = root.p('var/opt/mgu-deploy/lock');
+        r = mguInstallTerminal(again, tOpts, 'y', { path: lock, text: `${process.pid} ${fs.readFileSync(root.p('proc/boot_id'), 'utf8').trim()}\n` });
+        check('mgu-install first-install at a terminal: no restart while a deploy tool run holds its lock, said, exit 1',
+            r.status === 1 && r.out.endsWith('\nAn install is running on the head unit: restart it from the Store once it is done.\n') &&
+            nsmCalls(bin).length === 3, r.out.slice(-800));
+        fs.unlinkSync(lock);
+        // the same lock from an earlier boot, or of a run that is gone: the restart goes ahead
+        r = mguInstallTerminal(again, tOpts, 'y', { path: lock, text: `${process.pid} boot-0\n` });
+        check('mgu-install first-install at a terminal: a lock of an earlier boot does not hold the restart back',
+            r.status === 0 && r.out.endsWith('\nRestarting the head unit.\n') && nsmCalls(bin).length === 4, r.out.slice(-800));
+        fs.unlinkSync(lock);
+        // the script on stdin (curl | node -): the question at the terminal
+        r = mguInstallTerminal(null, Object.assign({}, tOpts, { command: ['sh', '-c',
+            `exec '${process.execPath}' - first-install --host 10.0.0.9 < '${MGU_INSTALL}'`] }), 'y');
+        check('mgu-install from stdin at a terminal: asks at the terminal; y restarts', r.status === 0 && r.out.includes(QUESTION) &&
+            r.out.endsWith('\nRestarting the head unit.\n') && nsmCalls(bin).length === 5, r.out.slice(-800));
+        // install.sh through curl | sh: it gives the executable the terminal, where the question is answered
+        const dl = fs.mkdtempSync(path.join(T, 'dl-'));
+        const exe = `mgu-install-linux-${os.arch()}.gz`;
+        fs.writeFileSync(path.join(dl, exe), zlib.gzipSync(`#!/bin/sh\nexec '${process.execPath}' '${MGU_INSTALL}' "$@"\n`));
+        fs.writeFileSync(path.join(dl, 'SHA256SUMS'), `${sha256(fs.readFileSync(path.join(dl, exe)))}  ${exe}\n`);
+        r = mguInstallTerminal(null, Object.assign({}, tOpts, { env: { FAKE_GH_TOKEN: TOKEN, MGU_INSTALL_DOWNLOAD: `file://${dl}` },
+            command: ['sh', '-c', `cat '${path.join(DEPLOY, 'install.sh')}' | sh -s -- first-install --host 10.0.0.9`] }), 'y');
+        check('install.sh through curl | sh at a terminal: asks; y restarts', r.status === 0 && r.out.includes(QUESTION) &&
+            r.out.endsWith('\nRestarting the head unit.\n') && nsmCalls(bin).length === 6, r.out.slice(-800));
+        r = mguInstallTerminal(null, Object.assign({}, tOpts, { env: { FAKE_GH_TOKEN: TOKEN, MGU_INSTALL_DOWNLOAD: `file://${dl}` },
+            command: ['sh', '-c', `cat '${path.join(DEPLOY, 'install.sh')}' | sh -s -- first-install --host 10.0.0.9`] }), 'n');
+        check('install.sh through curl | sh at a terminal: n leaves the head unit running', r.status === 0 && r.out.includes(QUESTION) &&
+            nsmCalls(bin).length === 6, r.out.slice(-800));
         // another renderer on a second unit: the renderer installs beside it
         const unit2 = donorRoot();
         const otherOpts = { bin: installBin(unit2), api: gh.api };
@@ -6699,6 +6882,7 @@ const SUITES = [
     testAppRollback,
     testRollback,
     testPrivacyTool,
+    testPrivacyOneBounce,
     testHooks,
     testRemoveWhenUnused,
     testPrivacyId8,
