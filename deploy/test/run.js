@@ -3094,7 +3094,7 @@ function testRestoreRefusals() {
     const rec = fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8');
     r = root.run(['restore', 'stock', '--yes']);
     check('restore refusal: a later tool would lose its recmgr entries: exit 2, the list unchanged',
-        r.status === 2 && r.out.includes('app-privacy would lose its recmgr entries (app-privacy)') &&
+        r.status === 2 && r.out.includes('app-privacy would lose its recmgr entries (app-privacy, fixture-tool)') &&
         fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8') === rec, r.out);
 
     root = fakeRoot();
@@ -4296,34 +4296,33 @@ function testBootLists() {
         r.status === 0 && s.length > 0 && s.every((x) => x.listed || (!x.unit && !x.link)) && !s[s.length - 1].listed,
         `${r.out}\n${JSON.stringify(s)}`);
 
-    [['empty', ''], ['without sections', 'stockd\n'],
-        ['without [ForceRestartList]', '[Whitelist]\nstockd\n\n[WhitelistExitSuccess]\nstockd\n']].forEach(([what, text]) => {
+    [['empty', ''], ['without sections', 'stockd\n'], ['with neither whitelist', '[ForceRestartList]\ndbus\n']].forEach(([what, text]) => {
         const bad = fakeRoot();
         const list = bad.p('etc/recmgr-restartlist.conf');
         write(list, text);
         const res = bad.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
         check(`boot lists: an install onto a recmgr list ${what} is refused; the list, units and tool as they were`,
-            res.status === 2 && /recmgr-restartlist\.conf has no \[\w+\] section; left as it is/.test(res.out) &&
+            res.status === 2 && /recmgr-restartlist\.conf has no \[Whitelist\] or \[WhitelistExitSuccess\] section; left as it is/.test(res.out) &&
             fs.readFileSync(list, 'utf8') === text && !fs.existsSync(bad.p('etc/systemd/system/fixture-tool.service')) &&
             !fs.existsSync(bad.p('etc/systemd/system/sockets.target.wants/fixture-tool.socket')) &&
             !fs.existsSync(bad.tool('fixture-tool')), res.out);
     });
+    // a list with one of the two whitelists gets the other, at the end
+    const half = fakeRoot();
+    const halfList = half.p('etc/recmgr-restartlist.conf');
+    write(halfList, '[Whitelist]\nstockd\n\n[ForceRestartList]\ndbus\n');
+    r = half.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    check('boot lists: a recmgr list without [WhitelistExitSuccess] gets it at the end, with our name; the rest kept',
+        r.status === 0 && JSON.stringify(sectionsOf(fs.readFileSync(halfList, 'utf8'))) ===
+        JSON.stringify({ Whitelist: ['stockd', 'fixture-tool'], ForceRestartList: ['dbus'], WhitelistExitSuccess: ['fixture-tool'] }),
+    r.out + fs.readFileSync(halfList, 'utf8'));
     // the names come from the tool's units and from the ELF files it ships executable
     const auto = fakeRoot();
     const autoRec = auto.p('etc/recmgr-restartlist.conf');
     const autoCrash = auto.p('etc/crashhandler-restartlist.conf');
     write(autoCrash, CRASH_LIST);
     const recStock = fs.readFileSync(autoRec, 'utf8');
-    const elfTool = (version) => {
-        const dir = fixtureCopy(version, (c) => { c.recmgr = []; });
-        fs.writeFileSync(path.join(dir, 'src', 'fixture-tool.sh'), '\x7fELF\x02\x01\x01 a program\n');
-        const out = fs.mkdtempSync(path.join(T, 'art-'));
-        const res = hu(['artifact', dir, '--out', out]);
-        if (res.status !== 0) {
-            throw new Error(res.stderr);
-        }
-        return path.join(out, `fixture-tool@${version}.tgz`);
-    };
+    const elfTool = (version) => elfArtifact('fixture-tool', version, 'fixture-tool', (c) => { c.recmgr = []; });
     r = auto.run(['install', '--artifact', elfTool('0.2.0'), '--yes']);
     const listed = (text, sec, name) => new RegExp(`\\[${sec}\\][^[]*\\n${name}\\n`).test(text);
     let autoText = fs.readFileSync(autoRec, 'utf8');
@@ -4356,9 +4355,47 @@ function testBootLists() {
     const crashList = crash.p('etc/crashhandler-restartlist.conf');
     write(crashList, '\n[Whitelist]\n\n');
     r = crash.run(['install', '--artifact', namedTool('mgu-uplink', '0.8.0'), '--yes']);
-    check('boot lists: an install onto a crash handler list without [ForceRestartList] is refused, the list as it was',
-        r.status === 2 && /crashhandler-restartlist\.conf has no \[ForceRestartList\] section; left as it is/.test(r.out) &&
-        fs.readFileSync(crashList, 'utf8') === '\n[Whitelist]\n\n' && !fs.existsSync(crash.tool('mgu-uplink')), r.out);
+    check('boot lists: a crash handler list of an empty [Whitelist] alone is edited',
+        r.status === 0 && fs.readFileSync(crashList, 'utf8') === '\n[Whitelist]\nmgu-uplink\n\n', r.out);
+    const noWhite = fakeRoot();
+    write(noWhite.p('etc/crashhandler-restartlist.conf'), '[ForceRestartList]\ndbus-daemon\n');
+    r = noWhite.run(['install', '--artifact', namedTool('mgu-uplink', '0.8.0'), '--yes']);
+    check('boot lists: an install onto a crash handler list without [Whitelist] is refused, the list as it was',
+        r.status === 2 && /crashhandler-restartlist\.conf has no \[Whitelist\] section; left as it is/.test(r.out) &&
+        fs.readFileSync(noWhite.p('etc/crashhandler-restartlist.conf'), 'utf8') === '[ForceRestartList]\ndbus-daemon\n' &&
+        !fs.existsSync(noWhite.tool('mgu-uplink')), r.out);
+    r = noWhite.run(['install', '--artifact', namedTool('no-names', '0.1.0'), '--yes']);
+    check('boot lists: an install that changes neither list goes through whatever the lists hold',
+        r.status === 0 && fs.existsSync(noWhite.tool('no-names')), r.out);
+    // status: one list refused leaves the other's names added
+    write(noWhite.p('etc/recmgr-restartlist.conf'), '[Whitelist]\nstockd\n[WhitelistExitSuccess]\nstockd\n');
+    r = noWhite.run(['install', '--artifact', namedTool('svc-tool', '0.1.0', (c) => { c.recmgr = ['svc-tool']; }), '--yes']);
+    write(noWhite.p('etc/recmgr-restartlist.conf'), '[Whitelist]\nstockd\n[WhitelistExitSuccess]\nstockd\n');
+    write(noWhite.p('var/opt/no-names/current/component.json'), JSON.stringify(Object.assign(
+        readJson(noWhite.p('var/opt/no-names/current/component.json')), { crashNames: ['no-names'] })));
+    r = noWhite.run(['status', '--json']);
+    const cs = JSON.parse(r.stdout).crash_list;
+    check('boot lists: status adds recmgr\'s missing names while the crash handler\'s list is refused, and reports both',
+        r.status === 0 && JSON.stringify(sectionsOf(fs.readFileSync(noWhite.p('etc/recmgr-restartlist.conf'), 'utf8'))) ===
+        JSON.stringify({ Whitelist: ['stockd', 'svc-tool'], WhitelistExitSuccess: ['stockd', 'svc-tool'] }) &&
+        cs.state === 'error' && /recmgr list: added svc-tool/.test(cs.reason) && /has no \[Whitelist\] section/.test(cs.reason) &&
+        fs.readFileSync(noWhite.p('etc/crashhandler-restartlist.conf'), 'utf8') === '[ForceRestartList]\ndbus-daemon\n', r.out);
+}
+
+/* A restart list's sections and entries, as the firmware reads them. */
+function sectionsOf(text) {
+    const out = {};
+    let cur = null;
+    text.split('\n').forEach((line) => {
+        const t = line.split('#')[0].trim();
+        if (/^\[.*\]$/.test(t)) {
+            cur = t.slice(1, -1);
+            out[cur] = out[cur] || [];
+        } else if (cur && t) {
+            out[cur].push(t);
+        }
+    });
+    return out;
 }
 
 /* A copy of the fixture tool as id@version whose program is bin/<prog>,
@@ -4393,8 +4430,10 @@ function testListSafety() {
     const art = elfArtifact('fixture-tool', '0.2.0', 'fixture-tool');
     const ours = (text, names) => text.split('\n').filter((l) => names.indexOf(l.replace(/\r$/, '')) < 0).join('\n');
     const count = (text, name) => text.split('\n').filter((l) => l.replace(/\r$/, '') === name).length;
+    // the rootfs writes go through the sh window, as on the unit
     const setup = (recText, crashText) => {
         const root = fakeRoot();
+        Object.assign(root.env, { MGU_DEPLOY_FAKE_SH_WINDOW: '1', MGU_DEPLOY_MOUNT: path.join(HERE, 'fake_mount.sh') });
         write(root.p('etc/recmgr-restartlist.conf'), recText);
         write(root.p('etc/crashhandler-restartlist.conf'), crashText);
         root.rec = () => fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8');
@@ -4432,15 +4471,25 @@ function testListSafety() {
             r.status === 0 && root.rec() === recText && root.crash() === crashText, r.out);
     });
 
-    // lists that cannot be read the firmware's way: refused, the file untouched
-    [['torn mid-file', REC_STOCK.slice(0, 60)], ['a header in another case', REC_STOCK.replace('[Whitelist]', '[whitelist]')],
+    // lists with none of the sections an edit touches: refused, the file untouched
+    [['torn before its first section', REC_STOCK.slice(0, 20)],
         ['headers only as comments', '# [WhitelistExitSuccess]\n# [Whitelist]\n# [ForceRestartList]\n']].forEach(([what, text]) => {
         const root = setup(text, CRASH_LIST);
         const r = root.run(['install', '--artifact', art, '--yes']);
         check(`list safety: a recmgr list ${what} is refused and left byte for byte, nothing installed`,
-            r.status === 2 && /has no \[\w+\] section; left as it is/.test(r.out) && root.rec() === text &&
+            r.status === 2 && /has no \[Whitelist\] or \[WhitelistExitSuccess\] section; left as it is/.test(r.out) && root.rec() === text &&
             root.crash() === CRASH_LIST && !fs.existsSync(root.tool('fixture-tool')), r.out);
     });
+    // a list with one of them: the other is added at the end, every other line kept
+    [['torn after [WhitelistExitSuccess]', REC_STOCK.slice(0, 60)], ['a header in another case', REC_STOCK.replace('[Whitelist]', '[whitelist]')]]
+        .forEach(([what, text]) => {
+            const root = setup(text, CRASH_LIST);
+            const r = root.run(['install', '--artifact', art, '--yes']);
+            const after = root.rec();
+            check(`list safety: a recmgr list ${what} gets [Whitelist] at the end, with only our name in it`,
+                r.status === 0 && ours(after, ['fixture-tool']) === `${text}\n[Whitelist]` && sectionsOf(after).Whitelist.join() === 'fixture-tool' &&
+                sectionsOf(after).WhitelistExitSuccess.indexOf('fixture-tool') >= 0, `${r.out}\n${JSON.stringify(after)}`);
+        });
 
     // a power cut, or a failing sync, at each sync of an install and of an uninstall
     const clean = setup(REC_STOCK, CRASH_LIST);
@@ -4495,6 +4544,31 @@ function testListSafety() {
     check('list safety: a sync failing at each of those points fails the change and leaves the lists and units as they were',
         !failed.length, failed.join('\n'));
 
+    // a fresh install whose activate fails is rolled back: a power cut, or a failing sync, at each sync of it
+    const hookEnv = (root, extra) => Object.assign({ FAKE_HOOK_LOG: `${root.R}.hooks.log`, FAKE_HOOK_FAIL: 'activate@0.2.0' }, extra);
+    const failing = hookArtifact('0.2.0', (c) => { delete c.requires; });
+    const rb = setup(REC_STOCK, CRASH_LIST);
+    let rr = rb.run(['install', '--artifact', failing, '--yes'], hookEnv(rb));
+    const rbSyncs = fs.readFileSync(`${rb.R}.sync.log`, 'utf8').split('\n').filter(Boolean);
+    check('list safety: a fresh install whose activate fails is rolled back: lists, units and tool as they were',
+        rr.status !== 0 && rb.rec() === REC_STOCK && rb.crash() === CRASH_LIST && !unitThere(rb) &&
+        !fs.existsSync(rb.tool('fixture-tool')) && rbSyncs.length > installSyncs, rr.out);
+    const rbCut = [];
+    for (let k = 1; k <= rbSyncs.length; k += 1) {
+        ['FAKE_SYNC_KILL_AT', 'FAKE_SYNC_FAIL_AT'].forEach((mode) => {
+            const root = setup(REC_STOCK, CRASH_LIST);
+            const res = root.run(['install', '--artifact', failing, '--yes'], hookEnv(root, { [mode]: String(k) }));
+            const rec = root.rec();
+            if (rec !== REC_STOCK && rec !== recNew) rbCut.push(`${mode}=${k}: the list is neither as it was nor with our entries`);
+            if (unitThere(root) && rec !== recNew) rbCut.push(`${mode}=${k}: a unit on disk without its entries`);
+            if (mode === 'FAKE_SYNC_FAIL_AT' && !/rollback failed/.test(res.out) && (res.status === 0 || rec !== REC_STOCK || unitThere(root))) {
+                rbCut.push(`${mode}=${k}: exit ${res.status}, rolled back yet not as it was`);
+            }
+        });
+    }
+    check(`list safety: at each of the ${rbSyncs.length} syncs of that install and its rollback, a power cut or a failing sync ` +
+        'never leaves a unit on disk without its entries', rbSyncs.length > installSyncs && !rbCut.length, rbCut.join('\n'));
+
     // a name another installed tool still has stays
     const shared = setup(REC_STOCK, CRASH_LIST);
     shared.run(['install', '--artifact', art, '--yes']);
@@ -4507,25 +4581,66 @@ function testListSafety() {
     check('list safety: and they go with the last tool that has them',
         r.status === 0 && shared.rec() === REC_STOCK && shared.crash() === CRASH_LIST, r.out + shared.rec());
 
-    // names of the firmware's are never added, nor removed
+    // names the tool derives that are the firmware's are never added, nor removed
     const stock = setup(REC_STOCK, CRASH_LIST);
     write(stock.p('lib/systemd/system/monitor.service'), '[Service]\n');
-    write(stock.p('lib/systemd/system/mgusecdiagd.service'), '[Service]\n');
+    write(stock.p('usr/lib/systemd/system/mgusecdiagd.service'), '[Service]\n');
     write(stock.p('bin/sh'), 'stock shell\n');
+    Object.assign(stock.env, { MGU_DEPLOY_STOCK_UNITS: `${stock.p('lib/systemd/system')}:${stock.p('usr/lib/systemd/system')}` });
     const stockUnits = (c) => {
         c.units = [{ name: 'monitor.service', from: 'systemd/fixture-tool.service' },
-            { name: 'mgusecdiagd.service', from: 'systemd/fixture-tool.service' }];
+            { name: 'mgusecdiagd.service', from: 'systemd/fixture-tool.service' },
+            { name: 'hmi.service', from: 'systemd/fixture-tool.service' }];
         c.enable = [];
         c.restart = [];
-        c.recmgr = ['monitor', 'hmi'];
-        c.crashNames = ['node', 'dbus-daemon', 'Monitor'];
+        c.recmgr = [];
+        delete c.crashNames;
     };
     r = stock.run(['install', '--artifact', elfArtifact('stockish', '1.0.0', 'sh', stockUnits), '--yes']);
-    check('list safety: a unit named as the firmware\'s, a [ForceRestartList] name, a firmware program (sh) and stock names are not added',
-        r.status === 0 && stock.rec() === REC_STOCK && stock.crash() === CRASH_LIST, `${r.out}\n${stock.rec()}\n${stock.crash()}`);
+    check('list safety: units named as the firmware\'s (/lib and /usr/lib) or in [ForceRestartList], and a program named as one of ' +
+        'the firmware\'s (sh), are not added', r.status === 0 && stock.rec() === REC_STOCK && stock.crash() === CRASH_LIST,
+    `${r.out}\n${stock.rec()}\n${stock.crash()}`);
     r = stock.run(['uninstall', 'stockish', '--yes']);
-    check('list safety: nor removed by the uninstall (monitor and node stay)',
+    check('list safety: nor removed by the uninstall (monitor stays)',
         r.status === 0 && stock.rec() === REC_STOCK && stock.crash() === CRASH_LIST, `${r.out}\n${stock.rec()}`);
+
+    // declared names are the tool's, whatever the firmware has: waze-on-cluster's manifest names carplay, a firmware unit
+    const waze = setup(REC_STOCK, CRASH_LIST);
+    write(waze.p('lib/systemd/system/carplay.service'), '[Service]\n');
+    const wazeUnits = ['waze-on-cluster.socket', 'waze-on-cluster.service', 'waze-on-cluster-patchd.service',
+        'waze-on-cluster-boot.service', 'waze-on-cluster-recovery.service', 'waze-on-cluster-capture.service'];
+    const wazeArt = elfArtifact('waze-on-cluster', '0.7.7', 'waze-on-cluster', (c) => {
+        // waze-on-cluster 0.7.7's component.json: units, enablement and recmgr names
+        c.units = wazeUnits.map((name) => ({ name, from: `systemd/fixture-tool.${name.split('.').pop()}` }));
+        c.enable = [{ unit: 'waze-on-cluster.socket', target: 'sockets.target' }].concat(wazeUnits.slice(1)
+            .map((unit) => ({ unit, target: 'multi-user.target' })));
+        c.recmgr = ['carplay', 'waze-on-cluster', 'waze-on-cluster-patchd', 'waze-on-cluster-boot', 'waze-on-cluster-recovery',
+            'waze-on-cluster-capture'];
+        c.restart = [];
+    });
+    r = waze.run(['install', '--artifact', wazeArt, '--yes']);
+    const wz = sectionsOf(waze.rec());
+    const wzNames = ['carplay', 'waze-on-cluster', 'waze-on-cluster-patchd', 'waze-on-cluster-boot', 'waze-on-cluster-recovery', 'waze-on-cluster-capture'];
+    check('list safety: waze-on-cluster\'s carplay (a firmware unit it names) goes into both recmgr sections with its own names',
+        r.status === 0 && wzNames.every((n) => wz.Whitelist.indexOf(n) >= 0 && wz.WhitelistExitSuccess.indexOf(n) >= 0) &&
+        ours(waze.rec(), wzNames) === REC_STOCK, `${r.out}\n${waze.rec()}`);
+    const wst = waze.status();
+    check('list safety: status reports no recmgr entry missing for it',
+        !wst.pending_reboot.some((x) => x.reason === 'recmgr entry missing'), JSON.stringify(wst.pending_reboot));
+    r = waze.run(['uninstall', 'waze-on-cluster', '--yes']);
+    check('list safety: its uninstall takes carplay out with its own names, the list as it was',
+        r.status === 0 && waze.rec() === REC_STOCK && waze.crash() === CRASH_LIST, `${r.out}\n${waze.rec()}`);
+
+    // a built-in crash name stays while its tool is installed, though a program of the firmware's has it
+    const py = setup(REC_STOCK, CRASH_LIST);
+    write(py.p('usr/bin/python3'), 'a python of the firmware\'s\n');
+    r = py.run(['install', '--artifact', namedTool('mgu-python', '1.0.2'), '--yes']);
+    const py1 = py.crash();
+    const s1 = py.run(['status', '--json']);
+    check('list safety: mgu-python\'s python3 goes in and stays through status, though /usr/bin/python3 exists',
+        r.status === 0 && count(py1, 'python3') === 1 && s1.status === 0 && py.crash() === py1, r.out + s1.stderr);
+    r = py.run(['uninstall', 'mgu-python', '--yes']);
+    check('list safety: and goes with mgu-python', r.status === 0 && py.crash() === CRASH_LIST, r.out);
 }
 
 function testInternet() {

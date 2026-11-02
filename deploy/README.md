@@ -761,27 +761,34 @@ previous `current`). Tools that start from `current/` on each start are
 unaffected; a long-running process started from an older version keeps its
 open files but cannot load new ones from that folder.
 
-recmgr reads its restart list only at boot. A tool's `recmgr` names and the
-name of each service and socket unit it installs (without `.service` or
-`.socket`; a template's as `name@`) go into both `[Whitelist]` and
-`[WhitelistExitSuccess]`; other lines and sections are kept as they are. An
-uninstall takes out the names no other installed tool has. A name in
-`[ForceRestartList]` or of a unit the firmware ships (`/lib/systemd/system`)
-is the firmware's: never added or removed. `status`, run as root, adds the
-installed tools' names missing from the list, as for the crash handler's
-list below. Both lists are read as recmgr and the crash handler read them:
-from `#` on a line is a comment, the rest is trimmed, `[name]` starts a
-section and any other text is an entry; the file's line ending is kept. A list without `[WhitelistExitSuccess]`, `[Whitelist]` or
-`[ForceRestartList]` (an empty or torn file) is never edited: the install is
-refused (exit 2) and the file left as it is. An install writes, each on disk
-before the next: the tool's files under `/var/opt`, its list entries, then
-its units, enablement links and drop-ins. An uninstall takes the units out
-before the entries. A stopped service that recmgr does not list reboots the
-unit, which is why nothing is stopped, started or restarted before recmgr has
-loaded its entry: its name in both sections now and in the list as it stood
-at boot (the file while it is older than the boot; once the tool writes it
-in a boot, the copy it saved first, `recmgr-at-boot.json`). For each unit in
-`restart`:
+recmgr reads its restart list only at boot. A tool's `recmgr` names go into
+both `[Whitelist]` and `[WhitelistExitSuccess]`, and so does the name of each
+service and socket unit it installs (without `.service` or `.socket`; a
+template's as `name@`) unless the firmware has that name: in
+`[ForceRestartList]`, or a unit in `/lib/systemd/system` or
+`/usr/lib/systemd/system`. Other lines and sections are kept as they are. An
+uninstall takes out the names no other installed tool has. `status`, run as
+root, adds the installed tools' names missing from the list, as for the
+crash handler's list below.
+
+Both lists are read as recmgr and the crash handler read them: from `#` on a
+line is a comment, the rest is trimmed, `[name]` starts a section and any
+other text is an entry; the file's line ending is kept. An edit that changes
+nothing is not checked. A list with neither `[Whitelist]` nor
+`[WhitelistExitSuccess]` (an empty or torn file) is never edited: the
+install is refused (exit 2) and the file left as it is; a list with one of
+them gets the other at the end. An install writes, each on disk before the
+next: the tool's files under `/var/opt`, its list entries, then its units,
+enablement links and drop-ins. An uninstall takes the units out before the
+entries. A rollback or restore puts the snapshot's entries back first,
+added to the list, then the units, links and drop-ins, and only then the
+list as the snapshot has it.
+
+A stopped service that recmgr does not list reboots the unit, which is why
+nothing is stopped, started or restarted before recmgr has loaded its entry:
+its name in both sections now and in the list as it stood at boot (the file
+while it is older than the boot; once the tool writes it in a boot, the copy
+it saved first, `recmgr-at-boot.json`). For each unit in `restart`:
 
 - running: restarted when recmgr has loaded its entry; otherwise it keeps
   running the previous version and `status` reports the tool under
@@ -1314,8 +1321,9 @@ car's own programs use (`sh`, `wpa_supplicant`, `dbus-send`) does not belong
 there: give the program a name of its own instead. A tool without
 `crashNames` gets the names this tool knows for it: `mgu-uplink`,
 `mgu-render`, and `python3` for `mgu-python`. Both kinds of name go into the
-list, except a name in `[ForceRestartList]` or of a program the firmware
-ships in `/bin`, `/sbin`, `/usr/bin` or `/usr/sbin` (`sh`, `node`).
+list; a shipped ELF file's only when the firmware has no such name (in
+`[ForceRestartList]`, or a program in `/bin`, `/sbin`, `/usr/bin` or
+`/usr/sbin`, such as `sh` or `node`).
 
 Every tool install and uninstall puts the names of the installed tools into
 `[Whitelist]`, after its last entry, and takes out the ones it added that no
@@ -1332,8 +1340,8 @@ another run holds the lock, and tries again at the next `status`. `status
 `changed`, `pending` or `error`; a change is also one line on stderr. The
 crash handler reads the list when it starts: a change counts from the next
 boot. A unit without the file is left alone. A list without `[Whitelist]`
-or `[ForceRestartList]` (an empty or torn file) is never edited: an install
-is refused (exit 2), `status` reports an error, and the file stays as it is.
+is never edited: an install is refused (exit 2), `status` reports an error
+and still adds recmgr's missing names, and the file stays as it is.
 
 ### Limits for the services tools install
 
