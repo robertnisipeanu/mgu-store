@@ -35,8 +35,9 @@
  * after 1, 2, 4 and 8 s: up to 4 times in a row without getting further, 200
  * tries in all. When the server takes byte ranges (Accept-Ranges: bytes,
  * with a strong ETag), the next try asks for the rest (Range, with that
- * ETag in If-Range) and appends it, until one gets an answer; a server that
- * answers with the whole file instead starts it over. The size and sha256
+ * ETag in If-Range) and appends it; a try that gets no answer leaves the
+ * next to ask for the same rest. A server that answers with the whole file
+ * instead starts it over. The size and sha256
  * the source states are checked on the whole file by the updater. A POST,
  * a refused certificate, a name the DNS server does not know, any other
  * HTTP answer and a size over maxBytes are not tried again.

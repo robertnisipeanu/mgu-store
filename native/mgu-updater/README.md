@@ -548,10 +548,10 @@ fetcher can change nothing it installs.
   after 1, 2, 4 and 8 s, up to 4 times in a row without getting further, 200
   tries in all. Where the server takes byte ranges with a strong ETag
   (GitHub's release downloads do; `codeload.github.com` does not), the next
-  try asks for the rest (`Range`, `If-Range`) and adds it to what came; otherwise the file
-  starts over. The size and sha256 are checked on the whole file. A POST, a
-  refused certificate, an unknown host name and other HTTP answers are not
-  tried again.
+  try asks for the rest (`Range`, `If-Range`) and adds it to what came;
+  otherwise the file starts over. The size and sha256 are checked on the
+  whole file. A POST, a refused certificate, an unknown host name and other
+  HTTP answers are not tried again.
 
 ## Its own uids
 
