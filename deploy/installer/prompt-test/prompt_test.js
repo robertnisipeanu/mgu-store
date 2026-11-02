@@ -58,8 +58,9 @@ const RUNS = {
 
 function env(log) {
     const e = Object.assign({}, process.env, { MGU_INSTALL_DOWNLOAD: base, FAKE_SSH_LOG: log, PATH: `${sshDir};${process.env.PATH}` });
-    // a prompt is never offered under CI
+    // a prompt is never offered under CI; each PowerShell finds its own modules
     delete e.CI;
+    delete e.PSModulePath;
     return e;
 }
 
