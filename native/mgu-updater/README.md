@@ -524,7 +524,15 @@ fetcher can change nothing it installs.
 - Names resolve through the DNS servers of the uplink's lease
   (`/run/mgu-uplink/lease.json`); without a lease the unit is offline and
   the Store says so.
-- HTTPS only, Node's bundled roots (or `ca_file`). Redirects of a GET are
+- HTTPS only, Node's bundled roots (or `ca_file`). A certificate's
+  validity dates are not held against it, since the unit's clock may be
+  days off; everything else is checked: the chain up to a trusted root,
+  every signature in it, CA constraints and key usages, and the host name.
+  Node checks each connection first. When its only complaint can be
+  `CERT_NOT_YET_VALID` or `CERT_HAS_EXPIRED`, `certs.js` checks the
+  presented chain again without the dates, and nothing is sent until that
+  passes. The log names each host whose dates were let go, once.
+- Redirects of a GET are
   followed, but request headers go to the first host only: a token never
   reaches the storage a download redirects to. `User-Agent`,
   `If-None-Match` and `If-Modified-Since` go along. The device flow's POSTs are
@@ -952,6 +960,7 @@ js/tar.js                .tar.gz in memory: reading a repo tarball, packing a co
 js/build.js              a repo's build script, as the build uid
 js/login.js              GitHub device-flow sign-in
 js/fetch.js              one download, as the fetch uid
+js/certs.js              a server's certificate chain checked without its dates
 js/client.js             socket client (Store app, command line)
 js/web.js                the phone page
 updater.conf             defaults
@@ -962,7 +971,7 @@ test/                    offline tests (test/run.sh: Node 8.16.2 in Docker)
 
 ## Tests
 
-`sh test/run.sh` runs `test/test_updater.js` (and `test/test_web.js`,
+`sh test/run.sh` runs `test/test_certs.js`, `test/test_updater.js` (and `test/test_web.js`,
 and `test/test_page.js`, the page's add form against a fake DOM) on
 the unit's Node 8.16.2, as root, against a local HTTPS server with its own
 CA and a DNS server that also answers for `github.com`,
@@ -975,6 +984,12 @@ files), with
 - catalogs (schema 1 and 2, a signature ignored), tar reading and packing;
 - downloads through the lease's DNS as the fetch uid, a redirect that must not
   carry the token, size limits;
+- certificate dates (`test/test_certs.js`, its own PKI made with openssl): a
+  valid chain at the right clock, not yet valid and expired is taken; a
+  self-signed certificate, a chain to an untrusted root, a bad signature
+  (also under an expired CA), a wrong host name, an issuer that is not a CA
+  and a certificate not for TLS servers are refused before any request,
+  each also through `verifyChain` directly;
 - sources, in an updater in the test process: several sources and an id
   two of them list; tokens: a private repo without one, a token GitHub
   rejects, one that reads two private repos (the second added later, no

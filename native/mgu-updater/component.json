@@ -1,7 +1,7 @@
 {
   "id": "mgu-updater",
   "kind": "tool",
-  "version": "0.8.14",
+  "version": "0.8.15",
   "title": "Updater",
   "description": "Installs, updates and removes apps and head-unit tools from its sources",
   "requires": { "mgu-deploy": "0.6.9", "mgu-python": "1.0.2" },
@@ -13,6 +13,7 @@
     { "path": "catalog.js", "from": "js/catalog.js", "mode": "0644" },
     { "path": "client.js", "from": "js/client.js", "mode": "0644" },
     { "path": "fetch.js", "from": "js/fetch.js", "mode": "0644" },
+    { "path": "certs.js", "from": "js/certs.js", "mode": "0644" },
     { "path": "sources.js", "from": "js/sources.js", "mode": "0644" },
     { "path": "tar.js", "from": "js/tar.js", "mode": "0644" },
     { "path": "login.js", "from": "js/login.js", "mode": "0644" },

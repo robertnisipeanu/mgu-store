@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.15
+
+- Downloads work on a head unit whose clock is off: a certificate's validity dates are not held against it. The chain up to a trusted root (Node's bundled roots, or `ca_file`), every signature in it, CA constraints, key usages and the host name are still checked, and nothing is sent before they pass. The log names each host whose dates were let go, once.
+
 ## 0.8.14
 
 - A restart of the head unit is the Store's request only: it carries the secret, once Store 0.9.16 or newer is installed (it sends it); with an older Store, a restart is asked for without it, within the same limits.

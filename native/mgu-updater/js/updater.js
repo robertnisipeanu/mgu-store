@@ -536,6 +536,15 @@ class Fetcher {
         // url -> { etag, body }: the answers cached() asks for again, oldest first
         this.etags = new Map();
         this.etagBytes = 0;
+        // hosts whose certificate dates fetch.js has ignored, logged once each
+        this.datesLogged = new Set();
+    }
+
+    datesIgnored(host, error) {
+        if (!this.datesLogged.has(host)) {
+            this.datesLogged.add(host);
+            console.log(`fetch: ${host}: ${error} ignored; chain, signatures and host name verified (the clock may be off)`);
+        }
     }
 
     // the conf's: a re-picked fetch uid applies to the next download
@@ -681,6 +690,8 @@ class Fetcher {
                     }
                     if (ev.progress !== undefined && onProgress) {
                         onProgress(ev.progress, ev.total || maxBytes || null);
+                    } else if (ev.certDates) {
+                        this.datesIgnored(ev.certDates, ev.error);
                     } else if (ev.done || ev.error || ev.notModified) {
                         result = ev;
                     }
