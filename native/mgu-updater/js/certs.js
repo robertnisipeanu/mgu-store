@@ -11,11 +11,13 @@
  *       anchors: the trusted roots (DER; only self-issued ones count). null when a path runs from the
  *       server's certificate to an anchor in which every signature checks
  *       out, every issuer is a CA allowed to issue at its depth (basic
- *       constraints, path length, key usage), every certificate but the
- *       anchor is fit for a TLS server (extended key usage) and none has a
- *       critical extension left unchecked. notBefore and notAfter are never
- *       read. A path with name constraints is refused. The host name is the
- *       caller's to check (tls.checkServerIdentity).
+ *       constraints, path length, key usage), every certificate is fit for a
+ *       TLS server (extended key usage; the server's own also key usage and
+ *       Netscape cert type) and none below the anchor has a critical
+ *       extension left unchecked. notBefore and notAfter are never read. A
+ *       path with name constraints is refused, and so is a chain that takes
+ *       more than MAX_SIGNATURES signature checks to settle. The host name is
+ *       the caller's to check (tls.checkServerIdentity).
  *   pemCerts(text) -> [DER]
  *       the certificates of a PEM text
  *   nodeRoots() -> [DER]
@@ -26,6 +28,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const MAX_DEPTH = 8;
+// a real chain settles in a few; a crafted one could otherwise try every order of its certificates
+const MAX_SIGNATURES = 64;
 
 const OID = {
     basicConstraints: '2.5.29.19',
@@ -34,6 +38,7 @@ const OID = {
     subjectAltName: '2.5.29.17',
     nameConstraints: '2.5.29.30',
     certificatePolicies: '2.5.29.32',
+    nsCertType: '2.16.840.1.113730.1.1',
     serverAuth: '1.3.6.1.5.5.7.3.1'
 };
 
@@ -55,6 +60,8 @@ const KU_DIGITAL_SIGNATURE = 0x80;
 const KU_KEY_ENCIPHERMENT = 0x20;
 const KU_KEY_AGREEMENT = 0x08;
 const KU_KEY_CERT_SIGN = 0x04;
+// Netscape cert type: SSL server
+const NS_SSL_SERVER = 0x40;
 
 /* ---- DER ------------------------------------------------------------------ */
 
@@ -200,6 +207,7 @@ function parse(der) {
         ext,
         bc: basicConstraints(ext[OID.basicConstraints]),
         ku: keyUsage(ext[OID.keyUsage]),
+        ns: keyUsage(ext[OID.nsCertType]),
         eku: extKeyUsage(ext[OID.extKeyUsage])
     };
 }
@@ -227,7 +235,7 @@ function basicConstraints(x) {
     return { ca, pathLen };
 }
 
-/* The first byte of the key usage bits, or null when absent. */
+/* The first byte of a key usage or Netscape cert type, or null when absent. */
 function keyUsage(x) {
     if (!x) {
         return null;
@@ -249,10 +257,10 @@ function publicKeyPem(spki) {
     return `-----BEGIN PUBLIC KEY-----\n${b64}${b64.endsWith('\n') ? '' : '\n'}-----END PUBLIC KEY-----\n`;
 }
 
-/* Whether issuer's key signed cert. */
-function signedBy(cert, issuer) {
+/* Whether issuer's key signed cert; false once budget.left is spent. */
+function signedBy(cert, issuer, budget) {
     const md = SIG[cert.sigAlg];
-    if (!md) {
+    if (!md || budget.left-- <= 0) {
         return false;
     }
     try {
@@ -294,26 +302,26 @@ function mayIssue(issuer, depth, anchor) {
     if (issuer.ku !== null && !(issuer.ku & KU_KEY_CERT_SIGN)) {
         return false;
     }
-    if (issuer.ext[OID.nameConstraints]) {
-        return false;
+    if (anchor) {
+        return !issuer.ext[OID.nameConstraints] && !(issuer.eku && issuer.eku.indexOf(OID.serverAuth) < 0);
     }
-    return anchor || !unfit(issuer);
+    return !unfit(issuer);
 }
 
 /* Whether a path runs from cert (depth certificates above the server's) to
  * an anchor through the certificates in pool. */
-function reaches(cert, depth, pool, anchors) {
+function reaches(cert, depth, pool, anchors, budget) {
     if (depth > 0 && anchors.some((a) => a.der.equals(cert.der))) {
         return true;
     }
     if (depth >= MAX_DEPTH) {
         return false;
     }
-    if (anchors.some((a) => a.subject.equals(cert.issuer) && mayIssue(a, depth, true) && signedBy(cert, a))) {
+    if (anchors.some((a) => a.subject.equals(cert.issuer) && mayIssue(a, depth, true) && signedBy(cert, a, budget))) {
         return true;
     }
-    return pool.some((c, i) => c.subject.equals(cert.issuer) && mayIssue(c, depth, false) && signedBy(cert, c) &&
-        reaches(c, depth + 1, pool.filter((_, j) => j !== i), anchors));
+    return pool.some((c, i) => c.subject.equals(cert.issuer) && mayIssue(c, depth, false) && signedBy(cert, c, budget) &&
+        reaches(c, depth + 1, pool.filter((_, j) => j !== i), anchors, budget));
 }
 
 function verifyChain(chain, anchors) {
@@ -342,7 +350,10 @@ function verifyChain(chain, anchors) {
     if (leaf.ku !== null && !(leaf.ku & (KU_DIGITAL_SIGNATURE | KU_KEY_ENCIPHERMENT | KU_KEY_AGREEMENT))) {
         return 'server certificate: key usage';
     }
-    return reaches(leaf, 0, certs.slice(1), roots) ? null : 'no trusted chain with valid signatures';
+    if (leaf.ns !== null && !(leaf.ns & NS_SSL_SERVER)) {
+        return 'server certificate: Netscape cert type';
+    }
+    return reaches(leaf, 0, certs.slice(1), roots, { left: MAX_SIGNATURES }) ? null : 'no trusted chain with valid signatures';
 }
 
 function pemCerts(text) {

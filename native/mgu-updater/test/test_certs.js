@@ -73,6 +73,12 @@ basicConstraints = CA:FALSE
 keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = clientAuth
 subjectAltName = DNS:localhost
+[ns_client_ext]
+basicConstraints = CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+nsCertType = client
+subjectAltName = DNS:localhost
 [self_ext]
 basicConstraints = critical,CA:TRUE
 keyUsage = critical,keyCertSign,digitalSignature,keyEncipherment
@@ -84,12 +90,16 @@ if (!fs.existsSync(path.join(T, 'serial'))) {
 }
 
 /* Makes <name>.key and <name>.pem: CN cn (name), signed by issuer (null: by
- * itself), valid from `from` to `to` days from now. */
-function issue(name, issuer, ext, from, to, cn) {
+ * itself), valid from `from` to `to` days from now; with key, <key>.key's
+ * key rather than a new one. */
+function issue(name, issuer, ext, from, to, cn, key) {
     if (fs.existsSync(path.join(T, `${name}.pem`))) {
         return;
     }
-    sh(`openssl req -new -newkey rsa:2048 -nodes -subj /CN=${cn || name} -keyout ${name}.key -out ${name}.csr 2>&1`);
+    if (key) {
+        fs.copyFileSync(path.join(T, `${key}.key`), path.join(T, `${name}.key`));
+    }
+    sh(`openssl req -new ${key ? `-key ${name}.key` : '-newkey rsa:2048 -nodes -keyout ' + name + '.key'} -subj /CN=${cn || name} -out ${name}.csr 2>&1`);
     const by = issuer ? `-cert ${issuer}.pem -keyfile ${issuer}.key` : `-selfsign -keyfile ${name}.key`;
     sh(`openssl ca -batch -config ca.cnf -notext ${by} -extensions ${ext} -startdate ${at(from)} -enddate ${at(to)} ` +
         `-in ${name}.csr -out ${name}.pem 2>&1`);
@@ -132,6 +142,14 @@ issue('wrong-future', 'inter', 'wrong_ext', 2, 90);
 issue('wrong-now', 'inter', 'wrong_ext', -1, 90);
 issue('from-not-ca', 'not-ca', 'leaf_ext', 2, 90);
 issue('client-future', 'inter', 'client_ext', 2, 90);
+issue('ns-client-future', 'inter', 'ns_client_ext', 2, 90);
+// 12 untrusted CAs that each sign the others (one key, one name), under a server certificate
+const LOOP = [];
+for (let i = 0; i < 12; i++) {
+    LOOP.push(`loop-${i}`);
+    issue(`loop-${i}`, null, 'ca_ext', -30, 3650, 'loop', i ? 'loop-0' : null);
+}
+issue('loop-future', 'loop-0', 'leaf_ext', 2, 90);
 
 /* Each case: the server certificate, the chain it presents above it,
  * whether fetch.js takes it, and the error a refusal reports. */
@@ -149,7 +167,9 @@ const CASES = [
     { name: 'a wrong host name, not yet valid', leaf: 'wrong-future', chain: ['inter'] },
     { name: 'a wrong host name at the right clock', leaf: 'wrong-now', chain: ['inter'] },
     { name: 'an issuer that is not a CA, not yet valid', leaf: 'from-not-ca', chain: ['not-ca'] },
-    { name: 'a certificate not for TLS servers, not yet valid', leaf: 'client-future', chain: ['inter'] }
+    { name: 'a certificate not for TLS servers, not yet valid', leaf: 'client-future', chain: ['inter'] },
+    { name: 'a Netscape cert type without SSL server, not yet valid', leaf: 'ns-client-future', chain: ['inter'] },
+    { name: 'a chain of 12 CAs that sign one another, not yet valid', leaf: 'loop-future', chain: LOOP, quick: true }
 ];
 
 function serve(c) {
@@ -187,7 +207,11 @@ function testDirect() {
     const anchors = [der('root')];
     CASES.forEach((c) => {
         const chain = [c.leaf].concat(c.chain).map(der);
+        const t0 = Date.now();
         const why = certs.verifyChain(chain, anchors);
+        if (c.quick) {
+            ok(`verifyChain: ${c.name}: settled within 2 s`, Date.now() - t0 < 2000, `${Date.now() - t0} ms`);
+        }
         // the host name is fetch.js's to check
         const expect = c.accept || /^wrong/.test(c.leaf);
         ok(`verifyChain: ${c.name}: ${expect ? 'accepted' : 'refused'}`, expect ? why === null : why !== null, why);

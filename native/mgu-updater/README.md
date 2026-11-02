@@ -987,9 +987,10 @@ files), with
 - certificate dates (`test/test_certs.js`, its own PKI made with openssl): a
   valid chain at the right clock, not yet valid and expired is taken; a
   self-signed certificate, a chain to an untrusted root, a bad signature
-  (also under an expired CA), a wrong host name, an issuer that is not a CA
-  and a certificate not for TLS servers are refused before any request,
-  each also through `verifyChain` directly;
+  (also under an expired CA), a wrong host name, an issuer that is not a CA,
+  a certificate not for TLS servers (extended key usage or Netscape cert
+  type) and 12 CAs that sign one another (settled within 2 s) are refused
+  before any request, each also through `verifyChain` directly;
 - sources, in an updater in the test process: several sources and an id
   two of them list; tokens: a private repo without one, a token GitHub
   rejects, one that reads two private repos (the second added later, no
