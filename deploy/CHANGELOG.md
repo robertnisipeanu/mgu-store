@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.7.10
+
+- Every service unit an installed tool lists, whatever repository it comes from, gets the drop-in `<unit>.d/zz-mgu-deploy-limits.conf`: `LimitCORE=1`, at which the kernel pipes no core dump to the crash handler, so a crash of the service or of a program it starts never restarts the head unit; and a start limit of 20 starts within 10 minutes (`StartLimitIntervalSec=600`, `StartLimitBurst=20`, over a unit's own `StartLimitIntervalSec=0`), so a service that keeps failing is left failed instead of restarting for ever. Installs write it, uninstalls remove it, snapshots, rollbacks and restores carry it, and `status` gives it to the tools installed before this version and takes it from units no tool lists (`status --json` `service_limits`). Stock units are never given one. A running service takes the limits at its next start.
+- An install or rollback starts a service its start limit stopped again (`reset-failed` first); for a socket-activated service, its socket.
+
 ## 0.7.9
 
 - The refusal of an app install when the head unit's coding is missing (not valid, or the default values) and no app manager runs comes once the artifacts are read and checked: before app-privacy's check and any change to the unit. It applies on iDrive 8 as well, where oapcontroller starts no MainApp-21 on such a coding either. The message says the coding is missing, that this often happens after enabling SSH or flashing, and to restore it from a backup (BimmerCode, E-Sys or ISTA) or have HU_MGU coded, restart the head unit and install again.
