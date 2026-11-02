@@ -1327,7 +1327,7 @@ LimitCORE=1
   service's own; with its recmgr entry, a crash restarts the service, never
   the head unit.
 - The start limit: a service that has started 20 times within 10 minutes is
-  left failed (`start-limit-hit`) instead of restarting for ever, also when
+  left failed instead of restarting for ever, also when
   its unit sets `StartLimitIntervalSec=0`. A service that restarts every 5 s
   gives up after about 100 s, one that restarts every 3 s after about 60 s,
   which leaves room for a service waiting at boot for what it needs. It

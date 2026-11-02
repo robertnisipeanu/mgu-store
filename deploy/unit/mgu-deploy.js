@@ -688,7 +688,7 @@ function recmgrWith(text, addNames, removeNames) {
  * RLIMIT_CORE is 1, so a crash of the service, or of a program it starts
  * (they inherit the limit), stays the service's own. The start limit ends a
  * crash loop: a service that has started LIMITS_BURST times within
- * LIMITS_INTERVAL_S is left failed (start-limit-hit) until the next boot, an
+ * LIMITS_INTERVAL_S is left failed until the next boot, an
  * install of the tool or its interval has passed, overriding a unit's own
  * StartLimitIntervalSec=0. Units of other components, stock ones included,
  * never get one; a drop-in of this name for a unit no installed tool lists
