@@ -11,6 +11,10 @@
  *   missing, so a folder made elsewhere serves a unit without openssl's
  *   key generation
  *
+ * Downloads cut mid-transfer (cut()): fetch.js tries again and asks for the
+ * rest where the server takes ranges, through a redirect to a host whose
+ * dates are let go too; the file comes out whole.
+ *
  * With MGU_TEST_PYTHON naming a Python 3.6 or newer (mgu-python on the
  * unit), each chain is also fetched by that Python's own TLS (urllib, the
  * test root as its only CA): with js/py/ on PYTHONPATH, as a build runs, the
@@ -22,6 +26,7 @@ const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const https = require('https');
+const crypto = require('crypto');
 const certs = require('../js/certs');
 
 const ROOT = path.join(__dirname, '..');
@@ -321,9 +326,142 @@ function testLogOnce() {
         /codeload\.github\.com: CERT_HAS_EXPIRED ignored/.test(lines[1]), JSON.stringify(lines));
 }
 
+/* A server of leaf's chain whose paths cut their answers (below); each
+ * request's path, Range and If-Range in s.seen. */
+function cutServer(leaf, chain, payload) {
+    return new Promise((resolve) => {
+        const s = https.createServer({ key: fs.readFileSync(path.join(T, `${leaf}.key`)),
+            cert: [leaf].concat(chain).map(pem).join('') }, (req, res) => {
+            const p = req.url.split('?')[0];
+            const n = s.seen.filter((x) => x.path === p).length;
+            s.seen.push({ path: p, range: req.headers.range || null, ifRange: req.headers['if-range'] || null, method: req.method });
+            const ranges = p !== '/cut-norange' && p !== '/cut-always';
+            const etag = p === '/changed' && n > 0 ? '"v2"' : '"v1"';
+            const body = p === '/changed' && n > 0 ? Buffer.from(payload).reverse() : payload;
+            const head = Object.assign({ ETag: etag }, ranges ? { 'Accept-Ranges': 'bytes' } : {});
+            if (p === '/redirect') {
+                res.writeHead(302, { Location: `https://localhost:${s.next}/cut` });
+                res.end();
+                return;
+            }
+            if (p === '/busy' && n === 0) {
+                res.writeHead(503);
+                res.end();
+                return;
+            }
+            // the resume of /cut-refuse is refused once before it gets an answer
+            if (p === '/cut-refuse' && n === 1) {
+                res.socket.destroy();
+                return;
+            }
+            if (p === '/missing') {
+                res.writeHead(404);
+                res.end();
+                return;
+            }
+            const m = /^bytes=(\d+)-$/.exec(req.headers.range || '');
+            if (m && ranges && req.headers['if-range'] === etag) {
+                const from = Number(m[1]);
+                res.writeHead(206, Object.assign(head, { 'Content-Length': body.length - from,
+                    'Content-Range': `bytes ${from}-${body.length - 1}/${body.length}` }));
+                res.end(body.slice(from));
+                return;
+            }
+            res.writeHead(200, Object.assign(head, { 'Content-Length': body.length }));
+            // the first answer of each path (every one of /cut-always) stops part way
+            if ((n === 0 && p !== '/busy') || p === '/cut-always') {
+                res.write(body.slice(0, 80000), () => {
+                    if (p !== '/stall') {
+                        res.socket.destroy();
+                    }
+                });
+                return;
+            }
+            res.end(body);
+        });
+        s.seen = [];
+        s.listen(0, () => resolve(s));
+    });
+}
+
+function testCuts() {
+    const payload = crypto.randomBytes(200000);
+    const sum = (b) => crypto.createHash('sha256').update(b).digest('hex');
+    const ca = pem('root');
+    let a;
+    let b;
+    let i = 0;
+    const fetchCut = (server, p, extra) => {
+        const dest = path.join(T, `cut-${i++}`);
+        server.seen.length = 0;
+        return runFetch(Object.assign({ url: `https://localhost:${server.address().port}${p}`, headers: { 'User-Agent': 't' },
+            dest, ca, dns: [], maxBytes: payload.length, retryMs: 50, idleMs: 1000 }, extra || {}))
+            .then((r) => Object.assign(r, { last: r.events[r.events.length - 1] || {}, file: fs.existsSync(dest) ? fs.readFileSync(dest) : null,
+                seen: server.seen.slice() }));
+    };
+    return cutServer('now', ['inter'], payload).then((s) => {
+        a = s;
+        return cutServer('future', ['inter-future'], payload);
+    }).then((s) => {
+        b = s;
+        a.next = b.address().port;
+        return fetchCut(a, '/cut');
+    }).then((r) => {
+        ok('cut: a download cut mid-transfer comes out whole', r.code === 0 && r.last.done && r.file && sum(r.file) === sum(payload),
+            JSON.stringify(r.events.filter((e) => e.progress === undefined)));
+        ok('cut: the second try asks for the rest, with the ETag in If-Range', r.seen.length === 2 && r.seen[0].range === null &&
+            /^bytes=\d+-$/.test(r.seen[1].range || '') && Number(r.seen[1].range.slice(6, -1)) > 0 && r.seen[1].ifRange === '"v1"',
+        JSON.stringify(r.seen));
+        ok('cut: the try is reported', r.events.some((e) => e.retry === 1 && e.error === 'connection closed mid-download' && e.from > 0),
+            JSON.stringify(r.events.filter((e) => e.progress === undefined)));
+        return fetchCut(a, '/cut-refuse');
+    }).then((r) => {
+        ok('cut: a resume that fails before any answer asks for the same rest again', r.last.done && r.file && sum(r.file) === sum(payload) &&
+            r.seen.length === 3 && r.seen[1].range && r.seen[2].range === r.seen[1].range, JSON.stringify(r.seen));
+        return fetchCut(a, '/cut-norange');
+    }).then((r) => {
+        ok('cut: without ranges, the file starts over and comes out whole', r.last.done && r.file && sum(r.file) === sum(payload) &&
+            r.seen.length === 2 && r.seen[1].range === null, JSON.stringify(r.seen));
+        return fetchCut(a, '/changed');
+    }).then((r) => {
+        ok('cut: a file changed since the cut starts over (If-Range)', r.last.done && r.file && sum(r.file) === sum(Buffer.from(payload).reverse()) &&
+            r.seen.length === 2 && r.seen[1].ifRange === '"v1"', JSON.stringify(r.seen));
+        return fetchCut(a, '/stall');
+    }).then((r) => {
+        ok('cut: an answer that stops sending is tried again', r.last.done && r.file && sum(r.file) === sum(payload) &&
+            r.events.some((e) => e.retry && /no data for 1 s/.test(e.error)), JSON.stringify(r.events.filter((e) => e.progress === undefined)));
+        return fetchCut(a, '/redirect');
+    }).then((r) => {
+        const there = r.seen.length;
+        const onB = b.seen.slice();
+        ok('cut: through a redirect to a host whose dates are let go, the file comes out whole', r.last.done && r.file &&
+            sum(r.file) === sum(payload) && r.events.some((e) => e.certDates === 'localhost' && e.error === 'CERT_NOT_YET_VALID'),
+        JSON.stringify(r.events.filter((e) => e.progress === undefined)));
+        ok('cut: the rest is asked for through the redirect, from its target', there === 2 && onB.length === 2 &&
+            onB[0].range === null && /^bytes=\d+-$/.test(onB[1].range || '') && onB[1].ifRange === '"v1"', JSON.stringify(onB));
+        return fetchCut(a, '/cut-always');
+    }).then((r) => {
+        ok('cut: a link that always cuts gives up with its reason, after 5 tries', r.code !== 0 &&
+            r.last.error === 'connection closed mid-download (5 tries)' && r.seen.length === 5 && r.events.filter((e) => e.error && !e.retry).length === 1,
+        JSON.stringify(r.events.filter((e) => e.progress === undefined)));
+        return fetchCut(a, '/busy');
+    }).then((r) => {
+        ok('cut: an HTTP 503 is tried again', r.last.done && r.file && sum(r.file) === sum(payload) && r.seen.length === 2, JSON.stringify(r.seen));
+        return fetchCut(a, '/missing');
+    }).then((r) => {
+        ok('cut: an HTTP 404 is not tried again', r.code !== 0 && r.last.status === 404 && r.seen.length === 1, JSON.stringify(r.seen));
+        return fetchCut(a, '/cut', { method: 'POST', body: 'x' });
+    }).then((r) => {
+        ok('cut: a POST is not tried again', r.code !== 0 && r.last.error && r.seen.length === 1, JSON.stringify(r.seen));
+        a.close();
+        b.close();
+    });
+}
+
 testDirect();
 testLogOnce();
 testFetch()
+    .then(testCuts)
     .then(() => (process.env.MGU_TEST_PYTHON ? testPython(process.env.MGU_TEST_PYTHON) : null))
     .catch((e) => {
         failed++;

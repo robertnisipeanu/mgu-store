@@ -6,17 +6,21 @@
  * Node 8.
  *
  * stdin: one JSON job
- *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], ca, method, body, keep }
+ *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], ca, method, body, keep, idleMs, retryMs }
  *   dns: resolve host names through these servers (the uplink lease's);
  *   empty: the system resolver. ca: PEM roots to trust instead of Node's
  *   bundled ones (a self-hosted catalog with its own CA). method: GET
  *   (default) or POST, with body (a string) sent as it is. keep: the
- *   response headers (lower case) to report with done.
+ *   response headers (lower case) to report with done. idleMs: how long a
+ *   connection may go without data (30 s); retryMs: the first wait before
+ *   trying again (1 s).
  * stdout: one JSON line per event
  *   { progress: <bytes>, total: <bytes|null> }  while downloading
  *   { done: true, bytes, status, headers }      dest complete (headers: those kept)
  *   { notModified: true, status: 304, headers } a conditional request's answer:
  *                                               unchanged, nothing at dest
+ *   { retry: <try>, error, from, after }        try <try> failed with error; the next
+ *                                               starts in <after> ms, at byte <from>
  *   { certDates: "<host>", error: "<code>" }   host's certificate checked out but
  *                                               for its dates (CERT_NOT_YET_VALID,
  *                                               CERT_HAS_EXPIRED), which were ignored
@@ -24,11 +28,24 @@
  *                                               (status: the HTTP answer, if any;
  *                                               rateLimited: a 429, or a 403 with
  *                                               x-ratelimit-remaining 0 or retry-after)
+ * Exactly one of done, notModified and error ends the output.
+ *
+ * A GET whose connection fails (cut mid-download, no data for idleMs, a
+ * reset, no connection) or that gets a 500, 502, 503 or 504 is tried again,
+ * after 1, 2, 4 and 8 s: up to 4 times in a row without getting further, 200
+ * tries in all. When the server takes byte ranges (Accept-Ranges: bytes,
+ * with a strong ETag), the next try asks for the rest (Range, with that
+ * ETag in If-Range) and appends it; a try that gets no answer leaves the
+ * next to ask for the same rest. A server that answers with the whole file
+ * instead starts it over. The size and sha256
+ * the source states are checked on the whole file by the updater. A POST,
+ * a refused certificate, a name the DNS server does not know, any other
+ * HTTP answer and a size over maxBytes are not tried again.
  *
  * Redirects of a GET are followed (up to 5, https only); the request headers
  * go to the first host only, so a token never reaches a redirect target such
- * as GitHub's asset storage: only User-Agent, If-None-Match and
- * If-Modified-Since go along. A POST is not redirected.
+ * as GitHub's asset storage: only User-Agent, If-None-Match,
+ * If-Modified-Since, Range and If-Range go along. A POST is not redirected.
  *
  * Certificates: the head unit's clock may be days off, so a certificate's
  * validity dates are not held against it. Node checks each connection as
@@ -48,6 +65,11 @@ const certs = require('./certs');
 
 const MAX_REDIRECTS = 5;
 const IDLE_MS = 30000;
+const RETRIES = 4;             // tries in a row that get no further, after the first
+const RETRY_MS = 1000;         // the wait before the first of them, doubled for each after
+const MAX_TRIES = 200;
+const RETRY_STATUS = [500, 502, 503, 504];
+const NO_SUCH_NAME = ['ENOTFOUND', 'ENODATA'];
 const DATE_ERRORS = ['CERT_NOT_YET_VALID', 'CERT_HAS_EXPIRED'];
 
 function emit(obj) {
@@ -118,7 +140,7 @@ function connect(job, target, cb) {
         ca: job.ca || undefined,
         rejectUnauthorized: false
     }, () => {
-        sock.setTimeout(0);
+        sock.setTimeout(0, idle);
         if (sock.authorized) {
             finish(null, sock);
             return;
@@ -127,39 +149,48 @@ function connect(job, target, cb) {
         const why = DATE_ERRORS.indexOf(code) < 0 ? code : refusedButForDates(sock, host, job.ca);
         if (why) {
             sock.destroy();
-            finish(new Error(why === code ? code : `${code}, and ${why}`));
+            finish(Object.assign(new Error(why === code ? code : `${code}, and ${why}`), { refused: true }));
             return;
         }
         emit({ certDates: host, error: code });
         finish(null, sock);
     });
-    sock.setTimeout(IDLE_MS, () => sock.destroy(new Error('ETIMEDOUT')));
+    const idle = () => sock.destroy(new Error('ETIMEDOUT'));
+    sock.setTimeout(job.idleMs || IDLE_MS, idle);
     sock.on('error', finish);
 }
 
-function get(job, url, headers, hops) {
+function get(job, url, headers, hops, from, finish) {
     const target = new URL(url);
     if (target.protocol !== 'https:') {
-        emit({ error: `refusing ${target.protocol} URL` });
-        process.exitCode = 1;
+        finish({ error: `refusing ${target.protocol} URL` });
         return;
     }
     connect(job, target, (err, sock) => {
         if (err) {
-            emit({ error: `${target.hostname}: ${err.code || err.message}` });
-            process.exitCode = 1;
+            finish({ error: `${target.hostname}: ${err.code || err.message}`, retry: !err.refused && NO_SUCH_NAME.indexOf(err.code) < 0 });
             return;
         }
-        request(job, url, target, headers, hops, sock);
+        request(job, url, target, headers, hops, sock, from, finish);
     });
 }
 
-function request(job, url, target, headers, hops, sock) {
+/* What lets a cut download ask for the rest: the response's strong ETag, when
+ * it says it takes byte ranges; null otherwise. */
+function validatorOf(res) {
+    const etag = res.headers.etag;
+    return res.headers['accept-ranges'] === 'bytes' && etag && !/^W\//.test(etag) ? etag : null;
+}
+
+function request(job, url, target, headers, hops, sock, from, finish) {
+    const host = target.hostname;
     const post = hops === 0 && job.method === 'POST';
     const body = post ? Buffer.from(String(job.body || '')) : null;
+    let stop = null;   // ends the body under way, once there is one
+    const lost = (why) => (stop ? stop({ error: why, retry: true }) : finish({ error: why, retry: true }));
     const req = https.request({
         method: post ? 'POST' : 'GET',
-        hostname: target.hostname,
+        hostname: host,
         port: target.port || 443,
         path: target.pathname + target.search,
         headers: post ? Object.assign({}, headers, { 'Content-Length': body.length }) : headers,
@@ -167,53 +198,74 @@ function request(job, url, target, headers, hops, sock) {
     }, (res) => {
         if (!post && [301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
             res.resume();
+            stop = () => {};   // the next host's request answers from here
+            sock.destroy();
             if (hops >= MAX_REDIRECTS) {
-                emit({ error: 'too many redirects' });
-                process.exitCode = 1;
+                finish({ error: 'too many redirects' });
                 return;
             }
-            // first-host headers stay behind; only a user agent and a conditional request's
-            // validators go along (a release asset's ETag is its storage host's)
+            // first-host headers stay behind; only a user agent, a conditional request's
+            // validators and a resume's range go along (a release asset's ETag is its storage host's)
             const along = {};
-            ['User-Agent', 'If-None-Match', 'If-Modified-Since'].forEach((h) => {
+            ['User-Agent', 'If-None-Match', 'If-Modified-Since', 'Range', 'If-Range'].forEach((h) => {
                 if (headers[h] !== undefined) {
                     along[h] = headers[h];
                 }
             });
-            get(job, new URL(res.headers.location, url).toString(), along, hops + 1);
+            get(job, new URL(res.headers.location, url).toString(), along, hops + 1, from, finish);
             return;
         }
         if (res.statusCode === 304) {
             res.resume();
-            emit({ notModified: true, status: 304, headers: kept(job, res) });
+            finish({ notModified: true, status: 304, headers: kept(job, res) });
             return;
         }
-        if (res.statusCode !== 200) {
+        const partial = from > 0 && res.statusCode === 206;
+        if (res.statusCode !== 200 && !partial) {
             res.resume();
             const limited = res.statusCode === 429 || (res.statusCode === 403 &&
                 (res.headers['x-ratelimit-remaining'] === '0' || res.headers['retry-after'] !== undefined));
-            emit(Object.assign({ error: `HTTP ${res.statusCode} from ${target.hostname}`, status: res.statusCode },
-                limited ? { rateLimited: true } : {}));
-            process.exitCode = 1;
+            finish(Object.assign({ error: `HTTP ${res.statusCode} from ${host}`, status: res.statusCode,
+                retry: RETRY_STATUS.indexOf(res.statusCode) >= 0 || (from > 0 && res.statusCode === 416),
+                restart: res.statusCode === 416 },
+            limited ? { rateLimited: true } : {}));
             return;
         }
-        const total = Number(res.headers['content-length']) || null;
+        let total = Number(res.headers['content-length']) || null;
+        let bytes = 0;
+        if (partial) {
+            const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(res.headers['content-range'] || '');
+            if (!range || Number(range[1]) !== from || Number(range[2]) + 1 !== Number(range[3])) {
+                res.resume();
+                finish({ error: `${host}: not the rest of the file asked for`, retry: true, restart: true });
+                return;
+            }
+            bytes = from;
+            total = Number(range[3]);
+        }
         if (job.maxBytes && total && total > job.maxBytes) {
             res.resume();
-            emit({ error: `${total} bytes is more than the expected ${job.maxBytes}`, tooBig: true });
-            process.exitCode = 1;
+            finish({ error: `${total} bytes is more than the expected ${job.maxBytes}`, tooBig: true });
             return;
         }
-        const out = fs.createWriteStream(job.dest, { mode: 0o600 });
-        let bytes = 0;
+        // a cut 206 asks again with the validator it was asked with
+        const resumeWith = partial ? headers['If-Range'] : validatorOf(res);
+        const out = fs.createWriteStream(job.dest, { mode: 0o600, flags: partial ? 'a' : 'w' });
+        let failure = null;
         let last = 0;
+        // what was written stays on disk for the next try to go on from
+        stop = (r) => {
+            if (!failure) {
+                failure = r;
+                res.unpipe(out);
+                req.abort();
+                out.end();
+            }
+        };
         res.on('data', (chunk) => {
             bytes += chunk.length;
             if (job.maxBytes && bytes > job.maxBytes) {
-                res.destroy();
-                out.destroy();
-                emit({ error: `more than the expected ${job.maxBytes} bytes`, tooBig: true });
-                process.exitCode = 1;
+                stop({ error: `more than the expected ${job.maxBytes} bytes`, tooBig: true });
                 return;
             }
             if (Date.now() - last > 250) {
@@ -221,28 +273,96 @@ function request(job, url, target, headers, hops, sock) {
                 emit({ progress: bytes, total });
             }
         });
-        res.on('aborted', () => {
-            out.destroy();
-            emit({ error: 'connection closed mid-download' });
-            process.exitCode = 1;
-        });
+        res.on('aborted', () => stop({ error: 'connection closed mid-download', retry: true }));
         res.pipe(out);
-        out.on('finish', () => {
-            if (!process.exitCode) {
-                emit({ done: true, bytes, status: res.statusCode, headers: kept(job, res) });
+        out.on('close', () => {
+            if (!failure && total !== null && bytes !== total) {
+                failure = { error: 'connection closed mid-download', retry: true };
+            }
+            if (failure) {
+                finish(Object.assign(failure, failure.retry ? (resumeWith ? { resumeWith } : { restart: true }) : {}));
+            } else {
+                finish({ done: true, bytes, status: res.statusCode, headers: kept(job, res) });
             }
         });
         out.on('error', (err) => {
-            emit({ error: `cannot write ${job.dest}: ${err.message}` });
-            process.exitCode = 1;
+            failure = failure || { error: `cannot write ${job.dest}: ${err.message}` };
+            res.unpipe(out);
+            req.abort();
+            finish(failure);
         });
     });
-    req.setTimeout(IDLE_MS, () => req.abort());
-    req.on('error', (err) => {
-        emit({ error: `${target.hostname}: ${err.code || err.message}` });
-        process.exitCode = 1;
+    req.setTimeout(job.idleMs || IDLE_MS, () => {
+        lost(`${host}: no data for ${Math.round((job.idleMs || IDLE_MS) / 1000)} s`);
+        req.abort();
     });
+    req.on('error', (err) => lost(`${host}: ${err.code || err.message}`));
     req.end(body || undefined);
+}
+
+/* job, tried again while the connection fails, from where the last try
+ * stopped when the server takes byte ranges; one result emitted. */
+function download(job) {
+    const retryMs = job.retryMs || RETRY_MS;
+    let tries = 0;
+    let misses = 0;
+    let from = 0;
+    let validator = null;
+    const next = () => {
+        tries++;
+        const headers = Object.assign({}, job.headers || {});
+        if (from > 0) {
+            // what came before the cut is the answer to a conditional request
+            delete headers['If-None-Match'];
+            delete headers['If-Modified-Since'];
+            headers.Range = `bytes=${from}-`;
+            headers['If-Range'] = validator;
+        }
+        let settled = false;
+        get(job, job.url, headers, 0, from, (r) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (!r.retry || job.method === 'POST' || tries >= MAX_TRIES) {
+                finishAll(r);
+                return;
+            }
+            // a try that got no body leaves the next to ask for the same range
+            const was = from;
+            if (r.resumeWith) {
+                try {
+                    from = fs.statSync(job.dest).size;
+                    validator = r.resumeWith;
+                } catch (e) {
+                    from = 0;
+                }
+            } else if (r.restart) {
+                from = 0;
+            }
+            misses = from > was ? 0 : misses + 1;
+            if (misses > RETRIES) {
+                finishAll(r);
+                return;
+            }
+            const after = retryMs * Math.pow(2, Math.max(0, misses - 1));
+            emit({ retry: tries, error: r.error, from, after });
+            setTimeout(next, after);
+        });
+    };
+    const finishAll = (r) => {
+        delete r.retry;
+        delete r.resumeWith;
+        delete r.restart;
+        if (r.error && tries > 1) {
+            r.error += ` (${tries} tries)`;
+        }
+        if (r.error) {
+            process.exitCode = 1;
+        }
+        emit(r);
+    };
+    next();
 }
 
 let input = '';
@@ -257,5 +377,5 @@ process.stdin.on('end', () => {
         process.exitCode = 2;
         return;
     }
-    get(job, job.url, job.headers || {}, 0);
+    download(job);
 });

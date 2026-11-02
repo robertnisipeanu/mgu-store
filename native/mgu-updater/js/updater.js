@@ -692,6 +692,9 @@ class Fetcher {
                         onProgress(ev.progress, ev.total || maxBytes || null);
                     } else if (ev.certDates) {
                         this.datesIgnored(ev.certDates, ev.error);
+                    } else if (ev.retry) {
+                        console.log(`fetch: ${name}: ${ev.error}; trying again in ${ev.after / 1000} s` +
+                            `${ev.from ? ` from byte ${ev.from}` : ''}`);
                     } else if (ev.done || ev.error || ev.notModified) {
                         result = ev;
                     }
