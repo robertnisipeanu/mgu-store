@@ -45,7 +45,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.8';
+var VERSION = '0.7.10';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -513,18 +513,23 @@ function managerSoon() {
     while (!(pid = managerPid()) && waited < CFG.bounceTimeoutMs) { sleepMs(1000); waited += 1000; }
     return pid;
 }
-/* oapcontroller reads the head unit's coding from the segment CodingShmApp
- * publishes (0x1030 bytes; status flags in byte 0x28: 0x08 header valid,
- * 0x01 data available, 0x02 and 0x04 default values) and starts no MainApp
- * when that coding is not valid or is the default values. What it found,
+/* oapcontroller (iDrive 7 and 8) reads the head unit's coding from the
+ * segment CodingShmApp publishes (0x1030 bytes; status flags in byte 0x28:
+ * 0x08 header valid, 0x01 data available, 0x02 and 0x04 default values) and
+ * starts no MainApp when that coding is not valid or is the default values. What it found,
  * or null when the segment is unreadable or holds the car's coding. */
 function codingStopsOap() {
     var buf, f;
     try { buf = fs.readFileSync(CFG.coding); } catch (e) { return null; }
     if (buf.length !== 0x1030) return null;
     f = buf[0x28];
-    if (!(f & 0x08)) return 'its coding is not valid';
-    return f & 0x06 ? 'its coding is the default values' : null;
+    if (!(f & 0x08)) return 'it is not valid';
+    return f & 0x06 ? 'it holds default values' : null;
+}
+function codingMissing(why) {
+    return 'The head unit\'s coding is missing: ' + why + '. This often happens after enabling SSH or flashing. ' +
+        'Restore the head unit\'s coding from a backup (BimmerCode, E-Sys or ISTA) or have HU_MGU coded to the car, ' +
+        'restart the head unit, then run the install again.';
 }
 /* What tells why no app manager runs, a screen at most. MainApp's uid's
  * processes come from /proc, whatever ps shows; a long line keeps its
@@ -616,7 +621,7 @@ function recmgrHas(name, text) {
     return (s.Whitelist || []).indexOf(name) >= 0 &&
         (s.WhitelistExitSuccess || []).indexOf(name) >= 0;
 }
-/* A unit without the list (none is known on iDrive 8) has no recmgr to
+/* A unit without the list (iDrive 7 and iDrive 8 both have it) has no recmgr to
  * restart it: nothing is written there, and every unit counts as loaded. */
 function recmgrPresent() { return !!lstatOrNull(CFG.recmgr); }
 /* The rootfs op that writes the list, or null when it is unchanged. */
@@ -680,6 +685,63 @@ function recmgrWith(text, addNames, removeNames) {
     return out.join('\n');
 }
 
+/* ---- limits for the services tools install -------------------------------- */
+/* Every service unit (.service) an installed tool lists gets LIMITS_NAME in
+ * its drop-in folder. LimitCORE=1: core_pattern pipes core dumps to the
+ * crash handler, which restarts the head unit for a program it does not
+ * list, and the kernel writes no piped core dump for a process whose
+ * RLIMIT_CORE is 1, so a crash of the service, or of a program it starts
+ * (they inherit the limit), stays the service's own. The start limit ends a
+ * crash loop: a service that has started LIMITS_BURST times within
+ * LIMITS_INTERVAL_S is left failed until the next boot, an
+ * install of the tool or its interval has passed, overriding a unit's own
+ * StartLimitIntervalSec=0. Units of other components, stock ones included,
+ * never get one; a drop-in of this name for a unit no installed tool lists
+ * goes, with its folder when nothing else is in it. */
+var LIMITS_NAME = 'zz-mgu-deploy-limits.conf';
+var LIMITS_INTERVAL_S = 600, LIMITS_BURST = 20;
+var LIMITS_TEXT = ['# Written by mgu-deploy for every service a tool installs: a crash leaves no core dump for the',
+    '# crash handler, which would restart the head unit, and a service that keeps failing stops.',
+    '[Unit]', 'StartLimitIntervalSec=' + LIMITS_INTERVAL_S, 'StartLimitBurst=' + LIMITS_BURST, '',
+    '[Service]', 'LimitCORE=1', ''].join('\n');
+function limitsPath(unit) { return path.join(CFG.systemd, unit + '.d', LIMITS_NAME); }
+function limitedUnits(c) {
+    return (c.units || []).map(function (u) { return u.name; }).filter(function (n) { return /\.service$/.test(n); });
+}
+/* The units with this tool's drop-in now. */
+function limitsPresent() {
+    var out = [];
+    try {
+        fs.readdirSync(CFG.systemd).forEach(function (n) {
+            var unit = n.replace(/\.d$/, '');
+            if (unit !== n && lstatOrNull(limitsPath(unit))) out.push(unit);
+        });
+    } catch (e) { /* no systemd folder */ }
+    return out;
+}
+/* The rootfs ops that give the given tools' services their drop-in and take
+ * it from every other unit, among only (all units when null); changed: the
+ * units whose drop-in is written or removed. */
+function limitsPlan(tools, only) {
+    var want = [], ops = [], changed = [];
+    tools.forEach(function (t) {
+        limitedUnits(t.component).forEach(function (u) { if (want.indexOf(u) < 0) want.push(u); });
+    });
+    var scope = only || want.concat(limitsPresent().filter(function (u) { return want.indexOf(u) < 0; }));
+    scope.forEach(function (unit) {
+        var p = limitsPath(unit), dir = path.dirname(p);
+        if (want.indexOf(unit) >= 0) {
+            if (bytesEqualFile(Buffer.from(LIMITS_TEXT), p)) return;
+            ops.push({ type: 'copy', data: LIMITS_TEXT, path: p, mode: 0o644 });
+            changed.push(unit);
+        } else if (lstatOrNull(p)) {
+            ops.push({ type: 'delete', path: p });
+            if (fs.readdirSync(dir).length === 1) ops.push({ type: 'rmdir', path: dir });
+            changed.push(unit);
+        }
+    });
+    return { ops: ops, changed: changed, paths: scope.map(limitsPath) };
+}
 /* ---- crash handler's restart whitelist ------------------------------------ */
 /* Every core dump goes to the crash handler (dlt-cdh), which reboots the
  * unit unless the crashed program's file name is a line of [Whitelist] in
@@ -839,6 +901,43 @@ function syncCrashList() {
         return { state: 'changed', reason: line };
     } catch (e) {
         process.stderr.write('mgu-deploy: crash handler whitelist not updated: ' + e.message + '\n');
+        return { state: 'error', reason: e.message };
+    } finally {
+        if (locked) releaseLock();
+        process.stdout.write = out;
+    }
+}
+
+/* status's step: gives every installed tool's services their limits
+ * drop-in and takes it from units no tool lists (limitsPlan), so a deploy
+ * tool update covers the tools installed before it at the updater's status
+ * check after it, and a restore or firmware update is followed. Same rules
+ * for remounting / as the crash list's step; a change is followed by
+ * daemon-reload, and a service takes it at its next start. Returns
+ * { state: ok | changed | pending | error, reason }. */
+function syncLimits() {
+    var out = process.stdout.write, locked = false;
+    process.stdout.write = function () { return true; };
+    try {
+        if (!FAKE && process.getuid() !== 0) return { state: 'pending', reason: 'status not run as root' };
+        if (!limitsPlan(installedTools(), null).ops.length) return { state: 'ok', reason: 'up to date' };
+        var busy = rootBusy();
+        if (busy) return { state: 'pending', reason: busy };
+        locked = statusLock();
+        if (!locked) return { state: 'pending', reason: 'another mgu-deploy run holds the lock' };
+        var plan = limitsPlan(installedTools(), null);
+        if (!plan.ops.length) return { state: 'ok', reason: 'up to date' };
+        busy = rootBusy();
+        if (busy) return { state: 'pending', reason: busy };
+        takeSnapshot('service-limits', plan.paths);
+        rootfsWindow(plan.ops);
+        runOk(CFG.systemctl, ['daemon-reload']);
+        var line = 'drop-in ' + plan.changed.join(', ');
+        process.stderr.write('service limits: ' + line + '\n');
+        pruneBackups();
+        return { state: 'changed', reason: line };
+    } catch (e) {
+        process.stderr.write('mgu-deploy: service limits not updated: ' + e.message + '\n');
         return { state: 'error', reason: e.message };
     } finally {
         if (locked) releaseLock();
@@ -1047,6 +1146,14 @@ function restoreSnapshot(dir, only) {
         });
         rootfsWindow(ops);
     }
+    /* a limits drop-in taken out leaves no empty folder */
+    var emptied = data.entries.filter(function (e) {
+        var st = lstatOrNull(path.dirname(e.path));
+        return e.kind === 'absent' && path.basename(e.path) === LIMITS_NAME && st && st.isDirectory() &&
+            !fs.readdirSync(path.dirname(e.path)).length;
+    }).map(function (e) { return path.dirname(e.path); });
+    emptied.filter(function (d) { return !isRootfsPath(d); }).forEach(function (d) { fs.rmdirSync(d); });
+    rootfsWindow(emptied.filter(isRootfsPath).map(function (d) { return { type: 'rmdir', path: d }; }));
     /* a copy put back or removed while bound leaves main.js on the file it
      * replaced: the copy there is bound again while its unit is */
     if (dropStaleBind() && fallbackPresent()) bindCopy();
@@ -1775,6 +1882,7 @@ function toolTouched(c) {
         paths.push(path.join(CFG.systemd, en.target + '.wants', en.unit));
     });
     (c.dropins || []).forEach(function (d) { paths.push(dropinPath(d)); });
+    limitedUnits(c).forEach(function (u) { paths.push(limitsPath(u)); });
     return paths;
 }
 function recmgrBase(unit) { return unit.replace(/\.(service|socket|target)$/, ''); }
@@ -1812,10 +1920,20 @@ function healthCheck(units) {
     say('healthy: ' + units.join(', '));
     return null;
 }
+/* A unit its start limit stopped (LIMITS_BURST starts within
+ * LIMITS_INTERVAL_S). When the limit ends a loop of automatic restarts,
+ * systemd 237 keeps the first failure's Result (signal, exit-code), so a
+ * failed unit with that many restarts counts too. */
+function startLimitHit(unit) {
+    var r = systemctl(['show', '-p', 'ActiveState', '-p', 'Result', '-p', 'NRestarts', unit]).stdout || '';
+    return /^Result=start-limit-hit$/m.test(r) ||
+        /^ActiveState=failed$/m.test(r) && Number((/^NRestarts=(\d+)$/m.exec(r) || [])[1]) >= LIMITS_BURST - 1;
+}
 /* A component's restart[] units. A running one restarts when recmgr has
  * loaded its entry, else it keeps running until a reboot (pending). One
- * not running is started on a fresh install under the same rule, else it
- * starts at the next boot (pending). Enabled sockets follow the same rule
+ * not running is started on a fresh install, or when its start limit
+ * stopped it (its socket, for a socket-activated one), under the same
+ * rule, else it starts at the next boot (pending). Enabled sockets follow the same rule
  * (installTool), and a service its own socket activates is left to it.
  * Returns the units restarted or started, for the health check. */
 function applyRestarts(c, state, fresh) {
@@ -1835,9 +1953,18 @@ function applyRestarts(c, state, fresh) {
                 addPending(state, c.id, PENDING_RECMGR);
                 say(unit + ' keeps running the previous version until a reboot' + (socketActivated ? ' (socket is live)' : ''));
             }
-        } else if (fresh && !socketActivated) {
-            if (loaded) { runOk(CFG.systemctl, ['start', unit]); say('started ' + unit); out.push(unit); }
+        } else if ((fresh || startLimitHit(unit)) && !socketActivated) {
+            if (loaded) {
+                systemctl(['reset-failed', unit]);
+                runOk(CFG.systemctl, ['start', unit]); say('started ' + unit); out.push(unit);
+            }
             else { addPending(state, c.id, PENDING_BOOT); say(unit + ' ' + PENDING_BOOT); }
+        } else if (socketActivated && loaded && startLimitHit(unit)) {
+            /* its start limit failed the socket too */
+            var sock = recmgrBase(unit) + '.socket';
+            systemctl(['reset-failed', unit, sock]);
+            if (systemctl(['start', sock]).status === 0) say('started ' + sock);
+            else warn('could not start ' + sock);
         }
     });
     return out;
@@ -2122,6 +2249,8 @@ function installTool(a, state, tx) {
     i7.units.forEach(function (u) { ops.push({ type: 'delete', path: path.join(CFG.systemd, u) }); unitChanged = true; });
     var rec = recmgrOp(recmgrWith(recmgrText(), c.recmgr || [], []));
     if (rec) { ops.push(rec); unitChanged = true; }
+    var limits = limitsPlan(installedTools(), limitedUnits(c));
+    if (limits.ops.length) { ops = ops.concat(limits.ops); unitChanged = true; }
     var crash = crashListPlan(installedTools()), remounts = rootMountMode() === 'ro';
     if (crash && crash.op) ops.push(crash.op);
     if (ops.length) rootfsWindow(ops);
@@ -2152,6 +2281,8 @@ function installTool(a, state, tx) {
             return;
         }
         if (!recmgrLoaded(base)) { addPending(state, c.id, PENDING_BOOT); say(en.unit + ' ' + PENDING_BOOT); return; }
+        /* a service its start limit stopped would refuse the socket's next activation */
+        if (startLimitHit(base + '.service')) systemctl(['reset-failed', base + '.service']);
         var r = systemctl(['start', en.unit]);
         if (r.status === 0) say('started ' + en.unit);
         else warn('could not start ' + en.unit);
@@ -3305,10 +3436,12 @@ function uninstallTool(id, state) {
         ops.push({ type: 'delete', path: path.join(CFG.systemd, en.target + '.wants', en.unit) });
     });
     (c.dropins || []).forEach(function (d) { ops.push({ type: 'delete', path: dropinPath(d) }); });
+    var rest = installedTools().filter(function (t) { return t.id !== id; });
+    ops = ops.concat(limitsPlan(rest, limitedUnits(c)).ops);
     var rec = recmgrOp(recmgrWith(recmgrText(), [], removeRec));
     if (rec) ops.push(rec);
     var unitOps = ops.length;
-    var crash = crashListPlan(installedTools().filter(function (t) { return t.id !== id; })), remounts = rootMountMode() === 'ro';
+    var crash = crashListPlan(rest), remounts = rootMountMode() === 'ro';
     if (crash && crash.op) ops.push(crash.op);
     if (ops.length) rootfsWindow(ops);
     crashListDone(crash, remounts);
@@ -4834,13 +4967,15 @@ function collectStatus(state) {
         idrive7: { apps: i7Apps(state) },
         stock_backup: fs.existsSync(path.join(BACKUPS_DIR, 'stock')) };
 }
-function cmdStatus(args, crashList, live) {
+function cmdStatus(args, crashList, live, limits) {
     var s = collectStatus(loadState());
     s.crash_list = crashList;
+    s.service_limits = limits;
     if (live) s.live_installs = live;
     s.app_privacy_record = privacyRecord();
     if (args.json) { say(JSON.stringify(s)); return 0; }
     say('crash handler whitelist: ' + crashList.state + ' (' + crashList.reason + ')');
+    say('service limits: ' + limits.state + ' (' + limits.reason + ')');
     if (live) say('live app installs: ' + live.state + ' (' + live.reason + ')');
     say('mgu-deploy ' + VERSION);
     say('head unit: ' + (s.unit.hmi ? hmiName(s.unit.hmi) : 'unknown') + ' (' + unitInfo().basis + '), firmware ' +
@@ -5192,6 +5327,12 @@ function cmdInstall(args) {
             if (why) say(a.id + ' ' + a.version + ' skipped: ' + why);
             return !why;
         });
+        /* before app-privacy's check and anything that changes the unit */
+        var noOap = codingStopsOap();
+        if (noOap && managerPid()) noOap = null;
+        if (noOap && validated.some(function (a) {
+            return a.kind === 'app' && ['current', 'older'].indexOf(appDecision(a, args.skipOlder).action) < 0;
+        })) throw refuse(codingMissing(noOap));
         validated.forEach(function (a) {
             var foreign = a.kind === 'tool' && (a.service || a.provides || (a.component.dropins || []).length) ? foreignUnit(a.component) : null;
             if (foreign) {
@@ -5219,14 +5360,6 @@ function cmdInstall(args) {
                 say('the queued removal of ' + a.id + ' is dropped');
             }
         });
-        var noOap = !id8 && validated.some(function (a) {
-            return a.kind === 'app' && ['current', 'older'].indexOf(decisions[a.id].action) < 0;
-        }) && !managerPid() && codingStopsOap();
-        if (noOap) {
-            throw refuse('the app manager cannot run on this head unit: ' + noOap + ', and with that oapcontroller ' +
-                'never starts MainApp, so no app can be installed. Have the head unit coded to the car (HU_MGU, ' +
-                'for example with E-Sys or ISTA), restart it, then run the install again. Nothing was changed.');
-        }
         var work = validated.filter(function (a) {
             return a.kind !== 'app' || ['current', 'older'].indexOf(decisions[a.id].action) < 0;
         }).map(function (a) { return a.kind !== 'app' ? a : id8 ? id8Package(a, stage) : prepareApp(a, stage); });
@@ -5649,6 +5782,11 @@ function cmdRestore(args) {
     var paths = data.entries.map(function (e) { return e.path; }).concat(fallbackTouched());
     installedTools().forEach(function (t) { paths = paths.concat(toolTouched(t.component)); });
     installedApps().forEach(function (app) { paths.push(appEntryFile(app.id)); });
+    /* the limits drop-ins follow the tools as the backup has them */
+    paths = paths.concat(limitsPresent().map(limitsPath));
+    data.entries.forEach(function (e) {
+        if (path.dirname(e.path) === CFG.systemd && /\.service$/.test(e.path)) paths.push(limitsPath(path.basename(e.path)));
+    });
     dropStaleBind();
     /* a backup holding main.js itself is restored, and the state before it
      * snapshotted, with the fallback copy unbound; it is bound again below */
@@ -5688,6 +5826,11 @@ function cmdRestore(args) {
         runOk(CFG.systemctl, ['daemon-reload']);
         var bad = verifySnapshot(dir);
         if (bad.length) throw fail('restore verification failed for: ' + bad.join(', '));
+        var limits = limitsPlan(installedTools(), null);
+        if (limits.ops.length) {
+            rootfsWindow(limits.ops);
+            runOk(CFG.systemctl, ['daemon-reload']);
+        }
         if (fbWas.unit_present || fallbackPresent()) settleFallback();
         pruneCreatedDirs(state);
         var removed = appsBefore.filter(function (id) { return !installedApp(id); });
@@ -5860,7 +6003,7 @@ function runCommand() {
         if (args.command === 'help' || args.command === '--help') { say(HELP); return 0; }
         if (args.command === 'check') return cmdCheck(args);
         if (args.command === 'install') return cmdInstall(args);
-        if (args.command === 'status') return cmdStatus(args, syncCrashList(), syncLiveId8());
+        if (args.command === 'status') return cmdStatus(args, syncCrashList(), syncLiveId8(), syncLimits());
         if (args.command === 'uninstall') return cmdUninstall(args);
         if (args.command === 'rollback') return cmdRollback(args);
         if (args.command === 'restore') return cmdRestore(args);

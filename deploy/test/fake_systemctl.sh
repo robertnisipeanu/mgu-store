@@ -9,7 +9,8 @@
 # finds its NRestarts one higher. A call whose arguments equal $FAKE_FAIL
 # exits 1. is-enabled answers "enabled" for a unit file present in
 # $MGU_DEPLOY_SYSTEMD. is-system-running answers what $FAKE_UNITS/system holds,
-# else "running".
+# else "running". show also gives <unit>.result's Result (success without
+# it).
 echo "$*" >> "$FAKE_SYSTEMCTL_LOG"
 if [ -n "$FAKE_FAIL" ] && [ "$*" = "$FAKE_FAIL" ]; then echo "failing as asked" >&2; exit 1; fi
 S="$FAKE_UNITS"
@@ -44,6 +45,7 @@ show)
     if crashing "$unit"; then n=$((n + 1)); echo "$n" > "$S/$unit.nrestarts"; fi
     echo "ActiveState=$(active_of "$unit")"
     echo "NRestarts=$n"
+    if [ -n "$S" ] && [ -f "$S/$unit.result" ]; then echo "Result=$(cat "$S/$unit.result")"; else echo "Result=success"; fi
     exit 0 ;;
 start|restart) if [ -n "$S" ]; then echo active > "$S/$2.active"; fi; exit 0 ;;
 stop) if [ -n "$S" ]; then echo inactive > "$S/$2.active"; fi; exit 0 ;;

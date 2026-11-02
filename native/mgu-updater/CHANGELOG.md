@@ -1,5 +1,10 @@
 # Updater changelog
 
+## 0.8.14
+
+- A restart of the head unit is the Store's request only: it carries the secret, once Store 0.9.16 or newer is installed (it sends it); with an older Store, a restart is asked for without it, within the same limits.
+- Restarts are limited, so nothing can restart the unit in a loop: none before the unit has been up 4 minutes, none within 10 minutes of the last one, and at most 3 an hour. Each is recorded on disk (`state/reboots.json`) before the unit restarts, so the limits hold across restarts. A refused request says why and when a restart is possible (`rebootError`).
+
 ## 0.8.13
 
 - A version 1 App Manager index keeps only the newest package of each id, as version 2 does, and remembers what each listed package is (`state/index/<source id>/index.json`), so a check downloads only packages it has not read; the packages kept, every source's together, come to at most 128 MiB, and one not kept is downloaded again for its install or icon.

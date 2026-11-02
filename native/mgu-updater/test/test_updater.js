@@ -1135,8 +1135,14 @@ function testReboot() {
     const { Updater } = require('../js/updater');
     const dir = path.join(T, 'reboot');
     const script = rebootScript(dir);
-    const make = (reboot) => new Updater({ catalog: `file://${path.join(dir, 'catalog.json')}`,
-        state_dir: path.join(dir, 'state'), reboot });
+    // the unit's uptime (proc/uptime): up 10 min unless a test says otherwise
+    const proc = path.join(dir, 'proc');
+    mkdirp(proc);
+    const upFor = (s) => fs.writeFileSync(path.join(proc, 'uptime'), `${s} 1.00\n`);
+    upFor(600);
+    const record = path.join(dir, 'state', 'reboots.json');
+    const make = (reboot, stateDir) => new Updater({ catalog: `file://${path.join(dir, 'catalog.json')}`,
+        state_dir: stateDir || path.join(dir, 'state'), reboot, proc, store_app: 'robertn_store' });
     let u = make(`${script} --requestRestart 7`);
     u.busy = { id: 'demo_app', phase: 'download' };
     ok('reboot: refused while an install runs', u.reboot() === 'an install is running' && !u.rebooting);
@@ -1175,8 +1181,77 @@ function testReboot() {
             ok('reboot: a command that succeeds leaves the restart running', u.rebooting && !u.rebootError);
             return sleep(2500);
         })
-        .then(() => ok('reboot: a unit still up after the wait ends the restart as failed',
-            !u.rebooting && u.rebootError === 'the head unit did not restart', u.rebootError));
+        .then(() => {
+            ok('reboot: a unit still up after the wait ends the restart as failed',
+                !u.rebooting && u.rebootError === 'the head unit did not restart', u.rebootError);
+            const at = JSON.parse(fs.readFileSync(record, 'utf8')).at;
+            ok('reboot: the record holds the restart that ran, not the two whose command failed', at.length === 1, JSON.stringify(at));
+            ok('reboot: the record is written whole (no temporary file left)', !fs.existsSync(`${record}.tmp`));
+
+            // the unit restarted: a new updater on the same state, the head unit up 1 min; the
+            // restart that ran is less than 10 min ago, from the record that outlived the restart
+            upFor(60);
+            u = make(`${script} --requestRestart 7`);
+            const why = u.reboot();
+            ok('reboot: refused within 10 min of the last restart, across a restart of the unit, saying when the longest limit ends',
+                why === 'too soon after the last restart, possible in 10 min' && u.state().rebootError === why && !u.rebooting, why);
+
+            const saved = fs.readFileSync(record);
+            fs.unlinkSync(record);
+            ok('reboot: refused too soon after start-up, saying when it is possible',
+                u.reboot() === 'too soon after start-up, possible in 3 min', u.rebootError);
+            fs.writeFileSync(record, saved);
+
+            upFor(300);
+            const now = Date.now();
+            fs.writeFileSync(record, JSON.stringify({ at: [now - 50 * 60000, now - 35 * 60000, now - 20 * 60000] }));
+            ok('reboot: refused after 3 restarts in the last hour',
+                u.reboot() === '3 restarts in the last hour, possible in 10 min', u.rebootError);
+
+            // restarts over an hour ago and ones ahead of the clock (set back since) do not count
+            fs.writeFileSync(record, JSON.stringify({ at: [now - 90 * 60000, now - 70 * 60000, now - 11 * 60000, now + 3600000] }));
+            const before = rebootRuns(dir).length;
+            ok('reboot: accepted 10 min after the last restart, with fewer than 3 in the hour', u.reboot() === null && u.rebooting);
+            const kept = JSON.parse(fs.readFileSync(record, 'utf8')).at;
+            ok('reboot: the record keeps the last hour and the new restart, written before the command runs',
+                kept.length === 2 && kept[0] === now - 11 * 60000 && kept[1] >= now, JSON.stringify(kept));
+
+            return sleep(500).then(() => ok('reboot: and the command runs', rebootRuns(dir).length === before + 1, rebootRuns(dir).length));
+        })
+        .then(() => {
+            // a record that cannot be written refuses the restart
+            const blocked = path.join(dir, 'blocked');
+            fs.writeFileSync(blocked, '');
+            u = make(`${script} --requestRestart 7`, path.join(blocked, 'state'));
+            ok('reboot: refused when the restart cannot be recorded',
+                /^cannot record the restart: /.test(u.reboot()) && !u.rebooting, u.rebootError);
+
+            // the refusal goes once a restart is possible
+            fs.unlinkSync(record);
+            upFor(239.7);
+            u = make(`${script} --requestRestart 7`);
+            ok('reboot: refused just short of 4 min up', u.reboot() === 'too soon after start-up, possible in 1 min');
+            return sleep(600);
+        })
+        .then(() => {
+            ok('reboot: the refusal clears once a restart is possible', u.rebootError === null, u.rebootError);
+            upFor(600);
+            ok('reboot: the socket refuses a restart without the secret', u.handle({ op: 'reboot' }) === 'forbidden' && !u.rebooting);
+            ok('reboot: and accepts the Store\'s, with the secret', u.handle({ op: 'reboot', secret: u.secret }) === null && u.rebooting);
+            // a Store before 0.9.16 sends no secret: while one is installed, its restart is taken without it, within the limits
+            fs.unlinkSync(record);
+            const storeAt = (v) => {
+                const s = make(`${script} --requestRestart 7`);
+                s.installedVersion = (id, kind) => (id === 'robertn_store' && kind === 'app' ? v : null);
+                return s;
+            };
+            ok('reboot: a Store 0.9.16 or newer installed: no restart without the secret', storeAt('0.9.16').handle({ op: 'reboot' }) === 'forbidden');
+            u = storeAt('0.9.15');
+            ok('reboot: a Store before 0.9.16 installed: its restart without the secret is taken', u.handle({ op: 'reboot' }) === null && u.rebooting);
+            u = storeAt('0.9.15');
+            ok('reboot: and limited like any other', u.handle({ op: 'reboot' }) === 'too soon after the last restart, possible in 10 min', u.rebootError);
+            return sleep(1000);
+        });
 }
 
 /* ---- the daemon --------------------------------------------------------------------- */
@@ -1272,6 +1347,7 @@ function testDaemon(certs, pubDir) {
         `tool_root = ${opt}`, `oap_root = ${oap}`, `socket = ${sock}`, 'socket_group = staff',
         'first_check_s = 0', 'check_interval_s = 3600', `privacy_tool = ${privacyTool}`, 'default_sources =',
         `log_file = ${path.join(T, 'tmp', 'mgu-updater.log')}`, `reboot = ${rebootScript(path.join(T, 'daemon-reboot'))} reboot`,
+        `web_secret = ${path.join(T, 'run', 'web-secret')}`,
         // the unit's uids as overrides (picking them: testUidsDaemon)
         `fetch_uid = ${FETCH_UID}`, 'build_uid = 12995', 'web_uid = 12996',
         extra || ''].join('\n');
@@ -1317,6 +1393,8 @@ function testDaemon(certs, pubDir) {
     const env = Object.assign({}, process.env, {
         MGU_UPDATER_DIR: path.join(opt, 'mgu-updater'), MGU_UPDATER_CONF: conf, NODE: process.execPath, TRIAL_S: '12',
         MGU_UPDATER_TRIAL_WAIT_MS: '6000',
+        // its restart whatever the test machine's uptime (testReboot covers the limits)
+        MGU_UPDATER_REBOOT_MIN_UPTIME_S: '0',
         TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: log, FAKE_LEASE: path.join(T, 'lease.json')
     });
     const sup = cp.spawn('sh', [path.join(opt, 'mgu-updater', 'current', 'mgu-updater')],
@@ -1774,7 +1852,15 @@ function testDaemon(certs, pubDir) {
                 client.install('nope');
             });
         })
+        .then(() => new Promise((resolve) => {
+            client.once('reply-error', (msg) => {
+                ok('reboot: the socket refuses a restart without the secret', msg === 'forbidden', msg);
+                resolve();
+            });
+            client.reboot();
+        }))
         .then(() => {
+            client.setSecret(fs.readFileSync(path.join(T, 'run', 'web-secret'), 'utf8'));
             client.reboot();
             return waitFor(client, (s) => s.rebooting === true, 5000, 'restarting');
         })

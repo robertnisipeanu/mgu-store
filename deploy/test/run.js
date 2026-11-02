@@ -757,29 +757,49 @@ function testDefaultCodingInstall() {
     const app = appArtifact('fixture_app', '1.0.0', true);
     const r = root.run(['install', '--artifact', app, '--yes']);
     check('default coding: the app install is refused at once', r.status === 2 &&
-        r.out.includes('the app manager cannot run on this head unit: its coding is the default values') &&
-        r.out.includes('Have the head unit coded to the car') && r.out.includes('Nothing was changed.') &&
+        r.out.includes('The head unit\'s coding is missing: it holds default values. This often happens after enabling SSH or flashing.') &&
+        r.out.includes('Restore the head unit\'s coding from a backup (BimmerCode, E-Sys or ISTA) or have HU_MGU coded to the car') &&
         !r.out.includes('app-privacy') && !r.out.includes('backup:') && !r.out.includes('no app manager is running'), r.out);
     check('default coding: nothing installed or snapshotted', !fs.existsSync(root.preinstalled('fixture_app', '1.0.0')) &&
         !fs.existsSync(root.p('var/opt/mgu-deploy/backups/stock')), r.out);
     const bad = fakeRoot({ noManager: true });
     writeCoding(bad, 0x00);
     const rb = bad.run(['install', '--artifact', app, '--yes']);
-    check('invalid coding header: refused the same way', rb.status === 2 && rb.out.includes('its coding is not valid'), rb.out);
+    check('invalid coding header: refused the same way', rb.status === 2 && rb.out.includes('coding is missing: it is not valid'), rb.out);
+    const first = fakeRoot({ noManager: true });
+    writeCoding(first, 0x0a);
+    const plog = `${first.R}.privacy.log`;
+    const rf = first.run(['install', '--artifact', privacyArtifact(), '--artifact', app, '--yes']);
+    check('default coding: refused before app-privacy\'s check and any tool install', rf.status === 2 &&
+        rf.out.includes('coding is missing') && !fs.existsSync(plog) && !fs.existsSync(first.p('var/opt/app-privacy/current')) &&
+        !fs.existsSync(first.p('var/opt/mgu-deploy')), rf.out);
     const coded = fakeRoot({ noManager: true });
     writeCoding(coded, 0x09);
     const rc = coded.run(['install', '--artifact', app, '--yes'], { MGU_DEPLOY_BOUNCE_TIMEOUT_MS: '1000' });
     check('car coding, no manager: the install goes on to the manager check', rc.status === 1 &&
-        !rc.out.includes('cannot run on this head unit') && rc.out.includes('no app manager is running on this head unit'), rc.out);
+        !rc.out.includes('coding is missing') && rc.out.includes('no app manager is running on this head unit'), rc.out);
     const running = fakeRoot({});
     writeCoding(running, 0x0a);
     const rr = running.run(['install', '--artifact', app, '--yes']);
     check('default coding with a manager running: the app installs', rr.status === 0 &&
-        !rr.out.includes('cannot run on this head unit'), rr.out);
+        !rr.out.includes('coding is missing'), rr.out);
     const tools = fakeRoot({ noManager: true });
     writeCoding(tools, 0x0a);
     const rt = tools.run(['install', '--artifact', toolArtifact('1.0.0'), '--yes']);
-    check('default coding: a tool installs', rt.status === 0 && !rt.out.includes('cannot run on this head unit'), rt.out);
+    check('default coding: a tool installs', rt.status === 0 && !rt.out.includes('coding is missing'), rt.out);
+    // iDrive 8: oapcontroller starts no MainApp-21 on such a coding either
+    const i8 = id8Root();
+    i8.noManager();
+    writeCoding(i8, 0x0a);
+    const r8 = i8.run(['install', '--artifact', rhmiApp('x8', '1.0.0', ['ID8']), '--yes']);
+    check('iDrive 8, default coding: the app install is refused at once, nothing queued', r8.status === 2 &&
+        r8.out.includes('coding is missing: it holds default values') && !fs.existsSync(i8.p('var/opt/mgu-deploy')), r8.out);
+    const c8 = id8Root();
+    c8.noManager();
+    writeCoding(c8, 0x09);
+    const rc8 = c8.run(['install', '--artifact', rhmiApp('x8', '1.0.0', ['ID8']), '--yes']);
+    check('iDrive 8, car coding, no manager: the app is queued', rc8.status === 0 && !rc8.out.includes('coding is missing') &&
+        fs.existsSync(c8.p('var/opt/mgu-deploy/id8/queue/x8@1.0.0.tgz')), rc8.out);
 }
 
 function readJsonOrNull(p) {
@@ -3912,6 +3932,173 @@ function namedTool(id, version, edit) {
     return path.join(out, `${id}@${version}.tgz`);
 }
 
+/* Every installed tool's .service units get the limits drop-in (no core
+ * dump, a start limit): written by an install, removed by an uninstall,
+ * brought in line by status for tools installed before it and for a unit
+ * no tool lists; stock units and other drop-ins are left alone; a service its
+ * start limit stopped starts again with an install; iDrive 7 and 8. */
+function testServiceLimits() {
+    const LIMITS = '# Written by mgu-deploy for every service a tool installs: a crash leaves no core dump for the\n' +
+        '# crash handler, which would restart the head unit, and a service that keeps failing stops.\n' +
+        '[Unit]\nStartLimitIntervalSec=600\nStartLimitBurst=20\n\n[Service]\nLimitCORE=1\n';
+    const sys = (root, rel) => root.p(`etc/systemd/system/${rel}`);
+    const dropIn = (root, unit) => sys(root, `${unit}.d/zz-mgu-deploy-limits.conf`);
+    const limitsState = (res) => { try { return JSON.parse(res.stdout).service_limits; } catch (e) { return null; } };
+    const backups = (root) => fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).length;
+
+    const root = fakeRoot({ recmgr: ['fixture-tool'] });
+    let r = root.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    check('limits: a fresh tool install gives its service the drop-in, not its socket, and reloads systemd',
+        r.status === 0 && fs.readFileSync(dropIn(root, 'fixture-tool.service'), 'utf8') === LIMITS &&
+        mode(dropIn(root, 'fixture-tool.service')) === 0o644 && !fs.existsSync(sys(root, 'fixture-tool.socket.d')) &&
+        root.systemctlCalls().includes('daemon-reload'), r.out);
+    check('limits: a stock unit gets none', !fs.existsSync(sys(root, 'stock.service.d')));
+    const snap = fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).filter((n) => /-install$/.test(n)).sort().pop();
+    const manifest = readJson(root.p(`var/opt/mgu-deploy/backups/${snap}/manifest.json`));
+    check('limits: the drop-in is in the install\'s snapshot (absent before it)', manifest.entries.some((e) =>
+        e.path === dropIn(root, 'fixture-tool.service') && e.kind === 'absent'), JSON.stringify(manifest.entries.map((e) => e.path)));
+    r = root.run(['status', '--json']);
+    check('limits: status after an install says up to date and changes nothing',
+        r.status === 0 && JSON.stringify(limitsState(r)) === JSON.stringify({ state: 'ok', reason: 'up to date' }) && !r.stderr, r.out);
+    r = root.run(['status']);
+    check('limits: plain status prints the step\'s result', r.status === 0 && r.stdout.includes('service limits: ok (up to date)'), r.out);
+
+    // a tool installed before this deploy tool: no drop-in
+    fs.rmSync(sys(root, 'fixture-tool.service.d'), { recursive: true });
+    write(sys(root, 'fixture-tool.service.d/10-own.conf'), '[Service]\nNice=5\n');
+    // a drop-in of this name for a unit no tool lists, alone in its folder and beside another
+    write(sys(root, 'gone.service.d/zz-mgu-deploy-limits.conf'), LIMITS);
+    write(sys(root, 'stock.service.d/zz-mgu-deploy-limits.conf'), LIMITS);
+    write(sys(root, 'stock.service.d/vendor.conf'), '[Service]\nNice=1\n');
+    const before = backups(root);
+    fs.writeFileSync(root.log, '');
+    r = root.run(['status', '--json']);
+    const calls = root.systemctlCalls();
+    check('limits: status gives an installed tool\'s service the drop-in, beside its own, and removes the others\'',
+        r.status === 0 && limitsState(r).state === 'changed' &&
+        fs.readFileSync(dropIn(root, 'fixture-tool.service'), 'utf8') === LIMITS &&
+        fs.readFileSync(sys(root, 'fixture-tool.service.d/10-own.conf'), 'utf8') === '[Service]\nNice=5\n' &&
+        !fs.existsSync(sys(root, 'gone.service.d')) && !fs.existsSync(dropIn(root, 'stock.service')) &&
+        fs.existsSync(sys(root, 'stock.service.d/vendor.conf')) && backups(root) === before + 1 &&
+        /^service limits: drop-in /.test(r.stderr), r.out);
+    check('limits: status reloads systemd and restarts nothing', calls.includes('daemon-reload') &&
+        !calls.some((c) => /^(start|restart|stop) /.test(c)), calls.join('\n'));
+    r = root.run(['status', '--json']);
+    check('limits: status again changes nothing', r.status === 0 && limitsState(r).state === 'ok' && backups(root) === before + 1, r.out);
+    // another run holds the lock: pending, nothing written
+    fs.unlinkSync(dropIn(root, 'fixture-tool.service'));
+    write(root.p('var/opt/mgu-deploy/lock'), `1 ${fs.readFileSync(root.p('proc/boot_id'), 'utf8').trim()}\n`);
+    r = root.run(['status', '--json']);
+    check('limits: status waits while another run holds the lock',
+        r.status === 0 && limitsState(r).state === 'pending' && !fs.existsSync(dropIn(root, 'fixture-tool.service')), r.out);
+    fs.unlinkSync(root.p('var/opt/mgu-deploy/lock'));
+
+    // an update writes it again; a socket-activated service its start limit stopped is reset before its socket starts
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.active'), 'failed\n');
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.result'), 'start-limit-hit\n');
+    write(path.join(`${root.R}.units`, 'fixture-tool.socket.active'), 'failed\n');
+    fs.writeFileSync(root.log, '');
+    r = root.run(['install', '--artifact', toolArtifact('0.2.1'), '--yes']);
+    let upd = root.systemctlCalls();
+    check('limits: an update writes the drop-in, resets the service its start limit stopped and starts its socket',
+        r.status === 0 && fs.readFileSync(dropIn(root, 'fixture-tool.service'), 'utf8') === LIMITS &&
+        upd.includes('reset-failed fixture-tool.service') && upd.includes('start fixture-tool.socket') &&
+        upd.indexOf('reset-failed fixture-tool.service') < upd.indexOf('start fixture-tool.socket') &&
+        !upd.includes('start fixture-tool.service'), r.out + upd.join('\n'));
+    // a service started without a socket
+    const plain = (version) => {
+        const out = fs.mkdtempSync(path.join(T, 'art-'));
+        const res = hu(['artifact', fixtureCopy(version, (c) => {
+            c.units = c.units.filter((u) => /\.service$/.test(u.name));
+            c.enable = [{ unit: 'fixture-tool.service', target: 'multi-user.target' }];
+        }), '--out', out]);
+        if (res.status !== 0) throw new Error(res.stderr);
+        return path.join(out, `fixture-tool@${version}.tgz`);
+    };
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.active'), 'failed\n');
+    fs.writeFileSync(root.log, '');
+    r = root.run(['install', '--artifact', plain('0.3.0'), '--yes']);
+    upd = root.systemctlCalls();
+    check('limits: an update starts the service its start limit stopped, reset first',
+        r.status === 0 && upd.includes('reset-failed fixture-tool.service') && upd.includes('start fixture-tool.service') &&
+        upd.indexOf('reset-failed fixture-tool.service') < upd.indexOf('start fixture-tool.service'), r.out + upd.join('\n'));
+    // a rollback brings back a socket-activated service its start limit stopped, through its socket
+    const rb = fakeRoot({ recmgr: ['fixture-tool'] });
+    rb.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    rb.run(['install', '--artifact', toolArtifact('0.2.1'), '--yes']);
+    write(path.join(`${rb.R}.units`, 'fixture-tool.service.active'), 'failed\n');
+    write(path.join(`${rb.R}.units`, 'fixture-tool.service.result'), 'start-limit-hit\n');
+    write(path.join(`${rb.R}.units`, 'fixture-tool.socket.active'), 'failed\n');
+    fs.writeFileSync(rb.log, '');
+    r = rb.run(['rollback', 'fixture-tool', '--yes']);
+    const rbCalls = rb.systemctlCalls();
+    check('limits: a rollback resets the socket-activated service its start limit stopped and starts its socket',
+        r.status === 0 && rbCalls.includes('reset-failed fixture-tool.service fixture-tool.socket') &&
+        rbCalls.indexOf('reset-failed fixture-tool.service fixture-tool.socket') < rbCalls.indexOf('start fixture-tool.socket'),
+        r.out + rbCalls.join('\n'));
+    // systemd 237 keeps the crash's Result when the start limit ends its automatic restarts
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.active'), 'failed\n');
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.result'), 'signal\n');
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.nrestarts'), '20\n');
+    fs.writeFileSync(root.log, '');
+    r = root.run(['install', '--artifact', plain('0.3.2'), '--yes']);
+    check('limits: an update starts a service that failed after 19 or more automatic restarts (Result=signal)',
+        r.status === 0 && root.systemctlCalls().includes('reset-failed fixture-tool.service') &&
+        root.systemctlCalls().includes('start fixture-tool.service'), r.out);
+    fs.unlinkSync(path.join(`${root.R}.units`, 'fixture-tool.service.nrestarts'));
+    // a stopped service that failed for another reason stays as it is
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.active'), 'failed\n');
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.result'), 'exit-code\n');
+    fs.writeFileSync(root.log, '');
+    r = root.run(['install', '--artifact', plain('0.3.3'), '--yes']);
+    check('limits: an update does not start a service that failed otherwise',
+        r.status === 0 && !root.systemctlCalls().includes('start fixture-tool.service'), r.out);
+
+    // the uninstall takes the drop-in out; the folder stays while the tool's other file is in it
+    r = root.run(['uninstall', 'fixture-tool', '--yes']);
+    check('limits: uninstall removes the drop-in, and keeps a folder that holds something else',
+        r.status === 0 && !fs.existsSync(dropIn(root, 'fixture-tool.service')) &&
+        fs.existsSync(sys(root, 'fixture-tool.service.d/10-own.conf')), r.out);
+    const clean = fakeRoot({ recmgr: ['fixture-tool'] });
+    const h0 = clean.hash();
+    clean.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    r = clean.run(['uninstall', 'fixture-tool', '--yes']);
+    check('limits: uninstall removes the drop-in with its folder',
+        r.status === 0 && !fs.existsSync(sys(clean, 'fixture-tool.service.d')) &&
+        !treeDiff(h0, clean.hash((rel) => rel.startsWith('var/opt/mgu-deploy') || rel.startsWith('var/opt/public'))).split('\n')
+            .some((l) => /etc\/systemd/.test(l)), r.out);
+
+    // a restore to the snapshot before the install takes the drop-in out with the tool
+    const rs = fakeRoot({ recmgr: ['fixture-tool'] });
+    rs.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    const pre = fs.readdirSync(rs.p('var/opt/mgu-deploy/backups')).filter((n) => /-install$/.test(n)).sort().pop();
+    r = rs.run(['restore', pre, '--yes']);
+    check('limits: restoring the snapshot before an install removes the drop-in with the tool',
+        r.status === 0 && !fs.existsSync(rs.p('var/opt/fixture-tool')) && !fs.existsSync(dropIn(rs, 'fixture-tool.service')), r.out);
+    // a restore of a snapshot taken before the drop-ins existed (an older deploy tool's) leaves the installed tool its drop-in
+    rs.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    const older = rs.p('var/opt/mgu-deploy/backups/00000000T000000000Z-older');
+    write(path.join(older, 'manifest.json'), JSON.stringify({ command: 'older', created: new Date().toISOString(), entries: [] }) + '\n');
+    fs.rmSync(sys(rs, 'fixture-tool.service.d'), { recursive: true });
+    r = rs.run(['restore', '00000000T000000000Z-older', '--yes']);
+    check('limits: a restore gives the installed tools\' services their drop-in',
+        r.status === 0 && fs.readFileSync(dropIn(rs, 'fixture-tool.service'), 'utf8') === LIMITS, r.out);
+
+    // iDrive 8, with recmgr's list and without
+    [false, true].forEach((noRecmgr) => {
+        const r8 = id8Root({ recmgr: ['fixture-tool'], noRecmgr });
+        const res = r8.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+        const listText = noRecmgr ? null : fs.readFileSync(r8.p('etc/recmgr-restartlist.conf'), 'utf8');
+        check(`limits: iDrive 8${noRecmgr ? ' without recmgr\'s list' : ''}: the install writes the drop-in` +
+            (noRecmgr ? '' : ' and keeps the tool in recmgr\'s list'),
+            res.status === 0 && fs.readFileSync(dropIn(r8, 'fixture-tool.service'), 'utf8') === LIMITS &&
+            (noRecmgr || /\[Whitelist\]\nstockd\nfixture-tool\n/.test(listText)), res.out + listText);
+        const un = r8.run(['uninstall', 'fixture-tool', '--yes']);
+        check(`limits: iDrive 8${noRecmgr ? ' without recmgr\'s list' : ''}: uninstall removes it`,
+            un.status === 0 && !fs.existsSync(sys(r8, 'fixture-tool.service.d')), un.out);
+    });
+}
+
 /* The crash handler's restart list, as iDrive 8 ships it (no newline at
  * the end). */
 const CRASH_LIST = '\n[Whitelist]\nMonitor\nnode\n; a comment\nsocat\n\n[ForceRestartList]\ndbus-daemon\nNodeStateManager';
@@ -4291,6 +4478,50 @@ function mguInstall(args, opts) {
     return r;
 }
 
+/* first-install on a unit whose coding keeps MainApp from starting: it
+ * stops after one read-only look, before any download or anything sent. */
+function testMguInstallCoding() {
+    const gh = fakeGithub({ files: [], repos: {} });
+    try {
+        const rel = fakeRelease(gh.api);
+        gh.set({ files: rel.files, repos: { [STORE_REPO]: { catalog: rel.catalogIndex } } });
+        const unit = (flags, opts) => {
+            const root = donorRoot(opts);
+            writeCoding(root, flags);
+            return { root, opts: { bin: installBin(root), api: gh.api } };
+        };
+        const d = unit(0x0a, { noManager: true });
+        const before = d.root.hash();
+        gh.reset();
+        let r = mguInstall(['first-install', '--host', '10.0.0.9'], d.opts);
+        check('mgu-install first-install, default coding: refused (exit 2) saying what to do', r.status === 2 &&
+            r.stdout === 'The head unit\'s coding is missing: it holds default values. This often happens after enabling SSH or flashing. ' +
+            'Restore the head unit\'s coding from a backup (BimmerCode, E-Sys or ISTA) or have HU_MGU coded to the car, ' +
+            'restart the head unit, then run the install again.\n', r.out);
+        check('mgu-install first-install, default coding: one read-only command, no download, the unit unchanged',
+            r.calls.length === 1 && !/["\\]/.test(r.calls[0][r.calls[0].length - 1]) && !gh.requests().length &&
+            d.root.hash().hash === before.hash, `${r.out}\n${JSON.stringify(r.calls)}\n${treeDiff(before, d.root.hash())}`);
+        const inv = unit(0x00, { noManager: true });
+        r = mguInstall(['first-install', '--host', '10.0.0.9'], inv.opts);
+        check('mgu-install first-install, invalid coding: refused the same way', r.status === 2 &&
+            r.stdout.startsWith('The head unit\'s coding is missing: it is not valid.') && r.calls.length === 1, r.out);
+        // a running app manager (node running MainApp's main.js): the coding check lets it go on
+        for (const dir of ['oap-mainapp', 'oap-mainapp21']) {
+            const m = unit(0x0a, {});
+            write(m.root.p('proc/4000/cmdline'), `/usr/bin/node\0--max-old-space-size=200\0/usr/lib/${dir}/src/main.js\0`);
+            r = mguInstall(['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'], m.opts);
+            check(`mgu-install first-install, default coding with ${dir} running: installs`, r.status === 0 &&
+                !r.out.includes('coding is missing'), r.out.slice(-2000));
+        }
+        // no coding segment: nothing to go by, so not refused
+        const none = donorRoot();
+        r = mguInstall(['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'], { bin: installBin(none), api: gh.api });
+        check('mgu-install first-install, no coding segment: installs', r.status === 0 && !r.out.includes('coding is missing'), r.out.slice(-2000));
+    } finally {
+        gh.stop();
+    }
+}
+
 /* first-install and token against a fake root, the release from the stand-in GitHub. */
 function testMguInstall() {
     const gh = fakeGithub({ files: [], repos: {} });
@@ -4299,6 +4530,8 @@ function testMguInstall() {
         const config = { files: rel.files, repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.catalogIndex } } };
         gh.set(config);
         const root = donorRoot();
+        // the car's coding, no app manager seen by the installer's check
+        writeCoding(root, 0x09);
         const bin = installBin(root);
         const opts = { bin, api: gh.api };
         let r = mguInstall(['first-install', '--host', '10.0.0.9', '--token', '--no-uplink', '--no-renderer'],
@@ -4364,16 +4597,16 @@ function testMguInstall() {
             r.out.includes('the catalog has no mgu-render; installing without it'), r.out.slice(-2000));
         gh.set(config);
         r = mguInstall(['first-install', '--host', '10.0.0.9'], opts);
-        check('mgu-install first-install: a private release without a token is refused before connecting', r.status === 1 &&
-            r.stderr.includes('no access') && !r.calls.length, r.out);
+        check('mgu-install first-install: a private release without a token is refused, the unit only read', r.status === 1 &&
+            r.stderr.includes('no access') && r.calls.length === 1 && r.calls[0][r.calls[0].length - 1].includes('rawcodingdata'), r.out);
         const bad = JSON.parse(fs.readFileSync(rel.files[rel.catalogIndex], 'utf8'));
         bad.components[1].artifact.sha256 = '0'.repeat(64);
         const badFile = path.join(rel.dir, 'bad-catalog.json');
         fs.writeFileSync(badFile, JSON.stringify(bad));
         gh.set(Object.assign({}, config, { files: rel.files.concat([badFile]), repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.files.length } } }));
         r = mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
-        check('mgu-install first-install: an artifact that does not match its catalog stops it before connecting', r.status === 1 &&
-            r.stderr.includes('sha256 does not match') && !r.calls.length, r.out);
+        check('mgu-install first-install: an artifact that does not match its catalog stops it before anything is sent', r.status === 1 &&
+            r.stderr.includes('sha256 does not match') && r.calls.length === 1 && r.calls[0][r.calls[0].length - 1].includes('rawcodingdata'), r.out);
         gh.set(config);
         // token
         const other = `${TOKEN}x`;
@@ -4605,8 +4838,9 @@ function testMguInstallFrom() {
         data[data.length >> 1] ^= 0xff;
         fs.writeFileSync(path.join(bad, victim), data);
         r = mguInstall(['first-install', '--from', bad, '--host', '10.0.0.9'], opts);
-        check('mgu-install first-install --from: an artifact that does not match the catalog stops it before connecting',
-            r.status === 1 && r.stderr.includes('sha256 does not match') && !r.calls.length, r.out);
+        check('mgu-install first-install --from: an artifact that does not match the catalog stops it before anything is sent',
+            r.status === 1 && r.stderr.includes('sha256 does not match') && r.calls.length === 1 &&
+            r.calls[0][r.calls[0].length - 1].includes('rawcodingdata'), r.out);
         r = mguInstall(['first-install', '--from', fs.mkdtempSync(path.join(T, 'from-empty-')), '--host', '10.0.0.9'], opts);
         check('mgu-install first-install --from: a folder without catalog.json is refused before connecting',
             r.status === 2 && r.stderr.includes('no catalog.json') && !r.calls.length, r.out);
@@ -4623,7 +4857,8 @@ function testMguInstallFrom() {
         r = mguInstall(['first-install', '--from', nodeploy, '--host', '10.0.0.9'], opts);
         check('mgu-install first-install --from: a catalog without mgu-deploy names the folder',
             r.status === 1 && r.stderr.includes(`${path.resolve(nodeploy)}: the catalog has no mgu-deploy`) &&
-            !r.stderr.includes(`${STORE_REPO}: the catalog`) && !r.calls.length, r.out);
+            !r.stderr.includes(`${STORE_REPO}: the catalog`) && r.calls.length === 1 &&
+            r.calls[0][r.calls[0].length - 1].includes('rawcodingdata'), r.out);
         r = mguInstall(['token', '--from', from, '--host', '10.0.0.9'], opts);
         check('mgu-install: --from goes with first-install only', r.status === 2 &&
             r.stderr.includes('unknown option --from') && !r.calls.length, r.out);
@@ -5999,8 +6234,10 @@ const SUITES = [
     testThirdParty,
     testInternet,
     testCrashList,
+    testServiceLimits,
     testSourcesAndDonor,
     testMguInstall,
+    testMguInstallCoding,
     testMguInstallUsb,
     testMguInstallFrom,
     testConnect,
