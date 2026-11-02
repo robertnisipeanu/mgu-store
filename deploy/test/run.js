@@ -4389,7 +4389,6 @@ function testBootLists() {
     r = names.run(['install', '--artifact', namedTool('tpl-name', '0.1.0', (c) => { c.recmgr = ['tpl-name@']; }), '--yes']);
     check('boot lists: a template\'s recmgr name (name@) is taken', r.status === 0 &&
         /\ntpl-name@\n/.test(fs.readFileSync(names.p('etc/recmgr-restartlist.conf'), 'utf8')), r.out);
-    names.run(['uninstall', 'tpl-name', '--yes']);
 }
 
 /* A restart list's sections and entries, as the firmware reads them. */

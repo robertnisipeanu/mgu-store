@@ -797,9 +797,11 @@ function limitsPlan(tools, only) {
 /* The names a tool has in recmgr's list: its `recmgr` names, and the name
  * of each service and socket unit it installs (a template's with its "@",
  * as the stock list has them) unless the firmware has that name (in
- * [ForceRestartList], or a unit of its own). */
+ * [ForceRestartList], or a unit of its own). A `recmgr` name outside
+ * RECMGR_NAME never reads back from the list, so it is left out. */
 function recmgrNamesOf(c) {
-    var out = (c.recmgr || []).filter(function (n) { return typeof n === 'string' && RECMGR_NAME.test(n); }), force = recmgrSections(recmgrText()).ForceRestartList || [];
+    var force = recmgrSections(recmgrText()).ForceRestartList || [];
+    var out = (c.recmgr || []).filter(function (n) { return typeof n === 'string' && RECMGR_NAME.test(n); });
     (c.units || []).forEach(function (u) {
         var n = recmgrBase(u.name);
         if (/\.(service|socket)$/.test(u.name) && out.indexOf(n) < 0 && force.indexOf(n) < 0 && !stockUnit(n)) out.push(n);
