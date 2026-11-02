@@ -2433,7 +2433,9 @@ class Updater {
             .then(() => {
                 Object.keys(entry.requires).forEach((dep) => {
                     if (!this.requirementMet(dep, entry.requires[dep])) {
-                        throw new Error(`needs ${dep} ${entry.requires[dep]} or newer${dep === SELF ? ': update the updater first' : ''}`);
+                        // a requirement queued before it that failed: its reason
+                        const why = dep === SELF ? ': update the updater first' : this.errors[dep] ? `, which did not install: ${this.errors[dep]}` : '';
+                        throw new Error(`needs ${dep} ${entry.requires[dep]} or newer${why}`);
                     }
                 });
                 // installed (since this was asked for): only the origin that updates it (resolved)

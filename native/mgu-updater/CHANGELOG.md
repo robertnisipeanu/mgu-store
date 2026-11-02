@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.16
+
+- An app whose requirement failed to install says why: its error names the requirement and that requirement's own error ("needs mgu-inputgate 1.0.0 or newer, which did not install: …"), and the app is not downloaded or installed. Try again installs the requirement first again.
+
 ## 0.8.15
 
 - Downloads work on a head unit whose clock is off: a certificate's validity dates are not held against it. The chain up to a trusted root (Node's bundled roots, or `ca_file`), every signature in it, CA constraints, key usages and the host name are still checked, and nothing is sent before they pass. The log names each host whose dates were let go, once.
