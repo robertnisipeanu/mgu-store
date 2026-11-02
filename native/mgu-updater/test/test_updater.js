@@ -2353,7 +2353,8 @@ function testSources(certs) {
             fs.unlinkSync(`${deployLog}.fail`);
             const lines = deployed();
             ok('requires: a requirement that fails to install is the app\'s error, with its reason; the app is not installed',
-                comp('needs_app').error === 'needs base_tool 1.0.0 or newer, which did not install: install failed: test failure 1; ' +
+                comp('needs_app').error === `needs base_tool 1.0.0 or newer, which did not install from ${src('mgu-store').label}: ` +
+                'install failed: test failure 1; ' +
                 'the previous version was kept' && lines.length === 1 && /base_tool@1\.0\.0/.test(lines[0]) &&
                 comp('needs_app').status === 'available', JSON.stringify([comp('needs_app').error, lines]));
             // Try again: the requirement installs first again

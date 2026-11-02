@@ -2,7 +2,7 @@
 
 ## 0.8.16
 
-- An app whose requirement failed to install says why: its error names the requirement and that requirement's own error ("needs mgu-inputgate 1.0.0 or newer, which did not install: …"), and the app is not downloaded or installed. Try again installs the requirement first again.
+- An app whose requirement failed to install says where from and why: "needs mgu-inputgate 1.0.0 or newer, which did not install from <source>: <the requirement's own error>".
 
 ## 0.8.15
 

@@ -2433,8 +2433,11 @@ class Updater {
             .then(() => {
                 Object.keys(entry.requires).forEach((dep) => {
                     if (!this.requirementMet(dep, entry.requires[dep])) {
-                        // a requirement queued before it that failed: its reason
-                        const why = dep === SELF ? ': update the updater first' : this.errors[dep] ? `, which did not install: ${this.errors[dep]}` : '';
+                        // the row installPlan queued for it, when its install failed: where from and why
+                        const found = dep !== SELF && this.findRequirement(dep, entry.requires[dep], item.source);
+                        const failed = found && this.errors[found.entry.id];
+                        const why = dep === SELF ? ': update the updater first' :
+                            failed ? `, which did not install from ${this.sourceLabel(found.source)}: ${failed}` : '';
                         throw new Error(`needs ${dep} ${entry.requires[dep]} or newer${why}`);
                     }
                 });
