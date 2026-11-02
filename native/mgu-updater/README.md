@@ -539,10 +539,19 @@ fetcher can change nothing it installs.
 - Redirects of a GET are
   followed, but request headers go to the first host only: a token never
   reaches the storage a download redirects to. `User-Agent`,
-  `If-None-Match` and `If-Modified-Since` go along. The device flow's POSTs are
+  `If-None-Match`, `If-Modified-Since`, `Range` and `If-Range` go along. The device flow's POSTs are
   not redirected.
 - The size the source states is the most that is read; API answers at
   most 4 MiB.
+- A download whose connection breaks (cut mid-transfer, reset, no data for
+  30 s, no connection) or that gets a 500, 502, 503 or 504 is tried again
+  after 1, 2, 4 and 8 s, up to 4 times in a row without getting further, 200
+  tries in all. Where the server takes byte ranges (GitHub's release
+  downloads do; `codeload.github.com` does not), the next try asks for the
+  rest (`Range`, `If-Range`) and adds it to what came; otherwise the file
+  starts over. The size and sha256 are checked on the whole file. A POST, a
+  refused certificate, an unknown host name and other HTTP answers are not
+  tried again.
 
 ## Its own uids
 

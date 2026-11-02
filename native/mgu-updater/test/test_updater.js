@@ -389,10 +389,10 @@ function ghApi(req, res, auth) {
         const page = Number(u.searchParams.get('page')) || 1;
         send(200, Object.keys(repo.branches).sort().slice((page - 1) * n, page * n).map((name) => ({ name, commit: { sha: repo.branches[name] } })));
     } else if (rest.indexOf('/contents/') === 0) {
-        // a read that fails once (a server error), as a passing outage does
+        // a read that fails once with an answer fetch.js does not try again
         if (repo.failOnce === decodeURIComponent(rest.slice('/contents/'.length))) {
             repo.failOnce = null;
-            send(502, { message: 'Server Error' });
+            send(400, { message: 'Bad Request' });
             return;
         }
         const tree = repo.trees[u.searchParams.get('ref')];
@@ -5120,7 +5120,7 @@ function testRequests(certs) {
         })
         .then(() => {
             ok('requests: a component whose read failed is left out, saying why', version('branch', 'req_a') === '1.2.0' &&
-                !version('branch', 'req_b') && /req_b: .*502/.test(rt('branch').error || ''), rt('branch').error);
+                !version('branch', 'req_b') && /req_b: .*400/.test(rt('branch').error || ''), rt('branch').error);
             return counted('branch');
         })
         .then((n) => {
