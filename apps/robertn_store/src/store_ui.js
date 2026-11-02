@@ -337,8 +337,9 @@ function appView(m, page) {
     }
     if (c.pendingReboot) {
         notes.push([tr("Restart pending"), AMBER]);
-        if (restartFailed(m)) {
-            notes.push([restartFailed(m), AMBER]);
+        const failed = restartFailed(m);
+        if (failed) {
+            notes.push([failed, AMBER]);
         }
     }
     ['note1', 'note2', 'note3'].forEach((k, i) => {

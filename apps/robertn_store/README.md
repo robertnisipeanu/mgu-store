@@ -175,7 +175,8 @@ iDrive 7 (`LT_Label_4Row_1TextDyn`).
 restart the head unit through the Node State Manager (its `reboot`
 request). The updater refuses a restart in the first 4 minutes after a
 start, within 10 minutes of the last one and after 3 in an hour; the
-status line then says why and when a restart is possible. The row is hidden
+status line, Settings and the app's page then say why and when a restart
+is possible. The row is hidden
 while an install runs or waits, while the updater is unreachable or
 already restarting the unit, and with an updater older than 0.1.4.
 
