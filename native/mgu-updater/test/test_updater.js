@@ -9,6 +9,9 @@
  *    a build and at a start), and a build's output in the log bounded;
  *  - fetch.js: HTTPS through a given DNS server, redirects that drop the
  *    token, size limits, running as the fetch uid;
+ *  - the unit's clock: a certificate refused for its dates downloaded again
+ *    through mgu-fetch (a stand-in, and the real one with MGU_TEST_FETCH),
+ *    fetch.js's error kept where mgu-fetch is missing, mute or cannot run;
  *  - the daemon under its supervisor, against an HTTPS catalog and a stand-in
  *    deploy tool: install an app, update itself, return to the previous
  *    version when a new one crashes or never comes up, refuse a download
@@ -537,6 +540,7 @@ function updaterKit(dir, version, variant) {
     c.version = version;
     c.files = c.files.filter((f) => fs.existsSync(path.join(ROOT, f.from)));
     c.files.forEach((f) => {
+        mkdirp(path.dirname(path.join(files, f.path)));
         fs.copyFileSync(path.join(ROOT, f.from), path.join(files, f.path));
         f.sha256 = sha256(fs.readFileSync(path.join(files, f.path)));
         delete f.from;
@@ -976,6 +980,197 @@ function testFetch(certs, pubDir) {
         });
 }
 
+/* ---- the unit's clock ----------------------------------------------------------- */
+
+/* A CA valid for ten years and two servers on 127.0.0.1 under it: one with
+ * a certificate valid now, one with a certificate valid only in 2030
+ * (fetch.js: CERT_NOT_YET_VALID on this clock). */
+function makeClockCerts() {
+    const d = path.join(T, 'pki-clock');
+    mkdirp(d);
+    sh(`cd ${d} && openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj /CN=clock-ca -keyout ca.key -out ca.pem 2>&1 &&
+        openssl req -newkey rsa:2048 -nodes -subj /CN=127.0.0.1 -keyout srv.key -out srv.csr 2>&1 &&
+        printf 'subjectAltName=IP:127.0.0.1\\n' > ext &&
+        openssl x509 -req -in srv.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 2 -extfile ext -out now.pem 2>&1 &&
+        touch index.txt && echo 1000 > serial &&
+        printf '[ca]\\ndefault_ca=c\\n[c]\\ndatabase=index.txt\\nserial=serial\\nnew_certs_dir=.\\ndefault_md=sha256\\npolicy=p\\n[p]\\ncommonName=supplied\\n' > ca.cnf &&
+        openssl ca -batch -config ca.cnf -cert ca.pem -keyfile ca.key -startdate 20300101000000Z -enddate 20310101000000Z \
+            -extfile ext -notext -in srv.csr -out later.pem 2>&1`);
+    fs.chmodSync(d, 0o755);
+    fs.chmodSync(path.join(d, 'ca.pem'), 0o644);
+    const key = fs.readFileSync(path.join(d, 'srv.key'));
+    return { caFile: path.join(d, 'ca.pem'), key, now: fs.readFileSync(path.join(d, 'now.pem')), later: fs.readFileSync(path.join(d, 'later.pem')) };
+}
+
+function listenHttps(opts, port, body) {
+    return new Promise((resolve) => {
+        const s = https.createServer(opts, (req, res) => res.end(body));
+        s.listen(port, '127.0.0.1', () => resolve(s));
+    });
+}
+
+/* An NTP server answering with `at` (ms). */
+function listenNtp(port, at) {
+    return new Promise((resolve) => {
+        const s = dgram.createSocket('udp4');
+        s.on('message', (q, rinfo) => {
+            const a = Buffer.alloc(48);
+            a[0] = 0x24;
+            a[1] = 2;
+            q.copy(a, 24, 40, 48);
+            const secs = Math.floor(at / 1000) + 2208988800;
+            a.writeUInt32BE(secs >>> 0, 40);
+            s.send(a, rinfo.port, rinfo.address);
+        });
+        s.bind(port, '127.0.0.1', () => resolve(s));
+    });
+}
+
+/* A stand-in mgu-fetch: logs each job to <dir>/jobs, then does what
+ * <dir>/mode says (ok: writes "on clock" and reports a clock when the job
+ * has none; status: an HTTP 404; noserver: an error with no status; mute:
+ * exits with nothing said). */
+function fakeOnClock(dir) {
+    mkdirp(dir);
+    fs.chmodSync(dir, 0o777);
+    const script = path.join(dir, 'mgu-fetch');
+    fs.writeFileSync(script, `#!${process.execPath}
+const fs = require('fs');
+let input = '';
+process.stdin.on('data', (d) => { input += d; });
+process.stdin.on('end', () => {
+    const job = JSON.parse(input);
+    fs.appendFileSync(${JSON.stringify(path.join(dir, 'jobs'))}, JSON.stringify(job) + '\\n');
+    const mode = fs.readFileSync(${JSON.stringify(path.join(dir, 'mode'))}, 'utf8').trim();
+    const say = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+    if (mode === 'mute') { process.exit(3); }
+    if (mode === 'status') { say({ error: 'HTTP 404 from 127.0.0.1', status: 404 }); process.exit(1); }
+    if (mode === 'noserver') { say({ error: 'no time from the network: none answered' }); process.exit(1); }
+    if (!job.clock) { say({ clock: { unixMs: 1893456000000, bootNs: 5 } }); }
+    fs.writeFileSync(job.dest, 'on clock');
+    say({ done: true, bytes: 8, status: 200, headers: {} });
+});
+`, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, 'mode'), 'ok');
+    fs.chmodSync(path.join(dir, 'mode'), 0o666);
+    return {
+        script,
+        mode: (m) => fs.writeFileSync(path.join(dir, 'mode'), m),
+        jobs: () => (fs.existsSync(path.join(dir, 'jobs')) ? fs.readFileSync(path.join(dir, 'jobs'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
+    };
+}
+
+function testClock() {
+    const { Fetcher } = require('../js/updater');
+    const c = makeClockCerts();
+    const fake = fakeOnClock(path.join(T, 'onclock'));
+    const NOW_PORT = 8461;
+    const LATER_PORT = 8462;
+    const conf = (extra) => Object.assign({ state_dir: path.join(T, 'clockdl'), fetch_uid: FETCH_UID, fetch_gid: FETCH_UID,
+        lease: '', ca_file: c.caFile, clock_ca: '/nonexistent/cacert.pem', clock_ntp: 'a.test b.test' }, extra);
+    const fetcher = (extra) => {
+        const f = new Fetcher(conf(extra));
+        return f;
+    };
+    const got = (p) => p.then((b) => ({ body: b.toString() }), (e) => ({ error: e.message, status: e.status }));
+    const nowUrl = `https://127.0.0.1:${NOW_PORT}/x`;
+    const laterUrl = `https://127.0.0.1:${LATER_PORT}/x`;
+    const servers = [];
+    let f;
+    return Promise.all([listenHttps({ key: c.key, cert: c.now }, NOW_PORT, 'now'), listenHttps({ key: c.key, cert: c.later }, LATER_PORT, 'later')])
+        .then((s) => {
+            servers.push.apply(servers, s);
+            f = fetcher({ clock_fetch: fake.script });
+            return got(f.get(nowUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            ok('clock: a certificate valid on the unit\'s clock downloads through fetch.js alone', r.body === 'now' && fake.jobs().length === 0 && !f.clockOff, JSON.stringify(r));
+            return got(fetcher({}).get(laterUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            ok('clock: without clock_fetch a certificate refused for its dates fails as fetch.js fails', /CERT_NOT_YET_VALID/.test(r.error || ''), JSON.stringify(r));
+            return got(fetcher({ clock_fetch: path.join(T, 'onclock', 'missing') }).get(laterUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            ok('clock: with no mgu-fetch installed (an older uplink) it fails as fetch.js fails', /CERT_NOT_YET_VALID/.test(r.error || '') && fake.jobs().length === 0, JSON.stringify(r));
+            return got(f.get(laterUrl, { 'User-Agent': 'u' }, 'x', 100));
+        })
+        .then((r) => {
+            const j = fake.jobs();
+            ok('clock: a certificate refused for its dates downloads again through mgu-fetch', r.body === 'on clock' && j.length === 1 && f.clockOff === true, JSON.stringify(r));
+            ok('clock: mgu-fetch gets fetch.js\'s job, the CA, the NTP servers and no clock yet', j[0] && j[0].url === laterUrl && j[0].headers['User-Agent'] === 'u' &&
+                j[0].maxBytes === 100 && /BEGIN CERTIFICATE/.test(j[0].ca) && j[0].caFile === '/nonexistent/cacert.pem' &&
+                j[0].ntp.join(' ') === 'a.test b.test' && j[0].clock === null && j[0].method === 'GET', JSON.stringify(j[0]));
+            return got(f.get(nowUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            const j = fake.jobs();
+            ok('clock: once found off, downloads go through mgu-fetch first, on the clock it reported', r.body === 'on clock' && j.length === 2 &&
+                j[1].clock && j[1].clock.unixMs === 1893456000000 && j[1].clock.bootNs === 5, JSON.stringify(j[1]));
+            fake.mode('noserver');
+            return got(f.get(nowUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            ok('clock: where mgu-fetch reaches no server, fetch.js still downloads', r.body === 'now' && fake.jobs().length === 3, JSON.stringify(r));
+            f = fetcher({ clock_fetch: fake.script });
+            return got(f.get(laterUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            ok('clock: mgu-fetch reaching no server either leaves fetch.js\'s error, the clock not taken as off',
+                /CERT_NOT_YET_VALID/.test(r.error || '') && !f.clockOff, JSON.stringify(r));
+            fake.mode('status');
+            return got(f.get(laterUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            ok('clock: a server that answers mgu-fetch gives its answer, status included', r.error === 'HTTP 404 from 127.0.0.1' && r.status === 404 && f.clockOff === true, JSON.stringify(r));
+            fake.mode('mute');
+            f = fetcher({ clock_fetch: fake.script });
+            return got(f.get(laterUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            ok('clock: an mgu-fetch that says nothing leaves fetch.js\'s error', /CERT_NOT_YET_VALID/.test(r.error || ''), JSON.stringify(r));
+            fs.chmodSync(fake.script, 0o644);
+            f = fetcher({ clock_fetch: fake.script });
+            return got(f.get(laterUrl, {}, 'x', 100));
+        })
+        .then((r) => {
+            ok('clock: an mgu-fetch that cannot run leaves fetch.js\'s error, the updater unharmed', /CERT_NOT_YET_VALID/.test(r.error || ''), JSON.stringify(r));
+            fs.chmodSync(fake.script, 0o755);
+            fake.mode('ok');
+            const dls = fs.readdirSync(path.join(T, 'clockdl')).filter((n) => /^dl-/.test(n));
+            return sleep(300).then(() => fs.readdirSync(path.join(T, 'clockdl')).filter((n) => /^dl-/.test(n)))
+                .then((left) => ok('clock: every download folder is removed', left.length === 0, `${dls.length} ${left.join(' ')}`));
+        })
+        .then(() => {
+            // the real mgu-fetch (MGU_TEST_FETCH: a linux/amd64 build), on two NTP servers answering 2030
+            const real = process.env.MGU_TEST_FETCH;
+            if (!real) {
+                console.log('SKIP clock: the real mgu-fetch (MGU_TEST_FETCH unset)');
+                return null;
+            }
+            const at = Date.UTC(2030, 5, 1);
+            return Promise.all([listenNtp(1231, at), listenNtp(1232, at)]).then((ntp) => {
+                servers.push.apply(servers, ntp);
+                f = fetcher({ clock_fetch: real, clock_ca: '', clock_ntp: '127.0.0.1:1231 127.0.0.1:1232' });
+                return got(f.get(laterUrl, {}, 'x', 100));
+            }).then((r) => {
+                ok('clock: the real mgu-fetch downloads a certificate valid only in 2030 on the NTP servers\' time', r.body === 'later' && f.clockOff === true && f.clock &&
+                    Math.abs(f.clock.unixMs - at) < 60000, JSON.stringify(r));
+                return got(f.get(laterUrl, {}, 'x', 100));
+            }).then((r) => {
+                ok('clock: and again on the clock it reported', r.body === 'later', JSON.stringify(r));
+                return got(f.get(nowUrl, {}, 'x', 100));
+            }).then((r) => {
+                ok('clock: a certificate valid only on the unit\'s clock, which mgu-fetch refuses, downloads through fetch.js, and the clock is read again',
+                    r.body === 'now' && !f.clock, JSON.stringify(r));
+            });
+        })
+        .then(() => servers.forEach((s) => s.close()), (err) => {
+            servers.forEach((s) => s.close());
+            throw err;
+        });
+}
+
 /* Root reads a download only if it is a regular file within the size. */
 function testCollect() {
     const { Fetcher } = require('../js/updater');
@@ -1313,7 +1508,10 @@ function testDaemon(certs, pubDir) {
     mkdirp(oap);
     // version 0.1.0 installed the deploy tool's way
     const c = JSON.parse(fs.readFileSync(path.join(ROOT, 'component.json'), 'utf8'));
-    c.files.filter((f) => fs.existsSync(path.join(ROOT, f.from))).forEach((f) => fs.copyFileSync(path.join(ROOT, f.from), path.join(v1, f.path)));
+    c.files.filter((f) => fs.existsSync(path.join(ROOT, f.from))).forEach((f) => {
+        mkdirp(path.dirname(path.join(v1, f.path)));
+        fs.copyFileSync(path.join(ROOT, f.from), path.join(v1, f.path));
+    });
     fs.chmodSync(path.join(v1, 'mgu-updater'), 0o755);
     c.version = '0.1.0';
     fs.writeFileSync(path.join(v1, 'component.json'), JSON.stringify(c));
@@ -5592,6 +5790,7 @@ function main() {
         .then(() => testUplink())
         .then(() => Promise.all([startDns(), startHttps(certs, pubDir)]))
         .then(([dnsSrv, httpsSrv]) => testFetch(certs, pubDir)
+            .then(() => testClock().catch((e) => ok('clock scenario', false, e.stack)))
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
             .then(() => testRequests(certs).catch((e) => ok('requests scenario', false, e.stack)))
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))

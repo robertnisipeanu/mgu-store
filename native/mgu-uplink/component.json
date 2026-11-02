@@ -1,7 +1,7 @@
 {
   "id": "mgu-uplink",
   "kind": "tool",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "title": "Internet uplink",
   "description": "Internet for selected apps through a USB network adapter, an LTE stick, a USB-tethered phone or Wi-Fi",
   "optional": true,
@@ -11,12 +11,13 @@
   "files": [
     { "path": "mgu-uplink", "from": "build/target/mgu-uplink", "mode": "0755" },
     { "path": "mgu-wpa", "from": "build/target/mgu-wpa", "mode": "0755" },
+    { "path": "mgu-fetch", "from": "build/target/mgu-fetch", "mode": "0755" },
     { "path": "mgu-uplink.conf", "from": "mgu-uplink.conf", "mode": "0644" },
     { "path": "LICENSES.txt", "from": "LICENSES.txt", "mode": "0644" }
   ],
   "units": [{ "name": "mgu-uplink.service", "from": "mgu-uplink.service" }],
   "enable": [{ "unit": "mgu-uplink.service", "target": "multi-user.target" }],
   "recmgr": ["mgu-uplink"],
-  "crashNames": ["mgu-uplink", "mgu-wpa"],
+  "crashNames": ["mgu-uplink", "mgu-wpa", "mgu-fetch"],
   "restart": ["mgu-uplink.service"]
 }

@@ -220,7 +220,10 @@ commit). Without one: `releases` when the repo has a release, else
 
 **Building on the unit.** `build.node` runs under this Node, and
 `build.python` under `python` (`/var/opt/mgu-python/current/bin/python3`,
-with `SSL_CERT_FILE` its CA bundle), as the build uid ("Its own uids": no
+with `SSL_CERT_FILE` its CA bundle and `PYTHONPATH` the updater's `py/`,
+whose `sitecustomize.py` writes a time past 2106 into a gzip header as
+none and into a zip entry as the last DOS date, 2107, instead of failing
+on a unit whose clock is that far off), as the build uid ("Its own uids": no
 account, in none of the uplink's lists: no network),
 in a copy of the repo in `state/build-<random>/repo` that only it can
 write, with `MGU_SDK_DONOR` (the donor bundle `mgu-deploy.sh sdk-donor
@@ -532,6 +535,23 @@ fetcher can change nothing it installs.
 - The size the source states is the most that is read; API answers at
   most 4 MiB.
 
+### The unit's clock
+
+A head unit with no GPS fix and no car around it (a bench) keeps a clock
+decades off, which the unit's time manager sets back whenever it is
+changed, and every certificate then reads as expired. A download that
+`fetch.js` cannot make for a certificate's dates (`CERT_HAS_EXPIRED`,
+`CERT_NOT_YET_VALID`) is made again by the uplink's `mgu-fetch`
+(`clock_fetch`, native/mgu-uplink 0.7.4), as the fetch uid, with the same
+job and events: it checks certificates against the time NTP servers give
+through the uplink (`clock_ntp`; at least two answering alike) and the roots
+in `clock_ca` (mgu-python's CA bundle; `ca_file` when set). Once that has
+reached a server, every later download of this run goes through `mgu-fetch`
+first, and through `fetch.js` where `mgu-fetch` reaches none. The time it
+reads is used for 6 hours on CLOCK_BOOTTIME, which no one sets, and read
+again after a certificate it refuses. The unit's clock is not touched.
+Without `mgu-fetch` (an older uplink) the download fails as `fetch.js` failed.
+
 ## Its own uids
 
 Builds, downloads and the phone page each run as a uid of the updater's
@@ -738,7 +758,8 @@ what it started, and fails), `deploy_tool`, `uplink_tool`, `bootstrap_check_s`, 
 `state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `store_app`,
 `reboot`, `log_file`, `socket`, `socket_group`, `web_uid`, `web_gid`,
 `web_port`, `web_iface`, `web_secret`, `uplink_status`, `uplink_ctl`,
-`uplink_poll_s` ("The uplink"). Relative paths are relative to
+`uplink_poll_s` ("The uplink"), `clock_fetch`, `clock_ca`, `clock_ntp`
+("The unit's clock"). Relative paths are relative to
 `updater.conf`.
 
 **Log.** Every line the daemon logs goes to the journal and, with its UTC

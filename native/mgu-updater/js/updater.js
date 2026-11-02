@@ -522,6 +522,10 @@ function readLease(conf) {
 
 const CACHE_BYTES = 2 << 20;
 const CACHE_ONE = 256 << 10;
+// fetch.js's errors for a certificate refused for its dates (Node's OpenSSL codes)
+const CLOCK_REFUSED = /CERT_HAS_EXPIRED|CERT_NOT_YET_VALID/;
+// how long mgu-fetch's clock is used before NTP is asked again
+const CLOCK_TTL_S = 6 * 3600;
 
 /* Downloads run in a child as the fetch uid, each into a folder of its own
  * that root makes in state_dir and hands to that uid. Root reads the result
@@ -645,6 +649,80 @@ class Fetcher {
             });
     }
 
+    /* The uplink's mgu-fetch (clock_fetch), when it is installed. */
+    onClock() {
+        return this.conf.clock_fetch && fs.existsSync(this.conf.clock_fetch) ? this.conf.clock_fetch : null;
+    }
+
+    /* spec through mgu-fetch, on the clock it reported last (read again
+     * after CLOCK_TTL_S, or after a certificate it refused). */
+    fetchOnClock(program, spec, dir, onProgress) {
+        const fresh = this.clock && process.uptime() - this.clockRead < CLOCK_TTL_S;
+        const ntp = String(this.conf.clock_ntp || '').split(/\s+/).filter(Boolean);
+        return this.spawnFetch(program, [], Object.assign({}, spec, {
+            caFile: this.conf.clock_ca || '', clock: fresh ? this.clock : null, ntp
+        }), dir, onProgress, (clock) => {
+            this.clock = clock;
+            this.clockRead = process.uptime();
+        }).then((result) => {
+            if (/certificate/i.test(result.error || '')) {
+                this.clock = null;
+            }
+            return result;
+        });
+    }
+
+    /* Runs one download child as the fetch uid; resolves with its last
+     * done, notModified or error event (spawnError: the child did not
+     * start), never rejects. */
+    spawnFetch(program, args, spec, dir, onProgress, onClockRead) {
+        return new Promise((resolve) => {
+            let result = null;
+            let settled = false;
+            const settle = (r) => {
+                if (!settled) {
+                    settled = true;
+                    resolve(r);
+                }
+            };
+            let child;
+            try {
+                child = cp.spawn(program, args, this.asFetchUid({ stdio: ['pipe', 'pipe', 'inherit'], cwd: dir, env: {} }));
+            } catch (err) {
+                settle({ error: `cannot run ${path.basename(program)}: ${err.message}`, spawnError: err });
+                return;
+            }
+            let buf = '';
+            child.stdout.setEncoding('utf8');
+            child.stdout.on('data', (d) => {
+                buf += d;
+                let nl;
+                while ((nl = buf.indexOf('\n')) >= 0) {
+                    const line = buf.slice(0, nl);
+                    buf = buf.slice(nl + 1);
+                    let ev;
+                    try {
+                        ev = JSON.parse(line);
+                    } catch (e) {
+                        continue;
+                    }
+                    if (ev.progress !== undefined && onProgress) {
+                        onProgress(ev.progress, ev.total || spec.maxBytes || null);
+                    } else if (ev.clock && onClockRead) {
+                        onClockRead(ev.clock);
+                    } else if (ev.done || ev.error || ev.notModified) {
+                        result = ev;
+                    }
+                }
+            });
+            // a child that could not start: its stdin is gone too
+            child.stdin.on('error', () => { /* the child's error or close reports it */ });
+            child.on('error', (err) => settle({ error: `cannot run ${path.basename(program)}: ${err.code || err.message}`, spawnError: err }));
+            child.on('close', () => settle(result || { error: 'download failed' }));
+            child.stdin.end(JSON.stringify(spec));
+        });
+    }
+
     requestNow(job) {
         const { url, headers, name, maxBytes, onProgress } = job;
         if (process.getuid() === 0 && !(this.uid > 0)) {
@@ -661,49 +739,46 @@ class Fetcher {
             fs.chownSync(dir, this.uid, this.gid);
         }
         const dest = path.join(dir, name);
-        return new Promise((resolve, reject) => {
-            const child = cp.spawn(process.execPath, [path.join(HERE, 'fetch.js')],
-                this.asFetchUid({ stdio: ['pipe', 'pipe', 'inherit'], cwd: dir, env: {} }));
-            let result = null;
-            let buf = '';
-            child.stdout.setEncoding('utf8');
-            child.stdout.on('data', (d) => {
-                buf += d;
-                let nl;
-                while ((nl = buf.indexOf('\n')) >= 0) {
-                    const line = buf.slice(0, nl);
-                    buf = buf.slice(nl + 1);
-                    let ev;
-                    try {
-                        ev = JSON.parse(line);
-                    } catch (e) {
-                        continue;
-                    }
-                    if (ev.progress !== undefined && onProgress) {
-                        onProgress(ev.progress, ev.total || maxBytes || null);
-                    } else if (ev.done || ev.error || ev.notModified) {
-                        result = ev;
-                    }
+        const spec = { url, headers, dest, maxBytes, dns: lease.dns, ca: this.ca,
+            method: job.method || 'GET', body: job.body, keep: job.keep || [] };
+        const onClock = this.onClock();
+        const plain = () => this.spawnFetch(process.execPath, [path.join(HERE, 'fetch.js')], spec, dir, onProgress);
+        // on a clock found off, mgu-fetch first; fetch.js where it reached no server
+        const first = this.clockOff && onClock ? this.fetchOnClock(onClock, spec, dir, onProgress)
+            .then((r) => {
+                if (r.done || r.notModified || r.status) {
+                    return r;
                 }
-            });
-            child.on('error', reject);
-            child.on('close', () => {
-                if (result && result.notModified) {
-                    resolve(Object.assign(Buffer.alloc(0), { headers: result.headers || {}, notModified: true }));
-                } else if (result && result.done) {
-                    try {
-                        resolve(Object.assign(this.collect(dest, maxBytes), { headers: result.headers || {} }));
-                    } catch (err) {
-                        reject(err);
-                    }
-                } else {
-                    reject(Object.assign(new Error(result && result.error || 'download failed'),
-                        result && result.status ? { status: result.status } : {}, result && result.rateLimited ? { rateLimited: true } : {},
-                        result && result.tooBig ? { tooBig: true } : {}));
+                console.log(`${url}: on the network's time: ${r.error}`);
+                return plain();
+            }) : plain();
+        return first.then((result) => {
+            if (this.clockOff || !onClock || !CLOCK_REFUSED.test(result.error || '')) {
+                return result;
+            }
+            // a certificate refused for its dates: the unit's clock is off
+            return this.fetchOnClock(onClock, spec, dir, onProgress).then((again) => {
+                if (again.done || again.notModified || again.status) {
+                    this.clockOff = true;
+                    console.log(`${url}: ${result.error} on the unit's clock; downloads check certificates on the network's time from now on`);
+                    return again;
                 }
+                console.log(`${url}: ${result.error} on the unit's clock, and on the network's time: ${again.error}`);
+                return result;
             });
-            child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, ca: this.ca,
-                method: job.method || 'GET', body: job.body, keep: job.keep || [] }));
+        }).then((result) => {
+            if (result.notModified) {
+                return Object.assign(Buffer.alloc(0), { headers: result.headers || {}, notModified: true });
+            }
+            if (result.done) {
+                return Object.assign(this.collect(dest, maxBytes), { headers: result.headers || {} });
+            }
+            if (result.spawnError) {
+                throw result.spawnError;
+            }
+            throw Object.assign(new Error(result.error || 'download failed'),
+                result.status ? { status: result.status } : {}, result.rateLimited ? { rateLimited: true } : {},
+                result.tooBig ? { tooBig: true } : {});
         }).then((bytes) => {
             this.retire(dir);
             return bytes;

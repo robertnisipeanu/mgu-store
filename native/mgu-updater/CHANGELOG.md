@@ -1,5 +1,10 @@
 # Updater changelog
 
+## 0.8.15
+
+- A download whose certificate fails on the unit's clock (`CERT_HAS_EXPIRED`, `CERT_NOT_YET_VALID`: a head unit on a bench, with no GPS fix and no car, keeps a clock decades off) is made again by the uplink's `mgu-fetch` (mgu-uplink 0.7.4), which checks certificates against the time NTP servers give; once that has worked, later downloads go through it first. The unit's clock is not touched. New keys `clock_fetch`, `clock_ca`, `clock_ntp` (README.md, "The unit's clock"). With an older uplink the download fails as before.
+- A Python build on a unit whose clock is past 2106 can write `.tgz` and `.zip` files: a time that does not fit is written into a gzip header as none and into a zip entry as 2107, instead of failing with `struct.error` (`py/sitecustomize.py`, on the build's `PYTHONPATH`).
+
 ## 0.8.14
 
 - A restart of the head unit is the Store's request only: it carries the secret, once Store 0.9.16 or newer is installed (it sends it); with an older Store, a restart is asked for without it, within the same limits.

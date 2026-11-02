@@ -1,7 +1,7 @@
 {
   "id": "mgu-updater",
   "kind": "tool",
-  "version": "0.8.14",
+  "version": "0.8.15",
   "title": "Updater",
   "description": "Installs, updates and removes apps and head-unit tools from its sources",
   "requires": { "mgu-deploy": "0.6.9", "mgu-python": "1.0.2" },
@@ -21,6 +21,7 @@
     { "path": "proxy.js", "from": "js/proxy.js", "mode": "0644" },
     { "path": "web.js", "from": "js/web.js", "mode": "0644" },
     { "path": "uids.js", "from": "js/uids.js", "mode": "0644" },
+    { "path": "py/sitecustomize.py", "from": "py/sitecustomize.py", "mode": "0644" },
     { "path": "updater.conf", "from": "updater.conf", "mode": "0644" }
   ],
   "units": [{ "name": "mgu-updater.service", "from": "systemd/mgu-updater.service" }],

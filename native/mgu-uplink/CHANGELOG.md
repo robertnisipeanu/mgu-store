@@ -1,5 +1,9 @@
 # mgu-uplink changelog
 
+## 0.7.4
+
+- `mgu-fetch`: one HTTPS download for the updater (fetch.js's job and events), with certificates checked against the time NTP servers give through the uplink (at least two answering alike) instead of the unit's clock, which on a bench reads decades off. The updater 0.8.14 runs it, as its fetch uid, for a download whose certificate fails on the unit's clock. It is in `crashNames`.
+
 ## 0.7.3
 
 - Wi-Fi on iDrive 7 units without `wlan1` (Broadcom BCM4359, `bcmdhd`): the unit joins on the car's own `wlan0` through the car's D-Bus wpa_supplicant, beside the car's hotspot and wireless CarPlay, with the same requests, saved networks, DHCP, routing and firewall as on `wlan1`. Our networks live only in the car's supplicant's memory, tagged `id_str="mgu-uplink"`, and are removed when Wi-Fi is switched off, the service stops or the car starts using `wlan0` (a network of its own, its Wi-Fi switched off); a start removes the ones a killed run left. `wlan1`, where there is one, is used as before.

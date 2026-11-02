@@ -292,10 +292,20 @@ plugged in.
 `uplink`, `table` and the other keys take effect at the next service
 restart; `preferred` and `wifi` set by a request take effect at once.
 
+## mgu-fetch
+
+`mgu-fetch` ([`cmd/mgu-fetch`](cmd/mgu-fetch)) is one HTTPS download for
+the updater, with fetch.js's job and events, its certificates checked
+against the time NTP servers give through the uplink (at least two
+answering alike) instead of the unit's clock. The updater runs it as its
+fetch uid for a download whose certificate fails on the unit's clock
+(native/mgu-updater/README.md, "The unit's clock"). The service does not
+run it.
+
 ## Build, install, update
 
 ```sh
-make -C native/mgu-uplink target    # build/target/mgu-uplink (static linux/amd64) and build/target/mgu-wpa
+make -C native/mgu-uplink target    # build/target/mgu-uplink and mgu-fetch (static linux/amd64), build/target/mgu-wpa
 make -C native/mgu-uplink test      # Linux; on a Mac: test-docker
 deploy/hu install mgu-uplink        # build and install over SSH (deploy/README.md)
 ```
