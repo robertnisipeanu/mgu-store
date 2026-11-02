@@ -4380,6 +4380,16 @@ function testBootLists() {
         JSON.stringify({ Whitelist: ['stockd', 'svc-tool'], WhitelistExitSuccess: ['stockd', 'svc-tool'] }) &&
         cs.state === 'error' && /recmgr list: added svc-tool/.test(cs.reason) && /has no \[Whitelist\] section/.test(cs.reason) &&
         fs.readFileSync(noWhite.p('etc/crashhandler-restartlist.conf'), 'utf8') === '[ForceRestartList]\ndbus-daemon\n', r.out);
+    const names = fakeRoot();
+    ['#comment', '[Whitelist]', '   ', 'a name', 'name#x'].forEach((bad) => {
+        const res = names.run(['install', '--artifact', namedTool('bad-name', '0.1.0', (c) => { c.recmgr = [bad]; }), '--yes']);
+        check(`boot lists: a recmgr name ${JSON.stringify(bad)} is refused at install`,
+            res.status === 2 && res.out.includes(`bad recmgr entry ${JSON.stringify(bad)}`) && !fs.existsSync(names.tool('bad-name')), res.out);
+    });
+    r = names.run(['install', '--artifact', namedTool('tpl-name', '0.1.0', (c) => { c.recmgr = ['tpl-name@']; }), '--yes']);
+    check('boot lists: a template\'s recmgr name (name@) is taken', r.status === 0 &&
+        /\ntpl-name@\n/.test(fs.readFileSync(names.p('etc/recmgr-restartlist.conf'), 'utf8')), r.out);
+    names.run(['uninstall', 'tpl-name', '--yes']);
 }
 
 /* A restart list's sections and entries, as the firmware reads them. */
@@ -4568,6 +4578,90 @@ function testListSafety() {
     }
     check(`list safety: at each of the ${rbSyncs.length} syncs of that install and its rollback, a power cut or a failing sync ` +
         'never leaves a unit on disk without its entries', rbSyncs.length > installSyncs && !rbCut.length, rbCut.join('\n'));
+
+    // every unit and enablement link on disk has its name in both recmgr sections; the ones that do not
+    const uncovered = (root) => {
+        const sec = sectionsOf(root.rec());
+        const dir = root.p('etc/systemd/system');
+        const units = fs.readdirSync(dir).filter((n) => /\.(service|socket)$/.test(n) && n !== 'stock.service');
+        fs.readdirSync(dir).filter((n) => /\.wants$/.test(n)).forEach((w) => units.push(...fs.readdirSync(path.join(dir, w))));
+        return units.filter((u) => {
+            const b = u.replace(/\.(service|socket)$/, '');
+            return (sec.Whitelist || []).indexOf(b) < 0 || (sec.WhitelistExitSuccess || []).indexOf(b) < 0;
+        });
+    };
+    const units = (root) => root.hash().lines.filter((l) => l.startsWith('etc/systemd/system')).join('\n');
+    // each sync of run(root, extra) cut by a power cut and failing; the units a step leaves without entries
+    const cutEverywhere = (prepare, run) => {
+        const clean = prepare();
+        fs.writeFileSync(`${clean.R}.sync.log`, '');
+        run(clean, {});
+        const n = fs.readFileSync(`${clean.R}.sync.log`, 'utf8').split('\n').filter(Boolean).length;
+        const bad = [];
+        for (let k = 1; k <= n; k += 1) {
+            ['FAKE_SYNC_KILL_AT', 'FAKE_SYNC_FAIL_AT'].forEach((mode) => {
+                const root = prepare();
+                fs.writeFileSync(`${root.R}.sync.log`, '');
+                run(root, { [mode]: String(k) });
+                const left = uncovered(root);
+                if (left.length) bad.push(`${mode}=${k}: ${left.join(', ')} without entries`);
+            });
+        }
+        return { n, bad };
+    };
+
+    // an update whose activate fails goes back to the version before: v1 has units A and B, v2 A and C
+    const twoUnits = (version, other) => hookArtifact(version, (c) => {
+        delete c.requires;
+        c.units = [{ name: 'fixture-tool.service', from: 'systemd/fixture-tool.service' },
+            { name: `${other}.service`, from: 'systemd/fixture-tool.service' }];
+        c.enable = [{ unit: `${other}.service`, target: 'multi-user.target' }];
+        c.recmgr = [];
+        c.restart = [];
+    });
+    const v1 = twoUnits('0.2.0', 'tool-b');
+    const v2 = twoUnits('0.3.0', 'tool-c');
+    const v1State = {};
+    const onV1 = () => {
+        const root = setup(REC_STOCK, CRASH_LIST);
+        root.run(['install', '--artifact', v1, '--yes'], { FAKE_HOOK_LOG: `${root.R}.hooks.log` });
+        v1State.rec = root.rec();
+        v1State.units = units(root);
+        return root;
+    };
+    const update = (root, extra) => root.run(['install', '--artifact', v2, '--yes'],
+        Object.assign({ FAKE_HOOK_LOG: `${root.R}.hooks.log`, FAKE_HOOK_FAIL: 'activate@0.3.0' }, extra));
+    const up = onV1();
+    rr = update(up, {});
+    check('list safety: an update whose activate fails comes back to v1: v1\'s lists and units exactly, C gone',
+        rr.status !== 0 && up.rec() === v1State.rec && units(up) === v1State.units && !uncovered(up).length &&
+        fs.readlinkSync(path.join(up.tool('fixture-tool'), 'current')) === 'versions/0.2.0' &&
+        !fs.existsSync(up.p('etc/systemd/system/tool-c.service')), rr.out);
+    const upCut = cutEverywhere(onV1, update);
+    check(`list safety: at each of the ${upCut.n} syncs of that update and its rollback, a power cut or a failing sync leaves ` +
+        'no unit without its entries', upCut.n > 5 && !upCut.bad.length, upCut.bad.join('\n'));
+
+    // restore from a backup that has a unit the unit does not: the fallback's, taken by `fallback off`
+    const fbState = {};
+    const fbOff = () => {
+        const root = setup(REC_STOCK, CRASH_LIST);
+        root.run(['fallback', 'on', '--yes']);
+        fbState.rec = root.rec();
+        fbState.units = units(root);
+        root.run(['fallback', 'off', '--yes']);
+        root.backup = fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).filter((b) => /-fallback$/.test(b)).sort().pop();
+        return root;
+    };
+    const restore = (root, extra) => root.run(['restore', root.backup, '--yes'], extra);
+    const fb = fbOff();
+    const fbOffRec = fb.rec();
+    rr = restore(fb, {});
+    check('list safety: restoring the backup `fallback off` took puts its unit, link and entries back, as before it',
+        rr.status === 0 && fbOffRec.indexOf('mgu-app-fallback') < 0 && fb.rec() === fbState.rec && units(fb) === fbState.units &&
+        sectionsOf(fb.rec()).Whitelist.indexOf('mgu-app-fallback') >= 0, `${rr.out}\n${fb.rec()}`);
+    const fbCut = cutEverywhere(fbOff, restore);
+    check(`list safety: at each of the ${fbCut.n} syncs of that restore, a power cut or a failing sync leaves no unit without its entries`,
+        fbCut.n > 3 && !fbCut.bad.length, fbCut.bad.join('\n'));
 
     // a name another installed tool still has stays
     const shared = setup(REC_STOCK, CRASH_LIST);

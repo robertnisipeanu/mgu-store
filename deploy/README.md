@@ -766,10 +766,11 @@ both `[Whitelist]` and `[WhitelistExitSuccess]`, and so does the name of each
 service and socket unit it installs (without `.service` or `.socket`; a
 template's as `name@`) unless the firmware has that name: in
 `[ForceRestartList]`, or a unit in `/lib/systemd/system` or
-`/usr/lib/systemd/system`. Other lines and sections are kept as they are. An
-uninstall takes out the names no other installed tool has. `status`, run as
-root, adds the installed tools' names missing from the list, as for the
-crash handler's list below.
+`/usr/lib/systemd/system`. A `recmgr` name is letters, digits and `:._+@-`
+(an install with another is refused). Other lines and sections are kept as
+they are. An uninstall takes out the names no other installed tool has.
+`status`, run as root, adds the installed tools' names missing from the
+list, as for the crash handler's list below.
 
 Both lists are read as recmgr and the crash handler read them: from `#` on a
 line is a comment, the rest is trimmed, `[name]` starts a section and any

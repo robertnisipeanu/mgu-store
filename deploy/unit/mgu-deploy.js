@@ -655,6 +655,8 @@ function stockUnit(name) {
         return ['.service', '.socket'].some(function (ext) { return !!lstatOrNull(path.join(d, name + ext)); });
     });
 }
+/* A recmgr entry: a unit's name without its suffix, a template's with its "@". */
+var RECMGR_NAME = /^[A-Za-z0-9:._+@-]{1,255}$/;
 /* The sections an edit adds names to and removes them from. */
 var RECMGR_LIST = { edited: ['Whitelist', 'WhitelistExitSuccess'] };
 var CRASH_LIST = { edited: ['Whitelist'] };
@@ -797,7 +799,7 @@ function limitsPlan(tools, only) {
  * as the stock list has them) unless the firmware has that name (in
  * [ForceRestartList], or a unit of its own). */
 function recmgrNamesOf(c) {
-    var out = (c.recmgr || []).slice(), force = recmgrSections(recmgrText()).ForceRestartList || [];
+    var out = (c.recmgr || []).filter(function (n) { return typeof n === 'string' && RECMGR_NAME.test(n); }), force = recmgrSections(recmgrText()).ForceRestartList || [];
     (c.units || []).forEach(function (u) {
         var n = recmgrBase(u.name);
         if (/\.(service|socket)$/.test(u.name) && out.indexOf(n) < 0 && force.indexOf(n) < 0 && !stockUnit(n)) out.push(n);
@@ -861,8 +863,8 @@ function crashOwned() {
     var o = readJsonOrNull(CRASH_OWNED);
     return o && Array.isArray(o.names) ? o.names : [];
 }
-/* text with addNames after [Whitelist]'s last entry (in a new section at
- * the end when it has none) and removeNames' lines out of it. */
+/* text with addNames after [Whitelist]'s last entry and removeNames'
+ * lines out of it; without [Whitelist], crashListPlan refuses the edit. */
 function crashListWith(text, addNames, removeNames) {
     var lines = text.split('\n'), out = [], current = null, at = -1, eol = '';
     lines.forEach(function (line) {
@@ -876,13 +878,8 @@ function crashListWith(text, addNames, removeNames) {
         out.push(line);
         if (current === 'Whitelist' && name) { at = out.length; eol = /\r$/.test(line) ? '\r' : ''; }
     });
-    if (!addNames.length) return out.join('\n');
+    if (!addNames.length || at < 0) return out.join('\n');
     var add = addNames.map(function (n) { return n + eol; });
-    if (at < 0) {
-        if (out.length && out[out.length - 1] !== '') out.push('');
-        out.push('[Whitelist]');
-        return out.concat(add).join('\n') + '\n';
-    }
     return out.slice(0, at).concat(add, out.slice(at)).join('\n');
 }
 /* What keeps the list as the given tools want it: the rootfs op (null
@@ -899,6 +896,7 @@ function crashListPlan(tools) {
     var have = sections.Whitelist || [];
     var add = want.filter(function (n) { return have.indexOf(n) < 0; });
     var remove = owned.filter(function (n) { return want.indexOf(n) < 0 && have.indexOf(n) >= 0; });
+    if (add.length && !sections.Whitelist) throw refuse(CFG.crashList + ' has no [Whitelist] section; left as it is');
     var next = crashListWith(text, add, remove);
     if (next !== text) checkListEdit(CFG.crashList, CRASH_LIST, text, next, add, remove);
     return {
@@ -1576,6 +1574,7 @@ function validateTool(file, dir, c) {
     }
     (c.recmgr || []).concat(c.restart || []).forEach(function (n) {
         if (typeof n !== 'string' || !n) throw refuse(file + ': bad recmgr/restart entry');
+        if ((c.recmgr || []).indexOf(n) >= 0 && !RECMGR_NAME.test(n)) throw refuse(file + ': bad recmgr entry ' + JSON.stringify(n));
         if (n === 'oapcontroller' || n === 'oapcontroller.service') throw refuse(file + ': oapcontroller is never restarted');
     });
     if (c.crashNames !== undefined && (!Array.isArray(c.crashNames) || !c.crashNames.every(function (n) {
