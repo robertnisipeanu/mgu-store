@@ -264,12 +264,14 @@ function testFetch() {
             r.code !== 0 && r.requests === 0, JSON.stringify(r.events)));
 }
 
-/* python -c PY_FETCH <url> <cafile>: prints "ok" once the body is read, else "error <why>". */
+/* python -c PY_FETCH <url> <cafile> [assign]: prints "ok" once the body is read, else "error <why>";
+ * with assign, the context's verify_flags are set over after it is made. */
 const PY_FETCH = `
 import ssl, sys, urllib.request
 try:
     ctx = ssl.create_default_context(cafile=sys.argv[2])
-    ctx.verify_flags = ssl.VERIFY_DEFAULT
+    if sys.argv[3:] == ['assign']:
+        ctx.verify_flags = ssl.VERIFY_DEFAULT
     urllib.request.urlopen(sys.argv[1], context=ctx, timeout=20).read()
     print('ok')
 except Exception as e:
@@ -279,24 +281,26 @@ except Exception as e:
 /* Each case through Python's TLS, as a build's (py/ on PYTHONPATH) and
  * without it. */
 function testPython(python) {
-    const run = (url, hook) => new Promise((resolve) => {
+    const run = (url, hook, assign) => new Promise((resolve) => {
         const env = { PATH: process.env.PATH, PYTHONDONTWRITEBYTECODE: '1' };
         if (hook) {
             env.PYTHONPATH = path.join(ROOT, 'js', 'py');
         }
-        cp.execFile(python, ['-c', PY_FETCH, url, path.join(T, 'root.pem')], { env, encoding: 'utf8' },
+        cp.execFile(python, ['-c', PY_FETCH, url, path.join(T, 'root.pem')].concat(assign ? ['assign'] : []), { env, encoding: 'utf8' },
             (err, out) => resolve(String(out).trim() || (err && err.message)));
     });
     return CASES.reduce((p, c) => p.then(() => serve(c)).then((s) => {
         const url = `https://localhost:${s.address().port}/x`;
-        return run(url, true).then((withHook) => run(url, false).then((without) => {
+        return run(url, true).then((withHook) => run(url, true, true).then((assigned) => run(url, false).then((without) => {
             s.close();
             const fits = c.accept && !c.dates;
             ok(`python (build): ${c.name}: ${c.accept ? 'downloaded' : 'refused'}`,
                 c.accept ? withHook === 'ok' : /^error /.test(withHook), withHook);
+            ok(`python (build, verify_flags set over): ${c.name}: ${c.accept ? 'downloaded' : 'refused'}`,
+                c.accept ? assigned === 'ok' : /^error /.test(assigned), assigned);
             ok(`python (no hook): ${c.name}: ${fits ? 'downloaded' : 'refused'}`, fits ? without === 'ok' : /^error /.test(without), without);
-            ok(`python: ${c.name}: a request only from a fetch taken`, s.requests === (c.accept ? 1 : 0) + (fits ? 1 : 0), s.requests);
-        }));
+            ok(`python: ${c.name}: a request only from a fetch taken`, s.requests === (c.accept ? 2 : 0) + (fits ? 1 : 0), s.requests);
+        })));
     }), Promise.resolve());
 }
 
