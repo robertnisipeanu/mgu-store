@@ -2635,6 +2635,15 @@ function testPrivacyOneBounce() {
         r.status === 0 && !r.out.includes('loads it at the app install') &&
         at(r.out, 'bouncing the app manager') >= 0 && at(r.out, 'bouncing the app manager') < at(r.out, 'installing app second_app'), r.out);
 
+    // an app of ours in the manager's registry, with no fallback: app-privacy's bounce comes first too
+    root = fakeRoot({ privacy: false });
+    write(root.entry('old_app'), JSON.stringify({ userId: 13005, installationSource: 'PREINSTALLED' }));
+    write(path.join(root.home(13005), 'source/package.json'), JSON.stringify({ name: 'old_app', version: '1.0.0', mguLocalOnly: true }));
+    r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    check('privacy one bounce: with an app of ours in the registry, app-privacy bounces at once, before the app is placed',
+        r.status === 0 && !r.out.includes('loads it at the app install') &&
+        at(r.out, 'bouncing the app manager') >= 0 && at(r.out, 'bouncing the app manager') < at(r.out, 'installing app fixture_app'), r.out);
+
     // app-privacy alone: its own bounce
     root = fakeRoot({ privacy: false });
     r = root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--yes']);

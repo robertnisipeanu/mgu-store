@@ -950,7 +950,8 @@ nothing and reports app-privacy pending until the next start.
 
 An install with an app to install or update, on an iDrive 7 unit where the
 running manager can list no app of ours (the fallback's unit absent,
-`main.js` not bound, `custom_apps.json` listing nothing: a first install,
+`main.js` not bound, `custom_apps.json` listing nothing, no app of ours in
+its registry: a first install,
 `mgu-install.js first-install` among them), leaves that bounce to the
 app's: the fallback goes on with the app, so the app install bounces the
 manager anyway, and the manager restarts once, with the patch, the
