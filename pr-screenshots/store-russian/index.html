@@ -1,0 +1,99 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Store на русском</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a contact sheet of head-unit screens, grouped by Store page, iDrive 7 and 8 side by side. */
+:root {
+  --bg: #eef0f3; --panel: #ffffff; --fg: #15191f; --dim: #5b6472; --line: #d5d9e0; --accent: #1f6fd6;
+  --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b0d11; --panel: #151920; --fg: #e8ebf0; --dim: #8b94a3; --line: #262c36; --accent: #5ea2ff; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #0b0d11; --panel: #151920; --fg: #e8ebf0; --dim: #8b94a3; --line: #262c36; --accent: #5ea2ff; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.5 }
+.wrap { max-width: 1500px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+header { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: end; justify-content: space-between; margin-bottom: 24px }
+h1 { font-size: 28px; font-weight: 600; margin: 0; text-wrap: balance }
+.sub { color: var(--dim); margin: 4px 0 0 }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel) }
+.seg button { font: 500 14px var(--sans); color: var(--dim); background: none; border: 0; padding: 8px 14px; cursor: pointer }
+.seg button + button { border-left: 1px solid var(--line) }
+.seg button[aria-pressed="true"] { color: var(--fg); background: color-mix(in srgb, var(--accent) 16%, transparent) }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+nav { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 28px; font-size: 14px }
+nav a { color: var(--accent); text-decoration: none } nav a:hover { text-decoration: underline }
+section { margin-bottom: 40px }
+h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--dim);
+  margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line) }
+.shot { display: grid; gap: 12px; margin-bottom: 22px }
+.shot h3 { font: 500 15px var(--sans); margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap }
+.shot h3 code { font: 400 12px var(--mono); color: var(--dim) }
+.pair { display: grid; grid-template-columns: 1796fr 2880fr; gap: 12px; align-items: start }
+body.only-id7 .pair, body.only-id8 .pair { grid-template-columns: 1fr }
+body.only-id7 .u-id8, body.only-id8 .u-id7 { display: none }
+figure { margin: 0; min-width: 0 }
+figure img { display: block; width: 100%; height: auto; border-radius: 6px; background: #000; cursor: zoom-in }
+figcaption { font: 400 12px var(--mono); color: var(--dim); margin-top: 4px }
+@media (max-width: 800px) { .pair { grid-template-columns: 1fr } }
+dialog { padding: 0; border: 0; background: transparent; max-width: 98vw; max-height: 96vh }
+dialog::backdrop { background: rgba(0,0,0,.85) }
+dialog img { display: block; max-width: 98vw; max-height: 96vh; cursor: zoom-out }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Store на русском</h1>
+      <p class="sub">Все экраны Store с текущими переводами (коммит dbd8ee8), офлайн-рендер mgu-render. Нажмите на снимок, чтобы открыть в полном размере.</p>
+    </div>
+    <div class="seg" role="group" aria-label="Блок">
+      <button id="u-both" aria-pressed="true" data-u="both">iDrive 7 + 8</button>
+      <button id="u-id7" aria-pressed="false" data-u="id7">iDrive 7</button>
+      <button id="u-id8" aria-pressed="false" data-u="id8">iDrive 8</button>
+    </div>
+  </header>
+  <nav id="toc"></nav>
+  <main id="list"></main>
+</div>
+<dialog id="zoom"><img alt=""></dialog>
+
+<script>
+const GROUPS = [
+  ['store', 'Магазин', [['store', 'Каталог'], ['store-apps', 'Фильтр «Прил.»'], ['offline', 'Нет сети'], ['usb', 'USB']]],
+  ['installed', 'Установлено', [['installed', 'Список установленного']]],
+  ['app', 'Карточка приложения', [['app-update', 'Доступно обновление'], ['app-downloading', 'Загрузка'], ['app-failed', 'Ошибка'],
+    ['app-incompatible', 'Несовместимо'], ['app-renderer', 'Требуется рендерер'], ['tool-undo', 'Откат системного компонента']]],
+  ['confirm', 'Подтверждения', [['confirm-restart', 'Перезагрузка'], ['confirm-remove', 'Удаление'], ['confirm-undo', 'Откат обновления'],
+    ['confirm-account', 'Удаление аккаунта'], ['confirm-wifi-forget', 'Забыть сеть']]],
+  ['settings', 'Настройки и источники', [['settings', 'Настройки'], ['source', 'Источник'], ['source-failed', 'Источник с ошибкой'],
+    ['source-install-app', 'Установка GitHub App'], ['pick', 'Выбор канала'], ['pick-private', 'Приватный репозиторий'], ['pick-offline', 'Выбор канала без сети']]],
+  ['access', 'Аккаунты и доступ', [['accounts', 'Аккаунты'], ['accounts-token-refused', 'Токен отклонён'], ['login', 'Вход через GitHub'], ['phone', 'Доступ с телефона']]],
+  ['wifi', 'Wi-Fi', [['wifi', 'Сети'], ['wifi-off', 'Wi-Fi выключен'], ['wifi-failed', 'Ошибка Wi-Fi'], ['wifi-password', 'Ввод пароля'], ['prefer', 'Приоритетное подключение']]],
+  ['type', 'Ввод текста', [['type', 'Клавиатура'], ['type-text', 'Текст'], ['type-symbols', 'Символы'], ['type-token', 'Токен']]],
+];
+const list = document.getElementById('list'), toc = document.getElementById('toc');
+for (const [id, title, shots] of GROUPS) {
+  const a = document.createElement('a'); a.href = '#' + id; a.textContent = title; toc.append(a);
+  const s = document.createElement('section'); s.id = id;
+  s.innerHTML = `<h2>${title}</h2>` + shots.map(([n, label]) => `
+    <div class="shot"><h3>${label} <code>${n}</code></h3><div class="pair">
+      <figure class="u-id7"><img loading="lazy" src="id7-ru-${n}.png" width="1796" height="632" alt="iDrive 7: ${label}"><figcaption>iDrive 7 · 1796×632</figcaption></figure>
+      <figure class="u-id8"><img loading="lazy" src="id8-ru-${n}.png" width="2880" height="764" alt="iDrive 8: ${label}"><figcaption>iDrive 8 · 2880×764</figcaption></figure>
+    </div></div>`).join('');
+  list.append(s);
+}
+const btns = document.querySelectorAll('.seg button');
+function setUnit(u) {
+  document.body.classList.toggle('only-id7', u === 'id7'); document.body.classList.toggle('only-id8', u === 'id8');
+  btns.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.u === u)));
+  try { localStorage.setItem('unit', u); } catch (e) {}
+}
+btns.forEach((b) => b.addEventListener('click', () => setUnit(b.dataset.u)));
+try { const u = localStorage.getItem('unit'); if (u) setUnit(u); } catch (e) {}
+const zoom = document.getElementById('zoom'), zimg = zoom.querySelector('img');
+list.addEventListener('click', (e) => { if (e.target.tagName === 'IMG') { zimg.src = e.target.src; zimg.alt = e.target.alt; zoom.showModal(); } });
+zoom.addEventListener('click', () => zoom.close());
+</script>
