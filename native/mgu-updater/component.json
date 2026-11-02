@@ -4,7 +4,7 @@
   "version": "0.8.14",
   "title": "Updater",
   "description": "Installs, updates and removes apps and head-unit tools from its sources",
-  "requires": { "mgu-deploy": "0.6.9", "mgu-python": "1.0.2", "robertn_store": "0.9.16" },
+  "requires": { "mgu-deploy": "0.6.9", "mgu-python": "1.0.2" },
   "internet": true,
   "uids": "state/internet-uids",
   "files": [

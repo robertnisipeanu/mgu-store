@@ -3,7 +3,7 @@
 ## 0.9.16
 
 Restart head unit carries the updater's secret, which mgu-updater 0.8.14
-asks for. A restart the updater refuses shows why and when one is possible.
+asks for once this Store is installed. A restart the updater refuses shows why and when one is possible.
 
 ## 0.9.15
 

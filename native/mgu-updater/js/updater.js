@@ -57,6 +57,9 @@ const HOUR_MS = 60 * 60 * 1000;
 const PLACED_GRACE_MS = 5 * 60 * 1000;
 // A Store this new or newer says hello when it connects; its update stands once it has (storeTrial).
 const STORE_HELLO_SINCE = '0.9.14';
+// A Store this new or newer sends the secret with its restart request; while
+// an older one is installed, a restart is asked for without it.
+const STORE_REBOOT_SECRET_SINCE = '0.9.16';
 // How long a started Store has to say hello before its update counts as failed.
 const STORE_HELLO_MS = Number(process.env.MGU_UPDATER_STORE_HELLO_MS || 120000);
 // The uplink takes up a new fetch uid within its 5 s rescan of uids.d.
@@ -3292,10 +3295,16 @@ class Updater {
         return undefined;
     }
 
+    /* The installed Store is one that asks for a restart without the secret. */
+    storeRebootsWithoutSecret() {
+        const v = this.installedVersion(this.conf.store_app, 'app');
+        return !!v && catalogLib.compareVersions(v, STORE_REBOOT_SECRET_SINCE) < 0;
+    }
+
     /* One request; returns the reason it is refused, null when the state
      * answers it, or undefined when it answers later through reply(msg). */
     handle(req, reply) {
-        if (PRIVILEGED.indexOf(req.op) >= 0 && !this.authorized(req.secret)) {
+        if (PRIVILEGED.indexOf(req.op) >= 0 && !this.authorized(req.secret) && !(req.op === 'reboot' && this.storeRebootsWithoutSecret())) {
             return 'forbidden';
         }
         switch (req.op) {

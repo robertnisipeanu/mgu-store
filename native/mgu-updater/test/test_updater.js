@@ -1142,7 +1142,7 @@ function testReboot() {
     upFor(600);
     const record = path.join(dir, 'state', 'reboots.json');
     const make = (reboot, stateDir) => new Updater({ catalog: `file://${path.join(dir, 'catalog.json')}`,
-        state_dir: stateDir || path.join(dir, 'state'), reboot, proc });
+        state_dir: stateDir || path.join(dir, 'state'), reboot, proc, store_app: 'robertn_store' });
     let u = make(`${script} --requestRestart 7`);
     u.busy = { id: 'demo_app', phase: 'download' };
     ok('reboot: refused while an install runs', u.reboot() === 'an install is running' && !u.rebooting);
@@ -1238,6 +1238,18 @@ function testReboot() {
             upFor(600);
             ok('reboot: the socket refuses a restart without the secret', u.handle({ op: 'reboot' }) === 'forbidden' && !u.rebooting);
             ok('reboot: and accepts the Store\'s, with the secret', u.handle({ op: 'reboot', secret: u.secret }) === null && u.rebooting);
+            // a Store before 0.9.16 sends no secret: while one is installed, its restart is taken without it, within the limits
+            fs.unlinkSync(record);
+            const storeAt = (v) => {
+                const s = make(`${script} --requestRestart 7`);
+                s.installedVersion = (id, kind) => (id === 'robertn_store' && kind === 'app' ? v : null);
+                return s;
+            };
+            ok('reboot: a Store 0.9.16 or newer installed: no restart without the secret', storeAt('0.9.16').handle({ op: 'reboot' }) === 'forbidden');
+            u = storeAt('0.9.15');
+            ok('reboot: a Store before 0.9.16 installed: its restart without the secret is taken', u.handle({ op: 'reboot' }) === null && u.rebooting);
+            u = storeAt('0.9.15');
+            ok('reboot: and limited like any other', u.handle({ op: 'reboot' }) === 'too soon after the last restart, possible in 10 min', u.rebootError);
             return sleep(1000);
         });
 }

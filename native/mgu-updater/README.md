@@ -621,8 +621,9 @@ pointed to before), so the way back never needs a download.
 ## Restarting the head unit
 
 The Store's Restart head unit sends `{"op":"reboot"}` with the secret
-(only the Store asks for a restart; the phone page offers none), and the
-daemon runs
+(only the Store asks for a restart; the phone page offers none; while a
+Store older than 0.9.16 is installed, which sends none, it is taken without
+it), and the daemon runs
 the `reboot` command: `/usr/bin/nsm_control --requestRestart 7 --normal`,
 which asks the Node State Manager (NSM) for a restart
 (`LifecycleControl.RequestNodeRestart`) with reason 7 (Application) and a
@@ -865,7 +866,7 @@ Store says it at each connection (below, "The Store's update").
 
 | Request | Does |
 |---|---|
-| `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit") |
+| `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"); without the secret while a Store older than 0.9.16 is installed |
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component (every app but the Store) |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
