@@ -2163,25 +2163,27 @@ class Updater {
         return (Array.isArray(at) ? at : []).filter((t) => Number.isFinite(t) && t <= now && now - t < HOUR_MS);
     }
 
-    /* Why a restart cannot be asked for yet and in how many ms it can, or
-     * null when it can (REBOOT_MIN_UPTIME_S, REBOOT_SPACING_MS, REBOOT_HOUR_MAX). */
+    /* Why a restart cannot be asked for yet and in how many ms it can (the
+     * longest of the limits that hold it back), or null when it can
+     * (REBOOT_MIN_UPTIME_S, REBOOT_SPACING_MS, REBOOT_HOUR_MAX). */
     rebootWait(now) {
         const up = uptimeS(this.conf);
         if (up === null) {
             return { why: 'the head unit\'s uptime is unknown', ms: 0 };
         }
-        if (up < REBOOT_MIN_UPTIME_S) {
-            return { why: 'too soon after start-up', ms: (REBOOT_MIN_UPTIME_S - up) * 1000 };
-        }
         const times = this.rebootTimes(now);
+        const waits = [];
+        if (up < REBOOT_MIN_UPTIME_S) {
+            waits.push({ why: 'too soon after start-up', ms: (REBOOT_MIN_UPTIME_S - up) * 1000 });
+        }
         const last = Math.max.apply(null, [-Infinity].concat(times));
         if (now - last < REBOOT_SPACING_MS) {
-            return { why: 'too soon after the last restart', ms: last + REBOOT_SPACING_MS - now };
+            waits.push({ why: 'too soon after the last restart', ms: last + REBOOT_SPACING_MS - now });
         }
         if (times.length >= REBOOT_HOUR_MAX) {
-            return { why: `${times.length} restarts in the last hour`, ms: Math.min.apply(null, times) + HOUR_MS - now };
+            waits.push({ why: `${times.length} restarts in the last hour`, ms: Math.min.apply(null, times) + HOUR_MS - now });
         }
-        return null;
+        return waits.reduce((a, w) => (!a || w.ms > a.ms ? w : a), null);
     }
 
     /* Restarts the head unit with the `reboot` command (updater.conf), on the

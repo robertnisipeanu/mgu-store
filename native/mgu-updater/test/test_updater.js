@@ -1188,19 +1188,21 @@ function testReboot() {
             ok('reboot: the record holds the restart that ran, not the two whose command failed', at.length === 1, JSON.stringify(at));
             ok('reboot: the record is written whole (no temporary file left)', !fs.existsSync(`${record}.tmp`));
 
-            // the unit restarted: a new updater on the same state, the head unit up 1 min
+            // the unit restarted: a new updater on the same state, the head unit up 1 min; the
+            // restart that ran is less than 10 min ago, from the record that outlived the restart
             upFor(60);
             u = make(`${script} --requestRestart 7`);
             const why = u.reboot();
+            ok('reboot: refused within 10 min of the last restart, across a restart of the unit, saying when the longest limit ends',
+                why === 'too soon after the last restart, possible in 10 min' && u.state().rebootError === why && !u.rebooting, why);
+
+            const saved = fs.readFileSync(record);
+            fs.unlinkSync(record);
             ok('reboot: refused too soon after start-up, saying when it is possible',
-                why === 'too soon after start-up, possible in 3 min' && u.state().rebootError === why && !u.rebooting, why);
+                u.reboot() === 'too soon after start-up, possible in 3 min', u.rebootError);
+            fs.writeFileSync(record, saved);
 
-            // up 5 min: the restart that ran is less than 10 min ago, from the record that outlived the restart
             upFor(300);
-            u = make(`${script} --requestRestart 7`);
-            ok('reboot: refused within 10 min of the last restart, across a restart of the unit',
-                u.reboot() === 'too soon after the last restart, possible in 10 min', u.rebootError);
-
             const now = Date.now();
             fs.writeFileSync(record, JSON.stringify({ at: [now - 50 * 60000, now - 35 * 60000, now - 20 * 60000] }));
             ok('reboot: refused after 3 restarts in the last hour',
@@ -1213,8 +1215,10 @@ function testReboot() {
             const kept = JSON.parse(fs.readFileSync(record, 'utf8')).at;
             ok('reboot: the record keeps the last hour and the new restart, written before the command runs',
                 kept.length === 2 && kept[0] === now - 11 * 60000 && kept[1] >= now, JSON.stringify(kept));
-            ok('reboot: and the command runs', rebootRuns(dir).length >= before);
 
+            return sleep(500).then(() => ok('reboot: and the command runs', rebootRuns(dir).length === before + 1, rebootRuns(dir).length));
+        })
+        .then(() => {
             // a record that cannot be written refuses the restart
             const blocked = path.join(dir, 'blocked');
             fs.writeFileSync(blocked, '');
