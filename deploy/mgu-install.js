@@ -769,6 +769,41 @@ for f in "$S"/with/*.tgz; do
 done
 `;
 
+/* Read-only, on the unit: oapcontroller starts no app manager when the
+ * head unit's coding (/dev/shm/rawcodingdata, 0x1030 bytes; status flags in
+ * byte 0x28: 0x08 header valid, 0x02 and 0x04 default values) is not valid
+ * or is the default values. Prints "invalid" or "default" when the coding
+ * says so and no app manager (node running MainApp's src/main.js) runs, else
+ * "ok". One line with no double quote or backslash: Windows passes the
+ * remote command through its own quoting. */
+const CODING_CHECK = '/usr/bin/node -e \'var fs = require(`fs`), b = null, f, why = null, nul = String.fromCharCode(0);' +
+    ' try { b = fs.readFileSync(`/dev/shm/rawcodingdata`); } catch (e) {}' +
+    ' if (b && b.length === 0x1030) { f = b[0x28]; why = !(f & 8) ? `invalid` : f & 6 ? `default` : null; }' +
+    ' var manager = why && fs.readdirSync(`/proc`).some(function (p) {' +
+    ' var a; try { a = fs.readFileSync(`/proc/` + p + `/cmdline`, `utf8`).split(nul); } catch (e) { return false; }' +
+    ' return (a[0] === `node` || a[0].slice(-5) === `/node`) && a.slice(1).some(function (s) {' +
+    ' return [`oap-mainapp/src/main.js`, `oap-mainapp/src/main.bundle.js`, `oap-mainapp21/src/main.js`, `oap-mainapp21/src/main.bundle.js`]' +
+    '.some(function (m) { return s.slice(-m.length - 1) === `/` + m; }); }); });' +
+    ' console.log(why && !manager ? why : `ok`);\'';
+
+const CODING_MISSING = {
+    default: 'it holds default values',
+    invalid: 'it is not valid'
+};
+
+/* Stops (exit 2) before anything reaches the unit when its coding keeps
+ * MainApp from starting; a check that cannot run lets the install go on. */
+function checkCoding(o) {
+    const r = ssh(o, CODING_CHECK, { input: Buffer.alloc(0), capture: true });
+    const why = r.status === 0 ? CODING_MISSING[r.stdout.trim()] : null;
+    if (why) {
+        say(`The head unit's coding is missing: ${why}. This often happens after enabling SSH or flashing. ` +
+            'Restore the head unit\'s coding from a backup (BimmerCode, E-Sys or ISTA) or have HU_MGU coded to the car, ' +
+            'restart the head unit, then run the install again.');
+    }
+    return !why;
+}
+
 /* The deploy tool's own files, from its published artifact: component.json
  * (its manifest) and files/<path>, each checked against the manifest. */
 function deployToolFiles(artifact) {
@@ -804,6 +839,9 @@ async function firstInstall(o) {
     const label = from || STORE_REPO;
     const token = o.token ? await readToken('GitHub token for the updater (input hidden): ') : null;
     await reach(o);
+    if (!checkCoding(o)) {
+        return 2;
+    }
     const { components } = local || await githubComponents(await githubRepo(STORE_REPO, token));
     const wanted = WITH.filter((w) => !o[w.skip]);
     const chosen = components.filter((c) => !c.entry.optional || wanted.some((w) => w.id === c.entry.id));

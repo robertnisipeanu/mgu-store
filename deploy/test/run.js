@@ -757,29 +757,49 @@ function testDefaultCodingInstall() {
     const app = appArtifact('fixture_app', '1.0.0', true);
     const r = root.run(['install', '--artifact', app, '--yes']);
     check('default coding: the app install is refused at once', r.status === 2 &&
-        r.out.includes('the app manager cannot run on this head unit: its coding is the default values') &&
-        r.out.includes('Have the head unit coded to the car') && r.out.includes('Nothing was changed.') &&
+        r.out.includes('The head unit\'s coding is missing: it holds default values. This often happens after enabling SSH or flashing.') &&
+        r.out.includes('Restore the head unit\'s coding from a backup (BimmerCode, E-Sys or ISTA) or have HU_MGU coded to the car') &&
         !r.out.includes('app-privacy') && !r.out.includes('backup:') && !r.out.includes('no app manager is running'), r.out);
     check('default coding: nothing installed or snapshotted', !fs.existsSync(root.preinstalled('fixture_app', '1.0.0')) &&
         !fs.existsSync(root.p('var/opt/mgu-deploy/backups/stock')), r.out);
     const bad = fakeRoot({ noManager: true });
     writeCoding(bad, 0x00);
     const rb = bad.run(['install', '--artifact', app, '--yes']);
-    check('invalid coding header: refused the same way', rb.status === 2 && rb.out.includes('its coding is not valid'), rb.out);
+    check('invalid coding header: refused the same way', rb.status === 2 && rb.out.includes('coding is missing: it is not valid'), rb.out);
+    const first = fakeRoot({ noManager: true });
+    writeCoding(first, 0x0a);
+    const plog = `${first.R}.privacy.log`;
+    const rf = first.run(['install', '--artifact', privacyArtifact(), '--artifact', app, '--yes']);
+    check('default coding: refused before app-privacy\'s check and any tool install', rf.status === 2 &&
+        rf.out.includes('coding is missing') && !fs.existsSync(plog) && !fs.existsSync(first.p('var/opt/app-privacy/current')) &&
+        !fs.existsSync(first.p('var/opt/mgu-deploy')), rf.out);
     const coded = fakeRoot({ noManager: true });
     writeCoding(coded, 0x09);
     const rc = coded.run(['install', '--artifact', app, '--yes'], { MGU_DEPLOY_BOUNCE_TIMEOUT_MS: '1000' });
     check('car coding, no manager: the install goes on to the manager check', rc.status === 1 &&
-        !rc.out.includes('cannot run on this head unit') && rc.out.includes('no app manager is running on this head unit'), rc.out);
+        !rc.out.includes('coding is missing') && rc.out.includes('no app manager is running on this head unit'), rc.out);
     const running = fakeRoot({});
     writeCoding(running, 0x0a);
     const rr = running.run(['install', '--artifact', app, '--yes']);
     check('default coding with a manager running: the app installs', rr.status === 0 &&
-        !rr.out.includes('cannot run on this head unit'), rr.out);
+        !rr.out.includes('coding is missing'), rr.out);
     const tools = fakeRoot({ noManager: true });
     writeCoding(tools, 0x0a);
     const rt = tools.run(['install', '--artifact', toolArtifact('1.0.0'), '--yes']);
-    check('default coding: a tool installs', rt.status === 0 && !rt.out.includes('cannot run on this head unit'), rt.out);
+    check('default coding: a tool installs', rt.status === 0 && !rt.out.includes('coding is missing'), rt.out);
+    // iDrive 8: oapcontroller starts no MainApp-21 on such a coding either
+    const i8 = id8Root();
+    i8.noManager();
+    writeCoding(i8, 0x0a);
+    const r8 = i8.run(['install', '--artifact', rhmiApp('x8', '1.0.0', ['ID8']), '--yes']);
+    check('iDrive 8, default coding: the app install is refused at once, nothing queued', r8.status === 2 &&
+        r8.out.includes('coding is missing: it holds default values') && !fs.existsSync(i8.p('var/opt/mgu-deploy')), r8.out);
+    const c8 = id8Root();
+    c8.noManager();
+    writeCoding(c8, 0x09);
+    const rc8 = c8.run(['install', '--artifact', rhmiApp('x8', '1.0.0', ['ID8']), '--yes']);
+    check('iDrive 8, car coding, no manager: the app is queued', rc8.status === 0 && !rc8.out.includes('coding is missing') &&
+        fs.existsSync(c8.p('var/opt/mgu-deploy/id8/queue/x8@1.0.0.tgz')), rc8.out);
 }
 
 function readJsonOrNull(p) {
@@ -4291,6 +4311,50 @@ function mguInstall(args, opts) {
     return r;
 }
 
+/* first-install on a unit whose coding keeps MainApp from starting: it
+ * stops after one read-only look, before any download or anything sent. */
+function testMguInstallCoding() {
+    const gh = fakeGithub({ files: [], repos: {} });
+    try {
+        const rel = fakeRelease(gh.api);
+        gh.set({ files: rel.files, repos: { [STORE_REPO]: { catalog: rel.catalogIndex } } });
+        const unit = (flags, opts) => {
+            const root = donorRoot(opts);
+            writeCoding(root, flags);
+            return { root, opts: { bin: installBin(root), api: gh.api } };
+        };
+        const d = unit(0x0a, { noManager: true });
+        const before = d.root.hash();
+        gh.reset();
+        let r = mguInstall(['first-install', '--host', '10.0.0.9'], d.opts);
+        check('mgu-install first-install, default coding: refused (exit 2) saying what to do', r.status === 2 &&
+            r.stdout === 'The head unit\'s coding is missing: it holds default values. This often happens after enabling SSH or flashing. ' +
+            'Restore the head unit\'s coding from a backup (BimmerCode, E-Sys or ISTA) or have HU_MGU coded to the car, ' +
+            'restart the head unit, then run the install again.\n', r.out);
+        check('mgu-install first-install, default coding: one read-only command, no download, the unit unchanged',
+            r.calls.length === 1 && !/["\\]/.test(r.calls[0][r.calls[0].length - 1]) && !gh.requests().length &&
+            d.root.hash().hash === before.hash, `${r.out}\n${JSON.stringify(r.calls)}\n${treeDiff(before, d.root.hash())}`);
+        const inv = unit(0x00, { noManager: true });
+        r = mguInstall(['first-install', '--host', '10.0.0.9'], inv.opts);
+        check('mgu-install first-install, invalid coding: refused the same way', r.status === 2 &&
+            r.stdout.startsWith('The head unit\'s coding is missing: it is not valid.') && r.calls.length === 1, r.out);
+        // a running app manager (node running MainApp's main.js): the coding check lets it go on
+        for (const dir of ['oap-mainapp', 'oap-mainapp21']) {
+            const m = unit(0x0a, {});
+            write(m.root.p('proc/4000/cmdline'), `/usr/bin/node\0--max-old-space-size=200\0/usr/lib/${dir}/src/main.js\0`);
+            r = mguInstall(['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'], m.opts);
+            check(`mgu-install first-install, default coding with ${dir} running: installs`, r.status === 0 &&
+                !r.out.includes('coding is missing'), r.out.slice(-2000));
+        }
+        // no coding segment: nothing to go by, so not refused
+        const none = donorRoot();
+        r = mguInstall(['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'], { bin: installBin(none), api: gh.api });
+        check('mgu-install first-install, no coding segment: installs', r.status === 0 && !r.out.includes('coding is missing'), r.out.slice(-2000));
+    } finally {
+        gh.stop();
+    }
+}
+
 /* first-install and token against a fake root, the release from the stand-in GitHub. */
 function testMguInstall() {
     const gh = fakeGithub({ files: [], repos: {} });
@@ -4299,6 +4363,8 @@ function testMguInstall() {
         const config = { files: rel.files, repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.catalogIndex } } };
         gh.set(config);
         const root = donorRoot();
+        // the car's coding, no app manager seen by the installer's check
+        writeCoding(root, 0x09);
         const bin = installBin(root);
         const opts = { bin, api: gh.api };
         let r = mguInstall(['first-install', '--host', '10.0.0.9', '--token', '--no-uplink', '--no-renderer'],
@@ -4364,16 +4430,16 @@ function testMguInstall() {
             r.out.includes('the catalog has no mgu-render; installing without it'), r.out.slice(-2000));
         gh.set(config);
         r = mguInstall(['first-install', '--host', '10.0.0.9'], opts);
-        check('mgu-install first-install: a private release without a token is refused before connecting', r.status === 1 &&
-            r.stderr.includes('no access') && !r.calls.length, r.out);
+        check('mgu-install first-install: a private release without a token is refused, the unit only read', r.status === 1 &&
+            r.stderr.includes('no access') && r.calls.length === 1 && r.calls[0][r.calls[0].length - 1].includes('rawcodingdata'), r.out);
         const bad = JSON.parse(fs.readFileSync(rel.files[rel.catalogIndex], 'utf8'));
         bad.components[1].artifact.sha256 = '0'.repeat(64);
         const badFile = path.join(rel.dir, 'bad-catalog.json');
         fs.writeFileSync(badFile, JSON.stringify(bad));
         gh.set(Object.assign({}, config, { files: rel.files.concat([badFile]), repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.files.length } } }));
         r = mguInstall(['first-install', '--host', '10.0.0.9'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
-        check('mgu-install first-install: an artifact that does not match its catalog stops it before connecting', r.status === 1 &&
-            r.stderr.includes('sha256 does not match') && !r.calls.length, r.out);
+        check('mgu-install first-install: an artifact that does not match its catalog stops it before anything is sent', r.status === 1 &&
+            r.stderr.includes('sha256 does not match') && r.calls.length === 1 && r.calls[0][r.calls[0].length - 1].includes('rawcodingdata'), r.out);
         gh.set(config);
         // token
         const other = `${TOKEN}x`;
@@ -6001,6 +6067,7 @@ const SUITES = [
     testCrashList,
     testSourcesAndDonor,
     testMguInstall,
+    testMguInstallCoding,
     testMguInstallUsb,
     testMguInstallFrom,
     testConnect,

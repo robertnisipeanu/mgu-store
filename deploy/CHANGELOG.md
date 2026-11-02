@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.7.9
+
+- The refusal of an app install when the head unit's coding is missing (not valid, or the default values) and no app manager runs comes first, right after the artifacts are read: before app-privacy's check and any other look at the unit. It applies on iDrive 8 as well, where oapcontroller starts no MainApp-21 on such a coding either. The message says the coding is missing, that this often happens after enabling SSH or flashing, and to restore it from a backup (BimmerCode, E-Sys or ISTA) or have HU_MGU coded, restart the head unit and install again.
+- `mgu-install.js first-install` reads the same before it downloads or sends anything, and stops there (exit 2) with that message.
+
 ## 0.7.8
 
 - iDrive 7: when the head unit's coding is not valid or is the default values (for the default values, oapcontroller's journal says only `Coding base: Default values flag is set, default values will be used`), oapcontroller never starts MainApp. With no app manager running then, an install with an app in it is refused before anything changes, saying so: the head unit needs coding to the car, a restart, then the install again.
