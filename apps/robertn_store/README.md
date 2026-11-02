@@ -1,4 +1,4 @@
-# robertn_store 0.9.15
+# robertn_store 0.9.16
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -173,7 +173,10 @@ iDrive 7 (`LT_Label_4Row_1TextDyn`).
 **Restart head unit** opens a confirm step, *Restart head unit?*, with
 **Cancel** (focused first) and **Restart**. Restart asks the updater to
 restart the head unit through the Node State Manager (its `reboot`
-request). The row is hidden
+request). The updater refuses a restart in the first 4 minutes after a
+start, within 10 minutes of the last one and after 3 in an hour; the
+status line, Settings and the app's page then say why and when a restart
+is possible. The row is hidden
 while an install runs or waits, while the updater is unreachable or
 already restarting the unit, and with an updater older than 0.1.4.
 
@@ -365,15 +368,15 @@ tools/test_i18n.js         every language: its words, placeholders, RHMI text fi
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.15/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.16/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.15.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.15.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.16.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.16.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

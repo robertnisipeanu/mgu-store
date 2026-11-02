@@ -109,6 +109,12 @@ function canRestart(m) {
     return !!(m.connected && st && !st.busy && st.rebooting === false && !comps(m).some((c) => c.queued));
 }
 
+/* Why the last restart failed or was refused, beside Restart head unit. */
+function restartFailed(m) {
+    const st = m.connected ? m.st : null;
+    return st && st.rebootError && !st.busy ? tr("Restart failed: {0}", st.rebootError) : null;
+}
+
 /* The icon fields of a component: its picture (components[].icon, a file
  * the Store reads), else a letter tile; tools round. */
 function iconOf(c) {
@@ -272,7 +278,7 @@ function settingsView(m) {
     const unit = st && st.unit;
     const renderers = st && st.allProviders && Array.isArray(st.allProviders.renderer) ? st.allProviders.renderer : [];
     return {
-        note: { text: m.note || '' },
+        note: { text: m.note || (restartFailed(m) || '') },
         repos: srcs ? { items: srcs.map(sourceRow), empty: tr("None") } : { items: [], empty: '' },
         addRepo: srcs ? button(tr("Add source"), { do: 'add-source' }, { vicon: 'plus', style: 'tinted', color: BLUE }) : hidden,
         access: { items: access },
@@ -331,6 +337,10 @@ function appView(m, page) {
     }
     if (c.pendingReboot) {
         notes.push([tr("Restart pending"), AMBER]);
+        const failed = restartFailed(m);
+        if (failed) {
+            notes.push([failed, AMBER]);
+        }
     }
     ['note1', 'note2', 'note3'].forEach((k, i) => {
         v[k] = notes[i] ? { text: String(notes[i][0]).slice(0, 80), color: notes[i][1] } : { text: '' };
