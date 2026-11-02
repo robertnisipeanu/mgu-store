@@ -2343,7 +2343,21 @@ function testSources(certs) {
             return priv({ op: 'source-remove', id: 'private2' });
         })
         .then(() => {
-            // requirements first
+            // a requirement that fails to install: the app does not install, and says why
+            fs.writeFileSync(deployLog, '');
+            fs.writeFileSync(`${deployLog}.fail`, '1');
+            return ask(sock, { op: 'install', id: 'needs_app' });
+        })
+        .then(() => until(st, () => !st().busy && !comp('needs_app').queued && comp('needs_app').error, 20000, 'the failed requirement'))
+        .then(() => {
+            fs.unlinkSync(`${deployLog}.fail`);
+            const lines = deployed();
+            ok('requires: a requirement that fails to install is the app\'s error, with its reason; the app is not installed',
+                comp('needs_app').error === `needs base_tool 1.0.0 or newer, which did not install from ${src('mgu-store').label}: ` +
+                'install failed: test failure 1; ' +
+                'the previous version was kept' && lines.length === 1 && /base_tool@1\.0\.0/.test(lines[0]) &&
+                comp('needs_app').status === 'available', JSON.stringify([comp('needs_app').error, lines]));
+            // Try again: the requirement installs first again
             fs.writeFileSync(deployLog, '');
             return ask(sock, { op: 'install', id: 'needs_app' });
         })
