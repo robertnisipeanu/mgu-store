@@ -4002,11 +4002,35 @@ function testServiceLimits() {
     check('limits: an update starts the service its start limit stopped, reset first',
         r.status === 0 && upd.includes('reset-failed fixture-tool.service') && upd.includes('start fixture-tool.service') &&
         upd.indexOf('reset-failed fixture-tool.service') < upd.indexOf('start fixture-tool.service'), r.out + upd.join('\n'));
+    // a rollback brings back a socket-activated service its start limit stopped, through its socket
+    const rb = fakeRoot({ recmgr: ['fixture-tool'] });
+    rb.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    rb.run(['install', '--artifact', toolArtifact('0.2.1'), '--yes']);
+    write(path.join(`${rb.R}.units`, 'fixture-tool.service.active'), 'failed\n');
+    write(path.join(`${rb.R}.units`, 'fixture-tool.service.result'), 'start-limit-hit\n');
+    write(path.join(`${rb.R}.units`, 'fixture-tool.socket.active'), 'failed\n');
+    fs.writeFileSync(rb.log, '');
+    r = rb.run(['rollback', 'fixture-tool', '--yes']);
+    const rbCalls = rb.systemctlCalls();
+    check('limits: a rollback resets the socket-activated service its start limit stopped and starts its socket',
+        r.status === 0 && rbCalls.includes('reset-failed fixture-tool.service fixture-tool.socket') &&
+        rbCalls.indexOf('reset-failed fixture-tool.service fixture-tool.socket') < rbCalls.indexOf('start fixture-tool.socket'),
+        r.out + rbCalls.join('\n'));
+    // systemd 237 keeps the crash's Result when the start limit ends its automatic restarts
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.active'), 'failed\n');
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.result'), 'signal\n');
+    write(path.join(`${root.R}.units`, 'fixture-tool.service.nrestarts'), '20\n');
+    fs.writeFileSync(root.log, '');
+    r = root.run(['install', '--artifact', plain('0.3.2'), '--yes']);
+    check('limits: an update starts a service that failed after 19 or more automatic restarts (Result=signal)',
+        r.status === 0 && root.systemctlCalls().includes('reset-failed fixture-tool.service') &&
+        root.systemctlCalls().includes('start fixture-tool.service'), r.out);
+    fs.unlinkSync(path.join(`${root.R}.units`, 'fixture-tool.service.nrestarts'));
     // a stopped service that failed for another reason stays as it is
     write(path.join(`${root.R}.units`, 'fixture-tool.service.active'), 'failed\n');
     write(path.join(`${root.R}.units`, 'fixture-tool.service.result'), 'exit-code\n');
     fs.writeFileSync(root.log, '');
-    r = root.run(['install', '--artifact', plain('0.3.1'), '--yes']);
+    r = root.run(['install', '--artifact', plain('0.3.3'), '--yes']);
     check('limits: an update does not start a service that failed otherwise',
         r.status === 0 && !root.systemctlCalls().includes('start fixture-tool.service'), r.out);
 

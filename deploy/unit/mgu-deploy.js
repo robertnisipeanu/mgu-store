@@ -1916,15 +1916,19 @@ function healthCheck(units) {
     return null;
 }
 /* A unit its start limit stopped (LIMITS_BURST starts within
- * LIMITS_INTERVAL_S). */
+ * LIMITS_INTERVAL_S). When the limit ends a loop of automatic restarts,
+ * systemd 237 keeps the first failure's Result (signal, exit-code), so a
+ * failed unit with that many restarts counts too. */
 function startLimitHit(unit) {
-    return /^Result=start-limit-hit$/m.test(systemctl(['show', '-p', 'Result', unit]).stdout || '');
+    var r = systemctl(['show', '-p', 'ActiveState', '-p', 'Result', '-p', 'NRestarts', unit]).stdout || '';
+    return /^Result=start-limit-hit$/m.test(r) ||
+        /^ActiveState=failed$/m.test(r) && Number((/^NRestarts=(\d+)$/m.exec(r) || [])[1]) >= LIMITS_BURST - 1;
 }
 /* A component's restart[] units. A running one restarts when recmgr has
  * loaded its entry, else it keeps running until a reboot (pending). One
  * not running is started on a fresh install, or when its start limit
- * stopped it, under the same rule, else it starts at the next boot
- * (pending). Enabled sockets follow the same rule
+ * stopped it (its socket, for a socket-activated one), under the same
+ * rule, else it starts at the next boot (pending). Enabled sockets follow the same rule
  * (installTool), and a service its own socket activates is left to it.
  * Returns the units restarted or started, for the health check. */
 function applyRestarts(c, state, fresh) {
@@ -1950,6 +1954,12 @@ function applyRestarts(c, state, fresh) {
                 runOk(CFG.systemctl, ['start', unit]); say('started ' + unit); out.push(unit);
             }
             else { addPending(state, c.id, PENDING_BOOT); say(unit + ' ' + PENDING_BOOT); }
+        } else if (socketActivated && loaded && startLimitHit(unit)) {
+            /* its start limit failed the socket too */
+            var sock = recmgrBase(unit) + '.socket';
+            systemctl(['reset-failed', unit, sock]);
+            if (systemctl(['start', sock]).status === 0) say('started ' + sock);
+            else warn('could not start ' + sock);
         }
     });
     return out;

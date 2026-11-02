@@ -3,7 +3,7 @@
 ## 0.7.9
 
 - Every service unit an installed tool lists, whatever repository it comes from, gets the drop-in `<unit>.d/zz-mgu-deploy-limits.conf`: `LimitCORE=1`, at which the kernel pipes no core dump to the crash handler, so a crash of the service or of a program it starts never restarts the head unit; and a start limit of 20 starts within 10 minutes (`StartLimitIntervalSec=600`, `StartLimitBurst=20`, over a unit's own `StartLimitIntervalSec=0`), so a service that keeps failing is left failed instead of restarting for ever. Installs write it, uninstalls remove it, snapshots, rollbacks and restores carry it, and `status` gives it to the tools installed before this version and takes it from units no tool lists (`status --json` `service_limits`). Stock units are never given one. A running service takes the limits at its next start.
-- An install or rollback starts a service its start limit stopped again (`reset-failed` first), also one its socket starts.
+- An install or rollback starts a service its start limit stopped again (`reset-failed` first); for a socket-activated service, its socket.
 
 ## 0.7.8
 
