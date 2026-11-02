@@ -17,6 +17,9 @@
  *   { done: true, bytes, status, headers }      dest complete (headers: those kept)
  *   { notModified: true, status: 304, headers } a conditional request's answer:
  *                                               unchanged, nothing at dest
+ *   { certDates: "<host>", error: "<code>" }   host's certificate checked out but
+ *                                               for its dates (CERT_NOT_YET_VALID,
+ *                                               CERT_HAS_EXPIRED), which were ignored
  *   { error: "<reason>", status, rateLimited, tooBig }  nothing usable at dest
  *                                               (status: the HTTP answer, if any;
  *                                               rateLimited: a 429, or a 403 with
@@ -26,14 +29,26 @@
  * go to the first host only, so a token never reaches a redirect target such
  * as GitHub's asset storage: only User-Agent, If-None-Match and
  * If-Modified-Since go along. A POST is not redirected.
+ *
+ * Certificates: the head unit's clock may be days off, so a certificate's
+ * validity dates are not held against it. Node checks each connection as
+ * usual; when its only complaint can be the dates, the presented chain is
+ * checked again without them (certs.js: every signature up to a trusted
+ * root, CA constraints, key usages) and the host name with
+ * tls.checkServerIdentity. Nothing is sent before that passes. The trusted
+ * roots are Node's own, or ca's.
  */
 const fs = require('fs');
 const dns = require('dns');
+const net = require('net');
+const tls = require('tls');
 const https = require('https');
 const { URL } = require('url');
+const certs = require('./certs');
 
 const MAX_REDIRECTS = 5;
 const IDLE_MS = 30000;
+const DATE_ERRORS = ['CERT_NOT_YET_VALID', 'CERT_HAS_EXPIRED'];
 
 function emit(obj) {
     process.stdout.write(JSON.stringify(obj) + '\n');
@@ -70,6 +85,58 @@ function kept(job, res) {
     return out;
 }
 
+/* Why sock's certificate is refused once its dates are left out; null if it is not. */
+function refusedButForDates(sock, host, ca) {
+    const peer = sock.getPeerCertificate(true);
+    const chain = [];
+    for (let c = peer; c && c.raw && !chain.some((d) => d.equals(c.raw)); c = c.issuerCertificate) {
+        chain.push(c.raw);
+    }
+    const why = certs.verifyChain(chain, ca ? certs.pemCerts(ca) : certs.nodeRoots());
+    if (why) {
+        return why;
+    }
+    const name = tls.checkServerIdentity(host, peer);
+    return name ? name.message : null;
+}
+
+/* A TLS connection to target whose certificate checks out (dates aside), or an error. */
+function connect(job, target, cb) {
+    let done = false;
+    const finish = (err, sock) => {
+        if (!done) {
+            done = true;
+            cb(err, sock);
+        }
+    };
+    const host = target.hostname;
+    const sock = tls.connect({
+        host,
+        port: Number(target.port) || 443,
+        servername: net.isIP(host) ? undefined : host,
+        lookup: lookupVia(job.dns),
+        ca: job.ca || undefined,
+        rejectUnauthorized: false
+    }, () => {
+        sock.setTimeout(0);
+        if (sock.authorized) {
+            finish(null, sock);
+            return;
+        }
+        const code = sock.authorizationError;
+        const why = DATE_ERRORS.indexOf(code) < 0 ? code : refusedButForDates(sock, host, job.ca);
+        if (why) {
+            sock.destroy();
+            finish(new Error(why === code ? code : `${code}, and ${why}`));
+            return;
+        }
+        emit({ certDates: host, error: code });
+        finish(null, sock);
+    });
+    sock.setTimeout(IDLE_MS, () => sock.destroy(new Error('ETIMEDOUT')));
+    sock.on('error', finish);
+}
+
 function get(job, url, headers, hops) {
     const target = new URL(url);
     if (target.protocol !== 'https:') {
@@ -77,6 +144,17 @@ function get(job, url, headers, hops) {
         process.exitCode = 1;
         return;
     }
+    connect(job, target, (err, sock) => {
+        if (err) {
+            emit({ error: `${target.hostname}: ${err.code || err.message}` });
+            process.exitCode = 1;
+            return;
+        }
+        request(job, url, target, headers, hops, sock);
+    });
+}
+
+function request(job, url, target, headers, hops, sock) {
     const post = hops === 0 && job.method === 'POST';
     const body = post ? Buffer.from(String(job.body || '')) : null;
     const req = https.request({
@@ -85,8 +163,7 @@ function get(job, url, headers, hops) {
         port: target.port || 443,
         path: target.pathname + target.search,
         headers: post ? Object.assign({}, headers, { 'Content-Length': body.length }) : headers,
-        lookup: lookupVia(job.dns),
-        ca: job.ca || undefined
+        createConnection: () => sock
     }, (res) => {
         if (!post && [301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
             res.resume();
