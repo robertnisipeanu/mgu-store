@@ -34,8 +34,8 @@
  * reset, no connection) or that gets a 500, 502, 503 or 504 is tried again,
  * after 1, 2, 4 and 8 s: up to 4 times in a row without getting further, 200
  * tries in all. When the server takes byte ranges (Accept-Ranges: bytes,
- * with a strong ETag or a Last-Modified), the next try asks for the rest
- * (Range, with that validator in If-Range) and appends it; a server that
+ * with a strong ETag), the next try asks for the rest (Range, with that
+ * ETag in If-Range) and appends it, until one gets an answer; a server that
  * answers with the whole file instead starts it over. The size and sha256
  * the source states are checked on the whole file by the updater. A POST,
  * a refused certificate, a name the DNS server does not know, any other
@@ -174,14 +174,11 @@ function get(job, url, headers, hops, from, finish) {
     });
 }
 
-/* What lets a cut download ask for the rest: the response's strong ETag, else
- * its Last-Modified, when it says it takes byte ranges; null otherwise. */
+/* What lets a cut download ask for the rest: the response's strong ETag, when
+ * it says it takes byte ranges; null otherwise. */
 function validatorOf(res) {
-    if (res.headers['accept-ranges'] !== 'bytes') {
-        return null;
-    }
     const etag = res.headers.etag;
-    return (etag && !/^W\//.test(etag) && etag) || res.headers['last-modified'] || null;
+    return res.headers['accept-ranges'] === 'bytes' && etag && !/^W\//.test(etag) ? etag : null;
 }
 
 function request(job, url, target, headers, hops, sock, from, finish) {
@@ -228,7 +225,8 @@ function request(job, url, target, headers, hops, sock, from, finish) {
             const limited = res.statusCode === 429 || (res.statusCode === 403 &&
                 (res.headers['x-ratelimit-remaining'] === '0' || res.headers['retry-after'] !== undefined));
             finish(Object.assign({ error: `HTTP ${res.statusCode} from ${host}`, status: res.statusCode,
-                retry: RETRY_STATUS.indexOf(res.statusCode) >= 0 || (from > 0 && res.statusCode === 416) },
+                retry: RETRY_STATUS.indexOf(res.statusCode) >= 0 || (from > 0 && res.statusCode === 416),
+                restart: res.statusCode === 416 },
             limited ? { rateLimited: true } : {}));
             return;
         }
@@ -238,7 +236,7 @@ function request(job, url, target, headers, hops, sock, from, finish) {
             const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(res.headers['content-range'] || '');
             if (!range || Number(range[1]) !== from || Number(range[2]) + 1 !== Number(range[3])) {
                 res.resume();
-                finish({ error: `${host}: not the rest of the file asked for`, retry: true });
+                finish({ error: `${host}: not the rest of the file asked for`, retry: true, restart: true });
                 return;
             }
             bytes = from;
@@ -281,7 +279,7 @@ function request(job, url, target, headers, hops, sock, from, finish) {
                 failure = { error: 'connection closed mid-download', retry: true };
             }
             if (failure) {
-                finish(Object.assign(failure, failure.retry && resumeWith ? { resumeWith } : {}));
+                finish(Object.assign(failure, failure.retry ? (resumeWith ? { resumeWith } : { restart: true }) : {}));
             } else {
                 finish({ done: true, bytes, status: res.statusCode, headers: kept(job, res) });
             }
@@ -329,8 +327,8 @@ function download(job) {
                 finishAll(r);
                 return;
             }
+            // a try that got no body leaves the next to ask for the same range
             const was = from;
-            from = 0;
             if (r.resumeWith) {
                 try {
                     from = fs.statSync(job.dest).size;
@@ -338,6 +336,8 @@ function download(job) {
                 } catch (e) {
                     from = 0;
                 }
+            } else if (r.restart) {
+                from = 0;
             }
             misses = from > was ? 0 : misses + 1;
             if (misses > RETRIES) {
@@ -352,6 +352,7 @@ function download(job) {
     const finishAll = (r) => {
         delete r.retry;
         delete r.resumeWith;
+        delete r.restart;
         if (r.error && tries > 1) {
             r.error += ` (${tries} tries)`;
         }

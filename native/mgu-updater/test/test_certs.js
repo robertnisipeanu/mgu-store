@@ -349,6 +349,11 @@ function cutServer(leaf, chain, payload) {
                 res.end();
                 return;
             }
+            // the resume of /cut-refuse is refused once before it gets an answer
+            if (p === '/cut-refuse' && n === 1) {
+                res.socket.destroy();
+                return;
+            }
             if (p === '/missing') {
                 res.writeHead(404);
                 res.end();
@@ -409,6 +414,10 @@ function testCuts() {
         JSON.stringify(r.seen));
         ok('cut: the try is reported', r.events.some((e) => e.retry === 1 && e.error === 'connection closed mid-download' && e.from > 0),
             JSON.stringify(r.events.filter((e) => e.progress === undefined)));
+        return fetchCut(a, '/cut-refuse');
+    }).then((r) => {
+        ok('cut: a resume that fails before any answer asks for the same rest again', r.last.done && r.file && sum(r.file) === sum(payload) &&
+            r.seen.length === 3 && r.seen[1].range && r.seen[2].range === r.seen[1].range, JSON.stringify(r.seen));
         return fetchCut(a, '/cut-norange');
     }).then((r) => {
         ok('cut: without ranges, the file starts over and comes out whole', r.last.done && r.file && sum(r.file) === sum(payload) &&
