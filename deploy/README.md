@@ -1075,7 +1075,8 @@ The app manager installs our apps itself.
   current, while our apps are listed in `custom_apps.json` and the
   fallback is not active (its unit missing, or `main.js` not bound
   to the copy), turns the fallback on again and restarts the manager once,
-  under the bounce rules, so the tiles show. While `vsomeipd.service` or
+  under the bounce rules (not when it already runs the copy), so the tiles
+  show. While `vsomeipd.service` or
   `hmi.service` is not running, a restarted manager could not start, so it
   is not restarted and the boot unit lists the apps from the next start.
   A copy that does not build leaves the fallback off, the install stands,
