@@ -1,5 +1,9 @@
 # mgu-render changelog
 
+## 0.6.11
+
+- Foreground gate: after the known places, the `RemoteHmiApplication` description is looked for in the `src-gen` folders of the packages under `/usr/lib` (two levels deep), before the apps' `someipInterfaces` copies. MainApp 6.5.5 (a single bundle) keeps it in its own package; on such a car the gate found none, and no gated app was shown.
+
 ## 0.6.10
 
 Both changes are for iDrive 8 only (centre display 2880x960); on iDrive 7 the renderer behaves as 0.6.9.
