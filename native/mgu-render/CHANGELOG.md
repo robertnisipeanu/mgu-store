@@ -1,5 +1,9 @@
 # mgu-render changelog
 
+## 0.6.11
+
+- Page changes: while the HMI changes an embed app's page (it shows neither page for 100-200 ms, a black box), the app's frames show on a layer of the renderer's own over exactly the box, for `embed_bridge_ms` (400) from the app's X_BRIDGE 1. The layer goes at once on X_BRIDGE 0 (an HMI popup, menu or HOME), when the app is no longer in front, a camera shows, or the app hides or goes; it has no input region. Offered as CAP_BRIDGE; `embed_bridge = 0` turns it off. `test/test_bridge.c`.
+
 ## 0.6.10
 
 Both changes are for iDrive 8 only (centre display 2880x960); on iDrive 7 the renderer behaves as 0.6.9.

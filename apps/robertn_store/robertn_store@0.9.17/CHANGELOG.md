@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.17
+
+Opening or leaving a page, and the HMI's BACK, no longer flash a black box:
+with mgu-render 0.6.11 or later the Store asks it to bridge the HMI's page
+change (X_BRIDGE). Not while an HMI popup has the page's focus.
+
 ## 0.9.16
 
 Restart head unit carries the updater's secret, which mgu-updater 0.8.14
