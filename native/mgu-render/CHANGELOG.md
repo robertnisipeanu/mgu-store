@@ -1,5 +1,9 @@
 # mgu-render changelog
 
+## 0.6.11
+
+- Foreground gate: an app whose RHMI uuid another folder claims too (an earlier install's `oap_<uid>` left behind) is the one the app manager has registered (`oap_12201/data/apps/<appId>.json`), when exactly one of them is. Such an app was otherwise never in front, and newly installed apps drew in the HMI's own picture instead of the renderer. `test/test_gate_apps.js`.
+
 ## 0.6.10
 
 Both changes are for iDrive 8 only (centre display 2880x960); on iDrive 7 the renderer behaves as 0.6.9.

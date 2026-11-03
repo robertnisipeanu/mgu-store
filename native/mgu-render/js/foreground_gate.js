@@ -100,7 +100,29 @@ function findInterface(files, appsDir) {
     return best;
 }
 
-/* RHMI uuid -> uid of the installed apps, leaving out uuids claimed twice. */
+/* The uids the app manager has registered: its registry, <apps>/oap_12201/data/apps/<appId>.json
+ * (its own folder: an app cannot write there), each with the app's userId. */
+function registeredUids(dir) {
+    const out = new Set();
+    let names = [];
+    try {
+        names = fs.readdirSync(path.join(dir, 'oap_12201', 'data', 'apps'));
+    } catch (e) {
+        return out;
+    }
+    names.filter((n) => /\.json$/.test(n)).forEach((n) => {
+        const entry = readJson(path.join(dir, 'oap_12201', 'data', 'apps', n), MAX_APP_JSON);
+        const uid = entry && entry.userId;
+        if (typeof uid === 'number' && uid % 1 === 0) {
+            out.add(uid);
+        }
+    });
+    return out;
+}
+
+/* RHMI uuid -> uid of the installed apps. A uuid more than one folder claims (an earlier
+ * install's folder left behind) goes to the one the app manager has registered, when exactly
+ * one of them is; else it is left out. */
 function readApps(dir, log) {
     const claims = new Map();
     let names = [];
@@ -121,9 +143,12 @@ function readApps(dir, log) {
         }
     });
     const apps = new Map();
+    let registered = null;
     claims.forEach((uids, uuid) => {
-        if (uids.length === 1) {
-            apps.set(uuid, uids[0]);
+        registered = uids.length > 1 ? registered || registeredUids(dir) : registered;
+        const live = uids.length > 1 ? uids.filter((uid) => registered.has(uid)) : uids;
+        if (live.length === 1) {
+            apps.set(uuid, live[0]);
         } else {
             log(`uuid ${uuid} is claimed by uids ${uids.join(', ')}; none of them is shown in front`);
         }

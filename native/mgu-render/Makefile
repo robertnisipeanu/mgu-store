@@ -63,6 +63,7 @@ in-test: build/$(OUT)/mgu-render
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_gate test/test_gate.c src/gate.c src/log.c
 	build/$(OUT)/test_gate
 	node test/test_gate.js
+	node test/test_gate_apps.js
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_dbr test/test_dbr.c src/dbr.c
 	build/$(OUT)/test_dbr
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_touch test/test_touch.c
