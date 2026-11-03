@@ -1,5 +1,12 @@
 # Deploy tool changelog
 
+## 0.7.15
+
+- After a firmware update, which puts the root file system back and keeps `/var/opt`, an install sets up again what the update took. Each tool install records the firmware it was installed under (`state.json` `tools`) and keeps the tool's units, drop-ins and `component.json` under `/var/opt/mgu-deploy/kept/<id>/<version>/`.
+- Every install, whatever it installs, lays again from that copy each installed tool that lacks a unit, an enablement link or a drop-in, or was installed under another firmware: its units, links, drop-ins and boot-list entries, its activate hook and postInstall, with no download. A tool installed before copies were kept is left for its source to install again, which the output says. A tool that fails to lay again is rolled back and the rest of the install goes on.
+- iDrive 7: at its first start after a firmware update MainApp marks every installed app as needing an update (`"NO_FORCED_UPDATE_NEEDED": false` in its registry entry) and starts none so marked, so our apps' tiles show and a tap does nothing. An install of such an app, already current, installs it afresh (uninstall, install, its data folder carried over to the new install): a new registry entry, set up for the firmware it runs on, built against this firmware's donor apps. Not while no app manager runs; the output says so.
+- `status` and `status --json` say what does not work until then: a tool's `stale` (the pieces it lacks, or the firmware it was installed under) and `kept` (whether an install lays it again itself), an app's `stale` (the app manager waits for its update; iDrive 7 and 8).
+
 ## 0.7.14
 
 - iDrive 7: `status` and `check` report the tile of an app listed in `custom_apps.json` (ours and the other apps the provisioning fallback lists) as shown only while the running app manager runs the fallback copy (`fallback.manager_runs_copy` true); otherwise, and with no app manager running, as `hidden`, whatever the app's registry `provisioningCache` holds. `tile_provisioned`, `tile_fallback` and `tile_visible` in `status --json` follow the same rule. Apps not in `custom_apps.json`, units with the retired installer's leftovers, and iDrive 8 are reported from the registry cache.
