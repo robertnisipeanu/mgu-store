@@ -53,6 +53,10 @@ const TRACE_MAX = 8 * 1024 * 1024;
 const PUSHED = ['DREHGEBER_KURZ_GEDRUECKT', 'DREHGEBER_LANG_GEDRUECKT', 1, 2];
 const RELEASED = ['KEINE_BETAETIGUNG', 0];
 const DIAL_MAX_STEP = 24;
+// the controller pushed (FrontCCU deflection, short or long; by name or number): N up, E right, S down, W left
+const TILT = { 1: 'N', 2: 'N', 4: 'E', 5: 'E', 7: 'S', 8: 'S', 10: 'W', 11: 'W',
+    NORD_KURZ_GEDRUECKT: 'N', NORD_LANG_GEDRUECKT: 'N', OST_KURZ_GEDRUECKT: 'E', OST_LANG_GEDRUECKT: 'E',
+    SUED_KURZ_GEDRUECKT: 'S', SUED_LANG_GEDRUECKT: 'S', WEST_KURZ_GEDRUECKT: 'W', WEST_LANG_GEDRUECKT: 'W' };
 
 const msNow = () => { const t = process.hrtime(); return t[0] * 1e3 + t[1] / 1e6; };
 const usNow = () => { const t = process.hrtime(); return t[0] * 1e6 + Math.floor(t[1] / 1e3); };   // CLOCK_MONOTONIC, as mgu-render's
@@ -841,11 +845,15 @@ class Drawn extends EventEmitter {
         this.fccu = {
             knob: typeof op === 'number' && op !== 0xffff ? op : (last ? last.knob : 0xffff),
             press: PUSHED.indexOf(push) >= 0 ? true : RELEASED.indexOf(push) >= 0 ? false : !!(last && last.press),
-            seq: PUSHED.indexOf(push) >= 0 ? seq : last && last.seq
+            seq: PUSHED.indexOf(push) >= 0 ? seq : last && last.seq,
+            tilt: s && s.frontRotaryEncoderDeflection
         };
         if (last && this.mode === 'embed' && !this.controller && !this.embedProxies && !this.focusLost) {
             this._dial(last.knob, this.fccu.knob, PUSHED.indexOf(push) >= 0 &&
                 (!last.press || (seq !== undefined && seq !== last.seq)));
+            if (TILT[this.fccu.tilt] && TILT[this.fccu.tilt] !== TILT[last.tilt]) {
+                this._tilt(TILT[this.fccu.tilt]);
+            }
         }
     }
 
@@ -854,6 +862,57 @@ class Drawn extends EventEmitter {
         this.ccu = e;
         if (last) {
             this._dial(last.knob, e.knob, e.press && e.press !== last.press && e.seq !== last.seq);
+            if (TILT[e.tilt] && TILT[e.tilt] !== TILT[last.tilt]) {
+                this._tilt(TILT[e.tilt]);
+            }
+        }
+    }
+
+    /* Pushed up, down, left or right: the focus to the nearest item that way, by the items' centres (the
+     * distance that way, the sideways one counting double). Left with nothing there: back a page, or out
+     * of the Store from its top page. Nothing focused yet: the first item. */
+    _tilt(dir) {
+        if (!this.on_) {
+            return;
+        }
+        const cur = this.items[this.focus];
+        if (!cur) {
+            if (dir === 'W') {
+                this._leave();
+            } else if (this.items.length) {
+                this.focus = 0;
+                this.render();
+            }
+            return;
+        }
+        const cx = cur.x + cur.w / 2, cy = cur.y + cur.h / 2;
+        let best = -1, score = Infinity;
+        this.items.forEach((it, i) => {
+            if (i === this.focus) {
+                return;
+            }
+            const dx = it.x + it.w / 2 - cx, dy = it.y + it.h / 2 - cy;
+            const ahead = dir === 'E' ? dx : dir === 'W' ? -dx : dir === 'S' ? dy : -dy;
+            const side = dir === 'E' || dir === 'W' ? Math.abs(dy) : Math.abs(dx);
+            if (ahead > 4 && ahead + 2 * side < score) {
+                score = ahead + 2 * side;
+                best = i;
+            }
+        });
+        if (best >= 0) {
+            this.focus = best;
+            this.render();
+        } else if (dir === 'W') {
+            this._leave();
+        }
+    }
+
+    /* Back a page, or the Store's top page closed (the HMI goes back where it came from). */
+    _leave() {
+        if (this.stack.length > 1) {
+            this.host.act({ do: 'back' });
+        } else {
+            this.host.closeState(this.hostOf(1));
         }
     }
 

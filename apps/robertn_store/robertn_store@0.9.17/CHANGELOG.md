@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.17
+
+The controller pushed up, down, left or right moves the focus to the
+nearest item that way, on every drawn page. Pushed left with nothing there
+goes back a page, or out of the Store from its top page.
+
 ## 0.9.16
 
 Restart head unit carries the updater's secret, which mgu-updater 0.8.14
