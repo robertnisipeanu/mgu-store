@@ -39,6 +39,7 @@ module.exports = [
    "Check for updates": "检查更新",
    "Check now": "立即检查",
    "Checking": "检查中",
+   "No internet": "无网络连接",
    "Checking for updates": "正在检查更新",
    "Checking token": "正在检查令牌",
    "Checking {0}": "正在检查 {0}",

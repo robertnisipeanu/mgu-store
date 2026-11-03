@@ -227,7 +227,11 @@ function installedView(m) {
     return {
         title: { text: tr("Installed") },
         subtitle: { text: `${plural(apps.length, 'app')} · ${plural(tools.length, 'tool')}` },
-        updateAll: updates.length ? button(tr("Update all ({0})", updates.length), { do: 'update-all' }, { vicon: 'arrowDown', style: 'primary', color: BLUE }) : hidden,
+        // updates: install them all; none: look for new ones (the updater's check, as Settings' Check now)
+        updateAll: updates.length ? button(tr("Update all ({0})", updates.length), { do: 'update-all' }, { vicon: 'arrowDown', style: 'primary', color: BLUE })
+            : m.connected && m.st ? button(m.noNet ? tr("No internet") : m.st.catalog && m.st.catalog.checking ? tr("Checking") : tr("Check for updates"), { do: 'check' },
+                { vicon: m.noNet ? 'warning' : 'refresh', style: 'outline', color: m.noNet ? AMBER : undefined })
+                : hidden,
         apps: { items: apps.map(item), empty: tr("None") },
         services: { items: tools.map(item), empty: tr("None"), rowH: 120 }
     };

@@ -79,6 +79,13 @@ const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel
 const logger = logging.getSDKLogger();
 const tr = i18n.t;
 
+function withOwnIcon(st) {
+    if (!st || !Array.isArray(st.components) || !st.components.some((c) => c.id === OWN_ID && !c.icon) || !fs.existsSync(OWN_ICON)) {
+        return st;
+    }
+    return Object.assign({}, st, { components: st.components.map((c) => (c.id === OWN_ID && !c.icon ? Object.assign({}, c, { icon: OWN_ICON }) : c)) });
+}
+
 const SOCKET = '/dev/shm/mgu-updater/updater.sock';
 // the id the updater knows the Store by (updater.conf store_app)
 const APP_ID = 'robertn_store';
@@ -89,6 +96,13 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const SECRET_FILE = path.join(DATA_DIR, 'updater-secret');
 const WEB_URL_FILE = path.join(DATA_DIR, 'web-url');
 const RECONNECT_MS = 2000;
+/* The look picked in Settings (store_ui.js LOOKS), kept in this app's data
+ * folder; without it the head unit's own. */
+const LOOK_FILE = path.join(DATA_DIR, 'look');
+/* The Store's own tile icon (its package's), its picture in its own lists
+ * when the catalog names none. */
+const OWN_ID = 'robertn_store';
+const OWN_ICON = path.join(__dirname, '..', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
 const PRESS_DEDUPE_MS = 400;
 const HIDE_SETTLE_MS = 800;
 const WEB_URL_POLL_MS = 1000;           // web-url re-read while Phone access is open and on
@@ -262,6 +276,7 @@ class Store extends OnlineApp {
             this._focusedPage = `drawn:${page.name}`;
             this._render();
         });
+        this._look = readFile(LOOK_FILE).trim() || null;
         this._st = null;
         this._connected = false;
         this._client = new UpdaterClient(SOCKET, { reconnectMs: RECONNECT_MS });
@@ -271,7 +286,13 @@ class Store extends OnlineApp {
                 this._client.send({ op: 'hello', id: APP_ID, version: this._version() });
             }
             this._connected = true;
-            this._st = st;
+            // an install or removal ended: the drawn screens again if they were lost meanwhile (the app
+            // manager restarted for it closes the Store's screen for a moment)
+            const ended = this._st && this._st.busy && !st.busy;
+            this._st = withOwnIcon(st);
+            if (ended) {
+                this._drawn.retry();
+            }
             this._tokenAdded(st);
             this._reprobe();
             this._render();
@@ -659,10 +680,10 @@ class Store extends OnlineApp {
     _drawnModel() {
         const web = this._connected && this._st && this._st.web;
         return { st: this._connected ? this._st : null, connected: this._connected && !!this._st, secret: !!readSecret(),
-            version: this._version(), note: this._sourcesNote, login: this._login,
+            version: this._version(), note: this._sourcesNote, login: this._login, look: this._look,
             webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
             pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe, tokenNote: !!this._pick.tokenNote },
-            uplinkNote: this._uplinkNote, history: this._history, language: i18n.language() };
+            uplinkNote: this._uplinkNote, history: this._history, noNet: !!this._noNet, language: i18n.language() };
     }
 
     /* A press on the drawn screens (src/store_ui.js acts). */
@@ -673,7 +694,20 @@ class Store extends OnlineApp {
         case 'tab': this._drawn.setTab(act.tab); break;
         case 'filter': this._drawn.setFilter(act.filter); break;
         case 'back': this._back(); break;
-        case 'check': this._send({ op: 'check' }); break;
+        case 'check': {
+            // nowhere to look (no internet, no USB stick): the button says so for a moment
+            const st = this._connected && this._st;
+            const usb = st && Array.isArray(st.sources) && st.sources.some((x) => x.usb);
+            if (st && !st.online && !usb) {
+                clearTimeout(this._noNetTimer);
+                this._noNet = true;
+                this._noNetTimer = setTimeout(() => { this._noNet = false; this._render(); }, 5000);
+                this._render();
+                break;
+            }
+            this._send({ op: 'check' });
+            break;
+        }
         case 'open':
             if (act.page.name === 'source') {
                 this._sourceId = act.page.id;
@@ -718,6 +752,7 @@ class Store extends OnlineApp {
         case 'pick': this._pickChannel(act.channel); break;
         case 'pick-retry': this._probe(); break;
         case 'pick-add-token': this._pickAddToken(); break;
+        case 'look': this._setLook(act.look); break;
         case 'key': this._key(act.key); break;
         case 'wifi-power': {
             const w = wifiOf({ connected: this._connected, st: this._st });
@@ -737,6 +772,16 @@ class Store extends OnlineApp {
         default: break;
         }
         this._render();
+    }
+
+    /* Settings' look: shown at once, kept for the next start. */
+    _setLook(look) {
+        this._look = look;
+        try {
+            fs.writeFileSync(LOOK_FILE, `${look}\n`);
+        } catch (e) {
+            logger.warn(`look not kept: ${e.message}`);
+        }
     }
 
     /* A request for the uplink, which the updater relays; its refusal shows
@@ -1331,7 +1376,10 @@ class Store extends OnlineApp {
     }
 
     /* The app manager inserts the public tile from application.json and hands
-     * it to the app at start; the SDK emits 'entryPointExecute' on a tap. */
+     * it to the app at start; the SDK emits 'entryPointExecute' on a tap. The
+     * tile keeps the name and icon the manager gave it: a text set here is a
+     * string id the HMI looks up again and at times finds nothing for, which
+     * left the tile without its name. */
     _registerEntryPoints() {
         const descriptions = (this.appDescription &&
             this.appDescription.application.entryPoints) || [];
@@ -1344,10 +1392,6 @@ class Store extends OnlineApp {
         return ours.init()
             .then(() => this.rhmiApplication.mapEntryState(description.uuid, this._states[ROOTS[this._ui]]))
             .then(() => { this._entryUuid = description.uuid; })
-            .then(() => Promise.resolve()
-                .then(() => ours.entryPoint.setText(description.textId))
-                .then(() => (description.icon ? ours.entryPoint.setIcon(description.icon) : undefined))
-                .catch((err) => logger.warn(`entry point text/icon: ${err && err.message}`)))
             .then(() => ours.setAvailability('ENABLED'))
             .then(() => logger.info(`entry point ${description.name} ENABLED`));
     }
