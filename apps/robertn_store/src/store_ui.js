@@ -148,6 +148,9 @@ function tileState(c, busy) {
     if (c.status === 'update') {
         return { sub: tr("Update {0}", target(c)), subColor: BLUE, badge: 'update', progress: -1 };
     }
+    if (c.installed && c.repair) {
+        return { sub: tr("Not working"), subColor: AMBER, badge: 'installed', progress: -1 };
+    }
     if (c.status === 'available') {
         return { sub: [c.version, size(c.size)].filter(Boolean).join(' · '), subColor: DIM, badge: '', progress: -1 };
     }
