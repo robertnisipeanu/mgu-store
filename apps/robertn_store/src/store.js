@@ -651,7 +651,7 @@ class Store extends OnlineApp {
             version: this._version(), note: this._sourcesNote, login: this._login,
             webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
             pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe, tokenNote: !!this._pick.tokenNote },
-            uplinkNote: this._uplinkNote, language: i18n.language() };
+            uplinkNote: this._uplinkNote, noNet: !!this._noNet, language: i18n.language() };
     }
 
     /* A press on the drawn screens (src/store_ui.js acts). */
@@ -661,7 +661,20 @@ class Store extends OnlineApp {
         case 'tab': this._drawn.setTab(act.tab); break;
         case 'filter': this._drawn.setFilter(act.filter); break;
         case 'back': this._back(); break;
-        case 'check': this._send({ op: 'check' }); break;
+        case 'check': {
+            // nowhere to look (no internet, no USB stick): the button says so for a moment
+            const st = this._connected && this._st;
+            const usb = st && Array.isArray(st.sources) && st.sources.some((x) => x.usb);
+            if (st && !st.online && !usb) {
+                clearTimeout(this._noNetTimer);
+                this._noNet = true;
+                this._noNetTimer = setTimeout(() => { this._noNet = false; this._render(); }, 5000);
+                this._render();
+                break;
+            }
+            this._send({ op: 'check' });
+            break;
+        }
         case 'open':
             if (act.page.name === 'source') {
                 this._sourceId = act.page.id;
