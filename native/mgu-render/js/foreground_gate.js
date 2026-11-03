@@ -13,7 +13,8 @@
  * manager keeps it (INTERFACES, the first there; some iDrive 7 firmware has
  * none of them, and then the copy of the iDrive 7 one MainApp's installer
  * writes into <apps>/oap_<uid>/someipInterfaces/ for each app whose manifest
- * names the interface, the one with the most instances). Without any, it
+ * names the interface, the one with the most instances; before those, any in the src-gen folders of
+ * the packages under /usr/lib). Without any, it
  * prints one line, "unavailable", and exits. The instance's uuid
  * field is the app's RHMI uuid, and its applicationStack field has a ROOT_APP
  * entry while the app's screen is in front. Installed apps live in
@@ -75,9 +76,39 @@ function instanceCount(config) {
         ? Object.keys(config.instances).length : 0;
 }
 
+/* Interface descriptions in the src-gen folders of the packages under lib, two levels deep at most
+ * (another app manager build, as MainApp 6.5.5's single bundle). */
+function srcGenInterfaces(lib) {
+    const want = /^de_bmw_infotainment_hmi_remote2?_RemoteHmiApplication2?\.json$/;
+    const out = [];
+    const look = (dir, depth) => {
+        let names = [];
+        try {
+            names = fs.readdirSync(dir).sort();
+        } catch (e) {
+            return;
+        }
+        names.forEach((n) => {
+            if (want.test(n)) {
+                out.push(path.join(dir, n));
+            } else if (depth > 0) {
+                look(path.join(dir, n), depth - 1);
+            }
+        });
+    };
+    let pkgs = [];
+    try {
+        pkgs = fs.readdirSync(lib).sort();
+    } catch (e) {
+        // no packages
+    }
+    pkgs.forEach((p) => look(path.join(lib, p, 'src-gen'), 2));
+    return out;
+}
+
 /* The interface description: { file, config }, or null when there is none. */
-function findInterface(files, appsDir) {
-    for (const file of files) {
+function findInterface(files, appsDir, libDir) {
+    for (const file of files.concat(srcGenInterfaces(libDir || '/usr/lib'))) {
         const config = readJson(file, MAX_INTERFACE_JSON);
         if (instanceCount(config)) {
             return { file, config };

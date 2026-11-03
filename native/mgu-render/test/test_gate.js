@@ -52,5 +52,14 @@ check('one without instances is passed over', found(), { file: files[1], tag: 'i
 put(files[0], desc(512, 'src-gen'));
 check('src-gen first, as on current firmware', found(), { file: files[0], tag: 'src-gen' });
 
+// another app manager build keeps it in its own package's src-gen folder under /usr/lib
+const lib = path.join(root, 'lib');
+const own = path.join(lib, 'oap-mainapp-655', 'src-gen', 'someip', ID7);
+put(own, desc(512, 'own package'));
+check('a src-gen folder of another package under the lib folder', (() => {
+    const r = findInterface([path.join(root, 'missing.json')], path.join(root, 'no-apps'), lib);
+    return r && { file: r.file, tag: r.config.tag };
+})(), { file: own, tag: 'own package' });
+
 fs.rmSync(root, { recursive: true, force: true });
 console.log(`test_gate.js: ${checks} checks passed`);
