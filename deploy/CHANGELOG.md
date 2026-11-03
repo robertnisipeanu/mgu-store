@@ -2,7 +2,7 @@
 
 ## 0.7.14
 
-- iDrive 7: `status` and `check` report the tile of an app listed in `custom_apps.json` (ours and the other apps the provisioning fallback lists) as shown only while the running app manager runs the fallback copy (`fallback.manager_runs_copy` true); otherwise, and with no app manager running, as `hidden`, whatever the app's registry `provisioningCache` holds. `tile_provisioned`, `tile_fallback` and `tile_visible` in `status --json` follow the same rule. Apps provisioning lists itself, and iDrive 8, are reported from the registry cache.
+- iDrive 7: `status` and `check` report the tile of an app listed in `custom_apps.json` (ours and the other apps the provisioning fallback lists) as shown only while the running app manager runs the fallback copy (`fallback.manager_runs_copy` true); otherwise, and with no app manager running, as `hidden`, whatever the app's registry `provisioningCache` holds. `tile_provisioned`, `tile_fallback` and `tile_visible` in `status --json` follow the same rule. Apps not in `custom_apps.json`, units with the retired installer's leftovers, and iDrive 8 are reported from the registry cache.
 
 ## 0.7.13
 

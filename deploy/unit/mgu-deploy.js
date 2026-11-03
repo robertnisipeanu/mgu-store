@@ -1976,15 +1976,18 @@ function tileFlags(entry) {
         allowed: cache['-allowed'], enabled: cache['-enabled'] };
 }
 /* fb: fallbackState() with manager_runs_copy. On iDrive 7 the cache keeps
- * the flags of the last listing the manager applied, so for an app only
- * the fallback lists (in custom_apps.json) it shows only while the running
- * manager runs the fallback copy. When that is unknown (null: no manager
- * runs, so none lists any app) the tile counts as hidden. iDrive 8 lists
+ * the flags of the last listing the manager applied, so an app only the
+ * fallback lists (in custom_apps.json) shows only while the running
+ * manager runs the fallback copy. With no manager running (null) no app is
+ * listed; a copy whose in-place hook has not announced itself for the
+ * running manager counts as not run (false): both report the tile hidden,
+ * since neither shows that it is listed. The retired installer's leftovers
+ * list apps by themselves, so with them the cache stands. iDrive 8 lists
  * apps from its das files at the manager's start, and its cache is that. */
 function tileState(app, fb) {
     var visible = tileFlags(app.entry).visible, listed = fb.apps.indexOf(app.id) >= 0;
     if (isId8()) listed = listed && fb.active;
-    else if (listed) visible = visible && fb.manager_runs_copy === true;
+    else if (listed && !retiredBackups().length) visible = visible && fb.manager_runs_copy === true;
     return { provisioned: visible && !listed, fallback: visible && listed, visible: visible };
 }
 

@@ -1572,7 +1572,8 @@ provisioning (`tile_provisioned`) or the fallback (`tile_fallback`), from the
 flags the manager persisted in its `provisioningCache`. On iDrive 7 an app
 listed in `custom_apps.json` shows only while the running manager runs the
 fallback copy (`fallback.manager_runs_copy`); otherwise, or with no manager
-running, its tile is reported hidden. Provisioning's own section for an app's
+running, its tile is reported hidden (with the retired installer's leftovers,
+which list apps by themselves, the cached flags stand). Provisioning's own section for an app's
 id wins over the fallback: when it disallows the app the tile stays hidden
 (`tile_visible: false`), and the install says so.
 

@@ -620,8 +620,8 @@ function testApps() {
     let st = root.status();
     const a = st.components.find((c) => c.id === 'fixture_app');
     check('status: the app with version, uid and tile fields', a && a.kind === 'app' && a.version === '1.0.0' &&
-        a.uid === 13001 && a.tile_provisioned === false && a.tile_fallback === (st.fallback.manager_runs_copy === true) &&
-        a.tile_visible === a.tile_fallback &&
+        a.uid === 13001 && st.fallback.manager_runs_copy === false && a.tile_provisioned === false && a.tile_fallback === false &&
+        a.tile_visible === false &&
         a.installationSource === 'PREINSTALLED', JSON.stringify(a));
     check('app: a unit without the retired installer\'s leftovers has no migration snapshot and reports none',
         !fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).some((d) => d.endsWith('-migrate')) &&
@@ -3651,6 +3651,9 @@ function testRetiredDetect() {
     check('retired: status --json lists the leftovers', JSON.stringify(st.retired_leftovers) === JSON.stringify(
         [root.src('main.js.capbak'), root.src('main.js.vcbak'), root.src('AppManagement/AppManagement.js.capbak')]),
     JSON.stringify(st.retired_leftovers));
+    const store = st.components.find((x) => x.id === 'store_app') || {};
+    check('retired: with the leftovers, a listed app\'s tile is reported from the registry cache while the manager is not on the copy',
+        st.fallback.manager_runs_copy === false && 'store_app' in root.custom() && store.tile_visible === true, JSON.stringify(st));
     check('retired: check and status change nothing', root.hash().hash === before.hash, treeDiff(before, root.hash()));
 }
 
