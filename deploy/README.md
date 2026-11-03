@@ -1569,9 +1569,12 @@ effect. `fallback off` unmounts it and removes the unit, its link, its recmgr
 entry and the copy; apps installed already stay installed, and a new app
 install turns it on again. `status` shows per app whether its tile comes from
 provisioning (`tile_provisioned`) or the fallback (`tile_fallback`), from the
-flags the manager persisted in its `provisioningCache`. Provisioning's own
-section for an app's id wins over the fallback: when it disallows the app the
-tile stays hidden (`tile_visible: false`), and the install says so.
+flags the manager persisted in its `provisioningCache`. On iDrive 7 an app
+listed in `custom_apps.json` shows only while the running manager runs the
+fallback copy (`fallback.manager_runs_copy`); otherwise, or with no manager
+running, its tile is reported hidden. Provisioning's own section for an app's
+id wins over the fallback: when it disallows the app the tile stays hidden
+(`tile_visible: false`), and the install says so.
 
 ### The retired installer's leftovers
 

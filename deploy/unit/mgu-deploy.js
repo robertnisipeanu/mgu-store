@@ -45,7 +45,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.13';
+var VERSION = '0.7.14';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -1975,8 +1975,16 @@ function tileFlags(entry) {
     return { visible: cache['-enabled'] === 'true' && cache['-allowed'] === 'true',
         allowed: cache['-allowed'], enabled: cache['-enabled'] };
 }
+/* fb: fallbackState() with manager_runs_copy. On iDrive 7 the cache keeps
+ * the flags of the last listing the manager applied, so for an app only
+ * the fallback lists (in custom_apps.json) it shows only while the running
+ * manager runs the fallback copy. When that is unknown (null: no manager
+ * runs, so none lists any app) the tile counts as hidden. iDrive 8 lists
+ * apps from its das files at the manager's start, and its cache is that. */
 function tileState(app, fb) {
-    var visible = tileFlags(app.entry).visible, listed = !!(fb.active && fb.apps.indexOf(app.id) >= 0);
+    var visible = tileFlags(app.entry).visible, listed = fb.apps.indexOf(app.id) >= 0;
+    if (isId8()) listed = listed && fb.active;
+    else if (listed) visible = visible && fb.manager_runs_copy === true;
     return { provisioned: visible && !listed, fallback: visible && listed, visible: visible };
 }
 
@@ -5355,12 +5363,12 @@ function cmdCheck(args) {
         '; socket file: ' + (fs.existsSync(CFG.socketPath) ? 'present' : 'absent'));
     bridgeTodoLines().forEach(function (l) { say('  ' + l); });
     var fb = fallbackState();
+    fb.manager_runs_copy = isId8() ? null : managerRunsCopy();
     say('fallback: ' + (fb.active ? 'active' : 'inactive'));
     installedApps().forEach(function (app) {
         var tile = tileState(app, fb);
         say('app ' + app.id + ' ' + app.version + ': tile ' +
-            (tile.provisioned ? 'provisioned' : (tile.fallback ? 'via fallback' : 'hidden')) +
-            ' (registry provisioningCache)');
+            (tile.provisioned ? 'provisioned' : (tile.fallback ? 'via fallback' : 'hidden')));
     });
     var files = args.artifacts.length ? args.artifacts : [];
     if (!files.length && fs.existsSync(path.join(HERE, 'artifacts'))) {
