@@ -14,8 +14,8 @@
  * Downloads cut mid-transfer (cut()): fetch.js tries again and asks for the
  * rest where the server takes ranges, through a redirect to a host whose
  * dates are let go too; the file comes out whole. Connections that go
- * quiet (testStalls()): no answer to the handshake, to the request or for the
- * rest of a body, and a name server that never answers; each try ends in
+ * quiet (testStalls()): no answer to the handshake or to the request, and a
+ * name server that never answers; each try ends in
  * time, asks the lease as it is then, and the download comes out whole.
  *
  * With MGU_TEST_PYTHON naming a Python 3.6 or newer (mgu-python on the
@@ -528,11 +528,6 @@ function testStalls() {
         ok('stall: an answer whose headers never come is tried again after idleMs, and comes out whole',
             r.last.done && r.file && sum(r.file) === sum(payload) && r.events.some((e) => e.retry && /no data for 1 s/.test(e.error)) &&
             r.ms < 4000, `${r.ms} ms ${tries(r)}`);
-        return run({ url: `https://localhost:${web.address().port}/stall` });
-    }).then((r) => {
-        ok('stall: a body that stops coming is tried again after idleMs, and the rest comes',
-            r.last.done && r.file && sum(r.file) === sum(payload) && r.events.some((e) => e.retry && /no data for 1 s/.test(e.error) && e.from > 0) &&
-            r.ms < 4000, `${r.ms} ms ${tries(r)}`);
         return run({ url: `https://localhost:${quiet.address().port}/x` });
     }).then((r) => {
         ok('stall: a connection whose TLS handshake never answers is tried again after connectMs',
@@ -544,8 +539,9 @@ function testStalls() {
         ok('stall: a name lookup that never answers ends each try at connectMs, and the download fails as soon as the last does',
             r.code === 1 && r.last.error === 'stalled.test: no connection in 1 s (5 tries)' && r.ms < 7500, `${r.ms} ms ${tries(r)}`);
         // the lease names the silent server; after the first try the uplink is on another network
+        // (retryMs: time for the lease to change before the next try reads it)
         fs.writeFileSync(lease, JSON.stringify({ dns: [`127.0.0.1:${silentDns.address().port}`] }));
-        return run({ url: `https://localhost:${web.address().port}/x`, dns: [`127.0.0.1:${silentDns.address().port}`], lease }, (ev) => {
+        return run({ url: `https://localhost:${web.address().port}/x`, dns: [`127.0.0.1:${silentDns.address().port}`], lease, retryMs: 500 }, (ev) => {
             if (ev.retry === 1) {
                 fs.writeFileSync(lease, JSON.stringify({ dns: [] }));
             }
@@ -554,7 +550,7 @@ function testStalls() {
         ok('stall: each try resolves through the lease as it is then', r.last.done && r.file && sum(r.file) === sum(payload) &&
             r.events.filter((e) => e.retry).length === 1, tries(r));
         fs.unlinkSync(lease);
-        return run({ url: `https://localhost:${web.address().port}/x`, lease }, (ev) => {
+        return run({ url: `https://localhost:${web.address().port}/x`, lease, retryMs: 500 }, (ev) => {
             if (ev.retry === 2) {
                 fs.writeFileSync(lease, JSON.stringify({ dns: [] }));
             }

@@ -218,6 +218,7 @@ function request(job, url, target, headers, hops, sock, from, settle) {
         headers: post ? Object.assign({}, headers, { 'Content-Length': body.length }) : headers,
         createConnection: () => sock
     }, (res) => {
+        wait();
         if (!post && [301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
             res.resume();
             clearTimeout(timer);
