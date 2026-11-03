@@ -815,7 +815,7 @@ static void touch_defaults(int area[4]) {
     if (cfg.touch_area[2]) { memcpy(area, cfg.touch_area, 4 * sizeof *area); return; }
     area[0] = area[1] = area[2] = area[3] = 0;
     if (screen_w == 2880 && screen_h == 960) { area[1] = 76; area[2] = 2880; area[3] = 764; }   /* iDrive 8: title strip, climate bar */
-    else if (screen_w == 1920 && screen_h == 720) { area[0] = 84; area[1] = 76; area[2] = 1836; area[3] = 644; }   /* iDrive 7: back column, title strip */
+    else if (screen_w == 1920 && screen_h == 720) { area[0] = 84; area[2] = 1836; area[3] = 720; }   /* iDrive 7: back column (the kit claims tabs in the title strip; status icons are never claimed) */
 }
 
 /* ---------------- controller gate (upstream inputgate) ---------------- */
@@ -1542,6 +1542,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--unshare")) share_only = 2;
         else { usage(argv[0]); return 2; }
     }
+    if (cfg_load_local(&cfg)) log_error("%s: bad lines skipped, the rest applied", cfg.local_conf);
     log_verbose = cfg.verbose;
     t_start = now_us();
     if (rin) return replay(rin, rout, rraw, ruid);

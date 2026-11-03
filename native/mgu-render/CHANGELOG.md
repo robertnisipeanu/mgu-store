@@ -1,5 +1,10 @@
 # mgu-render changelog
 
+## 0.6.11
+
+- iDrive 7: `touch_area = auto` is 84,0,1836,720, the title strip included. With 84,76,1836,644 a tap on an app's own header tab (the idrive7-apps kit draws its tabs there) went to the HMI, which closed the app: black screen. Apps never claim the status icons, so they still reach the HMI.
+- `local_conf` (default `/var/opt/mgu-render/mgu-render.local.conf`): a unit's own settings, read after the shipped file and every `-s`. An update replaces `mgu-render.conf`; the local file stays, so a setting changed on the car is no longer lost at the next update. Absent: nothing; a bad line is logged and skipped, the good ones apply.
+
 ## 0.6.10
 
 Both changes are for iDrive 8 only (centre display 2880x960); on iDrive 7 the renderer behaves as 0.6.9.
