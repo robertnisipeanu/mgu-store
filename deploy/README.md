@@ -334,7 +334,11 @@ the folder. With `--token` a token is added (below), then `status` is
 printed. Its last line
 is `Restart the head unit to finish setup.` while any of
 `mgu-updater.service`, `mgu-render.socket` and `mgu-uplink.service` is
-installed but not active, else `Setup is done`. After that line, at a
+installed but not active, or, on iDrive 7, while the running app manager
+does not yet run the provisioning fallback that shows our apps' tiles;
+else `Setup is done`. When the fallback could not be turned on, it says
+`The Store's tile cannot show:` and the reason (exit 1 when the services
+run). After the restart line, at a
 terminal (not under CI, nor with `--no-restart-prompt`), it asks
 `Restart the head unit now? [y/N]`; `y` or `yes` restarts the head unit
 the way the Store's Restart head unit does (`/usr/bin/nsm_control
@@ -1067,6 +1071,16 @@ The app manager installs our apps itself.
   may still run, which can leave the HMI without the tile until the head
   unit restarts. Only a higher version installs; the same version is
   reported as already installed (exit 0), a lower one is refused.
+- **Fallback lost.** On iDrive 7, an install in which every app is already
+  current, while our apps are listed in `custom_apps.json` and the
+  fallback is not active (its unit missing, or `main.js` not bound
+  to the copy), turns the fallback on again and restarts the manager once,
+  under the bounce rules (not when it already runs the copy), so the tiles
+  show. While `vsomeipd.service` or
+  `hmi.service` is not running, a restarted manager could not start, so it
+  is not restarted and the boot unit lists the apps from the next start.
+  A copy that does not build leaves the fallback off, the install stands,
+  and `status --json` gives the reason as `fallback.refused`.
 - **Start type.** `custom_apps.json` lists every app with
   `-appStartType` `manually`, or the value its `package.json` names in
   `"mguAppStartType"` (`autostart`, `lum` or `manually`; any other value

@@ -1,5 +1,11 @@
 # Deploy tool changelog
 
+## 0.7.13
+
+- iDrive 7: an install in which every app is already current, on a unit whose provisioning fallback is not active (its unit missing, or `main.js` not bound to its copy) while our apps are listed in `custom_apps.json`, turns the fallback on again and restarts the app manager once, under the usual restart rules (none when it already runs the fallback copy), so the apps' tiles show. While `vsomeipd.service` or `hmi.service` is not running, the manager is not restarted (a restarted one could not start) and the apps are listed from the next start. A copy that does not build leaves the fallback as it was; the install stands, and `status --json` gives the reason as `fallback.refused`.
+- `status --json` says whether the running app manager runs the fallback copy (`fallback.manager_runs_copy`; `null` without a manager or on iDrive 8).
+- `mgu-install.js first-install` says `Setup is done` only when, besides the services, our apps' tiles show on iDrive 7. Otherwise it ends with `Restart the head unit to finish setup.` and the restart question, or, when the fallback could not be turned on, with one line saying why (followed by the restart line while a service still waits for the next start).
+
 ## 0.7.12
 
 - iDrive 7: an install with an app, on a unit where the running app manager can list no app of ours (no provisioning fallback yet, as at a first install), restarts the manager once: app-privacy's restart waits for the app's, so the manager comes back with the patch, the fallback and the app. Until then it runs the stock code it started with, which knows nothing of the app. A restart still owed when the install ends is made then. Elsewhere, and for app-privacy on its own, app-privacy restarts the manager as it applies.

@@ -5174,8 +5174,9 @@ function testMguInstall() {
         check('mgu-install first-install: no remote command carries a double quote or a backslash (Windows passes them through its own quoting)',
             r.calls.every((a) => !/["\\]/.test(a[a.length - 1])), r.calls.map((a) => a[a.length - 1]).join('\n'));
         check('mgu-install first-install: leaves no staging folder', !fs.readdirSync(root.p('var/opt')).some((n) => /^mgu-deploy-kit-/.test(n)));
-        // again, the updater running since the next start, the token from the GitHub CLI
+        // again, the updater running since the next start, the manager on the fallback copy, the token from the GitHub CLI
         fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'active\n');
+        startInplace(root);
         gh.reset();
         r = mguInstall(['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'], Object.assign({ env: { FAKE_GH_TOKEN: TOKEN } }, opts));
         check('mgu-install first-install again: changes nothing installed, and says setup is done', r.status === 0 &&
@@ -6848,6 +6849,161 @@ function testId8Complete() {
         o.out.includes('gone@1.0.0.tgz is not known, passed over'), o.out);
 }
 
+/* An install in which every app is current, on an iDrive 7 unit whose
+ * fallback unit is gone while our app is registered and listed: the
+ * fallback goes on again and the manager restarts once; a later install
+ * leaves it; with the HMI or the SOME/IP daemon not running it takes
+ * effect at the next start, with no restart; a copy that does not build
+ * leaves the fallback off, says why, and status gives the reason. */
+function testRelist() {
+    const PLATFORM = 'vsomeipd.service hmi.service';
+    const lose = (root) => {
+        fs.unlinkSync(root.p('etc/systemd/system/mgu-app-fallback.service'));
+        fs.unlinkSync(root.p('etc/systemd/system/multi-user.target.wants/mgu-app-fallback.service'));
+    };
+    const again = (root) => root.run(['install', '--artifact', toolArtifact('0.1.0'), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    let root = fakeRoot({ active: PLATFORM });
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    const k0 = root.kills().length;
+    lose(root);
+    check('relist: status --json says the fallback is off and the manager does not run its copy',
+        root.status().fallback.unit_present === false && root.status().fallback.manager_runs_copy === false);
+    let r = again(root);
+    check('relist: the app current and the fallback unit gone, the install turns it on again and restarts the manager once',
+        r.status === 0 && r.out.includes('fixture_app 1.0.0 already installed; nothing to change') &&
+        r.out.includes('our apps are listed again: restarting the app manager so their tiles show') &&
+        root.kills().length === k0 + 1 && fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')) &&
+        fs.readlinkSync(root.p('etc/systemd/system/multi-user.target.wants/mgu-app-fallback.service')) === '../mgu-app-fallback.service' &&
+        root.status().fallback.unit_present === true, r.out);
+    const young = JSON.parse(root.run(['status', '--json'], { MGU_DEPLOY_BOUNCE_MIN_UP_S: '60' }).stdout).fallback;
+    check('relist: the manager the relist bounce started counts as running the copy while younger than the bounce minimum',
+        young.manager_runs_copy === true && root.status().fallback.manager_runs_copy === false, JSON.stringify(young));
+    r = again(root);
+    check('relist: the next install, with the fallback on, does not restart the manager',
+        r.status === 0 && root.kills().length === k0 + 1 && !r.out.includes('listed again'), r.out);
+
+    // the copy's in-place hook announced for the running manager: status says it runs the copy
+    startInplace(root);
+    check('relist: status --json says the manager runs the copy once its hook announced itself',
+        root.status().fallback.manager_runs_copy === true);
+
+    // the HMI and the SOME/IP daemon not running: no restart, the boot unit lists the app from the next start
+    root = fakeRoot();
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    const k1 = root.kills().length;
+    lose(root);
+    r = again(root);
+    check('relist: with the HMI and the SOME/IP daemon down, the fallback goes on with no restart, from the next start',
+        r.status === 0 && root.kills().length === k1 && fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')) &&
+        r.out.includes('our apps are listed again from the next start of the head unit (vsomeipd.service, hmi.service not running'), r.out);
+
+    // a copy that does not build: the fallback stays off, the install stands, status gives the reason
+    root = fakeRoot({ active: PLATFORM });
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    const k2 = root.kills().length;
+    lose(root);
+    write(root.p('usr/lib/oap-mainapp/src/main.js'), stockMain().replace(HOOK_ANCHOR, 'isMainapp&&(newProvisioning.'));
+    r = again(root);
+    const fb = root.status().fallback;
+    check('relist: a copy that does not build leaves the fallback off, no restart, the install stands, the reason in status',
+        r.status === 0 && root.kills().length === k2 && r.out.includes('our apps\' tiles stay hidden: ') &&
+        !fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')) && fb.unit_present === false &&
+        typeof fb.refused === 'string' && fb.refused.includes('anchor'), `${r.out}\n${JSON.stringify(fb)}`);
+
+    // the fallback unit gone while the running manager still runs the bound copy: listed again, no restart
+    root = fakeRoot({ active: PLATFORM });
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    startInplace(root);
+    const k3 = root.kills().length;
+    lose(root);
+    r = again(root);
+    check('relist: a manager whose hook announced itself on the copy is not restarted',
+        r.status === 0 && root.kills().length === k3 && fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')), r.out);
+
+    // our app registered but listed nowhere: the fallback would list nothing, so nothing happens
+    root = fakeRoot({ active: PLATFORM });
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    lose(root);
+    write(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`), '{}\n');
+    const k4 = root.kills().length;
+    r = again(root);
+    check('relist: an app of ours registered but not in custom_apps.json brings no fallback and no restart',
+        r.status === 0 && root.kills().length === k4 && !fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')), r.out);
+
+    // app-privacy applied during a relist waits for the relist's restart, said as such
+    root = fakeRoot({ active: PLATFORM, privacy: false });
+    root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    lose(root);
+    const k5 = root.kills().length;
+    r = root.run(['install', '--artifact', privacyTool('1.0.1', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    check('relist: app-privacy\'s restart is the relist\'s one restart, and the output says so',
+        r.status === 0 && root.kills().length === k5 + 1 && r.out.includes('app-privacy: the app manager loads it at its next restart') &&
+        !r.out.includes('the app install\'s restart'), r.out);
+
+    // no app of ours registered or listed: nothing to list again
+    root = fakeRoot({ active: PLATFORM });
+    r = root.run(['install', '--artifact', toolArtifact('0.1.0'), '--yes']);
+    check('relist: a unit with no app of ours gets no fallback from a tool install',
+        r.status === 0 && !fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')) && !root.kills().length, r.out);
+}
+
+/* first-install's last line on iDrive 7 follows our apps' tiles: done
+ * once the manager runs the fallback copy, a restart while it does not,
+ * and one line saying why when the fallback could not go on. */
+function testMguInstallTiles() {
+    const mi = require(MGU_INSTALL);
+    const st = (fb, extra) => JSON.stringify(Object.assign({ unit: { hmi: 'ID7' }, fallback: fb, retired_leftovers: [] }, extra || {}));
+    const fb = { active: true, apps: ['robertn_store'], manager_runs_copy: true, refused: null };
+    check('mgu-install tiles: an active fallback the manager runs shows the tiles', mi.tilesShow(st(fb)).shown === true);
+    check('mgu-install tiles: an active fallback the manager does not run yet needs a restart',
+        mi.tilesShow(st(Object.assign({}, fb, { manager_runs_copy: false }))).shown === false &&
+        !mi.tilesShow(st(Object.assign({}, fb, { manager_runs_copy: null }))).why);
+    check('mgu-install tiles: a fallback the deploy tool could not turn on gives its reason',
+        mi.tilesShow(st(Object.assign({}, fb, { active: false, manager_runs_copy: null, refused: 'fallback build refused: x' }))).why ===
+        'fallback build refused: x');
+    const older = { active: false, apps: ['robertn_store'] };
+    check('mgu-install tiles: an older deploy tool\'s status, iDrive 8, no app listed, the retired installer\'s leftovers or no status count as shown',
+        mi.tilesShow(st(older)).shown && mi.tilesShow(st(Object.assign({}, fb, { active: false }), { unit: { hmi: 'ID8' } })).shown &&
+        mi.tilesShow(st(Object.assign({}, fb, { active: false, apps: [] }))).shown &&
+        mi.tilesShow(st(Object.assign({}, fb, { active: false }), { retired_leftovers: ['x'] })).shown &&
+        mi.tilesShow('').shown && mi.tilesShow(undefined).shown);
+
+    const gh = fakeGithub({ files: [], repos: {} });
+    try {
+        const rel = fakeRelease(gh.api);
+        gh.set({ files: rel.files, repos: { [STORE_REPO]: { catalog: rel.catalogIndex } } });
+        const root = donorRoot();
+        writeCoding(root, 0x09);
+        const opts = { bin: installBin(root), api: gh.api };
+        const args = ['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'];
+        let r = mguInstall(args, opts);
+        fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'active\n');
+        r = mguInstall(args, opts);
+        check('mgu-install tiles: the updater running, the manager not on the fallback copy: a restart finishes setup',
+            r.status === 0 && r.stdout.endsWith('\nRestart the head unit to finish setup.\n'), r.out.slice(-1500));
+        const mgr = startInplace(root);
+        r = mguInstall(args, opts);
+        check('mgu-install tiles: the manager on the fallback copy: setup is done',
+            r.status === 0 && r.stdout.endsWith('Setup is done: the Store installs and updates everything from here on.\n'), r.out.slice(-1500));
+        mgr.kill('SIGKILL');
+        fs.writeFileSync(`${root.R}.mgr.pid`, '4000');
+        fs.unlinkSync(root.p('etc/systemd/system/mgu-app-fallback.service'));
+        fs.unlinkSync(root.p('etc/systemd/system/multi-user.target.wants/mgu-app-fallback.service'));
+        write(root.p('usr/lib/oap-mainapp/src/main.js'), stockMain().replace(HOOK_ANCHOR, 'isMainapp&&(newProvisioning.'));
+        r = mguInstall(args, opts);
+        check('mgu-install tiles: the fallback lost and its copy not building: one line saying why, exit 1',
+            r.status === 1 && /\nThe Store's tile cannot show: [^\n]*anchor[^\n]*\n$/.test(r.stdout) && !r.out.includes('Setup is done'),
+            r.out.slice(-1500));
+        fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'inactive\n');
+        r = mguInstall(args, opts);
+        check('mgu-install tiles: the same with the updater waiting for the next start: the reason, then the restart line',
+            r.status === 0 && /\nThe Store's tile cannot show: [^\n]*\nRestart the head unit to finish setup\.\n$/.test(r.stdout),
+            r.out.slice(-1500));
+    } finally {
+        gh.stop();
+    }
+}
+
 // MGU_TEST_ONLY=<name>,...: only those test functions
 const SUITES = [
     testArtifact,
@@ -6865,6 +7021,7 @@ const SUITES = [
     testPrivacySkipped,
     testStatusJson,
     testFallback,
+    testRelist,
     testInplace,
     testCertCopy,
     testMainApp811,
@@ -6907,6 +7064,7 @@ const SUITES = [
     testListSafety,
     testSourcesAndDonor,
     testMguInstall,
+    testMguInstallTiles,
     testMguInstallCoding,
     testMguInstallUsb,
     testMguInstallFrom,

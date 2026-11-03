@@ -926,16 +926,49 @@ async function firstInstall(o) {
         }
     }
     const services = [{ id: 'mgu-updater', unit: 'mgu-updater.service' }].concat(withs);
-    // the status on stderr, shown as it comes; which services run on stdout (absent: not installed)
+    // the status on stderr, shown as it comes; which services run on stdout (absent: not installed), then the status as JSON
     const st = ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) =>
-        `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`)).join('; '),
-        { capture: true });
-    if (services.every((s, i) => ['active', 'absent'].indexOf((st.stdout.split('\n')[i] || '').trim()) >= 0)) {
+        `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`),
+    [`sh ${DEPLOY} status --json 2>/dev/null | tail -n 1`]).join('; '), { capture: true });
+    const lines = st.stdout.split('\n');
+    const tiles = tilesShow(lines[services.length]);
+    const running = services.every((s, i) => ['active', 'absent'].indexOf((lines[i] || '').trim()) >= 0);
+    if (tiles.why) {
+        say(`The Store's tile cannot show: ${tiles.why}`);
+        if (running) {
+            return 1;
+        }
+    } else if (tiles.shown && running) {
         say('Setup is done: the Store installs and updates everything from here on.');
         return 0;
     }
     say('Restart the head unit to finish setup.');
     return offerRestart(o);
+}
+
+/* From the deploy tool's status --json, whether our apps' tiles show on an
+ * iDrive 7 unit: they do once the running app manager runs the fallback
+ * copy, and a restart brings that while the fallback is on. why: the
+ * deploy tool's reason it could not turn the fallback on. A status
+ * without manager_runs_copy (an older deploy tool, iDrive 8, no status),
+ * no app listed, or the retired installer's leftovers (which list the apps
+ * themselves) count as shown. */
+function tilesShow(line) {
+    let s = null;
+    try {
+        s = JSON.parse(line);
+    } catch (e) {
+        return { shown: true };
+    }
+    const fb = s && s.fallback;
+    if (!fb || !('manager_runs_copy' in fb) || (s.unit || {}).hmi === 'ID8' || !(fb.apps || []).length ||
+        (s.retired_leftovers || []).length) {
+        return { shown: true };
+    }
+    if (fb.manager_runs_copy === true) {
+        return { shown: true };
+    }
+    return fb.refused ? { shown: false, why: fb.refused } : { shown: false };
 }
 
 /* ---- token -------------------------------------------------------------------------------- */
@@ -1404,4 +1437,4 @@ if (require.main === module || FROM_STDIN) {
 }
 
 module.exports = { tgz, untgz, sshArgs, folderName, plainName, parse, SOURCES, sshBanner, enetInterfaces, hsfzFrame, hsfzFrames,
-    didAddress, hsfzGateway, hsfzHuAddress, findUnit, reach };
+    didAddress, hsfzGateway, hsfzHuAddress, findUnit, reach, tilesShow };
