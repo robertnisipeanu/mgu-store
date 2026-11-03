@@ -1096,7 +1096,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.16', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.17', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1539,6 +1539,18 @@ function runDrawn() {
             drawn.focusLost = false;
             ccu(101);
             eq(drawn.focus, 7);
+            // pushed right / down: the nearest item that way
+            const tilt = (d) => frontCcu({ frontRotaryEncoderOperation: 101, frontSequenceNumberOperatingElement: 0,
+                frontRotaryEncoderPushButton: 'KEINE_BETAETIGUNG', frontRotaryEncoderDeflection: d });
+            const at = (i) => drawn.items[i].x + drawn.items[i].w / 2;
+            const was = drawn.focus;
+            tilt('OST_KURZ_GEDRUECKT'); tilt('MITTELSTELLUNG');
+            eq(drawn.focus !== was && at(drawn.focus) > at(was), true, 'pushed right: the item to the right');
+            const row = drawn.items[drawn.focus].y;
+            tilt('SUED_KURZ_GEDRUECKT'); tilt('MITTELSTELLUNG');
+            eq(drawn.items[drawn.focus].y > row, true, 'pushed down: the item below');
+            drawn.focus = was;
+            drawn.render();
             reset();
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
