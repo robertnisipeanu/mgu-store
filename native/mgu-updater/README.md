@@ -811,7 +811,7 @@ each request, and whenever it changes (at most every 250 ms):
     "build": null, "optional": false, "uninstallable": true, "revision": null,
     "description": "…", "author": "…", "icon": "/var/opt/mgu-updater/state/icons/…png",
     "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null,
-    "listedId": null, "installAs": "doom", "blocked": null, "pendingReboot": false, "problem": null, "nextStart": null, "queued": false,
+    "listedId": null, "installAs": "doom", "blocked": null, "pendingReboot": false, "problem": null, "repair": null, "nextStart": null, "queued": false,
     "previous": null, "error": null } ] }
 ```
 
@@ -839,7 +839,13 @@ each request, and whenever it changes (at most every 250 ms):
   `description` and `author` its source's (`''` when it gives none);
   `icon` the kept icon's path, or null (Sources, "Icons"); `problem` what
   an installed tool says is wrong, the string `problem` of its
-  `/var/opt/<id>/status.json` (mgu-render's page template), else null.
+  `/var/opt/<id>/status.json` (mgu-render's page template), else for an
+  installed component that does not work `Not working: <repair>`, else null.
+  `repair`: why an installed component does not work until it is set up
+  again (the deploy tool's `stale`, after a firmware update), else null;
+  one the deploy tool does not set up again itself is installed again from
+  its source (its version there), once for each reason while the updater
+  runs; not the updater itself, nor an app on iDrive 8.
   `previous`: the version Undo update returns to (the deploy tool's
   `rollback`, from the version it keeps), else null: never for the
   updater, the deploy tool, the Store or what the updater requires, nor

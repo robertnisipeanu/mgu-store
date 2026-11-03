@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.20
+
+- A component the deploy tool says does not work (its `stale` in `status --json`: a firmware update took what it set up outside `/var/opt`) and cannot set up again from a copy it keeps is installed again from its source (the version the source has, which may be newer), once for each reason while the updater runs: one that did not help, or did not get through, is asked for again after the next start. Not the updater itself, which first-install installs, nor an app on iDrive 8, whose deploy tool installs no current app afresh. Its row has `repair` (the reason) and `problem` (`Not working: <reason>`) until then.
+
 ## 0.8.19
 
 - The Store's Restart head unit (sent with the secret) restarts the head unit at once: it is not held to the restart limits, nor recorded against them. A restart asked for without the secret (a Store before 0.9.16) keeps the limits.

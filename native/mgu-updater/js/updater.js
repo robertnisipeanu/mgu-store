@@ -400,6 +400,18 @@ function pendingReboot(conf) {
     return deployStatus(conf).then((st) => pendingOf(st));
 }
 
+/* The components the deploy tool says are not working (status --json's
+ * stale), by id: { why, kept: whether it sets them up again itself, kind }. */
+function staleOf(st) {
+    const out = {};
+    ((st && st.components) || []).forEach((c) => {
+        if (c && typeof c.id === 'string' && typeof c.stale === 'string' && c.stale) {
+            out[c.id] = { why: c.stale.slice(0, 200), kept: c.kept === true, kind: c.kind };
+        }
+    });
+    return out;
+}
+
 function pendingOf(st) {
     return ((st && st.pending_reboot) || []).map((p) => (p && p.id) || p);
 }
@@ -943,6 +955,10 @@ class Updater {
         try {
             this.webEnabled = readJson(path.join(conf.state_dir, 'web.json')).enabled === true;
         } catch (e) { /* off */ }
+        // the components the deploy tool says are not working, by id: { why, kept }
+        this.stale = {};
+        // the reinstalls of them asked of a source since the updater started, by id: the why each was asked for
+        this.repairs = {};
         try {
             const seen = readJson(path.join(conf.state_dir, 'apply-seen.json'));
             this.applySeen = seen && typeof seen === 'object' && !Array.isArray(seen) ? seen : {};
@@ -1328,6 +1344,12 @@ class Updater {
         writeAtomic(path.join(this.conf.state_dir, 'apply-seen.json'), JSON.stringify(this.applySeen));
     }
 
+    /* Why installed component id does not work, as the deploy tool says, or null. */
+    repairWhy(id, ours) {
+        const s = ours && this.stale[id];
+        return s ? `Not working: ${s.why}` : null;
+    }
+
     installedOf(id, kind, wantTitle) {
         if (kind === 'app') {
             return installedApp(this.conf, id, wantTitle);
@@ -1392,7 +1414,9 @@ class Updater {
                 blocked: entry.blocked || null,
                 // also an install queued for the next start (iDrive 8), not installed until then
                 pendingReboot: placed || (ours && this.pending.indexOf(unit) >= 0),
-                problem: row.installed && entry.kind === 'tool' ? toolProblem(this.conf, unit) : null,
+                problem: row.installed ? (entry.kind === 'tool' && toolProblem(this.conf, unit)) || this.repairWhy(unit, ours) : null,
+                // why the installed component does not work until it is set up again (the deploy tool's stale)
+                repair: row.installed && ours && this.stale[unit] ? this.stale[unit].why : null,
                 nextStart: (ours && this.nextStart[unit]) || (placed ? 'install' : null),
                 queued: this.queue.some((q) => q.id === row.id),
                 // the version Undo update returns to, only where it is offered
@@ -1798,6 +1822,7 @@ class Updater {
             .then(() => this.refresh())
             .then(() => {
                 this.checking = null;
+                this.repairStale();
                 this.changed();
             });
         return this.checking;
@@ -2666,10 +2691,33 @@ class Updater {
                 this.providers = providersOf(st);
                 this.appmanager = st.appmanager && typeof st.appmanager === 'object' ? st.appmanager : null;
                 this.idrive7 = st.idrive7 && Array.isArray(st.idrive7.apps) ? st.idrive7.apps : [];
+                this.stale = staleOf(st);
                 this.own = ownInstalled(this.conf, st);
             }
             this.privacy = privacy;
             this.takeOver();
+        });
+    }
+
+    /* A component the deploy tool says is not working (a firmware update
+     * took what it set up outside /var/opt) and cannot set up again itself
+     * from a copy it keeps: its source installs it again (its version
+     * there, which may be newer), once for each reason while the updater
+     * runs, so a reinstall that does not help is made again only after the
+     * next start. Not the updater itself (its reinstall restarts it, and
+     * first-install installs it), nor an app on iDrive 8, whose deploy tool
+     * installs no current app afresh. */
+    repairStale() {
+        Object.keys(this.stale).forEach((id) => {
+            const s = this.stale[id];
+            if (s.kept || id === SELF || this.repairs[id] === s.why || (this.own || []).indexOf(id) < 0 || !this.resolved().get(id) ||
+                (s.kind === 'app' && this.unit && this.unit.hmi === 'ID8')) {
+                return;
+            }
+            if (this.request(id) === null) {
+                console.log(`${id}: not working (${s.why}): installed again from its source`);
+                this.repairs[id] = s.why;
+            }
         });
     }
 

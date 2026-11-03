@@ -1520,9 +1520,42 @@ function testDaemon(certs, pubDir) {
             ok('install: an app goes through the deploy tool as one artifact',
                 /install --artifact .*demo_app@1\.0\.0\.tgz --yes/.test(fs.readFileSync(log, 'utf8')));
             ok('install: the verified copy is removed afterwards', !fs.existsSync(path.join(T, 'state', 'verified', 'demo_app@1.0.0.tgz')));
+            // the deploy tool says the app does not work (set up under another firmware) and lays nothing itself
+            fs.writeFileSync(`${log}.stale`, JSON.stringify({ demo_app: { why: 'installed under firmware old', kept: false } }));
+            client.check();
+            return waitFor(client, (s) => !s.catalog.checking && !s.busy && !s.components.some((c) => c.queued) &&
+                fs.readFileSync(log, 'utf8').split('\n').filter((l) => /demo_app@1\.0\.0\.tgz/.test(l)).length === 2, 20000, 'demo_app installed again');
+        })
+        .then(() => {
+            ok('repair: a component the deploy tool says does not work is installed again from its source, the same version',
+                fs.readFileSync(log, 'utf8').split('\n').filter((l) => /demo_app@1\.0\.0\.tgz/.test(l)).length === 2 && !fs.existsSync(path.join(T, 'state', 'repairs.json')));
+            // the same reason again: not asked again; shown as the row's state
+            fs.writeFileSync(`${log}.stale`, JSON.stringify({ demo_app: { why: 'installed under firmware old', kept: false },
+                'mgu-updater': { why: 'mgu-updater.service missing', kept: false } }));
+            client.check();
+            return waitFor(client, (s) => !s.catalog.checking && !s.busy && row(s, 'demo_app').repair, 15000, 'the repair shown');
+        })
+        .then((st) => {
+            ok('repair: a reinstall that did not help is not asked again; the row says why it does not work',
+                fs.readFileSync(log, 'utf8').split('\n').filter((l) => /demo_app@1\.0\.0\.tgz/.test(l)).length === 2 &&
+                row(st, 'demo_app').repair === 'installed under firmware old' &&
+                row(st, 'demo_app').problem === 'Not working: installed under firmware old', JSON.stringify(row(st, 'demo_app')));
+            ok('repair: the updater does not ask for its own reinstall',
+                row(st, 'mgu-updater').repair === 'mgu-updater.service missing' && !st.components.some((c) => c.queued) &&
+                row(st, 'mgu-updater').problem === 'Not working: mgu-updater.service missing', JSON.stringify(row(st, 'mgu-updater')));
+            // another reason: asked again
+            fs.writeFileSync(`${log}.stale`, JSON.stringify({ demo_app: { why: 'not startable', kept: false } }));
+            client.check();
+            return waitFor(client, (s) => !s.catalog.checking && !s.busy && !s.components.some((c) => c.queued) &&
+                fs.readFileSync(log, 'utf8').split('\n').filter((l) => /demo_app@1\.0\.0\.tgz/.test(l)).length === 3, 20000, 'demo_app installed again for another reason');
+        })
+        .then(() => {
+            ok('repair: another reason for the same component is asked for again', fs.readFileSync(log, 'utf8').split('\n').filter((l) => /demo_app@1\.0\.0\.tgz/.test(l)).length === 3);
+            fs.unlinkSync(`${log}.stale`);
             restarting();
             client.install('mgu-updater');
-            return waitFor(client, (s) => version(s) === '0.2.0' && settled(s), 30000, 'the updater running 0.2.0');
+            // committed once the deploy tool answers after the check
+            return waitFor(client, (s) => version(s) === '0.2.0' && settled(s) && !fs.existsSync(trialFile), 30000, 'the updater running 0.2.0');
         })
         .then((st) => {
             ok('self-update: the new version runs and is committed', !fs.existsSync(trialFile) && current() === 'versions/0.2.0');
