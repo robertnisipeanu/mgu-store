@@ -45,7 +45,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.12';
+var VERSION = '0.7.13';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -4791,8 +4791,68 @@ function ensureFallback(state, keepRunning) {
     }
     if (!fs.existsSync(customAppsFile())) writeCustomApps({});
     var kept = rebuildFallback(keepRunning);
+    delete state.fallback_refused;
     if (!was) say('provisioning fallback turned on');
     return kept;
+}
+/* iDrive 7: apps of ours registered or listed in custom_apps.json while
+ * the fallback is not active (its unit gone, or main.js not bound to the
+ * copy): the running manager provisions none of them, so their tiles stay
+ * hidden. The retired installer's leftovers list apps by themselves until
+ * an app install migrates them. */
+function fallbackLost() {
+    if (isId8() || retiredBackups().length) return false;
+    if (!Object.keys(readCustomApps()).length && !ourApps().length) return false;
+    return !(fallbackPresent() && (!binds() || boundToCopy()));
+}
+/* What a restarted app manager needs to initialise: without them it fails
+ * its start again and again, and oapcontroller wipes every app at the
+ * third failure in a row. */
+var PLATFORM_UNITS = ['vsomeipd.service', 'hmi.service'];
+/* An install with no app work on a unit where fallbackLost(): the fallback
+ * goes on again and the manager restarts once (bounceManager's rules), so
+ * the tiles show; with PLATFORM_UNITS not running, the boot unit lists
+ * them from the next start instead. A copy that does not build, or a
+ * failure, leaves the fallback as it was, recorded in state.json
+ * (fallback_refused) for status; the install stands. */
+function relistApps(state) {
+    var backup = null;
+    try {
+        preflightFallback();
+        backup = takeSnapshot('fallback', fallbackTouched());
+        ensureFallback(state, false);
+        var down = PLATFORM_UNITS.filter(function (u) { return unitState(u, 'is-active') !== 'active'; });
+        if (down.length) {
+            say('our apps are listed again from the next start of the head unit (' + down.join(', ') + ' not running, ' +
+                'so a restarted app manager could not start)');
+            privacyBounceOwed = false;
+            return;
+        }
+        say('our apps are listed again: restarting the app manager so their tiles show');
+        if (bounceManager() && inplaceHookOf(fs.readFileSync(FALLBACK_COPY, 'utf8')) !== null) inplaceManager();
+    } catch (e) {
+        warn('our apps\' tiles stay hidden: ' + e.message);
+        state.fallback_refused = e.message;
+        if (backup) {
+            try { restoreSnapshot(backup); runOk(CFG.systemctl, ['daemon-reload']); settleFallback(); }
+            catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
+        }
+    }
+}
+/* Whether the running app manager runs the fallback copy: its in-place
+ * hook announced itself for this manager, or, for a copy without the hook,
+ * the copy is bound and the manager started after it was written. null
+ * without a manager. */
+function managerRunsCopy() {
+    var m = managerStart();
+    if (!m) return null;
+    if (!fallbackPresent() || !(!binds() || boundToCopy())) return false;
+    var copy = null;
+    try { copy = fs.readFileSync(FALLBACK_COPY, 'utf8'); } catch (e) { return false; }
+    if (inplaceHookOf(copy) === null) return !managerStale();
+    var st = readJsonOrNull(inplaceStatusFile());
+    return !!st && st.pid === m.pid && typeof st.start === 'number' && m.started !== null &&
+        Math.abs(st.start / 1000 - m.started) < 5;
 }
 function fallbackOn(state) {
     preflightFallback();
@@ -5110,6 +5170,8 @@ function journalTail(unit) {
 }
 function collectStatus(state) {
     var fb = fallbackState(), components = [], pending = [], seen = {};
+    fb.manager_runs_copy = isId8() ? null : managerRunsCopy();
+    fb.refused = state.fallback_refused || null;
     function pend(id, reason) {
         var k = id + ':' + reason;
         if (!seen[k]) { seen[k] = true; pending.push({ id: id, reason: reason }); }
@@ -5557,7 +5619,10 @@ function cmdInstall(args) {
         });
         var apps = work.some(function (a) { return a.kind === 'app'; }), migrated = id8;
         if (apps && !id8) preflightFallback();
-        privacyMayWait = apps && !id8 && managerListsNoApp();
+        /* every app current, the fallback lost: listed again after the
+         * tools, with the one bounce app-privacy's waits for */
+        var relist = !apps && !noOap && fallbackLost();
+        privacyMayWait = apps && !id8 && managerListsNoApp() || relist;
         if (work.length) {
             ensureStock('install', work.reduce(function (all, a) { return all.concat(artifactTouched(a)); },
                 apps && !id8 && retiredBackups().length ? retiredTouched(null) : []));
@@ -5614,6 +5679,7 @@ function cmdInstall(args) {
                 throw e;
             }
         });
+        if (relist) { attempted = true; relistApps(state); }
         settlePrivacyBounce();
     } finally {
         try {
