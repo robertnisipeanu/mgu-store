@@ -7,7 +7,7 @@
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
  * @ 4d5f508, the HMI UI builder's export of projects/app-manager.json) with the Store's labels; source, pick, accounts, login, phone,
  * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page) and prefer are the Store's
- * own in the same frame. Each element is drawn by am_gpu.js; src/store_ui.js gives their values.
+ * own in the same frame, and internet (how to connect the car). Each element is drawn by am_gpu.js; src/store_ui.js gives their values.
  */
 module.exports = {
  "design": {
@@ -1979,6 +1979,25 @@ module.exports = {
       "empty": ""
      }
     }
+   ]
+  },
+  {
+   "kind": "gpu",
+   "name": "internet",
+   "theme": "m_tricolour",
+   "bg": "theme",
+   "components": [
+    { "name": "nav", "rtype": "gpu", "gpu": "sideNav", "x": 126, "y": 114, "w": 300, "h": 726,
+      "opts": { "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear", "sel": 3 } },
+    { "name": "back", "rtype": "gpu", "gpu": "vbutton", "x": 480, "y": 138, "w": 96, "h": 96,
+      "opts": { "text": "", "vicon": "back", "style": "round", "color": "#f4f7fb" }, "onTap": "event:back" },
+    { "name": "title", "rtype": "gpu", "gpu": "text", "x": 610, "y": 138, "w": 1200, "h": 90,
+      "opts": { "text": "Internet", "size": 72, "font": "bold", "align": "left", "color": "text" } },
+    { "name": "status", "rtype": "gpu", "gpu": "text", "x": 610, "y": 260, "w": 2100, "h": 60,
+      "opts": { "text": "", "size": 44, "font": "bold", "align": "left", "color": "text" } },
+    { "name": "ways", "rtype": "gpu", "gpu": "ways", "x": 610, "y": 340, "w": 2140, "h": 410, "opts": { "items": [] } },
+    { "name": "steps", "rtype": "gpu", "gpu": "text", "x": 610, "y": 770, "w": 2140, "h": 60,
+      "opts": { "text": "", "size": 34, "font": "label", "align": "left", "color": "text", "wrap": true } }
    ]
   }
  ]

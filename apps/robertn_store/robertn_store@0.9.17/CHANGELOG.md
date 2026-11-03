@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.17
+
+Settings > Internet: how to connect the car, as cards with a logo each
+(Wi-Fi from the phone's hotspot in three steps, an iPhone or an Android
+phone on a USB cable, a USB LTE stick), and whether it is connected. With
+no internet, the Store page's line under its title points there.
+
 ## 0.9.16
 
 Restart head unit carries the updater's secret, which mgu-updater 0.8.14
