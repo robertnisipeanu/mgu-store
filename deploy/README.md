@@ -336,8 +336,9 @@ is `Restart the head unit to finish setup.` while any of
 `mgu-updater.service`, `mgu-render.socket` and `mgu-uplink.service` is
 installed but not active, or, on iDrive 7, while the running app manager
 does not yet run the provisioning fallback that shows our apps' tiles;
-else `Setup is done`. When the fallback could not be turned on, the last
-line is `The Store's tile cannot show:` and the reason, exit 1. After the restart line, at a
+else `Setup is done`. When the fallback could not be turned on, it says
+`The Store's tile cannot show:` and the reason (exit 1 when the services
+run). After the restart line, at a
 terminal (not under CI, nor with `--no-restart-prompt`), it asks
 `Restart the head unit now? [y/N]`; `y` or `yes` restarts the head unit
 the way the Store's Restart head unit does (`/usr/bin/nsm_control
@@ -1071,8 +1072,8 @@ The app manager installs our apps itself.
   unit restarts. Only a higher version installs; the same version is
   reported as already installed (exit 0), a lower one is refused.
 - **Fallback lost.** On iDrive 7, an install in which every app is already
-  current, while our apps are registered or listed in `custom_apps.json`
-  and the fallback is not active (its unit missing, or `main.js` not bound
+  current, while our apps are listed in `custom_apps.json` and the
+  fallback is not active (its unit missing, or `main.js` not bound
   to the copy), turns the fallback on again and restarts the manager once,
   under the bounce rules, so the tiles show. While `vsomeipd.service` or
   `hmi.service` is not running, a restarted manager could not start, so it

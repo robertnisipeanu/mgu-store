@@ -2155,7 +2155,7 @@ function privacyApplyAndBounce(state) {
         if (!privacyMayWait) bounceManager();
         else if (!privacyBounceOwed) {
             privacyBounceOwed = true;
-            say('app-privacy: the app manager loads it at the app install\'s restart');
+            say('app-privacy: the app manager loads it at ' + (privacyWaitsRelist ? 'its next restart' : 'the app install\'s restart'));
         }
     }
     return { ok: true };
@@ -2169,7 +2169,7 @@ function privacyApplyAndBounce(state) {
  * the fallback and the app. Until then it runs stock code, which knows
  * nothing of the app; a manager that restarts meanwhile loads the patched
  * bundles. A bounce still owed when the install ends is made then. */
-var privacyMayWait = false, privacyBounceOwed = false;
+var privacyMayWait = false, privacyBounceOwed = false, privacyWaitsRelist = false;
 function managerListsNoApp() {
     return !fallbackPresent() && !(binds() && bindMounted(mainJs())) && !Object.keys(readCustomApps()).length && !ourApps().length &&
         !retiredBackups().length;
@@ -4795,14 +4795,14 @@ function ensureFallback(state, keepRunning) {
     if (!was) say('provisioning fallback turned on');
     return kept;
 }
-/* iDrive 7: apps of ours registered or listed in custom_apps.json while
- * the fallback is not active (its unit gone, or main.js not bound to the
+/* iDrive 7: apps of ours listed in custom_apps.json (what the fallback
+ * lists) while the fallback is not active (its unit gone, or main.js not bound to the
  * copy): the running manager provisions none of them, so their tiles stay
  * hidden. The retired installer's leftovers list apps by themselves until
  * an app install migrates them. */
 function fallbackLost() {
     if (isId8() || retiredBackups().length) return false;
-    if (!Object.keys(readCustomApps()).length && !ourApps().length) return false;
+    if (!Object.keys(readCustomApps()).length) return false;
     return !(fallbackPresent() && (!binds() || boundToCopy()));
 }
 /* What a restarted app manager needs to initialise: without them it fails
@@ -4828,6 +4828,8 @@ function relistApps(state) {
             privacyBounceOwed = false;
             return;
         }
+        var m = managerStart();
+        if (m && fallbackPresent() && hookAnnounced(m)) return;
         say('our apps are listed again: restarting the app manager so their tiles show');
         if (bounceManager() && inplaceHookOf(fs.readFileSync(FALLBACK_COPY, 'utf8')) !== null) inplaceManager();
     } catch (e) {
@@ -4839,10 +4841,12 @@ function relistApps(state) {
         }
     }
 }
-/* Whether the running app manager runs the fallback copy: its in-place
- * hook announced itself for this manager, or, for a copy without the hook,
- * the copy is bound and the manager started after it was written. null
- * without a manager. */
+/* Whether the running app manager runs the fallback copy, which is bound:
+ * its in-place hook announced itself for this manager; for a copy without
+ * the hook, the manager started after the copy was written; or the manager
+ * is the one a bounce of this tool started, still younger than the bounce
+ * minimum (the hook announces once MainApp has initialised). null without
+ * a manager. */
 function managerRunsCopy() {
     var m = managerStart();
     if (!m) return null;
@@ -4850,6 +4854,12 @@ function managerRunsCopy() {
     var copy = null;
     try { copy = fs.readFileSync(FALLBACK_COPY, 'utf8'); } catch (e) { return false; }
     if (inplaceHookOf(copy) === null) return !managerStale();
+    if (hookAnnounced(m)) return true;
+    var lb = lastBounceAt();
+    return m.started !== null && lb > 0 && m.started >= lb - 1 && m.started + CFG.bounceMinUpS > nowS();
+}
+/* The copy's in-place hook announced itself for manager m. */
+function hookAnnounced(m) {
     var st = readJsonOrNull(inplaceStatusFile());
     return !!st && st.pid === m.pid && typeof st.start === 'number' && m.started !== null &&
         Math.abs(st.start / 1000 - m.started) < 5;
@@ -5623,6 +5633,7 @@ function cmdInstall(args) {
          * tools, with the one bounce app-privacy's waits for */
         var relist = !apps && !noOap && fallbackLost();
         privacyMayWait = apps && !id8 && managerListsNoApp() || relist;
+        privacyWaitsRelist = relist;
         if (work.length) {
             ensureStock('install', work.reduce(function (all, a) { return all.concat(artifactTouched(a)); },
                 apps && !id8 && retiredBackups().length ? retiredTouched(null) : []));

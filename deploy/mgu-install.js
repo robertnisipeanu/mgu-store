@@ -932,11 +932,13 @@ async function firstInstall(o) {
     [`sh ${DEPLOY} status --json 2>/dev/null | tail -n 1`]).join('; '), { capture: true });
     const lines = st.stdout.split('\n');
     const tiles = tilesShow(lines[services.length]);
+    const running = services.every((s, i) => ['active', 'absent'].indexOf((lines[i] || '').trim()) >= 0);
     if (tiles.why) {
         say(`The Store's tile cannot show: ${tiles.why}`);
-        return 1;
-    }
-    if (tiles.shown && services.every((s, i) => ['active', 'absent'].indexOf((lines[i] || '').trim()) >= 0)) {
+        if (running) {
+            return 1;
+        }
+    } else if (tiles.shown && running) {
         say('Setup is done: the Store installs and updates everything from here on.');
         return 0;
     }

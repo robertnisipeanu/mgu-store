@@ -6875,6 +6875,9 @@ function testRelist() {
         root.kills().length === k0 + 1 && fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')) &&
         fs.readlinkSync(root.p('etc/systemd/system/multi-user.target.wants/mgu-app-fallback.service')) === '../mgu-app-fallback.service' &&
         root.status().fallback.unit_present === true, r.out);
+    const young = JSON.parse(root.run(['status', '--json'], { MGU_DEPLOY_BOUNCE_MIN_UP_S: '60' }).stdout).fallback;
+    check('relist: the manager the relist bounce started counts as running the copy while younger than the bounce minimum',
+        young.manager_runs_copy === true && root.status().fallback.manager_runs_copy === false, JSON.stringify(young));
     r = again(root);
     check('relist: the next install, with the fallback on, does not restart the manager',
         r.status === 0 && root.kills().length === k0 + 1 && !r.out.includes('listed again'), r.out);
@@ -6906,6 +6909,36 @@ function testRelist() {
         r.status === 0 && root.kills().length === k2 && r.out.includes('our apps\' tiles stay hidden: ') &&
         !fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')) && fb.unit_present === false &&
         typeof fb.refused === 'string' && fb.refused.includes('anchor'), `${r.out}\n${JSON.stringify(fb)}`);
+
+    // the fallback unit gone while the running manager still runs the bound copy: listed again, no restart
+    root = fakeRoot({ active: PLATFORM });
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    startInplace(root);
+    const k3 = root.kills().length;
+    lose(root);
+    r = again(root);
+    check('relist: a manager whose hook announced itself on the copy is not restarted',
+        r.status === 0 && root.kills().length === k3 && fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')), r.out);
+
+    // our app registered but listed nowhere: the fallback would list nothing, so nothing happens
+    root = fakeRoot({ active: PLATFORM });
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    lose(root);
+    write(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`), '{}\n');
+    const k4 = root.kills().length;
+    r = again(root);
+    check('relist: an app of ours registered but not in custom_apps.json brings no fallback and no restart',
+        r.status === 0 && root.kills().length === k4 && !fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')), r.out);
+
+    // app-privacy applied during a relist waits for the relist's restart, said as such
+    root = fakeRoot({ active: PLATFORM, privacy: false });
+    root.run(['install', '--artifact', privacyTool('1.0.0', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    lose(root);
+    const k5 = root.kills().length;
+    r = root.run(['install', '--artifact', privacyTool('1.0.1', 0), '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    check('relist: app-privacy\'s restart is the relist\'s one restart, and the output says so',
+        r.status === 0 && root.kills().length === k5 + 1 && r.out.includes('app-privacy: the app manager loads it at its next restart') &&
+        !r.out.includes('the app install\'s restart'), r.out);
 
     // no app of ours registered or listed: nothing to list again
     root = fakeRoot({ active: PLATFORM });
@@ -6960,6 +6993,11 @@ function testMguInstallTiles() {
         r = mguInstall(args, opts);
         check('mgu-install tiles: the fallback lost and its copy not building: one line saying why, exit 1',
             r.status === 1 && /\nThe Store's tile cannot show: [^\n]*anchor[^\n]*\n$/.test(r.stdout) && !r.out.includes('Setup is done'),
+            r.out.slice(-1500));
+        fs.writeFileSync(root.unitFile('mgu-updater.service.active'), 'inactive\n');
+        r = mguInstall(args, opts);
+        check('mgu-install tiles: the same with the updater waiting for the next start: the reason, then the restart line',
+            r.status === 0 && /\nThe Store's tile cannot show: [^\n]*\nRestart the head unit to finish setup\.\n$/.test(r.stdout),
             r.out.slice(-1500));
     } finally {
         gh.stop();
