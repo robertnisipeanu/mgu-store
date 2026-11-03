@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.17
+
+- A Wi-Fi refusal note (for example "the car's wpa_supplicant does not have wlan0") goes away when the Wi-Fi link changes. Before, it stayed next to Online until the page was opened again.
+
 ## 0.9.16
 
 Restart head unit carries the updater's secret, which mgu-updater 0.8.14

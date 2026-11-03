@@ -1096,7 +1096,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.16', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.17', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1394,6 +1394,14 @@ function runDrawn() {
         // the uplink's refusal shows on the page
         app._client.emit('reply-error', 'Wi-Fi needs uplink = auto', 'wifi-scan');
         eq(app._drawnModel().uplinkNote, 'Wi-Fi needs uplink = auto');
+        // it stays while the link is as it was, and goes once the link moves on
+        const online = app._st;
+        app._client.emit('state', Object.assign({}, online));
+        eq(app._drawnModel().uplinkNote, 'Wi-Fi needs uplink = auto', 'the note stays on an unchanged link');
+        app._client.emit('state', Object.assign({}, online, { uplink: Object.assign({}, online.uplink,
+            { wifi: Object.assign({}, online.uplink.wifi, { link: 'connecting' }) }) }));
+        eq(app._drawnModel().uplinkNote, null, 'a stale refusal goes once the link changes');
+        app._client.emit('state', online);
         // the preferred connection
         reset();
         tap('Preferred: Automatic');
