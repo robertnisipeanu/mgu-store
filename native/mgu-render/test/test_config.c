@@ -1,6 +1,8 @@
 /* The fps settings: the global one, an app's own (fps.<app>), and values refused. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "config.h"
 
@@ -23,6 +25,19 @@ int main(void)
         cfg_set_pair(&c, kv);
     }
     CHECK(c.n_app_fps == CFG_MAX_APP_FPS, "at most %d apps", CFG_MAX_APP_FPS);
+    {
+        char p[] = "/tmp/mgu-render-local-XXXXXX";
+        int fd = mkstemp(p);
+        FILE *f = fdopen(fd, "w");
+        fputs("touch_area = 84,0,1836,720\nnot a pair\nlocal_conf = /elsewhere\n", f);
+        fclose(f);
+        cfg_defaults(&c);
+        snprintf(c.local_conf, sizeof c.local_conf, "%s", p);
+        CHECK(cfg_load_local(&c) < 0 && c.touch_area[1] == 0 && c.touch_area[3] == 720, "local file: good lines applied, the bad one reported");
+        CHECK(!strcmp(c.local_conf, p), "local file cannot point elsewhere");
+        unlink(p);
+        CHECK(cfg_load_local(&c) == 0, "absent local file: nothing to do");
+    }
     printf("test_config: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

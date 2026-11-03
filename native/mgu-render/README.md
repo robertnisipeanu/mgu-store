@@ -261,7 +261,10 @@ nothing.
 ## Settings
 
 `mgu-render.conf` lists every key with its default; `-s key=value` overrides.
-The unit-specific ones:
+A unit's own settings go in `local_conf` (`/var/opt/mgu-render/mgu-render.local.conf`,
+same format), read last: an update replaces `mgu-render.conf` but leaves that
+file, so a value changed on a car survives the next update. A bad line there is
+logged and skipped; the renderer still starts. The unit-specific ones:
 
 | Key | iDrive 7 | iDrive 8 |
 |---|---|---|

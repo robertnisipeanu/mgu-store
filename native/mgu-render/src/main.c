@@ -1542,6 +1542,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--unshare")) share_only = 2;
         else { usage(argv[0]); return 2; }
     }
+    if (cfg_load_local(&cfg)) log_error("%s: bad lines skipped, the rest applied", cfg.local_conf);
     log_verbose = cfg.verbose;
     t_start = now_us();
     if (rin) return replay(rin, rout, rraw, ruid);

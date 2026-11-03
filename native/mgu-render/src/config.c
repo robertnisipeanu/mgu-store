@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "log.h"
 
@@ -28,6 +29,7 @@ void cfg_defaults(struct cfg *c)
     c->embed_area[0] = 104; c->embed_area[1] = 88; c->embed_area[2] = 1796; c->embed_area[3] = 632;
     snprintf(c->embed_marker, sizeof c->embed_marker, "/run/mgu-render/hmi-template");
     snprintf(c->hmi_process, sizeof c->hmi_process, "HmiMain3D");
+    snprintf(c->local_conf, sizeof c->local_conf, "/var/opt/mgu-render/mgu-render.local.conf");
     c->gate_legacy = 1;
     const uint32_t y[] = { 0x197, 0x198, 0x19d, 0x19f };
     memcpy(c->yield_surfaces, y, sizeof y);
@@ -81,6 +83,7 @@ int cfg_set(struct cfg *c, const char *key, const char *value)
     STR("hmi_display", hmi_display);
     STR("embed_marker", embed_marker);
     STR("hmi_process", hmi_process);
+    STR("local_conf", local_conf);
     STR("foreground_gate", foreground_gate);
     STR("touch_iface", touch_iface);
     STR("touch_saddr", touch_saddr);
@@ -216,6 +219,18 @@ int cfg_load(struct cfg *c, const char *path)
         }
     }
     fclose(f);
+    return rc;
+}
+
+/* The local file is optional: absent is fine, a bad line is logged and the good ones still apply,
+ * so a typo there never keeps the renderer from starting. It may not name another local file. */
+int cfg_load_local(struct cfg *c)
+{
+    char path[sizeof c->local_conf];
+    snprintf(path, sizeof path, "%s", c->local_conf);
+    if (!path[0] || access(path, F_OK)) return 0;
+    int rc = cfg_load(c, path);
+    snprintf(c->local_conf, sizeof c->local_conf, "%s", path);
     return rc;
 }
 
