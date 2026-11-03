@@ -1539,6 +1539,18 @@ function runDrawn() {
             drawn.focusLost = false;
             ccu(101);
             eq(drawn.focus, 7);
+            // pushed right / down: the nearest item that way
+            const tilt = (d) => frontCcu({ frontRotaryEncoderOperation: 101, frontSequenceNumberOperatingElement: 0,
+                frontRotaryEncoderPushButton: 'KEINE_BETAETIGUNG', frontRotaryEncoderDeflection: d });
+            const at = (i) => drawn.items[i].x + drawn.items[i].w / 2;
+            const was = drawn.focus;
+            tilt('OST_KURZ_GEDRUECKT'); tilt('MITTELSTELLUNG');
+            eq(drawn.focus !== was && at(drawn.focus) > at(was), true, 'pushed right: the item to the right');
+            const row = drawn.items[drawn.focus].y;
+            tilt('SUED_KURZ_GEDRUECKT'); tilt('MITTELSTELLUNG');
+            eq(drawn.items[drawn.focus].y > row, true, 'pushed down: the item below');
+            drawn.focus = was;
+            drawn.render();
             reset();
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
