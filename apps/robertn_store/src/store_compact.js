@@ -165,6 +165,12 @@ function compact(W, H) {
         button('signIn', X, B - BTN_H, 520, BTN_H, 'Sign in with GitHub', 'primary', 29, { vicon: 'plus', color: BLUE }),
         button('addToken', X + 544, B - BTN_H, 360, BTN_H, 'Add token', 'outline', 29, { vicon: 'plus' })
     ]);
+    const changelog = screen('changelog', 3, [
+        back(),
+        text('title', titleX, M + 2, CW - 84, 60, 'Changelog', 50, 'bold'),
+        after('status', titleX + 260, CW - 360),
+        list('list', X, HEAD + 14, CW, B - HEAD - 14, { empty: '', rowH: 52, titleSize: 26, subSize: 24 })
+    ]);
     const pick = screen('pick', 3, [
         back(),
         // a repo's name takes what the status leaves
@@ -226,7 +232,7 @@ function compact(W, H) {
         status('status', R - 420, 420),
         list('list', X, HEAD + 14, Math.min(1100, CW), B - HEAD - 14, { empty: '' })
     ]);
-    return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, pick, login, phone, type,
+    return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, changelog, pick, login, phone, type,
         wifi, prefer] };
 }
 

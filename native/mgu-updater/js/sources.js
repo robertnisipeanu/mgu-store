@@ -1569,6 +1569,24 @@ function githubReader(s, ctx) {
 
     return {
         network: true,
+        /* The newest commits (up to 20) that changed any of these paths, on
+         * ref: [{ sha, date, title (the message's first line) }], newest first. */
+        commits: (ref, paths) => Promise.all(paths.map((p) => json(`${repoUrl}/commits?sha=${encodeURIComponent(ref)}&path=${encode(p)}&per_page=20`,
+            'commits.json'))).then((lists) => {
+            const seen = new Map();
+            lists.forEach((list) => (Array.isArray(list) ? list : []).forEach((c) => {
+                const date = c && c.commit && ((c.commit.committer && c.commit.committer.date) || (c.commit.author && c.commit.author.date));
+                if (c && typeof c.sha === 'string' && typeof date === 'string' && !seen.has(c.sha)) {
+                    seen.set(c.sha, { sha: c.sha, date, title: String(c.commit.message || '').split('\n')[0].slice(0, 200) });
+                }
+            }));
+            return Array.from(seen.values()).sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0)).slice(0, 20);
+        }),
+        /* A text file of the repo at ref (its default branch without one): without a token from
+         * raw.githubusercontent.com (HEAD: the default branch), outside the API's limit. */
+        text: (rel, ref) => (anonymous() ? raw(`${rawHost}/${s.repo}/${ref || 'HEAD'}/${encode(rel)}`, path.posix.basename(rel), SMALL)
+            : content(`${repoUrl}/contents/${encode(rel)}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`, path.posix.basename(rel), SMALL))
+            .then((b) => b.toString('utf8')),
         apiRequests: () => apiRequests,
         /* What the repo can be added on: its name as GitHub spells it,
          * whether it has a release and an x.y.z tag, its default branch and

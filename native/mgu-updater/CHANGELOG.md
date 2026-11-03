@@ -1,5 +1,10 @@
 # Updater changelog
 
+## 0.8.19
+
+- `history`: a component's update history for the Store: a GitHub branch source's commits that changed the component's folder (or the shared code it is built with), or the versions of the CHANGELOG.md a catalog entry names in `changelog`; what is not installed yet is marked new. Without a token the CHANGELOG.md comes from raw.githubusercontent.com, outside the API's limit.
+- `release.js` names each component's CHANGELOG.md in the catalog (`changelog`).
+
 ## 0.8.18
 
 - A download whose connection breaks is tried again: one cut mid-transfer, reset, without data for 30 s or without a connection, or answered with a 500, 502, 503 or 504, after 1, 2, 4 and 8 s, up to 4 times in a row without getting further (200 tries in all). Where the server takes byte ranges, as GitHub's release downloads do, the next try asks for the rest of the file and adds it to what came; otherwise the file starts over. The size and sha256 the source states are still checked on the whole file. The log says each try and why (`fetch: <file>: <reason>; trying again in <n> s from byte <n>`).

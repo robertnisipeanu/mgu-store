@@ -7,6 +7,7 @@
  *   c.on('state', (st) => render(st));        // on connect and on every change
  *   c.on('reply-error', (msg, op) => ...);    // a request the updater refused
  *   c.on('probe', (answer) => ...);           // what a GitHub repo offers (sourceProbe)
+ *   c.on('history', (answer) => ...);         // a component's update history ({ op: 'history', id })
  *   c.connect();
  *   c.check();  c.install('doom');
  *
@@ -61,6 +62,8 @@ class UpdaterClient extends EventEmitter {
                     this.emit('state', msg);
                 } else if (msg.type === 'probe') {
                     this.emit('probe', msg);
+                } else if (msg.type === 'history') {
+                    this.emit('history', msg);
                 } else if (msg.type === 'error') {
                     this.emit('reply-error', msg.error, msg.op);
                 }

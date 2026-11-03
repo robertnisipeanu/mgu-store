@@ -69,6 +69,17 @@ const chipItems = (items) => (Array.isArray(items) ? items
     : String(items || '').split(';').map((s) => s.split('|').map((x) => x.trim())).filter((p) => p[0])
         .map((p) => ({ text: p[0], color: p[1], dot: p[2] === 'dot' })));
 
+/** Where chips() puts each chip: [{ x, w, it }] (the frame's press targets for chips with an act). */
+function chipBoxes(cv, b, o) {
+    const items = chipItems(o.items), gap = b.h * 0.25, h = b.h;
+    const width = (it) => cv.textWidth(it.text, Math.round(h * 0.44)) + h * 0.9 + (it.dot ? h * 0.16 * 3 : 0);
+    const out = [];
+    let x = o.align === 'right' ? b.x + b.w : b.x;
+    if (o.align === 'right') {
+        for (let i = items.length - 1; i >= 0; i--) { const w = width(items[i]); x -= w; out.unshift({ x, w, it: items[i] }); x -= gap; }
+    } else items.forEach((it) => { const w = width(it); out.push({ x, w, it }); x += w + gap; });
+    return out;
+}
 function chips(cv, t, b, o) {
     const items = chipItems(o.items), gap = b.h * 0.25;
     if (o.align === 'right') {
@@ -158,6 +169,8 @@ function appList(cv, t, b, o) {
     cv.clip(b.x, b.y, b.w, b.h);
     v.all.slice(v.first, v.end).forEach((it, k) => {
         const y = b.y + (v.first + k - v.top) * v.rh, h = v.rh - gap, s = Math.round(h * 0.73);
+        // a line of text (the changelog's notes): no card
+        if (it.note) { cv.text(String(it.title || ''), b.x + 28 * q + (it.indent || 0) * q, y + h / 2 + ss * 0.36, ss, C(t, it.color, t.text)); return; }
         cv.card(b.x, y, b.w, h, 22 * q, [[0, t.panelTop], [1, t.panelBottom]]);
         let tx = b.x + 28 * q;
         if (it.icon || it.vicon || it.colors || it.letter) {
@@ -333,4 +346,4 @@ const TRY = {
 };
 
 // (the Store: shown is what a key types, store_frame.js's items)
-module.exports = { DRAW, TRY, appIcon, chip, visibleIds, keyBoxes, shown, gridView, listView, rightBoxes, navItems, GREEN, BLUE, AMBER };
+module.exports = { DRAW, TRY, appIcon, chip, chipBoxes, visibleIds, keyBoxes, shown, gridView, listView, rightBoxes, navItems, GREEN, BLUE, AMBER };

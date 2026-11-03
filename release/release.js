@@ -126,6 +126,8 @@ function rhmiHmi(stagedDir) {
 /* Every releasable component in a repo tree (the working tree or an export). */
 function components(root = REPO) {
     const out = [];
+    // the component's CHANGELOG.md in the repository, for the Store's history of it
+    const changelogOf = (dir) => (fs.existsSync(path.join(root, dir, 'CHANGELOG.md')) ? `${dir}/CHANGELOG.md` : undefined);
     const apps = path.join(root, 'apps');
     fs.readdirSync(apps).sort().forEach((id) => {
         const dir = path.join(apps, id);
@@ -168,7 +170,8 @@ function components(root = REPO) {
             build: manifest ? 'unit' : null,
             shipped: [`apps/${id}/${id}@${version}`].concat(manifest ?
                 [`apps/${id}/mgu-app.json`].concat(manifest.modules.map((m) => `apps/${id}/${m}`)) : []),
-            artifact: `apps/${id}/${id}@${version}${manifest ? '.src' : ''}.tgz`
+            artifact: `apps/${id}/${id}@${version}${manifest ? '.src' : ''}.tgz`,
+            changelog: changelogOf(`apps/${id}/${staged[0]}`)
         }, catalogFields(Object.assign({ mguHmi: rhmiHmi(stagedDir) }, release), `apps/${id}/release.json`)));
     });
     const tool = (dir, id, shipped) => {
@@ -191,7 +194,8 @@ function components(root = REPO) {
             // source files that carry the version too, as VERSION = 'x.y.z'
             versionFiles: c.versionFiles || [],
             shipped,
-            artifact: null
+            artifact: null,
+            changelog: changelogOf(dir)
         }, catalogFields(c, `${dir}/component.json`)));
     };
     fs.readdirSync(path.join(root, 'native')).sort().forEach((id) => {
@@ -336,7 +340,7 @@ function catalogEntry(c, file) {
     if (c.build) {
         entry.build = c.build;
     }
-    ['requires', 'optional', 'uninstallable', 'mguHmi', 'mguProvides'].forEach((k) => {
+    ['requires', 'optional', 'uninstallable', 'mguHmi', 'mguProvides', 'changelog'].forEach((k) => {
         if (c[k] !== undefined) {
             entry[k] = c[k];
         }

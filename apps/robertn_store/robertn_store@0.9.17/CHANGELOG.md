@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.17
+
+The version on an app's or tool's page opens its changelog: every version
+with all its notes (or, from a branch source, the commits that changed it),
+newest first, what is newer than the installed one marked New. Needs
+mgu-updater 0.8.19 (its `history` request).
+
 ## 0.9.16
 
 Restart head unit carries the updater's secret, which mgu-updater 0.8.14

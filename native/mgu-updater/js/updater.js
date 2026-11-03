@@ -528,6 +528,26 @@ const CACHE_ONE = 256 << 10;
  * only through a descriptor opened without following links and checked to
  * be a regular file of bounded size, and removes the folder's contents as
  * the fetch uid, so nothing that uid plants there leads root anywhere. */
+
+/* A CHANGELOG.md's versions ("## x.y.z" sections), newest first, at most 15:
+ * { title (the version), text (its notes, one paragraph), new (newer than
+ * installed) }. */
+function changelogItems(md, installed) {
+    const items = [];
+    String(md).split(/^## /m).slice(1).forEach((sec) => {
+        const nl = sec.indexOf('\n');
+        const head = (nl < 0 ? sec : sec.slice(0, nl)).trim();
+        const v = /^(\d+\.\d+\.\d+)/.exec(head);
+        if (!v || items.some((x) => x.title === v[1]) || items.length >= 15) {
+            return;
+        }
+        const text = (nl < 0 ? '' : sec.slice(nl)).split('\n').map((l) => l.replace(/^\s*[-*]\s+/, '').trim()).filter(Boolean)
+            .join(' ').replace(/`/g, '').slice(0, 600);
+        items.push({ title: v[1], text, date: '', rev: '', new: !!installed && catalogLib.compareVersions(v[1], installed) > 0 });
+    });
+    return items;
+}
+
 class Fetcher {
     constructor(conf) {
         this.conf = conf;
@@ -3075,6 +3095,47 @@ class Updater {
         return undefined;
     }
 
+    /* A component's update history for its page, newest first: a repo
+     * branch's commits that changed its folder (or the shared code it is
+     * built with), or its CHANGELOG's versions. Each item is { title, text,
+     * date, new }; new: not in what is installed. Answers through reply. */
+    history(id, reply) {
+        const r = this.resolved().get(id);
+        const rt = r && this.src.get(r.source);
+        const answer = (fields) => reply(Object.assign({ type: 'history', id }, fields));
+        if (!rt || !rt.reader.commits) {
+            answer({ status: 'none', items: [] });
+            return undefined;
+        }
+        if (!readLease(this.conf).online) {
+            answer({ status: 'offline', items: [] });
+            return undefined;
+        }
+        const e = r.entry, installed = this.installedVersion(e.installAs || id, e.kind);
+        let ask;
+        if (rt.mode === 'repo' && e.path && rt.commit) {
+            const script = e.script && (e.script.python || e.script.node);
+            const shared = typeof script === 'string' && script.includes('/') ? script.split('/')[0] : null;
+            const origin = this.origins[e.installAs || id] || this.origins[id];
+            const base = origin && origin.source === r.source ? origin.commit : null;
+            ask = rt.reader.commits(rt.commit, [e.path].concat(shared && shared !== e.path ? [shared] : [])).then((list) => {
+                const at = base ? list.findIndex((c) => c.sha === base) : -1;
+                return list.map((c, i) => ({ title: c.title, text: '', date: c.date.slice(0, 10), rev: c.sha.slice(0, 7),
+                    new: !!base && (at < 0 || i < at) }));
+            });
+        } else if (typeof e.changelog === 'string' && /^[\w@.\/-]+\.md$/.test(e.changelog)) {
+            ask = rt.reader.text(e.changelog, rt.commit || null).then((md) => changelogItems(md, installed));
+        } else {
+            answer({ status: 'none', items: [] });
+            return undefined;
+        }
+        ask.then((items) => answer({ status: 'ok', items }), (err) => {
+            console.log(`history ${id}: ${err.message}`);
+            answer({ status: 'error', error: err.message, items: [] });
+        });
+        return undefined;
+    }
+
     sourceRemove(id) {
         const def = this.stored.find((s) => s.id === id);
         if (!def) {
@@ -3343,6 +3404,7 @@ class Updater {
         case 'token-remove': return this.tokenRemove(req.id);
         case 'web': return this.setWeb(req.enable === true);
         case 'logs': return this.logs(req, reply);
+        case 'history': return typeof req.id === 'string' ? this.history(req.id, reply) : 'history needs an id';
         case 'uplink-prefer':
         case 'wifi-enable':
         case 'wifi-scan':

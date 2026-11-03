@@ -29,7 +29,7 @@ const { withAlpha } = require('./kit_canvas.js');
 const { theme: kitTheme } = require('./kit_themes.js');
 const { view, icons } = require('./store_ui.js');
 const { tabCells } = require('./am_widgets.js');
-const { gridView, listView, navItems, rightBoxes, keyBoxes, shown } = require('./am_store_widgets.js');
+const { gridView, listView, navItems, rightBoxes, keyBoxes, shown, chipBoxes } = require('./am_store_widgets.js');
 const { compact } = require('./store_compact.js');
 const { t } = require('./i18n.js');
 
@@ -71,10 +71,12 @@ function ordered(st, page) {
         return cs;
     }
     const by = (n) => cs.filter((c) => c.name === n);
-    return cs.filter((c) => c.name !== 'nav' && c.name !== 'back').concat(by('back'), by('nav'));
+    // a page's own buttons first, then its chips (the version: its changelog), Back and the side menu
+    const rest = cs.filter((c) => c.name !== 'nav' && c.name !== 'back');
+    return rest.filter((c) => c.gpu !== 'chips').concat(rest.filter((c) => c.gpu === 'chips'), by('back'), by('nav'));
 }
 
-function itemsOf(st, page) {
+function itemsOf(st, page, look) {
     const items = [];
     const regions = [];
     ordered(st, page).forEach((c) => {
@@ -87,6 +89,11 @@ function itemsOf(st, page) {
             const list = navItems(o);
             const ih = b.h / Math.max(1, list.length);
             list.forEach((it, i) => items.push({ x: b.x + 8, y: b.y + i * ih + 8, w: b.w - 24, h: ih - 16, r: 16, label: it.label, act: it.act }));
+        } else if (c.gpu === 'chips') {
+            // a chip with an act (the app page's version: its changelog)
+            chipBoxes(measure, b, o).forEach((q) => {
+                if (q.it.act) items.push({ x: q.x, y: b.y, w: q.w, h: b.h, r: b.h / 2, label: q.it.text, act: q.it.act });
+            });
         } else if (c.gpu === 'vbutton') {
             if (o.act && !o.disabled) {
                 const round = o.style === 'round';
@@ -233,12 +240,12 @@ function layoutOf(m, opts) {
     const page = m.stack.length > 1;
     const layout = o.layout || null;
     let st = screenOf(v, scroll, layout);
-    let laid = itemsOf(st, page);
+    let laid = itemsOf(st, page, v.look);
     const it = laid.items[o.focus];
     if (it && it.reveal) {
         scroll[it.reveal.key] = it.reveal.top;
         st = screenOf(v, scroll, layout);
-        laid = itemsOf(st, page);
+        laid = itemsOf(st, page, v.look);
     }
     return { st, screen: v.screen, items: laid.items, regions: laid.regions, icons: icons(v), values: v.values };
 }

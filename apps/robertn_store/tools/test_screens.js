@@ -30,7 +30,9 @@ function screen(name, over, stOver) {
     f.labels = f.items.map((i) => i.label);
     return f;
 }
-const own = (f) => f.labels.slice(0, -4);      // a page's items before its side menu
+// a component page's version chip (it opens the changelog) is checked on its own
+const notVersion = (l) => !/^Version /.test(l);
+const own = (f) => f.labels.slice(0, -4).filter(notVersion);      // a page's items before its side menu
 const text = (f, el) => (f.values[el] || {}).text;
 
 const I8 = UNITS['iDrive 8'];
@@ -102,10 +104,17 @@ ok(g.max % 1 !== 0, 'the grid scrolls to its last row flush with the bottom');
 // a component's page: its install, update, or nothing; Remove
 f = screen('app-update');
 eq(own(f), ['Update to a1b2c3d', 'Remove', 'Back'], 'a page: its buttons, Back, the side menu');
+eq(f.items.find((i) => i.label === 'Version 1.2.0').act, { do: 'open', page: { name: 'changelog', id: 'gauges' } }, 'the version opens the changelog');
 eq(text(f, 'author'), 'by robertn · from cauliflower/idrive7-apps');
 eq(f.items[1].act, { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'gauges' } });
 ok(/^Speed, revs/.test(text(f, 'desc')), 'the description');
 eq(f.values.facts.items.map((c) => c.text), ['Version 1.2.0', 'Commit a1b2c3d', 'App', 'iDrive 7 and iDrive 8']);
+// the changelog page: each version, then its notes in lines, none of them cut
+f = screen('changelog-renderer');
+const cl = f.values.list.items;
+eq([text(f, 'title'), cl[0].title, cl[0].right], ['Renderer changelog', 'Version 0.4.0', 'chip:New']);
+ok(cl.filter((i) => i.note).length >= 3 && cl.filter((i) => i.note).every((i) => i.title.length <= 110), 'notes in lines');
+ok(cl.some((i) => i.title === 'Version 0.3.3'), 'the older version too');
 // Undo update: on the page of a component the updater offers it for, then its confirm step
 f = screen('tool-undo');
 eq(own(f), ['Undo update', 'Remove', 'Back'], 'Undo update beside Remove');
@@ -114,13 +123,13 @@ f = screen('confirm-undo');
 eq([text(f, 'title'), f.labels], ['Back to Network driver 0.3.2?', ['Cancel', 'Undo update']], 'its dialog');
 eq(f.items[1].act, { do: 'undo', id: 'mgu-uplink' });
 f = screen('app-incompatible');
-eq(own(f), ['Back'], 'not for this unit: nothing to press');
+eq(own(f), ['Back'], 'not for this unit: nothing to press but its changelog');
 eq([text(f, 'note1'), text(f, 'note2')], ['Not for this head unit', 'For iDrive 8']);
 // an installed component whose new version is not for this unit: installed, no update offered, Remove stays
 const st = Object.assign(fixture.state(), { busy: null });
 st.components = [Object.assign({}, st.components[1], { compat: 'no', mguHmi: ['ID8'] })];
 f = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }, st), { textScale: 1, focus: 0, scroll: {} });
-eq([f.items.map((i) => i.label).slice(0, -4), text(f, 'note1')], [['Remove', 'Back'], 'Not for this head unit']);
+eq([f.items.map((i) => i.label).slice(0, -4).filter(notVersion), text(f, 'note1')], [['Remove', 'Back'], 'Not for this head unit']);
 f = frame(fixture.model({}, st), { textScale: 1, focus: 0, scroll: {} });
 eq([f.values.grid.items[0].sub, f.values.grid.items[0].badge, f.values.nav.items[1].badge], ['Not for this head unit', 'installed', ''],
     'says so, installed, not counted as an update');
@@ -202,8 +211,8 @@ const later = Object.assign(fixture.state(), { busy: null });
 later.components = [Object.assign({}, later.components[3], { pendingReboot: true }), Object.assign({}, later.components[1], { pendingReboot: true })];
 const laterOf = (over) => frame(fixture.model(over, later), { textScale: 1, focus: 0, scroll: {} });
 f = laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'car_vitals' }] });
-eq([f.items.map((i) => i.label).slice(0, -4), text(f, 'note1')], [['Restart head unit', 'Back'], 'Restart pending'], 'first install');
-eq(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }).items.map((i) => i.label).slice(0, -4),
+eq([f.items.map((i) => i.label).slice(0, -4).filter(notVersion), text(f, 'note1')], [['Restart head unit', 'Back'], 'Restart pending'], 'first install');
+eq(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }).items.map((i) => i.label).slice(0, -4).filter(notVersion),
     ['Restart head unit', 'Remove', 'Back'], 'update of an installed app');
 f = laterOf({});
 eq([f.values.grid.items.map((t) => [t.id, t.sub, t.badge]), f.values.nav.items[1].badge],
@@ -213,25 +222,25 @@ eq([f.values.apps.items.map((i) => [i.id, i.right, i.chipAct]), f.values.updateA
 // with the updater's nextStart: a queued first install has Remove (drops it), a queued removal none; a failed apply shows why
 later.components = [Object.assign({}, later.components[0], { nextStart: 'install' }),
     Object.assign({}, later.components[1], { status: 'installed', installed: '1.0.1', nextStart: 'remove' })];
-eq(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'car_vitals' }] }).items.map((i) => i.label).slice(0, -4),
+eq(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'car_vitals' }] }).items.map((i) => i.label).slice(0, -4).filter(notVersion),
     ['Restart head unit', 'Remove', 'Back'], 'a queued first install can be removed');
-eq(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }).items.map((i) => i.label).slice(0, -4),
+eq(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }).items.map((i) => i.label).slice(0, -4).filter(notVersion),
     ['Restart head unit', 'Back'], 'a queued removal: not offered again');
 eq(text(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'car_vitals' }, { name: 'confirm', kind: 'remove', id: 'car_vitals' }] }), 'title'),
     'Remove M Vitals?');
 later.components = [Object.assign({}, later.components[0], { pendingReboot: false, nextStart: null,
     error: 'the install at the start of the head unit failed: package checksum mismatch at /x' })];
 f = laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'car_vitals' }] });
-eq([f.items.map((i) => i.label).slice(0, -4), f.values.desc.lead],
+eq([f.items.map((i) => i.label).slice(0, -4).filter(notVersion), f.values.desc.lead],
     [['Try again', 'Back'], 'Failed: the install at the start of the head unit failed: package checksum mismatch at /x']);
 // with the updater's applyFailed: a failed first install also has Remove (clears it); a failed removal's Try again removes
 later.components[0].applyFailed = 'install';
-eq(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'car_vitals' }] }).items.map((i) => i.label).slice(0, -4),
+eq(laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'car_vitals' }] }).items.map((i) => i.label).slice(0, -4).filter(notVersion),
     ['Try again', 'Remove', 'Back'], 'a failed first install can be cleared');
 later.components = [Object.assign({}, fixture.state().components[1], { status: 'installed', installed: '1.0.1', applyFailed: 'remove',
     error: 'the removal at the start of the head unit failed: x' })];
 f = laterOf({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] });
-eq([f.items.map((i) => i.label).slice(0, -4), f.items[0].act], [['Try again', 'Back'], { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'doom' } }],
+eq([f.items.map((i) => i.label).slice(0, -4).filter(notVersion), f.items[0].act], [['Try again', 'Back'], { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'doom' } }],
     'a failed removal is tried again');
 
 // an error of about 200 characters is drawn in full, in either unit's box: on a component's page above its description,

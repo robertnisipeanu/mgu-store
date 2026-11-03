@@ -6,7 +6,7 @@
  * app, confirm (the sheet), installed, usb and settings are IterioDev's App
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
  * @ 4d5f508, the HMI UI builder's export of projects/app-manager.json) with the Store's labels; source, pick, accounts, login, phone,
- * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page) and prefer are the Store's
+ * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page), prefer and changelog are the Store's
  * own in the same frame. Each element is drawn by am_gpu.js; src/store_ui.js gives their values.
  */
 module.exports = {
@@ -1243,6 +1243,89 @@ module.exports = {
       "style": "outline"
      },
      "onTap": "event:addToken"
+    }
+   ]
+  },
+  {
+   "kind": "gpu",
+   "name": "changelog",
+   "theme": "m_tricolour",
+   "bg": "theme",
+   "components": [
+    {
+     "name": "nav",
+     "rtype": "gpu",
+     "gpu": "sideNav",
+     "x": 126,
+     "y": 114,
+     "w": 300,
+     "h": 726,
+     "opts": {
+      "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear",
+      "sel": 0
+     }
+    },
+    {
+     "name": "back",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 480,
+     "y": 138,
+     "w": 96,
+     "h": 96,
+     "opts": {
+      "text": "",
+      "vicon": "back",
+      "style": "round",
+      "color": "#f4f7fb"
+     },
+     "onTap": "event:back"
+    },
+    {
+     "name": "title",
+     "rtype": "gpu",
+     "gpu": "text",
+     "x": 610,
+     "y": 138,
+     "w": 1800,
+     "h": 90,
+     "opts": {
+      "text": "Changelog",
+      "size": 72,
+      "font": "bold",
+      "align": "left",
+      "color": "text"
+     }
+    },
+    {
+     "name": "status",
+     "rtype": "gpu",
+     "gpu": "text",
+     "x": 610,
+     "y": 227,
+     "w": 1800,
+     "h": 43,
+     "opts": {
+      "text": "",
+      "size": 34,
+      "font": "label",
+      "align": "left",
+      "color": "dim"
+     }
+    },
+    {
+     "name": "list",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 610,
+     "y": 292,
+     "w": 2150,
+     "h": 560,
+     "opts": {
+      "items": [],
+      "rowH": 70,
+      "empty": ""
+     }
     }
    ]
   },

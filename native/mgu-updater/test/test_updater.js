@@ -381,6 +381,11 @@ function ghApi(req, res, auth) {
         // the sha media type: the sha alone
         const bare = req.headers.accept === 'application/vnd.github.sha';
         send(sha ? 200 : 422, sha ? (bare ? sha : { sha }) : { message: 'No commit found' });
+    } else if (rest === '/commits') {
+        // a branch's history (repo.history: [{ sha, date, message, paths }]) for one path, newest first
+        const p = u.searchParams.get('path') || '';
+        send(200, (repo.history || []).filter((c) => c.paths.some((x) => x === p || x.startsWith(`${p}/`)))
+            .map((c) => ({ sha: c.sha, commit: { message: c.message, committer: { date: c.date } } })));
     } else if (rest === '/tags') {
         send(200, repo.tags.map((t) => ({ name: t.name, commit: { sha: t.sha } })));
     } else if (rest === '/branches') {
@@ -1943,6 +1948,31 @@ function askRaw(sock, req) {
 
 /* One request on a fresh connection: resolves with the error the updater
  * answered it with, or null. */
+/* The first answer of that type to req. */
+function askFor(sock, req, type) {
+    return new Promise((resolve) => {
+        const s = net.connect(sock);
+        let buf = '';
+        let sent = false;
+        s.setEncoding('utf8');
+        s.on('data', (d) => {
+            buf += d;
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                const msg = JSON.parse(buf.slice(0, nl));
+                buf = buf.slice(nl + 1);
+                if (!sent) {
+                    sent = true;
+                    s.write(JSON.stringify(req) + '\n');
+                } else if (msg.type === type || (msg.type === 'error' && msg.op === req.op)) {
+                    s.end();
+                    resolve(msg);
+                }
+            }
+        });
+    });
+}
+
 function ask(sock, req) {
     return new Promise((resolve) => {
         const s = net.connect(sock);
@@ -2476,6 +2506,22 @@ function testSources(certs) {
         })
         .then((c2) => {
             ok('branch: installed at the new commit', JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).p_app.commit === c2);
+            // its history: the commits that changed its folder, those after the installed one new
+            gh.repos['third/branchy'].history = [
+                { sha: 'f'.repeat(40), date: '2026-10-28T10:00:00Z', message: 'p_app: a newer change\n\ndetails', paths: ['apps/p_app/src/p.js'] },
+                { sha: 'e'.repeat(40), date: '2026-10-28T09:00:00Z', message: 'Only the tool', paths: ['native/t_tool/NOTES'] },
+                { sha: c2, date: '2026-10-27T10:00:00Z', message: 'p_app: the installed change', paths: ['apps/p_app/src/p.js'] }];
+            return askFor(sock, { op: 'history', id: 'p_app' }, 'history').then((h) => {
+                ok('history: a branch app\'s commits that changed its folder, newest first, the ones after the installed commit new',
+                    h.status === 'ok' && h.items.length === 2 && h.items[0].title === 'p_app: a newer change' && h.items[0].new === true &&
+                    h.items[0].rev === 'fffffff' && h.items[0].date === '2026-10-28' && h.items[1].new === false, JSON.stringify(h));
+                return askFor(sock, { op: 'history', id: 'no_such' }, 'history');
+            }).then((h) => {
+                ok('history: an id no source lists has none', h.status === 'none' && h.items.length === 0, JSON.stringify(h));
+                return c2;
+            });
+        })
+        .then((c2) => {
             gh.repos['third/branchy'].branches.main = ghCommit('third/branchy', branchFiles('1.1.0'));
             return u.checkSource('branchy');
         })

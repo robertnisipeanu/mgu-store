@@ -898,6 +898,7 @@ Store says it at each connection (below, "The Store's update").
 | `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |
 | `{"op":"web","enable":true\|false}` | the phone page on or off, kept across restarts (`state/web.json`) |
 | `{"op":"logs","unit","lines"}` | `{"type":"logs","unit","text"}`: a journal for the phone page |
+| `{"op":"history","id"}` | `{"type":"history","id",status,items}`: the component's update history for its Store page, newest first. A GitHub branch source's component: the commits (up to 20) that changed its folder or the shared code it is built with, each `{title, date, rev, new}`, `new` after the commit it was installed from; a catalog component that names its `changelog` (release.js): that CHANGELOG.md's versions, each `{title, text, new}`, `new` above the installed version. `status`: `ok`, `none` (no history to give), `offline`, `error` |
 | `{"op":"uplink-prefer","kind"}` | the uplink's preferred connection: `wifi`, `usb`, `phone` (`""` for none), relayed as its `prefer` ("The uplink") |
 | `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi, relayed as they are ("The uplink") |
 
