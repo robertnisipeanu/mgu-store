@@ -115,6 +115,7 @@ module.exports = [
    "Restart head unit?": "重启主机？",
    "Restart now": "立即重启",
    "Restart pending": "等待重启",
+   "Not working": "无法使用",
    "Restart the head unit to finish setup": "请重启主机以完成设置",
    "Restarting": "重启中",
    "Saved": "已保存",

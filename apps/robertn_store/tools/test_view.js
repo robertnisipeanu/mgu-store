@@ -111,6 +111,12 @@ const cases = [
     [listed(row({ status: 'available', installed: null })), true],
     [statusLine(st({ components: [row({ status: 'available', installed: null, compat: 'no', error: 'is for iDrive 8' })] }), true, true),
         'Up to date, checked 14:02'],
+    // installed, and the deploy tool says it does not work until it is set up again (the updater's repair)
+    [rowState(row({ status: 'installed', repair: 'mgu-x.service missing' }), null), 'Not working'],
+    // an update available: offered, as it sets the component up again too
+    [rowState(row({ status: 'update', repair: 'mgu-x.service missing' }), null), 'Update 1.0.1'],
+    [rowState(row({ status: 'installed', repair: 'x', pendingReboot: true }), null), 'Not working'],
+    [rowState(row({ status: 'installed', repair: 'x', queued: true }), null), 'Waiting'],
     [rowState(row({ kind: 'tool', status: 'installed', pendingReboot: true }), null), 'Restart pending'],
     [rowState(row({ kind: 'tool', status: 'update', pendingReboot: true }), null), 'Update 1.0.1'],
     // an app install queued for the next start (iDrive 8): not offered again

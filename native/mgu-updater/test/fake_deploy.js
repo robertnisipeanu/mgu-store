@@ -31,6 +31,8 @@
  * older package, status --json's previous, which its rollback installs (a
  * tool's previous is its other version kept); $FAKE_LAST_VERIFY is the
  * JSON status --json gives as last_verify.
+ * $FAKE_DEPLOY_LOG.stale holds { <id>: { why, kept } }: status --json's
+ * stale and kept of that component, until an install of it.
  * status --json says the head unit is $FAKE_UNIT_HMI (ID7 without it) and
  * lists every installed tool with what it provides (component.json
  * mguProvides) and every app MainApp's registry names. A root-service package (package.json with mguService) is
@@ -188,12 +190,25 @@ function tools() {
         }
     }).filter((c) => c && c.id);
 }
+const STALE_FILE = `${process.env.FAKE_DEPLOY_LOG}.stale`;
+const readStale = () => (fs.existsSync(STALE_FILE) ? JSON.parse(fs.readFileSync(STALE_FILE, 'utf8')) : {});
+const withStale = (c) => {
+    const s = readStale()[c.id];
+    return s ? Object.assign(c, { stale: s.why, kept: !!s.kept }) : Object.assign(c, { stale: null });
+};
+const unstale = (id) => {
+    const s = readStale();
+    if (s[id]) {
+        delete s[id];
+        fs.writeFileSync(STALE_FILE, JSON.stringify(s));
+    }
+};
 if (cmd === 'status') {
     const pending = (process.env.FAKE_PENDING || '').split(',').filter(Boolean).concat(pendingIds());
     console.log(JSON.stringify({ unit: { hmi: process.env.FAKE_UNIT_HMI || 'ID7', firmware: 'test firmware' },
         components: tools().map((c) => ({ id: c.id, kind: 'tool', version: c.version, provides: c.mguProvides || null,
             previous: fs.readdirSync(path.join(process.env.TOOL_ROOT, c.id, 'versions')).filter((v) => v !== c.version &&
-                v.split('.').map(Number).reduce((d, n, i) => d || n - Number(c.version.split('.')[i]), 0) < 0)[0] || null })).concat(apps()),
+                v.split('.').map(Number).reduce((d, n, i) => d || n - Number(c.version.split('.')[i]), 0) < 0)[0] || null })).concat(apps()).map(withStale),
         pending_reboot: pending.map((p) => ({ id: p.split('=')[0], reason: p.split('=')[1] || 'test' })), appmanager: readAm(),
         last_apply: process.env.FAKE_LAST_APPLY ? JSON.parse(process.env.FAKE_LAST_APPLY) : null,
         last_verify: process.env.FAKE_LAST_VERIFY ? JSON.parse(process.env.FAKE_LAST_VERIFY) : null,
@@ -234,6 +249,7 @@ if (fs.existsSync(path.join(tmp, 'component.json'))) {
     fs.readdirSync(path.join(root, 'versions')).filter((v) => v !== c.version && v !== before)
         .forEach((v) => cp.execFileSync('rm', ['-rf', path.join(root, 'versions', v)]));
     uplinkRuns(root);
+    unstale(c.id);
     console.log(`${c.id} ${c.version} installed`);
 } else {
     const read = (p) => JSON.parse(fs.readFileSync(path.join(tmp, p), 'utf8'));
@@ -261,5 +277,6 @@ if (fs.existsSync(path.join(tmp, 'component.json'))) {
             fs.copyFileSync(texts, path.join(home, 'strings', 'en_GB.json'));
         }
     }
+    unstale(pkg.name);
     console.log(`${pkg.name} ${pkg.version} installed`);
 }

@@ -1438,6 +1438,33 @@ installed before it in the same call stay installed, and the output says so
 (the updater installs one artifact per call). The app-privacy patch stays
 applied after a failed app install while the app-privacy tool is installed.
 
+### After a firmware update
+
+A firmware update puts the root file system back and keeps `/var/opt`:
+every component stays listed, while what it set up outside `/var/opt`
+(units, their enablement and drop-ins, boot-list entries, MainApp's
+copies of an app's SOME/IP interfaces and ACLs for the firmware before)
+is gone or set up for the firmware before. Running the same install again
+(`mgu-install.js first-install`, which also brings back the updater and
+our boot units) sets every component up again:
+
+- Each tool install records the firmware it was installed under
+  (`state.json` `tools`) and keeps the tool's units, drop-ins and
+  `component.json` in `kept/<id>/<version>/`, one for each version under
+  `/var/opt/<id>/versions`.
+- Every install lays again from that copy each installed tool that lacks
+  a unit, an enablement link or a drop-in, or was installed under another
+  firmware, as an install of the same version does (its activate hook and
+  postInstall run). A tool installed before copies were kept says so; its
+  source installs it again (the updater, `repair`).
+- MainApp's first start after a firmware update marks every installed
+  app as needing an update (`"NO_FORCED_UPDATE_NEEDED": false` in its
+  registry entry) and starts none so marked; it updates its own apps, not
+  ours. On iDrive 7 an install of such an app, already current, installs
+  it afresh: uninstall, install, its data folder carried over.
+- `status --json` gives each component's `stale` until then, and for a
+  tool `kept`.
+
 ### Backups and restore
 
 Before every change the installer snapshots every file the operation
@@ -1645,9 +1672,10 @@ stdout, read-only, taking no lock, of this shape:
 ```
 { "version": "<x.y.z>",
   "unit": { "hmi": "ID7"|"ID8"|null, "firmware" },
-  "components": [{ "id", "kind": "tool", "version", "units": [{ "name", "enabled", "active", "journal" }], "provides" },
+  "components": [{ "id", "kind": "tool", "version", "units": [{ "name", "enabled", "active", "journal" }], "provides",
+                   "stale": "<what it lacks>"|null, "kept": true },
                  { "id", "kind": "app", "version", "uid", "installationSource", "running",
-                   "tile_provisioned", "tile_fallback", "tile_visible" }],
+                   "tile_provisioned", "tile_fallback", "tile_visible", "stale": "<why>"|null }],
   "pending_reboot": [{ "id", "reason" }],
   "last_apply": { "at", "results": [{ "id", "action", "version", "ok", "error"?, "log", "rejected"? }] } | null,   (iDrive 8;
                  action "restore": version put back in place of the rejected one)

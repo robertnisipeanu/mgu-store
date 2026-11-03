@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.17
+
+An installed app or tool that does not work until it is set up again
+(after a firmware update) shows `Not working`, and its page says why.
+
 ## 0.9.16
 
 Restart head unit carries the updater's secret, which mgu-updater 0.8.14

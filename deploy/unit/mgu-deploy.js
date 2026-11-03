@@ -45,7 +45,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.14';
+var VERSION = '0.7.15';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -2510,7 +2510,71 @@ function installTool(a, state, tx) {
     fs.readdirSync(versions).forEach(function (v) {
         if (v !== c.version && v !== before) rmrf(path.join(versions, v));
     });
+    keepToolCopy(a);
+    recordTool(state, c.id, c.version);
     say(c.id + ' ' + c.version + ' installed');
+}
+
+/* ---- tools after a firmware update ------------------------------------------ */
+/* A firmware update puts the root file system back, keeping /var/opt: a
+ * tool's payload stays under /var/opt/<id>, while its systemd units, their
+ * enablement and drop-ins, and what its activate hook or postInstall set up
+ * outside /var/opt are gone. The installed version's units, drop-ins and
+ * component.json are kept beside its payload (kept/<id>/<version>/), so any
+ * install lays a tool set up under another firmware, or missing any of
+ * them, again from that copy, with no download. A tool installed before
+ * that copy is kept is installed again by its source (status says why). */
+function keptToolDir(id, version) { return path.join(keptDir(id), version); }
+function keepToolCopy(a) {
+    var c = a.component, dest = keptToolDir(c.id, c.version);
+    if (path.resolve(a.dir) === path.resolve(dest)) return;
+    try {
+        var tmp = dest + '.partial-' + process.pid;
+        rmrf(tmp);
+        mkdirp(tmp, 0o700);
+        copyFileMode(path.join(a.dir, 'component.json'), path.join(tmp, 'component.json'), 0o600);
+        (c.units || []).forEach(function (u) {
+            copyFileMode(path.join(a.dir, 'units', u.name), path.join(tmp, 'units', u.name), 0o600);
+        });
+        (c.dropins || []).forEach(function (d) {
+            var rel = path.join('dropins', d.unit + '.d', d.name);
+            copyFileMode(path.join(a.dir, rel), path.join(tmp, rel), 0o600);
+        });
+        rmrf(dest);
+        fs.renameSync(tmp, dest);
+        /* one for each version kept under /var/opt/<id>/versions */
+        fs.readdirSync(keptDir(c.id)).forEach(function (n) {
+            if (semverParts(n) && !fs.existsSync(path.join(CFG.varOpt, c.id, 'versions', n))) rmrf(path.join(keptDir(c.id), n));
+        });
+    } catch (e) { warn(c.id + ' ' + c.version + "'s units are not kept: " + e.message); }
+}
+/* Tool id's version and the firmware it was installed under, in state.json. */
+function recordTool(state, id, version) {
+    if (!state.tools || typeof state.tools !== 'object') state.tools = {};
+    state.tools[id] = { version: version };
+    if (unitInfo().firmware) state.tools[id].firmware = unitInfo().firmware;
+}
+/* Why installed tool t needs laying again, or null. */
+function toolStale(t, state) {
+    var c = t.component, rec = state.tools && state.tools[t.id], fw = unitInfo().firmware;
+    var missing = (c.units || []).filter(function (u) { return !lstatOrNull(path.join(CFG.systemd, u.name)); })
+        .map(function (u) { return u.name; });
+    (c.enable || []).forEach(function (en) {
+        var cur = null;
+        try { cur = fs.readlinkSync(path.join(CFG.systemd, en.target + '.wants', en.unit)); } catch (e) { /* not enabled */ }
+        if (cur !== '../' + en.unit) missing.push(en.target + '.wants/' + en.unit);
+    });
+    (c.dropins || []).forEach(function (d) { if (!lstatOrNull(dropinPath(d))) missing.push(d2s(d)); });
+    if (missing.length) return missing.join(', ') + ' missing';
+    return rec && rec.version === t.version && rec.firmware && fw && rec.firmware !== fw ? 'installed under firmware ' + rec.firmware : null;
+}
+/* Tool t laid again from its kept copy: the artifact installTool takes, or
+ * null without a copy of its installed version. */
+function keptToolArtifact(t) {
+    var dir = keptToolDir(t.id, t.version), cj = path.join(dir, 'component.json');
+    if (!fs.existsSync(cj) || !bytesEqualFile(fs.readFileSync(cj), path.join(t.root, 'versions', t.version, 'component.json'))) return null;
+    return { kind: 'tool', file: dir, dir: dir, component: t.component, id: t.id, version: t.version,
+        hmi: hmiList(t.component.mguHmi, cj), hmiFrom: t.component.mguHmi ? 'declared' : null, provides: t.component.mguProvides || null };
 }
 /* A tool's postInstall: its script (one of its files) with the arguments
  * after it, run by sh as root from current/ once the install is in place,
@@ -3500,6 +3564,80 @@ function installApp(a, state, decision) {
     }
     if (!state.apps || typeof state.apps !== 'object') state.apps = {};
     state.apps[a.id] = { uid: uid, version: a.version };
+}
+
+/* ---- apps after a firmware update (iDrive 7) ------------------------------- */
+/* At its first start after a firmware update (another MGU or MainApp
+ * version than it last recorded) MainApp marks every installed app as
+ * needing an update ("NO_FORCED_UPDATE_NEEDED": false in its registry
+ * entry) and starts none so marked: its tile shows, and a tap does
+ * nothing. It updates its own apps from their sources; nothing updates
+ * ours. An install of such an app installs it afresh (uninstall, install,
+ * its data folder carried over), which gives it a new registry entry and
+ * sets it up for the firmware it runs on (SOME/IP interfaces, ACLs,
+ * keychain, the oap-sdk of this firmware's donor apps). */
+function appStale(app) {
+    var entry = app.entry;
+    return entry && entry.NO_FORCED_UPDATE_NEEDED === false ? 'the app manager starts it only once it is updated, after a firmware update' : null;
+}
+/* For a current app a: { why, artifact: the package to install } when the
+ * app manager waits for its update, else null. */
+function setUpElsewhere(a, existing, stage) {
+    var why = appStale(existing);
+    return why ? { why: why, artifact: a.prepare ? prepareApp(a, stage) : a } : null;
+}
+/* Uninstalls app (installedApp's), then installs file; its data folder goes
+ * to the new install's home. When that install fails, again (a package, or
+ * null) is installed instead, the data going there. Returns the failed
+ * install's error, or null. */
+function reinstallApp(app, file, again) {
+    var id = app.id;
+    /* beside the homes: the same filesystem as the data folder */
+    var data = path.join(appHome(app.uid), 'data'), stash = path.join(CFG.oap, '.mgu-deploy-data-' + id + '-' + process.pid);
+    var oldGid = (lstatOrNull(data) || {}).gid;
+    if (fs.existsSync(data)) fs.renameSync(data, stash);
+    /* Under another uid, what was the old uid's or the old data folder's
+     * group becomes the new uid's or the new folder's group, while the
+     * folder is still out of the new home where no process of the new uid
+     * reaches it. Links are left alone: chown follows them. */
+    var putBack = function () {
+        var now = installedApp(id);
+        if (!now || !fs.existsSync(stash)) {
+            if (fs.existsSync(stash)) say(id + "'s data stays in " + stash);
+            return;
+        }
+        var dest = path.join(appHome(now.uid), 'data'), st = lstatOrNull(dest) || lstatOrNull(appHome(now.uid));
+        if (st && now.uid !== app.uid) {
+            walk(stash, '', []).concat([{ path: stash, stat: fs.lstatSync(stash) }]).forEach(function (e) {
+                if (e.stat.isSymbolicLink()) return;
+                var u = e.stat.uid === app.uid ? now.uid : e.stat.uid, g = e.stat.gid === oldGid ? st.gid : e.stat.gid;
+                if (u !== e.stat.uid || g !== e.stat.gid) chownMaybe(e.path, u, g);
+            });
+        }
+        rmrf(dest);
+        fs.renameSync(stash, dest);
+        say(id + "'s data carried over");
+    };
+    try {
+        cmdUninstall({ positional: [id], keepPackages: true });
+    } catch (e) {
+        if (installedApp(id) && fs.existsSync(stash) && !fs.existsSync(data)) fs.renameSync(stash, data);
+        throw e;
+    }
+    var err = null;
+    try {
+        cmdInstall({ artifacts: [file], positional: [] });
+    } catch (e) {
+        err = e;
+        process.stderr.write(id + ' did not install: ' + e.message + '\n');
+        if (again && fs.existsSync(again)) {
+            say('installing ' + id + ' ' + app.version + ' again');
+            try { cmdInstall({ artifacts: [again], positional: [] }); }
+            catch (e2) { process.stderr.write(id + ' ' + app.version + ' did not install either: ' + e2.message + '\n'); }
+        }
+    }
+    putBack();
+    return err;
 }
 
 /* ---- uninstall -------------------------------------------------------------- */
@@ -5208,15 +5346,16 @@ function collectStatus(state) {
             if (recmgrHas(n) && !recmgrLoaded(n)) pend(t.id, PENDING_RECMGR);
             else if (!recmgrHas(n) && (t.component.restart || []).length) pend(t.id, 'recmgr entry missing');
         });
+        var stale = t.id === 'mgu-deploy' ? null : toolStale(t, state);
         components.push({ id: t.id, kind: 'tool', version: t.version, units: units, provides: t.component.mguProvides || null,
-            previous: toolPrevious(t) });
+            previous: toolPrevious(t), stale: stale, kept: !!keptToolArtifact(t) });
     });
     installedApps().forEach(function (app) {
         var tile = tileState(app, fb);
         components.push({ id: app.id, kind: 'app', version: app.version, uid: app.uid,
             installationSource: app.installationSource, running: appRunning(app.uid),
             tile_provisioned: tile.provisioned, tile_fallback: tile.fallback, tile_visible: tile.visible,
-            previous: isId8() ? null : (keptPrevious(app.id, app.version) || {}).version || null });
+            previous: isId8() ? null : (keptPrevious(app.id, app.version) || {}).version || null, stale: appStale(app) });
     });
     var backupCount = 0;
     if (fs.existsSync(BACKUPS_DIR)) backupCount = fs.readdirSync(BACKUPS_DIR).length;
@@ -5250,7 +5389,7 @@ function cmdStatus(args, crashList, live, limits) {
     say('components:');
     s.components.forEach(function (c) {
         if (c.kind === 'tool') {
-            say('  tool ' + c.id + ' ' + c.version);
+            say('  tool ' + c.id + ' ' + c.version + (c.stale ? ' (not working: ' + c.stale + ')' : ''));
             c.units.forEach(function (u) {
                 say('    ' + u.name + ' enabled=' + u.enabled + ' active=' + u.active);
                 u.journal.forEach(function (l) { say('      ' + l); });
@@ -5258,7 +5397,7 @@ function cmdStatus(args, crashList, live, limits) {
         } else {
             say('  app ' + c.id + ' ' + c.version + ' uid=' + c.uid + ' source=' + c.installationSource +
                 ' running=' + c.running + ' tile=' + (c.tile_provisioned ? 'provisioned' :
-                (c.tile_fallback ? 'fallback' : 'hidden')));
+                (c.tile_fallback ? 'fallback' : 'hidden')) + (c.stale ? ' (not working: ' + c.stale + ')' : ''));
         }
     });
     if (!s.components.length) say('  (none)');
@@ -5577,13 +5716,31 @@ function confirmYes(args, what) {
     try { n = fs.readSync(0, buf, 0, 64, null); } catch (e) { /* refused below */ }
     if (buf.toString('utf8', 0, n).trim() !== 'YES') throw refuse('confirmation given was not YES');
 }
+/* An install, then the current apps it found waiting for an update after a
+ * firmware update installed afresh, each with its data folder carried over. */
+function cmdInstall(args) {
+    var afresh = [], failed = [];
+    var code = installRun(args, afresh);
+    afresh.forEach(function (r) {
+        try {
+            var app = installedApp(r.id);
+            if (!app) return;
+            say('installing ' + r.id + ' ' + app.version + ' afresh: ' + r.why);
+            var err = reinstallApp(app, r.file, keptFile(r.id, app.version));
+            if (err) failed.push(r.id + ': ' + err.message);
+            else say(r.id + ' ' + app.version + ' installed afresh');
+        } catch (e) { failed.push(r.id + ': ' + e.message); } finally { rmrf(r.file); }
+    });
+    if (failed.length) throw fail('installing afresh failed: ' + failed.join('; '));
+    return code;
+}
 /* Each artifact is its own transaction: its own snapshot, and on failure
  * only its own changes are undone. Artifacts installed before it in the
  * same call stay installed. */
-function cmdInstall(args) {
+function installRun(args, afresh) {
     var files = args.artifacts.length ? args.artifacts.map(function (f) { return path.resolve(f); })
         : kitArtifacts();
-    var stage = stageDir(), state = loadState(), done = [], attempted = false, id8 = isId8();
+    var stage = stageDir(), state = loadState(), done = [], attempted = false, id8 = isId8(), elsewhere = {};
     try {
         var validated = files.map(function (f) { return validateArtifact(f, stage); });
         validated = orderArtifacts(validated);
@@ -5616,6 +5773,27 @@ function cmdInstall(args) {
                 return !older;
             });
         }
+        /* installed tools this run does not install: laid again from their
+         * kept copy when set up under another firmware or missing a piece */
+        installedTools().forEach(function (t) {
+            if (t.id === 'mgu-deploy' || validated.some(function (a) { return a.id === t.id; })) return;
+            var why = toolStale(t, state), kept = why ? keptToolArtifact(t) : null;
+            if (!why) {
+                if (!state.tools || !state.tools[t.id]) {
+                    recordTool(state, t.id, t.version);
+                    attempted = true;
+                }
+                return;
+            }
+            if (!kept) {
+                say(t.id + ' ' + t.version + ': ' + why + '; no copy of it is kept here, so its source installs it again');
+                return;
+            }
+            say(t.id + ' ' + t.version + ': ' + why + '; laid again from the copy kept here');
+            kept.repair = why;
+            validated.push(kept);
+        });
+        validated = orderArtifacts(validated);
         preflightPrivacy(validated);
         var decisions = {};
         validated.forEach(function (a) {
@@ -5627,6 +5805,20 @@ function cmdInstall(args) {
                 say('the queued removal of ' + a.id + ' is dropped');
             }
         });
+        if (!id8 && !noOap) {
+            validated.forEach(function (a) {
+                if (a.kind !== 'app' || decisions[a.id].action !== 'current') return;
+                var e = null;
+                try { e = setUpElsewhere(a, decisions[a.id].existing, stage); }
+                catch (err) { warn(a.id + ' ' + a.version + ' is not installed afresh: ' + err.message); }
+                if (!e) return;
+                if (!managerPid()) {
+                    say(a.id + ' ' + a.version + ': ' + e.why + '; an install while the app manager runs installs it afresh');
+                    return;
+                }
+                elsewhere[a.id] = e;
+            });
+        }
         var work = validated.filter(function (a) {
             return a.kind !== 'app' || ['current', 'older'].indexOf(decisions[a.id].action) < 0;
         }).map(function (a) { return a.kind !== 'app' ? a : id8 ? id8Package(a, stage) : prepareApp(a, stage); });
@@ -5634,7 +5826,9 @@ function cmdInstall(args) {
             if (a.kind === 'app' && decisions[a.id].action === 'older') {
                 say(a.id + ' ' + a.version + ' skipped; ' + decisions[a.id].existing.version + ' is installed');
             }
-            if (a.kind === 'app' && decisions[a.id].action === 'current') {
+            if (a.kind === 'app' && decisions[a.id].action === 'current' && elsewhere[a.id]) {
+                say(a.id + ' ' + a.version + ' already installed; ' + elsewhere[a.id].why + ': installed afresh after the rest');
+            } else if (a.kind === 'app' && decisions[a.id].action === 'current') {
                 say(a.id + ' ' + a.version + ' already installed; nothing to change');
             }
         });
@@ -5694,6 +5888,8 @@ function cmdInstall(args) {
                     endAppRecord(state, a.id);
                     if (tx.saved) rmrf(tx.saved.dir);
                 } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
+                /* a tool laid again from its copy: the rest goes on */
+                if (a.repair) { warn(a.id + ' ' + a.version + ' is not laid again: ' + e.message); return; }
                 if (done.length) {
                     say('installed before this failure, and kept: ' + done.join(', '));
                     if (e.code === 2) e.code = 1;
@@ -5703,6 +5899,12 @@ function cmdInstall(args) {
         });
         if (relist) { attempted = true; relistApps(state); }
         settlePrivacyBounce();
+        /* out of the staging folder, which goes before they install */
+        Object.keys(elsewhere).forEach(function (id) {
+            var file = path.join(DEPLOY_DIR, id + '.afresh.tmp-' + process.pid);
+            copyFileMode(elsewhere[id].artifact.file, file, 0o600);
+            afresh.push({ id: id, why: elsewhere[id].why, file: file });
+        });
     } finally {
         try {
             try { settlePrivacyBounce(); }
@@ -5839,7 +6041,8 @@ function cmdUninstall(args) {
     var backup = takeSnapshot('uninstall', touchedForUninstall(id));
     try {
         if (isTool) { uninstallTool(id, state); dropVerify(id); } else uninstallApp(id, state);
-        if (!isTool && !args.keepPackages) rmrf(keptDir(id));
+        if (!args.keepPackages) rmrf(keptDir(id));
+        if (isTool && state.tools) delete state.tools[id];
         syncDropIns();
         state.pending_reboot = state.pending_reboot.filter(function (p) { return p.id !== id; });
         saveState(state); selfInstall();
@@ -6003,48 +6206,8 @@ function rollbackAppCmd(id) {
     var prev = keptPrevious(id, app.version), cur = keptFile(id, app.version);
     if (!prev) throw refuse(id + ' ' + app.version + ': no earlier version is kept to roll back to');
     say('rolling back ' + id + ' ' + app.version + ' -> ' + prev.version);
-    /* beside the homes: the same filesystem as the data folder */
-    var data = path.join(appHome(app.uid), 'data'), stash = path.join(CFG.oap, '.mgu-deploy-data-' + id + '-' + process.pid);
-    var oldGid = (lstatOrNull(data) || {}).gid;
-    if (fs.existsSync(data)) fs.renameSync(data, stash);
-    /* Under another uid, what was the old uid's or the old data folder's
-     * group becomes the new uid's or the new folder's group, while the
-     * folder is still out of the new home where no process of the new uid
-     * reaches it. Links are left alone: chown follows them. */
-    var putBack = function () {
-        var now = installedApp(id);
-        if (!now || !fs.existsSync(stash)) return;
-        var dest = path.join(appHome(now.uid), 'data'), st = lstatOrNull(dest) || lstatOrNull(appHome(now.uid));
-        if (st && now.uid !== app.uid) {
-            walk(stash, '', []).concat([{ path: stash, stat: fs.lstatSync(stash) }]).forEach(function (e) {
-                if (e.stat.isSymbolicLink()) return;
-                var u = e.stat.uid === app.uid ? now.uid : e.stat.uid, g = e.stat.gid === oldGid ? st.gid : e.stat.gid;
-                if (u !== e.stat.uid || g !== e.stat.gid) chownMaybe(e.path, u, g);
-            });
-        }
-        rmrf(dest);
-        fs.renameSync(stash, dest);
-        say(id + "'s data carried over");
-    };
-    try {
-        cmdUninstall({ positional: [id], keepPackages: true });
-    } catch (e) {
-        if (installedApp(id) && fs.existsSync(stash) && !fs.existsSync(data)) fs.renameSync(stash, data);
-        throw e;
-    }
-    try {
-        cmdInstall({ artifacts: [prev.file], positional: [] });
-    } catch (e) {
-        process.stderr.write(id + ' ' + prev.version + ' did not install: ' + e.message + '\n');
-        if (fs.existsSync(cur)) {
-            say('installing ' + id + ' ' + app.version + ' again');
-            try { cmdInstall({ artifacts: [cur], positional: [] }); }
-            catch (e2) { process.stderr.write(id + ' ' + app.version + ' did not install either: ' + e2.message + '\n'); }
-        }
-        putBack();
-        throw fail(id + ': the rollback to ' + prev.version + ' failed: ' + e.message);
-    }
-    putBack();
+    var err = reinstallApp(app, prev.file, cur);
+    if (err) throw fail(id + ': the rollback to ' + prev.version + ' failed: ' + err.message);
     say(id + ' rolled back to ' + prev.version);
     return 0;
 }

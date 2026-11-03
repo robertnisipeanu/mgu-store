@@ -89,6 +89,9 @@ function rowState(row, busy) {
     if (startPending(row)) {
         return tr("Restart pending");
     }
+    if (row.installed && row.repair && row.status !== 'update') {
+        return tr("Not working");
+    }
     switch (row.status) {
     case 'update': return tr("Update {0}", row.revision && row.version === row.installed ? row.revision : row.version);
     case 'available': return tr("Install {0}", row.version);

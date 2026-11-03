@@ -1,4 +1,4 @@
-# robertn_store 0.9.16
+# robertn_store 0.9.17
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -30,7 +30,7 @@ USB, Settings) beside:
   updater names one (`components[].icon`, a PNG file), else a letter tile
   (round for a tool), its name, its source under it (the repo's name,
   `owner/repo` where two sources share a repo name, a catalog's host), its state (`Installed`, `Update 1.0.1`, `Downloading
-  42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`,
+  42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`, `Not working`,
   version and size) and a badge or progress ring. A component for another
   head unit only (the updater's `compat: "no"`) is listed only while
   installed, so it can be removed (on the widget screens too). A version
@@ -41,7 +41,7 @@ USB, Settings) beside:
   Available; the running phase (Downloading, Verifying, Building,
   Installing, Removing) with its progress; `Not installable` and why (a package of an id another source's app
   holds; installed, it shows as installed, with Remove and no update), `Not for this head unit` / `For
-  iDrive 8` (that version is not offered), the failure in full (above the description), what an installed tool says is wrong (the updater's `problem`: `In-page drawing unavailable: <reason>` from the renderer), `Restart pending`; and what can be done:
+  iDrive 8` (that version is not offered), the failure in full (above the description), what is wrong with an installed component (the updater's `problem`: `In-page drawing unavailable: <reason>` from the renderer, `Not working: <reason>` for one that does not work until it is set up again after a firmware update), `Restart pending`; and what can be done:
   Install, Update to, Try again, Restart head unit, Undo update (where the updater offers the version before; a confirm step), Remove (a confirm step). A second renderer
   installs beside the first. On iDrive 8 an app install or removal is
   queued for the next start: its row shows `Restart pending`, as a tool
@@ -147,6 +147,7 @@ about 3,040 rows of the renderer's shared 2048 x 4096 glyph texture.
 | `DOOM` · `42%` / `Verifying` / `Building` / `Installing` / `Removing` | nothing (in progress) |
 | `Extended dashboard` · `Waiting` | nothing (queued) |
 | `Display bridge` · `Restart pending` | nothing (installed; active after the next reboot) |
+| `Cluster render` · `Not working` | as an installed row: installed, but not working until it is set up again (the updater's `repair`), which the updater has its source do |
 | `Car Data` · `Restart pending` | an iDrive 8 app install queued for the next start (the updater's `nextStart: "install"`): *Remove?* when `uninstallable`, which drops it; a queued removal (`nextStart: "remove"`) offers nothing |
 | `Car Data` · `Not for this head unit` | nothing (installed; the updater marks the new version `compat: "no"`); *Remove?* when `uninstallable` |
 | `DOOM` · `Failed, retry` | try again (the status line names the error); a removal the last start failed to apply is removed again (*Remove?*); an install it failed to apply is installed again, and its page also has *Remove* (when `uninstallable`), which clears it |
@@ -368,15 +369,15 @@ tools/test_i18n.js         every language: its words, placeholders, RHMI text fi
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.16/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.17/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.16.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.16.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.17.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.17.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js
