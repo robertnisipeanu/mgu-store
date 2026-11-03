@@ -333,7 +333,7 @@ eq(text(f, 'subtitle'), 'USB STICK · 2 packages');
 // Settings: sources, Add source, Wi-Fi, Accounts, Phone access, the unit; no restart while busy
 f = screen('settings');
 eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source',
-    'Wi-Fi', 'Accounts', 'Phone access', 'Check now']);
+    'Wi-Fi', 'Internet', 'Accounts', 'Phone access', 'Check now']);
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
 eq(text(f, 'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-renderd 1.1.0');
 eq(text(screen('settings', {}, { allProviders: { renderer: [{ id: 'mgu-render', version: '0.2.0' }, { id: 'mgu-renderd', version: '1.1.2' }] } }),
@@ -498,6 +498,24 @@ f = screen('phone');
 eq(own(f), ['Phone access', 'Back']);
 ok(/#t=6f1c/.test(f.values.qr.text), 'the access URL as QR code');
 eq(text(screen('offline'), 'subtitle'), 'Restart the head unit to finish setup');
+
+// internet: the page says whether the car is online and how to connect it; offline, the Store points to it
+f = screen('internet');
+eq([own(f), text(f, 'status')], [['Back'], 'Connected']);
+eq(f.values.ways.items.map((w) => [w.vicon, w.title]), [['wifi', 'Wi-Fi'], ['iphone', 'iPhone'], ['android', 'Android phone'], ['lteStick', 'USB LTE stick']], 'the ways to connect, a card each');
+ok(/USB tethering/.test(f.values.ways.items[2].text) && /Personal Hotspot/.test(f.values.ways.items[1].text), 'how, on the phones');
+eq(f.values.ways.items[0].text.length, 3, 'Wi-Fi: the hotspot, Scan, the network and its password, as steps');
+eq(text(screen('internet-offline'), 'status'), 'Not connected');
+eq(text(screen('store-no-internet'), 'subtitle'), 'No internet: Settings > Internet shows how to connect the car');
+// every character on these screens is in the baked fonts (tools/bake_fonts.py TEXT); others draw as '?'
+const BAKED = new Set(Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).concat(Array.from('·…→–—°×\n')));
+['internet', 'store-no-internet'].forEach((name) => ['steps', 'subtitle'].forEach((k) => {
+    const t = text(screen(name), k) || '';
+    const missing = Array.from(t).filter((c) => !BAKED.has(c));
+    eq(`${name} ${k}: ${missing.join('')}`, `${name} ${k}: `);
+}));
+f = screen('settings');
+eq(f.items[f.labels.indexOf('Internet')].act, { do: 'open', page: { name: 'internet' } });
 
 // package pictures: components[].icon is drawn from that file
 f = screen('store', {}, { components: [Object.assign(fixture.state().components[1], { icon: '/run/mgu-updater/icons/doom.png' })] });

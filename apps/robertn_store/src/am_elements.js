@@ -172,11 +172,13 @@
             F('symbols', 'Symbols key #+= (word keys only)', 'bool', false), F('sym', 'Showing the symbols', 'bool', false)] },
         // the Store's own (src/store_elements.js)
         qr: { label: 'QR code', icon: '▦', store: true, box: [400, 400], fields: [F('text', 'Text', 'text', '')] },
+        ways: { label: 'Ways (cards with a logo)', icon: '▥', store: true, box: [1600, 500], fields: [F('items', 'Cards', 'json', []),
+            F('titleSize', 'Title size', 'int', 0), F('textSize', 'Text size', 'int', 0)] },
         sheet: { label: 'Sheet (dims the screen)', icon: '▢', store: true, box: [1500, 520], fields: [F('dim', 'Dim (0-1)', 'num', 0.55), F('radius', 'Corner radius', 'num', 32)] },
     };
     // kit/vicons.js names (the editor's 'vicon' fields)
     const VICONS = ['grid', 'check', 'arrowDown', 'clock', 'back', 'chevron', 'plus', 'trash', 'lock', 'unlock', 'warning', 'gear', 'usb', 'refresh',
-        'gauge', 'stopwatch', 'camera', 'phone', 'tether', 'display', 'route', 'wrench', 'wifi'];
+        'gauge', 'stopwatch', 'camera', 'phone', 'tether', 'display', 'route', 'wrench', 'wifi', 'lteStick', 'android', 'iphone'];
 
     // reduce, not Object.fromEntries: this file also runs in apps on the car (Node 8)
     const defaults = (type) => ELEMENTS[type].fields.reduce((o, f) => { o[f.key] = f.def; return o; }, {});

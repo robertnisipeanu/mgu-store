@@ -226,8 +226,16 @@ function compact(W, H) {
         status('status', R - 420, 420),
         list('list', X, HEAD + 14, Math.min(1100, CW), B - HEAD - 14, { empty: '' })
     ]);
+    // how to connect the car (Settings > Internet): the ways as cards, a line under them
+    const internet = screen('internet', 3, [
+        back(),
+        title('Internet', titleX),
+        text('status', X, HEAD + 14, CW, 44, '', 32, 'bold'),
+        el('ways', 'ways', X, HEAD + 70, CW, B - HEAD - 70 - 60, { items: [] }),
+        text('steps', X, B - 44, CW, 40, '', 23, 'label', DIM)
+    ]);
     return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, pick, login, phone, type,
-        wifi, prefer] };
+        wifi, prefer, internet] };
 }
 
 module.exports = { compact };
