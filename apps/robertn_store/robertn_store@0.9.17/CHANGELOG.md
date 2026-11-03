@@ -2,6 +2,24 @@
 
 ## 0.9.17
 
+Two looks, picked in Settings (Look): iDrive 7, drawn as the idrive7-apps
+kit draws its apps (square panels with the M stripe, red selection,
+capitals, the Ubuntu font, the menu as its button bar along the bottom,
+header tabs), full screen right of the HMI's back column with the HMI's
+clock and status icons beside the tabs; and iDrive 8, App Manager 2's.
+Without a choice, the head unit's own.
+
+- The Store's tile: a shopping bag with the M stripe, its name in every
+  HMI language; bigger tiles on iDrive 7's Store page, no row overlapping
+  the next.
+- Settings > Information: the head unit, then the version of everything on
+  it.
+- Installed lists what has an update first; Install all updates (n).
+- A drag moves cached rows at 60 frames a second; nothing is built while
+  the state is unchanged.
+- The drawn screens come back after an app install takes the Store's
+  picture away; widget screens when the renderer never shows the Store.
+
 The version on an app's or tool's page opens its changelog: every version
 with all its notes (or, from a branch source, the commits that changed it),
 newest first, what is newer than the installed one marked New. Needs

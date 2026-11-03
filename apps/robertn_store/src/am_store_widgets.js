@@ -69,10 +69,20 @@ const chipItems = (items) => (Array.isArray(items) ? items
     : String(items || '').split(';').map((s) => s.split('|').map((x) => x.trim())).filter((p) => p[0])
         .map((p) => ({ text: p[0], color: p[1], dot: p[2] === 'dot' })));
 
+/** A badge in the iDrive 7 look, as the kit draws them (gauges.js badgeRow): a tinted box, bold capitals. Its width. */
+function chip7(cv, text, x, y, h, c, dot, right) {
+    const s = Math.round(h * 0.42), label = String(text).toUpperCase(), opt = { align: 'center', font: 'bold', spacing: 1.5 };
+    const w = Math.max(h * 2.5, cv.textWidth(label, s, opt) + h), x0 = right ? x - w : x;
+    cv.roundRect(x0, y, w, h, h * 0.2, withAlpha(c, 0.2));
+    cv.text(label, x0 + w / 2, y + h / 2 + s * 0.36, s, c, opt);
+    return w;
+}
+
 /** Where chips() puts each chip: [{ x, w, it }] (the frame's press targets for chips with an act). */
-function chipBoxes(cv, b, o) {
+function chipBoxes(cv, b, o, id7) {
     const items = chipItems(o.items), gap = b.h * 0.25, h = b.h;
-    const width = (it) => cv.textWidth(it.text, Math.round(h * 0.44)) + h * 0.9 + (it.dot ? h * 0.16 * 3 : 0);
+    const width = (it) => (id7 ? Math.max(h * 2.5, cv.textWidth(String(it.text).toUpperCase(), Math.round(h * 0.42), { font: 'bold', spacing: 1.5 }) + h)
+        : cv.textWidth(it.text, Math.round(h * 0.44)) + h * 0.9 + (it.dot ? h * 0.16 * 3 : 0));
     const out = [];
     let x = o.align === 'right' ? b.x + b.w : b.x;
     if (o.align === 'right') {
@@ -82,6 +92,16 @@ function chipBoxes(cv, b, o) {
 }
 function chips(cv, t, b, o) {
     const items = chipItems(o.items), gap = b.h * 0.25;
+    if (W.id7(t) && o.align === 'right') {
+        let x = b.x + b.w;
+        for (let i = items.length - 1; i >= 0; i--) x -= chip7(cv, items[i].text, x, b.y, b.h, C(t, items[i].color, t.text), items[i].dot, true) + gap;
+        return;
+    }
+    if (W.id7(t)) {
+        let x = b.x;
+        for (const it of items) x += chip7(cv, it.text, x, b.y, b.h, C(t, it.color, t.text), it.dot) + gap;
+        return;
+    }
     if (o.align === 'right') {
         let x = b.x + b.w;
         for (let i = items.length - 1; i >= 0; i--) x -= chip(cv, items[i].text, x, b.y, b.h, C(t, items[i].color, t.text), items[i].dot, true) + gap;
@@ -117,15 +137,16 @@ function fitSource(cv, s, w, size) {
     return W.fit(cv, s.slice(0, i), Math.max(0, w - cv.textWidth(repo, size)), size) + repo;
 }
 // (the Store: o.iconK, o.titleSize, o.subSize size a smaller tile's icon and texts; the defaults are the design's.
-// Tiles with a source line (item.src, dim, under the title) set the three lines closer and take the icon that
-// leaves them, descenders included, above the tile's bottom 8 px, where the focus rings are drawn: store_frame.js.)
+// Tiles with a source line (item.src, dim, under the title) set the three lines closer. The icon leaves the lines,
+// descenders included, above the tile's bottom 8 px, where the focus rings are drawn: store_frame.js.)
 function appGrid(cv, t, b, o) {
     const g = gridView(b, o), k = g.th / 274;
     const ts = o.titleSize || 40, ss = o.subSize || 30, rs = Math.round(ss * 0.9), top = 12 * k;
     const src = g.all.some((a) => a.src);
     const gap = src ? [ts * 1.2, rs * 1.25, ss * 1.25] : [ts * 1.45, 0, ss * 1.4];
-    const s = src ? Math.floor(Math.min(g.th * (o.iconK || 0.5), g.th - 8 - top - gap[0] - gap[1] - gap[2] - ss * 0.25))
-        : Math.round(g.th * (o.iconK || 0.5));
+    // the icon leaves the title and status lines, descenders included, above the tile's bottom 8 px (with or
+    // without a source line): a short tile (iDrive 7's Store page) has a smaller icon, not lines over the next row
+    const s = Math.floor(Math.min(g.th * (o.iconK || 0.5), g.th - 8 - top - gap[0] - gap[1] - (src ? gap[2] : 0) - ss * (src ? 0.25 : 1.65)));
     cv.clip(b.x, b.y, b.w, b.h);
     g.all.slice(g.first * g.cols, g.end * g.cols).forEach((a, i) => {
         const x = b.x + (i % g.cols) * g.tw, y = b.y + (g.first + Math.floor(i / g.cols) - g.top) * g.th;
@@ -171,7 +192,8 @@ function appList(cv, t, b, o) {
         const y = b.y + (v.first + k - v.top) * v.rh, h = v.rh - gap, s = Math.round(h * 0.73);
         // a line of text (the changelog's notes): no card
         if (it.note) { cv.text(String(it.title || ''), b.x + 28 * q + (it.indent || 0) * q, y + h / 2 + ss * 0.36, ss, C(t, it.color, t.text)); return; }
-        cv.card(b.x, y, b.w, h, 22 * q, [[0, t.panelTop], [1, t.panelBottom]]);
+        if (W.id7(t)) W.panel7(cv, t, b.x, y, b.w, h, false);   // the kit's flat overlay
+        else cv.card(b.x, y, b.w, h, 22 * q, [[0, t.panelTop], [1, t.panelBottom]]);
         let tx = b.x + 28 * q;
         if (it.icon || it.vicon || it.colors || it.letter) {
             if (it.plain && it.vicon) vicon(cv, it.vicon, b.x + 28 * q, y + (h - s) / 2, s, C(t, it.iconColor, t.text));
@@ -190,7 +212,7 @@ function appList(cv, t, b, o) {
                 const on = rb.arg === 'on', tw = 150 * q, th = 76 * q, tx0 = re - tw;
                 cv.roundRect(tx0, cy - th / 2, tw, th, th / 2, on ? GREEN : '#3a4352');
                 cv.circle(on ? tx0 + tw - th / 2 : tx0 + th / 2, cy, th / 2 - 8 * q, '#ffffff');
-            } else if (rb.kind === 'chip') chip(cv, rb.arg, re, cy - 30 * q, 60 * q, C(t, it.chipColor, BLUE), it.chipDot, true);
+            } else if (rb.kind === 'chip') (W.id7(t) ? chip7 : chip)(cv, rb.arg, re, cy - 30 * q, 60 * q, C(t, it.chipColor, BLUE), it.chipDot, true);
         }
     });
     cv.noclip();
@@ -201,13 +223,66 @@ function appList(cv, t, b, o) {
 const navItems = (o) => (Array.isArray(o.items) ? o.items
     : lines(o.items).map((l, i) => ({ id: l[0].toLowerCase(), label: l[0], vicon: l[1] || '', badge: l[2] || '' })));
 // (the Store: o.labelSize for a narrower menu; the default is the design's)
+/* The menu as the iDrive 7 look has it: along the bottom, the kit's button bar (gauges.js menuBar): names in capitals,
+ * the selected one lit with a line of the selection colour, thin separators; a count after a name. */
+/* The pages as header tabs in the HMI's title strip (full screen, iDrive 7 look): the idrive7-apps' header (kit
+ * gauges.js header) - names in capitals, the page lit with a red line along the bottom. */
+function headNav(cv, t, b, o) {
+    const items = navItems(o), n = Math.max(1, items.length), iw = b.w / n, S = t.sel || t.accent, size = o.labelSize || 20;
+    const opt = { align: 'center', font: 'bold', spacing: 2 };
+    items.forEach((it, i) => {
+        const x = b.x + i * iw, on = i === (o.sel | 0), label = String(it.label).toUpperCase();
+        if (on) {
+            cv.gradientRect(x, b.y, iw, b.h, [[0, withAlpha(S, 0)], [1, withAlpha(S, 0.25)]]);
+            cv.fillRect(x, b.y + b.h - 5, iw, 5, S);
+        }
+        const badge = it.badge && String(it.badge) !== '0' ? String(it.badge) : '';
+        const lw = cv.textWidth(label, size, opt), bw = badge ? size * 1.5 : 0, lx = x + iw / 2 - (badge ? (bw + 10) / 2 : 0);
+        cv.text(label, lx, b.y + b.h / 2 + 7, size, on ? t.selText || '#ffffff' : t.dim, opt);
+        if (badge) {
+            const bx = lx + lw / 2 + 10 + bw / 2, cy = b.y + b.h / 2;
+            cv.roundRect(bx - bw / 2, cy - size * 0.7, bw, size * 1.4, size * 0.28, S);
+            cv.text(badge, bx, cy + size * 0.3, Math.round(size * 0.82), '#ffffff', { align: 'center', font: 'bold' });
+        }
+        if (i < n - 1) cv.fillRect(x + iw, b.y + b.h * 0.28, 1, b.h * 0.44, withAlpha('#ffffff', 0.14));
+    });
+}
+
+function bottomNav(cv, t, b, o) {
+    if (o.head) return headNav(cv, t, b, o);
+    const items = navItems(o), n = Math.max(1, items.length), iw = b.w / n, S = t.sel || t.accent, size = o.labelSize || 22;
+    cv.fillRect(b.x, b.y, b.w, b.h, t.bg);
+    cv.gradientRect(b.x, b.y, b.w, b.h, [[0, withAlpha('#ffffff', 0.09)], [1, withAlpha('#ffffff', 0.03)]]);
+    cv.fillRect(b.x, b.y, b.w, 2, withAlpha('#ffffff', 0.2));
+    items.forEach((it, i) => {
+        const x = b.x + i * iw, on = i === (o.sel | 0), label = String(it.label).toUpperCase(), opt = { align: 'center', font: 'bold', spacing: 2 };
+        if (on) {
+            cv.gradientRect(x, b.y, iw, b.h, [[0, withAlpha(S, 0.08)], [1, withAlpha(S, 0.4)]]);
+            cv.fillRect(x, b.y + b.h - 4, iw, 4, S);
+        }
+        const cy = b.y + b.h / 2, badge = it.badge && String(it.badge) !== '0' ? String(it.badge) : '';
+        const lw = cv.textWidth(label, size, opt), bw = badge ? size * 1.5 : 0, lx = x + iw / 2 - (badge ? (bw + 10) / 2 : 0);
+        cv.text(label, lx, cy + size * 0.36, size, on ? t.selText || '#ffffff' : t.dim, opt);
+        if (badge) {
+            const bx = lx + lw / 2 + 10 + bw / 2;
+            cv.roundRect(bx - bw / 2, cy - size * 0.7, bw, size * 1.4, size * 0.28, S);
+            cv.text(badge, bx, cy + size * 0.3, Math.round(size * 0.82), '#ffffff', { align: 'center', font: 'bold' });
+        }
+        if (i < n - 1) cv.fillRect(x + iw, b.y + b.h * 0.25, 1, b.h * 0.5, withAlpha('#ffffff', 0.13));
+    });
+}
+
 function sideNav(cv, t, b, o) {
+    if (b.w > b.h) return bottomNav(cv, t, b, o);
     const items = navItems(o), ih = b.h / Math.max(1, items.length), is = Math.min(68, ih * 0.38), ls = o.labelSize || 34;
     cv.fillRect(b.x, b.y, b.w, b.h, withAlpha(t.panelBottom, 0.85));
     cv.fillRect(b.x + b.w - 1.5, b.y, 1.5, b.h, t.panelEdge);
     items.forEach((it, i) => {
         const y = b.y + i * ih, on = i === (o.sel | 0), c = on ? t.text : t.dim, iy = y + ih * 0.18;
-        if (on) {
+        if (on && W.id7(t)) {           // the iDrive 7 look: a lit square with the red bar
+            cv.card(b.x, y + 4, b.w - 1.5, ih - 8, 0, [[0, withAlpha('#ffffff', 0.12)], [1, withAlpha('#ffffff', 0.03)]]);
+            cv.fillRect(b.x, y + 4, 6, ih - 8, t.sel);
+        } else if (on) {
             cv.card(b.x + 8, y + 8, b.w - 24, ih - 16, 16, [[0, withAlpha('#ffffff', 0.16)], [1, withAlpha('#ffffff', 0.04)]]);
             cv.roundRect(b.x + 8, y + ih * 0.22, 6, ih * 0.56, 3, t.text);
         }
@@ -215,7 +290,7 @@ function sideNav(cv, t, b, o) {
         cv.text(String(it.label), b.x + b.w / 2, iy + is + ls * 1.47, ls, c, { align: 'center' });
         if (it.badge && String(it.badge) !== '0') {
             const bx = b.x + b.w / 2 + is * 0.97, by = iy + 6;
-            cv.circle(bx, by, 30, t.bg); cv.circle(bx, by, 26, BLUE);
+            cv.circle(bx, by, 30, t.bg); cv.circle(bx, by, 26, W.id7(t) ? t.sel : BLUE);
             cv.text(String(it.badge), bx, by + 12, 32, '#ffffff', { align: 'center', font: 'bold' });
         }
     });
@@ -231,12 +306,36 @@ function vbutton(cv, t, b, o) {
         vicon(cv, o.vicon, b.x + (b.w - g) / 2, b.y + (b.h - g) / 2, g, off ? t.dim : c);
         return;
     }
+    if (W.id7(t)) return vbutton7(cv, t, b, o, c, s, is, off);
     if (o.style === 'primary') cv.card(b.x, b.y, b.w, b.h, r, off ? [[0, '#2a3341'], [1, '#232a35']] : [[0, c], [1, withAlpha(c, 0.78)]]);
     else cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 3, off ? t.panelEdge : o.style === 'outline' ? withAlpha(t.text, 0.6) : withAlpha(c, 0.6));
     const fg = off ? t.dim : o.style === 'primary' ? '#ffffff' : o.style === 'outline' ? t.text : c;
     const hasIcon = !!o.vicon, tw = cv.textWidth(String(o.text || ''), s, { font: 'bold' }) + (hasIcon ? is + 18 : 0), x1 = b.x + (b.w - tw) / 2;
     if (hasIcon) vicon(cv, o.vicon, x1, b.y + (b.h - is) / 2, is, fg);
     cv.text(String(o.text || ''), x1 + (hasIcon ? is + 18 : 0), b.y + b.h / 2 + s * 0.36, s, fg, { font: 'bold' });
+}
+
+/* A button in the iDrive 7 look: a cell of the kit's button bar (gauges.js menuBar) - a soft light gradient with a light
+ * line along the top, the name in capitals; primary lit with the selection colour and a line of it along the bottom. */
+function vbutton7(cv, t, b, o, c, s, is, off) {
+    const primary = o.style === 'primary' && !off, S = t.sel || t.accent;
+    cv.fillRect(b.x, b.y, b.w, b.h, t.bg);
+    cv.gradientRect(b.x, b.y, b.w, b.h, [[0, withAlpha('#ffffff', 0.09)], [1, withAlpha('#ffffff', 0.03)]]);
+    cv.fillRect(b.x, b.y, b.w, 2, withAlpha('#ffffff', 0.2));
+    if (primary) {
+        cv.gradientRect(b.x, b.y, b.w, b.h, [[0, withAlpha(S, 0.08)], [1, withAlpha(S, 0.4)]]);
+        cv.fillRect(b.x, b.y + b.h - 4, b.w, 4, S);
+    }
+    const fg = off ? withAlpha(t.dim, 0.5) : primary ? t.selText || '#ffffff' : t.text;
+    const label = String(o.text || '').toUpperCase(), hasIcon = !!o.vicon, room = b.w - 32;
+    // a name too wide for the button: less letter spacing, then a smaller size
+    let sp = 2;
+    const w = () => cv.textWidth(label, s, { font: 'bold', spacing: sp }) + (hasIcon ? is + 16 : 0);
+    if (w() > room) sp = 0.5;
+    while (w() > room && s > 14) s -= 1;
+    const x1 = b.x + (b.w - w()) / 2;
+    if (hasIcon) vicon(cv, o.vicon, x1, b.y + (b.h - is) / 2, is, fg);
+    cv.text(label, x1 + (hasIcon ? is + 16 : 0), b.y + b.h / 2 + s * 0.36, s, fg, { font: 'bold', spacing: sp });
 }
 
 // ---- on-screen keyboard: URLs and tokens (layout 'url'), or words (layout 'text': a space bar) ----------------
@@ -288,7 +387,8 @@ function keyboard(cv, t, b, o) {
 function sheet(cv, t, b, o) {
     const a = o.area || { x: 0, y: 0, w: 2880, h: 960 };
     cv.fillRect(a.x, a.y, a.w, a.h, withAlpha('#000000', o.dim == null ? 0.55 : o.dim));
-    cv.card(b.x, b.y, b.w, b.h, o.radius == null ? 32 : o.radius, [[0, '#1e2632'], [1, '#121820']]);
+    if (W.id7(t)) W.panel7(cv, t, b.x, b.y, b.w, b.h, true);
+    else cv.card(b.x, b.y, b.w, b.h, o.radius == null ? 32 : o.radius, [[0, '#1e2632'], [1, '#121820']]);
 }
 
 const DRAW = { appIcon: appIconEl, chips, appGrid, appList, sideNav, vbutton, keyboard, sheet };

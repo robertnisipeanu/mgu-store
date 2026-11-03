@@ -161,7 +161,8 @@ class RenderClient extends EventEmitter {
     close() { gpuLog.push('close'); this.emit('close'); }
     mode(m) { if (m) { gpuLog.push(`mode ${m}`); this.wantMode = m; } return this.wantMode; }
     place(p) { gpuLog.push(`place ${p.x},${p.y} ${p.w}x${p.h} ${p.scale.toFixed(3)}`); this.placement = p; }
-    show(on) { this.visible = on; gpuLog.push(`show ${on}`); }
+    // as mgu-render: X_STATE once the picture is (or is no longer) on screen
+    show(on) { this.visible = on; gpuLog.push(`show ${on}`); setImmediate(() => this.emit('state', { mode: this.wantMode, onScreen: on, front: on })); }
     claim(r) { this.claims = r; }
     fps(n) { fpsAsked = n; }
     grab(on) { this.grabbing = on; }
@@ -973,8 +974,9 @@ function runDrawn() {
         eq(gpu.claims, [mode === 'embed' ? { x: 0, y: 0, w: 1796, h: 632 } : { x: 0, y: 0, w: 1790, h: 638 }], 'touch claimed: the box');
         eq(frames.length > 0 && drawn.items.some((i) => i.label === 'DOOM'), true, 'the Store tab drawn');
         eq(app._drawnModel().version, 'test', 'the Store\'s version, from where this HMI\'s oap-sdk keeps package.json');
-        eq([lastText(proxy(1, 0)), lastText(proxy(1, 3)), lastText(proxy(1, 4)), lastText(proxy(1, 7))],
-            ['Store', 'Settings', 'All', 'DOOM'], 'proxies in focus order: side menu, filters, tiles');
+        eq([drawn.items[0].label, drawn.items[3].label, drawn.items[4].label, drawn.items[7].label],
+            ['Store', 'Settings', 'All', 'Gauges'], 'items in focus order: side menu, filters, tiles (not installed first)');
+        eq([lastText(proxy(1, 0)), lastText(proxy(1, 7))], [' ', ' '], 'proxies unlabelled: the HMI never shows the names');
         eq(last(new RegExp(`^${proxy(1, 12)}\\.Visible`)), `${proxy(1, 12)}.Visible=0`, 'unused proxies hidden');
         // a drag moves the grid's rows: each move one frame of two cached layers (the page as the drag started,
         // the rows); the release keeps them, and the next drag draws from them
@@ -992,7 +994,7 @@ function runDrawn() {
         const layers = [...moves[0].layersUsed].sort();
         const d0 = dropped.length;
         gpu.emit('touch', 'up', x0, y0 - 400);
-        const top = drawn.scroll[g.key], first = drawn.items.find((i) => i.label === 'DOOM');
+        const top = drawn.scroll[g.key], first = drawn.items.find((i) => i.label === 'Gauges');      // the first tile (not installed first)
         eq([frames.length - n0, dropped.length - d0, Math.round(first.y)], [4, 0, Math.round(g.y - top * g.step)],
             'the release: no frame built, the layers kept, items where the rows came to rest');
         gpu.emit('touch', 'down', x0, y0);
@@ -1098,7 +1100,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.17', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', require('../mgu-app.json').tree, 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1120,7 +1122,8 @@ function runDrawn() {
         // a tile press opens its page at depth 2
         reset();
         bridges.length = 0;
-        app._components[proxy(1, 7)].emit('action', {});
+        // (DOOM's tile: what is not on the car comes first)
+        app._components[proxy(1, drawn.items.findIndex((i) => i.label === 'DOOM'))].emit('action', {});
         return tick();
     }).then(() => {
         eq(states, [`open ${host(2)}`], 'the app page is the next host state');
@@ -1135,7 +1138,6 @@ function runDrawn() {
     }).then(() => {
         const labels = drawn.items.map((i) => i.label);
         eq(labels.indexOf('Update to 1.0.1') >= 0 && labels.indexOf('Remove') >= 0, true, 'Update and Remove on the page');
-        eq(lastText(proxy(2, labels.indexOf('Update to 1.0.1'))), 'Update to 1.0.1');
         reset();
         app._components[proxy(2, labels.indexOf('Update to 1.0.1'))].emit('action', {});
         return tick();
@@ -1167,7 +1169,7 @@ function runDrawn() {
     }).then(() => {
         eq(drawn.stack.length, 1, 'BACK leaves the page');
         eq(gpu.visible, true, 'and the tabs show');
-        eq(drawn.focus, 7, 'the focus back on the tile the page opened from');
+        eq(drawn.items[drawn.focus].label, 'DOOM', 'the focus back on the tile the page opened from');
         // touch: a tap on Renderer's tile opens it; Install installs it beside the other renderer
         reset();
         const tile = drawn.items.find((i) => i.label === 'Renderer');
@@ -1224,6 +1226,11 @@ function runDrawn() {
         eq(drawn.top(), { name: 'accounts' });
         eq(drawn.items.some((i) => i.label === 'Sign in with GitHub'), true, 'Sign in with GitHub with state.signin');
         eq(drawn.items.find((i) => i.label === 'Add token').act, { do: 'add-token' });
+        // Settings' look: shown at once and kept in the data folder for the next start
+        app._act({ do: 'look', look: 'id8' });
+        eq([app._drawnModel().look, fs.readFileSync(path.join(DATA, 'look'), 'utf8')], ['id8', 'id8\n'], 'the picked look, kept');
+        app._act({ do: 'look', look: 'id7' });
+        eq(fs.readFileSync(path.join(DATA, 'look'), 'utf8'), 'id7\n', 'and changed');
         // Add source: iDrive 7 types in the HMI's speller, which hides the renderer's picture while it is up; iDrive 8
         // on the drawn keyboard's page, the next host state
         drawn.setTab('settings');
@@ -1564,7 +1571,7 @@ function runDrawn() {
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
             ccu(101, 'SIGNAL_UNGUELTIG', 5);
             ccu(101, 'DREHGEBER_KURZ_GEDRUECKT');
-            eq({ name: drawn.top().name, id: drawn.top().id }, { name: 'app', id: 'doom' }, 'a push presses the focused tile (DOOM)');
+            eq({ name: drawn.top().name, id: drawn.top().id }, { name: 'app', id: 'gauges' }, 'a push presses the focused tile (the first: Gauges, not installed)');
             eq(states.length, 1, 'once while held, an invalid sample in between');
             ccu(101);
             drawn.pop();
@@ -1582,6 +1589,17 @@ function runDrawn() {
             ccu(103);
             eq(drawn.focus, 5, 'with the controller gate the renderer\'s dial counts instead');
             drawn.controller = false;
+        }
+        // a popup over an embed page: the bridge hides at once, the page stays
+        if (mode === 'embed') {
+            bridges.length = 0;
+            app._states[host(1)].emit('focus', { focus: false });
+            eq([bridges, gpu.visible], [[false], true], 'embed: an HMI popup hides the bridge, the page stays shown');
+            drawn.push({ name: 'accounts' });
+            drawn.pop();
+            eq(bridges, [false], 'a page the Store opens or closes under the popup is not bridged over it');
+            app._states[host(1)].emit('focus', { focus: true });
+            eq(bridges, [false], 'the focus back bridges nothing');
         }
         // Installed puts what runs or waits first; while the focus is on a row the rows stay where they are, so it stays on its row
         const inst = (doom) => Object.assign({}, st, { components: [
@@ -1630,17 +1648,6 @@ function runDrawn() {
         eq([rows(), focused()], [['Alpha', 'Beta', 'DOOM'], 'Store'], 'the focus off the rows: in order again');
         drawn.setTab('store');
         app._client.emit('state', st);
-        // a popup over an embed page: the bridge hides at once, the page stays
-        if (mode === 'embed') {
-            bridges.length = 0;
-            app._states[host(1)].emit('focus', { focus: false });
-            eq([bridges, gpu.visible], [[false], true], 'embed: an HMI popup hides the bridge, the page stays shown');
-            drawn.push({ name: 'accounts' });
-            drawn.pop();
-            eq(bridges, [false], 'a page the Store opens or closes under the popup is not bridged over it');
-            app._states[host(1)].emit('focus', { focus: true });
-            eq(bridges, [false], 'the focus back bridges nothing');
-        }
         // a popup over a layer page hides the layer
         if (mode === 'layer') {
             app._states[host(1)].emit('focus', { focus: false });

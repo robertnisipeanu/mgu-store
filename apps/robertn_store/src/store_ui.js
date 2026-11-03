@@ -67,7 +67,7 @@ function colors(id) {           // a steady colour per component for its letter 
 const plural = (n, word) => tr(`{0} ${word}${n === 1 ? '' : 's'}`, n);
 const isTool = (c) => c.kind !== 'app';
 /* The version a row would install: a branch's new commit, else its version. */
-const target = (c) => (c.revision && c.version === c.installed ? c.revision : c.version);
+const target = (c) => c.version;
 
 const rawComps = (m) => (m.connected && m.st && Array.isArray(m.st.components) ? m.st.components : []);
 /* The components the Store lists (store_view.js listed). */
@@ -117,8 +117,12 @@ function restartFailed(m) {
 
 /* The icon fields of a component: its picture (components[].icon, a file
  * the Store reads), else a letter tile; tools round. */
+/* The head-unit tools' logos (kit_vicons.js), where a tool brings no picture of its own. */
+const TOOL_ICONS = { 'mgu-render': 'layers', 'idrive7-renderd': 'layers', 'mgu-renderd': 'layers', 'mgu-updater': 'refresh',
+    'mgu-deploy': 'box', 'mgu-python': 'python', 'mgu-uplink': 'tether', 'app-privacy': 'shield', 'mgu-inputgate': 'knob',
+    'carplay-multitouch': 'touch', 'display-bridge': 'display' };
 function iconOf(c) {
-    return { icon: c.icon ? `key:${c.icon}` : '', vicon: '', letter: String(c.title || c.id || '?')[0], kind: isTool(c) ? 'service' : 'app',
+    return { icon: c.icon ? `key:${c.icon}` : '', vicon: c.icon ? '' : TOOL_ICONS[c.id] || '', letter: String(c.title || c.id || '?')[0], kind: isTool(c) ? 'service' : 'app',
         colors: colors(c.id), badge: '', progress: -1 };
 }
 
@@ -190,7 +194,9 @@ function storeView(m) {
     const busyRow = busy && find(comps(m), busy.id);
     // the status line names a row as the tiles tell it apart
     const st = m.st && Object.assign({}, m.st, { components: m.st.components.map((c) => (listed(c) ? Object.assign({}, c, { title: named(m, c) }) : c)) });
-    const list = comps(m).filter((c) => m.filter === 'all' || (m.filter === 'app' ? !isTool(c) : isTool(c)));
+    const shown = comps(m).filter((c) => m.filter === 'all' || (m.filter === 'app' ? !isTool(c) : isTool(c)));
+    // what is not on the car yet first, each group in its usual order
+    const list = shown.filter((c) => !c.installed).concat(shown.filter((c) => c.installed));
     const checking = !!(m.connected && m.st && m.st.catalog && m.st.catalog.checking);
     const online = m.connected && m.st && m.st.online;
     return {
@@ -220,15 +226,16 @@ function installedView(m) {
         const up = c.status === 'update' && s.badge === 'update';
         const open = { do: 'open', page: pageOf(c) };
         return Object.assign(iconOf(c), { id: c.id, title: c.title, act: open,
-            sub: [up ? `${c.installed} → ${target(c)}` : `${c.installed}${isTool(c) ? tr(' · tool') : ''}`, srcName(m, c)].filter(Boolean).join(' · '), subColor: up ? BLUE : DIM,
+            sub: [up ? (c.installed === c.version ? `${c.installed} · ${tr('new build')}` : `${c.installed} → ${target(c)}`) : `${c.installed}${isTool(c) ? tr(' · tool') : ''}`, srcName(m, c)].filter(Boolean).join(' · '), subColor: up ? BLUE : DIM,
+            // the Update chip only says so: the row opens the page, whose button updates (Update all for all)
             right: up ? 'chip:' + tr('Update') : s.sub !== tr("Installed") ? `chip:${s.sub}` : 'chevron', chipColor: up ? BLUE : s.subColor,
-            chipAct: up ? { do: 'install', id: c.id } : null });
+            chipAct: null });
     };
     return {
         title: { text: tr("Installed") },
         subtitle: { text: `${plural(apps.length, 'app')} · ${plural(tools.length, 'tool')}` },
         // updates: install them all; none: look for new ones (the updater's check, as Settings' Check now)
-        updateAll: updates.length ? button(tr("Update all ({0})", updates.length), { do: 'update-all' }, { vicon: 'arrowDown', style: 'primary', color: BLUE })
+        updateAll: updates.length ? button(tr("Install all updates ({0})", updates.length), { do: 'update-all' }, { vicon: 'arrowDown', style: 'primary', color: BLUE })
             : m.connected && m.st ? button(m.noNet ? tr("No internet") : m.st.catalog && m.st.catalog.checking ? tr("Checking") : tr("Check for updates"), { do: 'check' },
                 { vicon: m.noNet ? 'warning' : 'refresh', style: 'outline', color: m.noNet ? AMBER : undefined })
                 : hidden,
@@ -245,7 +252,7 @@ function usbView(m) {
     return {
         title: { text: 'USB' },
         subtitle: { text: usb.length ? `${usb.map(sourceLabel).join(', ')} · ${plural(list.length, 'package')}` : '' },
-        grid: { items: list.map((c) => tile(m, c, busy)), empty: usb.length ? tr("Nothing here") : tr("No USB stick") }
+        grid: { items: list.map((c) => tile(m, c, busy)), empty: usb.length ? tr("Nothing here") : tr("USB not connected") }
     };
 }
 
@@ -273,7 +280,7 @@ function settingsView(m) {
             right: 'chevron', act: { do: 'open', page: { name: 'wifi' } } });
     }
     if (m.connected && st) {
-        access.push({ id: 'internet', title: tr("Internet"), sub: st.online ? tr("Online") : tr("Offline"), subColor: st.online ? GREEN : AMBER,
+        access.push({ id: 'internet', title: 'Internet', sub: st.online ? 'Online' : 'Offline', subColor: st.online ? GREEN : AMBER,
             plain: true, vicon: 'tether', iconColor: 'text', right: 'chevron', act: { do: 'open', page: { name: 'internet' } } });
     }
     if (toks) {
@@ -285,16 +292,15 @@ function settingsView(m) {
             right: 'chevron', act: { do: 'open', page: { name: 'phone' } } });
     }
     const unit = st && st.unit;
-    const renderers = st && st.allProviders && Array.isArray(st.allProviders.renderer) ? st.allProviders.renderer : [];
+    access.push({ id: 'info', title: 'Information', sub: unit && unit.hmi ? [hmiNames([unit.hmi]), unit.firmware].filter(Boolean).join(' · ') : 'Versions',
+        plain: true, vicon: 'display', iconColor: 'text', right: 'chevron', act: { do: 'open', page: { name: 'information' } } });
     return {
         note: { text: m.note || (restartFailed(m) || '') },
+        look: { sel: LOOKS.indexOf(lookOf(m)), acts: LOOKS.map((l) => ({ do: 'look', look: l })) },
         repos: srcs ? { items: srcs.map(sourceRow), empty: tr("None") } : { items: [], empty: '' },
         addRepo: srcs ? button(tr("Add source"), { do: 'add-source' }, { vicon: 'plus', style: 'tinted', color: BLUE }) : hidden,
         access: { items: access },
-        connLabel: { text: access.length ? tr("ACCESS") : tr("HEAD UNIT") },
-        unit: { text: unit && unit.hmi ? [hmiNames([unit.hmi]), unit.firmware].filter(Boolean).join(' · ') : '' },
-        versions: { text: [st && st.updater ? tr("Updater {0}", st.updater.version) : '', m.version ? tr("Store {0}", m.version) : '',
-            renderers.length ? tr("Renderer {0}", renderers.map((r) => `${r.id} ${r.version}`).join(', ')) : ''].filter(Boolean).join(' · ') },
+        connLabel: { text: tr("ACCESS") },
         checkNow: m.connected ? button(st.catalog && st.catalog.checking ? tr("Checking") : tr("Check now"), { do: 'check' },
             { vicon: 'refresh', style: 'outline', size: 26 }) : hidden,
         restart: canRestart(m) ? button(tr("Restart head unit"), { do: 'open', page: { name: 'confirm', kind: 'restart' } },
@@ -303,6 +309,19 @@ function settingsView(m) {
 }
 
 /* ---- pages ---- */
+
+/* The update history on a component's page (the updater's history answer,
+ * newest first): a commit's message with its date, or a
+ * version with its notes; what is newer than the installed one marked New. */
+function historyView(m, c) {
+    const h = m.history && m.history.id === c.id ? m.history : null;
+    const empty = !h || h.status === 'loading' ? 'Loading history' : h.status === 'offline' ? 'History needs internet'
+        : h.status === 'error' ? 'History not available' : 'No history';
+    return { empty, items: (h ? h.items : []).map((it, i) => ({ id: `h${i}`, plain: true,
+        title: it.rev ? it.title : `Version ${it.title}`,
+        sub: it.rev ? it.date : it.text || '',
+        subColor: DIM, right: it.new ? 'chip:New' : '', chipColor: BLUE })) };
+}
 
 /* Text cut into lines of at most n characters (at spaces; longer words split). */
 function lines(text, n) {
@@ -328,15 +347,15 @@ function lines(text, n) {
 function changelogView(m, page) {
     const c = rowOf(m, page);
     const h = c && m.history && m.history.id === c.id ? m.history : null;
-    const status = !h || h.status === 'loading' ? tr("Loading") : h.status === 'offline' ? tr("Needs internet")
-        : h.status === 'error' ? tr("Not available") : h.items.length ? tr("Installed {0}", c.installed || '–') : tr("No changelog");
-    const items = [];
+    const status = !h || h.status === 'loading' ? 'Loading' : h.status === 'offline' ? 'Needs internet'
+        : h.status === 'error' ? 'Not available' : h.items.length ? `Installed ${c.installed || 'none'}` : 'No changelog';
+    const n = m.look === 'id7' ? 96 : 110, items = [];
     (h ? h.items : []).forEach((it, i) => {
-        items.push({ id: `v${i}`, plain: true, title: it.rev ? it.title : tr("Version {0}", it.title), sub: it.rev ? it.date : '',
-            subColor: DIM, right: it.new ? 'chip:' + tr("New") : '', chipColor: BLUE });
-        lines(it.rev ? '' : it.text, 110).forEach((l, j) => items.push({ id: `v${i}.${j}`, note: true, title: l, color: 'dim' }));
+        items.push({ id: `v${i}`, plain: true, title: it.rev ? it.title : `Version ${it.title}`, sub: it.rev ? it.date : '',
+            subColor: DIM, right: it.new ? 'chip:New' : '', chipColor: BLUE });
+        lines(it.rev ? '' : it.text, n).forEach((l, j) => items.push({ id: `v${i}.${j}`, note: true, title: l, color: 'dim' }));
     });
-    return { title: { text: c ? tr("{0} changelog", c.title) : tr("Changelog") }, status: { text: status, color: DIM }, list: { items, empty: '' } };
+    return { title: { text: c ? `${c.title} changelog` : 'Changelog' }, status: { text: status, color: DIM }, list: { items, empty: '' } };
 }
 
 function appView(m, page) {
@@ -344,7 +363,7 @@ function appView(m, page) {
     if (!c) {
         return { name: { text: tr("Not listed") }, author: { text: '' }, facts: { items: [] }, desc: { text: '' }, icon: { letter: '?' },
             instValue: { text: '' }, availLabel: { text: '' }, availValue: { text: '' }, problem: { text: '' }, note1: { text: '' }, note2: { text: '' },
-            note3: { text: '' }, progress: hidden, primary: hidden, secondary: hidden };
+            note3: { text: '' }, progress: hidden, primary: hidden, secondary: hidden, history: { items: [], empty: '' } };
     }
     const busy = busyOf(m);
     const s = tileState(c, busy);
@@ -356,13 +375,16 @@ function appView(m, page) {
         name: { text: c.title },
         author: { text: [c.author && tr("by {0}", c.author), c.source && tr("from {0}", src ? sourceLabel(src) : c.source)].filter(Boolean).join(' · ') },
         // the version opens the changelog (every entry of the update history, in full)
-        facts: { items: [{ text: tr("Version {0}", c.version), act: { do: 'open', page: { name: 'changelog', id: c.id } } }, c.revision && { text: tr("Commit {0}", c.revision) }, c.size && { text: size(c.size) },
+        facts: { items: [{ text: tr("Version {0}", c.version), act: { do: 'open', page: { name: 'changelog', id: c.id } } }, c.size && { text: size(c.size) },
             // installed under another id than its source's
             c.listedId && !c.blocked && (c.installAs || c.id) !== c.listedId && { text: `Id ${c.installAs || c.id}` },
             { text: isTool(c) ? tr("Tool") : tr("App"), color: isTool(c) ? TEAL : BLUE }, c.mguHmi && c.mguHmi.length && { text: hmiNames(c.mguHmi) },
             c.provides && { text: c.provides }].filter(Boolean) },
         // a failure in full, above the description
-        desc: { text: c.description || '', lead: c.error && !mine ? tr("Failed: {0}", c.error) : '', leadColor: RED },
+        desc: { text: c.description || '', lead: c.error && !mine ? tr("Failed: {0}", c.error) : '', leadColor: RED,
+            over: c.error && !mine ? 'history' : '' },
+        // a failure in full takes the history's place
+        history: c.error && !mine ? { items: [], empty: '' } : historyView(m, c),
         // what an installed tool says is wrong (the updater's problem: mgu-render's page template)
         problem: { text: c.problem || '' },
         instLabel: { text: tr("Installed") },
@@ -574,6 +596,52 @@ function phoneView(m) {
     };
 }
 
+/* How the car gets internet: the head unit has none of its own; the uplink
+ * gives it through its Wi-Fi or a USB device. */
+const INTERNET_WAYS = [
+    { vicon: 'wifi', title: 'Wi-Fi', text: ['Turn the phone\'s hotspot on.', 'Here, open Settings > Wi-Fi and tap Scan.',
+        'Pick the phone\'s network, type its password and tap Connect.'] },
+    { vicon: 'iphone', title: 'iPhone', text: 'Cable it to a USB port, Personal Hotspot on, the phone unlocked; tap Trust when it asks.' },
+    { vicon: 'android', title: 'Android phone', text: 'Cable it to a USB port, then on the phone: Settings > Network > Hotspot & tethering > USB tethering on.' },
+    { vicon: 'lteStick', title: 'USB LTE stick', text: 'A USB LTE stick with a SIM card that has mobile data (e.g. Huawei E3372h), in a USB port in the car.' }
+];
+const INTERNET_STEPS = 'Within a minute this page says Connected. No internet at all? Apps on a USB stick show under USB.';
+
+function internetView(m) {
+    const online = !!(m.connected && m.st && m.st.online);
+    return {
+        title: { text: 'Internet' },
+        status: { text: !m.connected ? '' : online ? 'Connected' : 'Not connected', color: online ? GREEN : AMBER },
+        ways: { items: INTERNET_WAYS },
+        steps: { text: INTERNET_STEPS }
+    };
+}
+
+/* Settings > Information: the head unit, then the version of everything on it (the Store's sources' components that
+ * are installed, apps then tools) and what each renderer is. */
+function informationView(m) {
+    const st = m.connected ? m.st : null;
+    const unit = st && st.unit;
+    const items = [];
+    const row = (id, title, sub, right) => items.push({ id, title, sub, subColor: DIM, plain: true, right: right ? `chip:${right}` : '', chipColor: DIM });
+    if (unit) row('unit', unit.hmi ? hmiNames([unit.hmi]) : 'Head unit', unit.firmware || '', '');
+    if (m.version) row('store', 'Store', 'robertn_store', m.version);
+    if (st && st.updater) row('updater', 'Updater', 'mgu-updater', st.updater.version);
+    const on = comps(m).filter((c) => c.installed && c.id !== 'robertn_store' && c.id !== 'mgu-updater');
+    on.filter((c) => !isTool(c)).concat(on.filter(isTool)).forEach((c) => row(c.id, c.title, [c.id, isTool(c) ? 'tool' : 'app', srcName(m, c)].filter(Boolean).join(' · '), c.installed));
+    return { title: { text: 'Information' }, status: { text: st ? plural(on.length + 2, 'component') : '', color: DIM }, list: { items, empty: m.connected ? '' : 'Not connected' } };
+}
+
+/* The Store's looks (Settings): iDrive 7, the idrive7-apps kit's screens,
+ * and iDrive 8, App Manager 2's. Without a choice: the head unit's own. */
+const LOOKS = ['id7', 'id8'];
+function lookOf(m) {
+    if (LOOKS.indexOf(m.look) >= 0) {
+        return m.look;
+    }
+    return m.st && m.st.unit && m.st.unit.hmi === 'ID8' ? 'id8' : 'id7';
+}
+
 /* ---- the uplink: Wi-Fi and the preferred connection (state.uplink, mgu-uplink 0.7.0's status.json) ---- */
 
 /* The uplink's Wi-Fi (status.json's wifi), null without it (an uplink before
@@ -660,26 +728,6 @@ function wifiView(m) {
 }
 
 /* The connection the uplink tries first; the others follow as fallbacks. */
-/* How the car gets internet: the head unit has none of its own; the uplink
- * gives it through its Wi-Fi or a USB device. */
-const INTERNET_WAYS = () => [
-    { vicon: 'wifi', title: 'Wi-Fi', text: [tr("Turn the phone's hotspot on."), tr("Here, open Settings > Wi-Fi and tap Scan."),
-        tr("Pick the phone's network, type its password and tap Connect.")] },
-    { vicon: 'iphone', title: 'iPhone', text: tr("Cable it to a USB port, Personal Hotspot on, the phone unlocked; tap Trust when it asks.") },
-    { vicon: 'android', title: tr("Android phone"), text: tr("Cable it to a USB port, then on the phone: Settings > Network > Hotspot & tethering > USB tethering on.") },
-    { vicon: 'lteStick', title: tr("USB LTE stick"), text: tr("A USB LTE stick with a SIM card that has mobile data (e.g. Huawei E3372h), in a USB port in the car.") }
-];
-
-function internetView(m) {
-    const online = !!(m.connected && m.st && m.st.online);
-    return {
-        title: { text: tr("Internet") },
-        status: { text: !m.connected ? '' : online ? tr("Connected") : tr("Not connected"), color: online ? GREEN : AMBER },
-        ways: { items: INTERNET_WAYS() },
-        steps: { text: tr("Within a minute this page says Connected. No internet at all? Apps on a USB stick show under USB.") }
-    };
-}
-
 function preferView(m) {
     const u = (m.connected && m.st && m.st.uplink) || {};
     const preferred = u.preferred || '';
@@ -713,17 +761,18 @@ function view(m) {
     case 'pick': values = pickView(m); break;
     case 'login': values = loginView(m); break;
     case 'phone': values = phoneView(m); break;
+    case 'internet': values = internetView(m); break;
+    case 'information': values = informationView(m); break;
     case 'type': values = typeView(m, page); break;
     case 'wifi': values = wifiView(m); break;
     case 'prefer': values = preferView(m); break;
-    case 'internet': values = internetView(m); break;
     default: screen = 'store'; values = storeView(m);
     }
     values.nav = nav(m, tabSel);
     if (values.back === undefined) {
         values.back = { act: { do: 'back' } };
     }
-    return { screen, values };
+    return { screen, values, look: lookOf(m) };
 }
 
 /* The picture files a view shows (components[].icon). */

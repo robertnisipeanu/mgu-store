@@ -42,6 +42,9 @@ const THEMES = {
         hotRamp: ['#8a4b00', '#ff9d00', '#ff9d00', '#ff6a1f', '#ff3b1f'],
     },
 };
+// the Store's iDrive 7 look: M Tricolour, the idrive7-apps' default, with the widgets' iDrive 7 variants
+// (style 'id7': the kit's panels, header tabs, button bar and badges)
+THEMES.idrive7 = Object.assign({}, THEMES.m_tricolour, { name: 'iDrive 7', style: 'id7' });
 
 function theme(id) { return THEMES[id] || THEMES.m_tricolour; }
 const ids = () => Object.keys(THEMES);

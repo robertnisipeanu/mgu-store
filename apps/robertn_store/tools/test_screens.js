@@ -14,11 +14,13 @@ const path = require('path');
 const { frame, hit, placement } = require(path.join(__dirname, '..', 'src', 'store_frame.js'));
 const SCREENS = require(path.join(__dirname, '..', 'src', 'am_screens.js'));
 const fixture = require('./fixture.js');
+const { view } = require(path.join(__dirname, '..', 'src', 'store_ui.js'));
 
 let checks = 0;
 const eq = (got, want, msg) => { checks += 1; assert.deepStrictEqual(got, want, msg); };
 const ok = (cond, msg) => { checks += 1; assert(cond, msg); };
-const UNITS = { 'iDrive 7 embed': placement(1796, 632), 'iDrive 7 layer': placement(1790, 638), 'iDrive 8': placement(2880, 764) };
+const UNITS = { 'iDrive 7 embed': placement(1796, 632), 'iDrive 7 layer': placement(1790, 638), 'iDrive 7 full screen': placement(1836, 720, true),
+    'iDrive 8': placement(2880, 764) };
 const ID7 = UNITS['iDrive 7 embed'];
 const RING = 11;                // the focus ring's reach outside an item (8 out, 5 wide)
 
@@ -48,30 +50,42 @@ ok(I8.scale > 1 && I8.scale < 1.02 && !I8.layout, 'iDrive 8: the design scaled i
             `${unit} ${def.name}.${c.name} inside the box: ${JSON.stringify([c.x, c.y, c.w, c.h])}`));
     });
     const grid = p.layout.screens.find((s) => s.name === 'store').components.find((c) => c.name === 'grid');
-    eq(Math.floor(grid.h / grid.opts.tileH), 3, `${unit}: three rows of tiles`);
+    eq([grid.opts.cols, grid.h / grid.opts.tileH > 2.3 && grid.h / grid.opts.tileH < 2.5], [4, true], `${unit}: four tiles a row, under two and a half rows in view`);
+    // the iDrive 7 look's layout: the same elements, in the box, the menu along the bottom under everything else
+    SCREENS.screens.forEach((def) => {
+        const own = p.layout.id7.screens.find((s) => s.name === def.name);
+        eq(own.components.map((c) => c.name).sort(), def.components.map((c) => c.name).sort(), `${unit} ${def.name} (id7): the design's elements`);
+        const nav = own.components.find((c) => c.name === 'nav');
+        ok(nav.w > nav.h && nav.y + nav.h <= vp.h && own.components.every((c) => c === nav || c.y + c.h <= nav.y),
+            `${unit} ${def.name} (id7): the menu along the bottom, under the rest`);
+    });
 });
-Object.keys(UNITS).forEach((unit) => fixture.screens().forEach(([name, over, stOver]) => {
+// every screen in both looks (Settings), in every box
+Object.keys(UNITS).forEach((unit) => ['id7', 'id8'].forEach((look) => fixture.screens().forEach(([n, over, stOver]) => {
     const p = UNITS[unit];
     const vp = p.viewport;
     const ring = p.layout ? RING : 0;
+    const name = `${n} (${look} look)`;
     const st = stOver ? Object.assign(fixture.state(), stOver) : undefined;
-    const m = fixture.model(over, st);
+    const m = Object.assign(fixture.model(over, st), { look });
     const f = frame(m, { textScale: p.scale, focus: m.focus, scroll: {}, layout: p.layout });
     ok(!f.rec.errors, `${unit} ${name}: every element draws (${f.rec.errors})`);
     ok(f.items.length && f.items.every((it) => it.label && it.act), `${unit} ${name}: every item has a label and a press`);
     const out = f.items.filter((it) => !it.reveal && !(it.x - ring >= vp.x - 1 && it.x + it.w + ring <= vp.x + vp.w + 1 &&
         (!p.layout || (it.y - ring >= vp.y && it.y + it.h + ring <= vp.y + vp.h))));
     eq(out.map((it) => it.label), [], `${unit} ${name}: items and their focus ring in view`);
-}));
+})));
 
 // the Store tab: side menu, filters, a tile per component with its state
 let f = screen('store');
 eq(f.labels.slice(0, 7), ['Store', 'Installed', 'USB', 'Settings', 'All', 'Apps', 'Tools']);
 eq(f.labels.length, 7 + fixture.state().components.length - 1, 'a tile per component but the one for another head unit only');
 ok(f.labels.indexOf('Car Data') < 0, 'Car Data (iDrive 8 only, not installed) is not listed');
-eq(f.items[7].act, { do: 'open', page: { name: 'app', id: 'robertn_store', source: 'mgu-store', listed: 'robertn_store' } });
+// what is not on the car first
+eq(f.items[7].act, { do: 'open', page: { name: 'app', id: 'car_vitals', source: 'idrive7-apps', listed: 'car_vitals' } });
+ok(f.values.grid.items.findIndex((t) => t.badge === 'installed') > f.values.grid.items.findIndex((t) => t.id === 'car_vitals'), 'not installed before installed');
 const subs = f.values.grid.items.map((t) => t.sub);
-['Downloading 42 %', 'Update a1b2c3d', 'Waiting', 'Restart pending', 'Failed', 'Installed', '2.1.0 · 402 KB']
+['Downloading 42 %', 'Update 1.2.0', 'Waiting', 'Restart pending', 'Failed', 'Installed', '2.1.0 · 402 KB']
     .forEach((s) => ok(subs.indexOf(s) >= 0, `a tile says ${s}`));
 eq(f.values.nav.items.map((i) => i.badge), ['', '3', '1', ''], 'badges: updates, new on the stick (not one for another head unit)');
 eq(f.values.online.items[0].text, 'Online');
@@ -103,12 +117,12 @@ ok(g.max % 1 !== 0, 'the grid scrolls to its last row flush with the bottom');
 
 // a component's page: its install, update, or nothing; Remove
 f = screen('app-update');
-eq(own(f), ['Update to a1b2c3d', 'Remove', 'Back'], 'a page: its buttons, Back, the side menu');
+eq(own(f), ['Update to 1.2.0', 'Remove', 'Back'], 'a page: its buttons, Back, the side menu');
 eq(f.items.find((i) => i.label === 'Version 1.2.0').act, { do: 'open', page: { name: 'changelog', id: 'gauges' } }, 'the version opens the changelog');
 eq(text(f, 'author'), 'by robertn · from cauliflower/idrive7-apps');
 eq(f.items[1].act, { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'gauges' } });
 ok(/^Speed, revs/.test(text(f, 'desc')), 'the description');
-eq(f.values.facts.items.map((c) => c.text), ['Version 1.2.0', 'Commit a1b2c3d', 'App', 'iDrive 7 and iDrive 8']);
+eq(f.values.facts.items.map((c) => c.text), ['Version 1.2.0', 'App', 'iDrive 7 and iDrive 8']);
 // the changelog page: each version, then its notes in lines, none of them cut
 f = screen('changelog-renderer');
 const cl = f.values.list.items;
@@ -219,7 +233,7 @@ eq([f.values.grid.items.map((t) => [t.id, t.sub, t.badge]), f.values.nav.items[1
     [[['car_vitals', 'Restart pending', ''], ['doom', 'Restart pending', 'installed']], ''], 'tiles; not counted as an update');
 f = laterOf({ tab: 'installed' });
 eq([f.values.apps.items.map((i) => [i.id, i.right, i.chipAct]), f.values.updateAll.text], [[['doom', 'chip:Restart pending', null]], 'Check for updates'],
-    'no update left: the button checks for new ones');
+    'a pending restart is no update to install');
 // with the updater's nextStart: a queued first install has Remove (drops it), a queued removal none; a failed apply shows why
 later.components = [Object.assign({}, later.components[0], { nextStart: 'install' }),
     Object.assign({}, later.components[1], { status: 'installed', installed: '1.0.1', nextStart: 'remove' })];
@@ -278,18 +292,18 @@ f = screen('confirm-account');
 eq(f.items[1].act, { do: 'account-remove', id: '3f9a01c2' });
 eq(text(f, 'text'), 'robertn · robertnisipeanu/mgu-store');
 
-// Installed: Update all for what can update now; a row's chip updates it
+// Installed: Update all for what can update now; a row's Update chip is no button (the row opens its page)
 f = screen('installed');
-eq(f.labels[4], 'Update all (1)', 'DOOM downloads and Extended dashboard waits: one update left');
-eq(f.items.find((i) => i.label === 'Update').act, { do: 'install', id: 'gauges' });
-// no update: Check for updates (Checking while the updater looks); No internet for a moment when it cannot look
+eq(f.labels[4], 'Install all updates (1)', 'DOOM downloads and Extended dashboard waits: one update left');
 const noUp = screen('installed', {}, { components: fixture.state().components.map((c) => Object.assign({}, c, { status: c.installed ? 'installed' : c.status })) });
 eq([noUp.values.updateAll.text, noUp.values.updateAll.act], ['Check for updates', { do: 'check' }], 'no update: Check for updates');
 eq(screen('installed', { noNet: true }, { components: fixture.state().components.map((c) => Object.assign({}, c, { status: c.installed ? 'installed' : c.status })) }).values.updateAll.text,
-    'No internet', 'no internet: the button says so');
+    'No internet', 'checked with no internet and no USB stick: says so');
+ok(!f.items.some((i) => i.label === 'Update'), 'the Update chip is not pressed on its own');
+eq(f.items.find((i) => i.label === 'Extended dashboard' || i.act && i.act.page && i.act.page.id === 'gauges').act.do, 'open', 'its row opens the page');
 ok(f.labels.indexOf('Display bridge') >= 0 && f.labels.indexOf('M Vitals') < 0, 'installed ones only');
 eq(f.values.apps.items.filter((i) => i.id === 'gauges' || i.id === 'robertn_store').map((i) => i.sub),
-    ['1.2.0 → a1b2c3d · idrive7-apps', '0.7.0 · mgu-store'], 'a row names its source');
+    ['1.2.0 · new build · idrive7-apps', '0.7.0 · mgu-store'], 'a row names its source (an update first)');
 // Installed: what runs or waits first (downloading, an update, queued, failed, restart pending), each part in the catalog's order
 const ids = (g) => [g.values.apps.items.map((i) => i.id), g.values.services.items.map((i) => i.id)];
 eq(ids(f), [['doom', 'gauges', 'extended_dashboard', 'vehicle_control', 'robertn_store'],
@@ -328,7 +342,7 @@ Object.keys(UNITS).forEach((unit) => {
     const th = def.opts.tileH;
     // the first row's texts but the letter tiles' letters
     const row0 = texts.filter((t) => t.y < def.y + th && t.str.length > 1);
-    eq(row0.slice(0, 3).map((t) => t.str), ['Store', 'mgu-store', 'Installed'], `${unit}: title, source, state`);
+    eq(row0.slice(0, 3).map((t) => t.str), ['M Vitals', 'idrive7-apps', '2.1.0 · 402 KB'], `${unit}: title, source, state (not installed first)`);
     // the tile's bottom 8 px hold the focus rings (store_frame.js): every line, descenders included, ends above them
     ok(row0.every((t) => t.y + 0.25 * t.size <= def.y + th - 8),
         `${unit}: the lines clear of the focus rings (${row0.map((t) => Math.round(t.y + 0.25 * t.size))} of ${def.y + th - 8})`);
@@ -347,12 +361,19 @@ eq(text(f, 'subtitle'), 'USB STICK · 2 packages');
 
 // Settings: sources, Add source, Wi-Fi, Accounts, Phone access, the unit; no restart while busy
 f = screen('settings');
-eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source',
-    'Wi-Fi', 'Internet', 'Accounts', 'Phone access', 'Check now']);
-eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
-eq(text(f, 'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-renderd 1.1.0');
-eq(text(screen('settings', {}, { allProviders: { renderer: [{ id: 'mgu-render', version: '0.2.0' }, { id: 'mgu-renderd', version: '1.1.2' }] } }),
-    'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-render 0.2.0, mgu-renderd 1.1.2', 'every installed renderer');
+eq(f.labels.slice(4), ['iDrive 7', 'iDrive 8', 'robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'IterioDev/car-apps', 'USB STICK',
+    'Add source', 'Wi-Fi', 'Internet', 'Accounts', 'Phone access', 'Information', 'Check now']);
+// the look: the head unit's own until one is picked; each pick is a press
+eq(f.items.filter((i) => /^iDrive/.test(i.label)).map((i) => i.act), [{ do: 'look', look: 'id7' }, { do: 'look', look: 'id8' }]);
+eq(view(fixture.model({ tab: 'settings' })).look, 'id7', 'an iDrive 7 unit: the iDrive 7 look');
+eq(view(fixture.model({ tab: 'settings' }, { unit: { hmi: 'ID8' } })).look, 'id8', 'an iDrive 8 unit: the iDrive 8 look');
+eq(view(fixture.model({ tab: 'settings', look: 'id8' })).values.look.sel, 1, 'the picked look is selected');
+// the head unit's line on the Information row; its page lists the head unit and every version
+const infoRow = f.values.access.items.find((i) => i.id === 'info');
+eq([infoRow.title, infoRow.sub, infoRow.act], ['Information', 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high', { do: 'open', page: { name: 'information' } }]);
+const info = view(fixture.model({ tab: 'settings', stack: [{ name: 'main' }, { name: 'information' }] })).values.list.items;
+eq(info.slice(0, 3).map((i) => [i.title, i.right]), [['iDrive 7', ''], ['Store', 'chip:0.7.0'], ['Updater', 'chip:0.4.0']], 'Information: the head unit, the Store, the updater');
+ok(info.some((i) => i.id === 'mgu-renderd' && i.right === 'chip:1.1.0'), 'Information: an installed renderer and its version');
 const idle = { busy: null, components: fixture.state().components.map((c) => Object.assign({}, c, { queued: false })) };
 ok(screen('settings', {}, idle).labels.indexOf('Restart head unit') >= 0, 'Restart head unit with nothing installing');
 const refused = Object.assign({}, idle, { rebootError: 'too soon after start-up, possible in 3 min' });
@@ -537,3 +558,23 @@ f = screen('store', {}, { components: [Object.assign(fixture.state().components[
 eq([f.values.grid.items[0].icon, f.icons], ['key:/run/mgu-updater/icons/doom.png', ['/run/mgu-updater/icons/doom.png']]);
 
 console.log(`screens: ${fixture.screens().length} screens in ${Object.keys(UNITS).length} boxes, ${checks} checks pass`);
+
+// iDrive 7 full screen: the HMI's status icons (the title strip's right end) stay visible - nothing drawn there
+{
+    const { play } = require(path.join(__dirname, '..', 'src', 'kit_record.js'));
+    const { Canvas } = require(path.join(__dirname, '..', 'src', 'kit_canvas.js'));
+    const full = UNITS['iDrive 7 full screen'];
+    ['store', 'installed', 'settings'].forEach((tab) => {
+        const fr = frame(fixture.model({ look: 'id7', tab }), { textScale: 1, focus: -1, scroll: {}, layout: full.layout });
+        const cv = new Canvas(fr.rec.w, fr.rec.h);
+        play(fr.rec.words(), cv);
+        const alpha = (x, y) => cv.d[(y * cv.w + x) * 4 + 3];
+        eq([alpha(1500, 30), alpha(1800, 60), alpha(300, 30)], [0, 0, 255], `full screen ${tab}: the status icons' corner see-through, the header drawn`);
+        const px = (x, y) => Array.from(cv.d.slice((y * cv.w + x) * 4, (y * cv.w + x) * 4 + 4));
+        eq([alpha(1500, 76), px(1500, 79)], [255, px(100, 79)],
+            `full screen ${tab}: the HMI's strip edge under the status icons covered, the header's edge the whole width`);
+    });
+}
+
+// iDrive 7 full screen: the header tabs take touch (the Store's claims: the strip up to the status icons, the page)
+eq(UNITS['iDrive 7 full screen'].layout.claims, [{ x: 0, y: 80, w: 1836, h: 640 }, { x: 0, y: 0, w: 996, h: 80 }], 'full screen: touch claimed for the header tabs too');

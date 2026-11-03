@@ -3,8 +3,7 @@
  * The Store's own renderer element, beside App Manager 2's (am_widgets.js,
  * am_store_widgets.js), same signature (cv, t, b, o): a QR code of o.text on
  * a white card in the square of b, its modules as rectangles (one per run
- * of dark modules in a row), so it needs no picture upload; and ways, cards
- * side by side with a logo, a name and steps (Settings > Internet).
+ * of dark modules in a row), so it needs no picture upload.
  */
 const { qrModules } = require('./qr.js');
 const { vicon } = require('./kit_vicons.js');
@@ -46,7 +45,8 @@ function ways(cv, t, b, o) {
         xs = o.textSize || (big ? 32 : 22);
     items.forEach((it, i) => {
         const x = b.x + i * (cw + gap);
-        cv.roundRect(x, b.y, cw, b.h, Math.min(24, cw / 10), t.panelTop);
+        if (W.id7(t)) W.panel7(cv, t, x, b.y, cw, b.h, true);
+        else cv.roundRect(x, b.y, cw, b.h, Math.min(24, cw / 10), t.panelTop);
         const cx = x + cw / 2, cy = b.y + b.h * 0.06 + d / 2 + 10;
         cv.circle(cx, cy, d / 2, withAlpha(t.text, 0.1));
         vicon(cv, it.vicon, cx - d * 0.32, cy - d * 0.32, d * 0.64, t.text);

@@ -1,0 +1,27 @@
+<!-- accent: #2a8cff -->
+<defs>
+  <linearGradient id="s-bag" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a9bff"/><stop offset="0.5" stop-color="#1667d9"/><stop offset="1" stop-color="#0a3a8c"/></linearGradient>
+  <linearGradient id="s-side" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffffff" stop-opacity="0.32"/><stop offset="0.18" stop-color="#ffffff" stop-opacity="0.06"/><stop offset="0.82" stop-color="#000000" stop-opacity="0.05"/><stop offset="1" stop-color="#000000" stop-opacity="0.3"/></linearGradient>
+  <linearGradient id="s-handle" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7e8a99"/><stop offset="0.5" stop-color="#e8eef4"/><stop offset="1" stop-color="#6b7684"/></linearGradient>
+  <linearGradient id="s-arrow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#cfe4ff"/></linearGradient>
+  <radialGradient id="s-glow" cx="0.5" cy="0.62" r="0.5"><stop offset="0" stop-color="#5fb0ff" stop-opacity="0.9"/><stop offset="1" stop-color="#2a8cff" stop-opacity="0"/></radialGradient>
+  <filter id="s-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+  <clipPath id="s-bag-clip"><path d="M30 46 H110 L116 120 Q116 128 108 128 H32 Q24 128 24 120 Z"/></clipPath>
+</defs>
+<ellipse cx="70" cy="86" rx="46" ry="38" fill="url(#s-glow)" filter="url(#s-blur)" opacity="0.7"/>
+<path d="M44 54 V44 Q44 24 56 22 H84 Q96 24 96 44 V54" fill="none" stroke="#0c0f13" stroke-width="9" stroke-linecap="round" opacity="0.6"/>
+<path d="M44 54 V44 Q44 24 56 22 H84 Q96 24 96 44 V54" fill="none" stroke="url(#s-handle)" stroke-width="6" stroke-linecap="round"/>
+<path d="M30 46 H110 L116 120 Q116 128 108 128 H32 Q24 128 24 120 Z" fill="url(#s-bag)"/>
+<g clip-path="url(#s-bag-clip)">
+  <rect x="20" y="46" width="100" height="84" fill="url(#s-side)"/>
+  <rect x="20" y="46" width="100" height="5" fill="#ffffff" opacity="0.28"/>
+  <rect x="20" y="114" width="34" height="14" fill="#5fb7ff"/>
+  <rect x="54" y="114" width="33" height="14" fill="#1c3f9e"/>
+  <rect x="87" y="114" width="33" height="14" fill="#e3262f"/>
+  <rect x="20" y="114" width="100" height="1.5" fill="#ffffff" opacity="0.5"/>
+</g>
+<path d="M30 46 H110 L116 120 Q116 128 108 128 H32 Q24 128 24 120 Z" fill="none" stroke="#e8eef4" stroke-width="1.6" stroke-opacity="0.55"/>
+<circle cx="44" cy="56" r="3.4" fill="#0a2a66"/><circle cx="96" cy="56" r="3.4" fill="#0a2a66"/>
+<path d="M63 62 H77 V82 H88 L70 104 L52 82 H63 Z" fill="#06224f" opacity="0.45" transform="translate(0 2.5)"/>
+<path d="M63 62 H77 V82 H88 L70 104 L52 82 H63 Z" fill="url(#s-arrow)"/>
+<path d="M64 63 H67 V83 H64 Z" fill="#ffffff" opacity="0.9"/>

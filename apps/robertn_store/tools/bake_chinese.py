@@ -44,7 +44,7 @@ def locale_text():
 
 def atlas(path, name, size, chars):
     bake_fonts.TEXT = ''.join(sorted(set(bake_fonts.TEXT + PUNCTUATION + chars)))
-    a = bake_fonts.bake(path, size, WEIGHT, 1024)
+    a = bake_fonts.bake(path, size, [WEIGHT], 1024)
     a['key'] = 'Noto Sans SC %s@%d@%s' % (name, size, hashlib.sha256(
         json.dumps(a, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:16])
     return a

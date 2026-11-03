@@ -90,7 +90,7 @@ function rowState(row, busy) {
         return tr("Restart pending");
     }
     switch (row.status) {
-    case 'update': return tr("Update {0}", row.revision && row.version === row.installed ? row.revision : row.version);
+    case 'update': return tr("Update {0}", row.version);
     case 'available': return tr("Install {0}", row.version);
     default: return row.pendingReboot ? tr("Restart pending") : tr("Installed {0}", row.installed);
     }

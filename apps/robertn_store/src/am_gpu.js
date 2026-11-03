@@ -39,7 +39,9 @@ const DRAW = {
             y += Math.max(1, W.wrap(cv, para, b.x, y, b.w, o.size, pc, room, o.font)) * o.size * 1.25;
         }
     },
-    rect: (cv, t, b, o) => cv.roundRect(b.x, b.y, b.w, b.h, Math.min(o.radius || 0, b.w / 2, b.h / 2), t[o.color] || o.color || t.panelTop),
+    // a panel (colour panelTop) in the iDrive 7 look: the kit's, with the M stripe
+    rect: (cv, t, b, o) => (W.id7(t) && (o.color || 'panelTop') === 'panelTop' ? W.panel7(cv, t, b.x, b.y, b.w, b.h, true)
+        : cv.roundRect(b.x, b.y, b.w, b.h, Math.min(o.radius || 0, b.w / 2, b.h / 2), t[o.color] || o.color || t.panelTop)),
     line: (cv, t, b, o) => cv.line(b.x, b.y, b.x + b.w, b.y + b.h, o.width || 2, t[o.color] || o.color || t.dim),
     ...W.DRAW,
     ...S.DRAW,
@@ -52,11 +54,22 @@ const DRAW = {
  * design's when absent), area (the app area there, view's when absent) }.
  * Preview frames show the given values at once; animated ones glide with the kit's smoothing.
  */
+const HEAD_STATUS_H = 76;     // the HMI's status icons' height in its title strip (idrive7-apps kit display.js HMI.status.h)
+
 function record(st, opts = {}) {
     const tg = opts.design || E.DESIGN, t = kitTheme(st.theme), area = opts.area || E.appArea(opts.view);
     const rec = new Recorder(tg.w, tg.h, { textScale: opts.textScale || 1 });
     rec.clear([0, 0, 0, 0]);
-    if (st.bg !== 'none') {
+    if (st.bg !== 'none' && st.head) {
+        // full screen (store_compact.js full): under the HMI's title strip the page; in the strip only up to head.end
+        // (the header), the rest stays the HMI's (its status icons)
+        rec.fillRect(0, st.head.h, tg.w, tg.h - st.head.h, st.bg && st.bg !== 'theme' ? st.bg : t.bg);
+        if (st.head.end > 0) rec.fillRect(0, 0, st.head.end, st.head.h, '#000000');
+        // the HMI's strip below its status icons (HEAD_STATUS_H on) is covered, as the idrive7-apps' kit covers it:
+        // the header's dim edge runs the whole width, in place of the HMI's bright one
+        rec.fillRect(st.head.end, HEAD_STATUS_H, tg.w - st.head.end, st.head.h - HEAD_STATUS_H, '#000000');
+        rec.fillRect(0, st.head.h - 2, tg.w, 2, withAlpha('#ffffff', 0.22));
+    } else if (st.bg !== 'none') {
         const a = st.bgArea === 'app' ? area : { x: 0, y: 0, w: tg.w, h: tg.h };
         rec.fillRect(a.x, a.y, a.w, a.h, st.bg && st.bg !== 'theme' ? st.bg : t.bg);
     }

@@ -129,4 +129,13 @@ ok(app.uiDescriptions.map((u) => u.hmi.join()).join() === 'ID7,ID8', 'applicatio
 ok(app.appletId === undefined, 'application.json declares no appletId: the deploy tool gives one on iDrive 8');
 const pkg = JSON.parse(fs.readFileSync(path.join(ID7, '..', '..', '..', 'package.json'), 'utf8'));
 ok(JSON.stringify(pkg.mguHmi) === '["ID7","ID8"]', 'package.json: mguHmi ID7 and ID8');
+// the tile's name in every language the HMI may ask for: English (as the idrive7-apps kit ships them),
+// except the languages with a translation of their own (src/locales.js rhmiTexts, checked by test_i18n)
+const TEXTS = path.join(ID7, '..', '..', 'variantGroups', 'Common', 'texts');
+const en = fs.readFileSync(path.join(TEXTS, 'en_GB.json'), 'utf8');
+const translated = require('./gen_locales.js').read().map((l) => `${l.rhmiTexts}.json`);
+const langs = fs.readdirSync(TEXTS).filter((f) => /^[a-z]{2}_[A-Z]{2}\.json$/.test(f));
+const untranslated = langs.filter((f) => translated.indexOf(f) < 0);
+ok(langs.length >= 30 && untranslated.every((f) => fs.readFileSync(path.join(TEXTS, f), 'utf8') === en),
+    `texts: ${langs.length} languages, the ${untranslated.length} untranslated ones en_GB's`);
 console.log(`rhmi: ${counts[0]} states (iDrive 7), ${counts[1]} (iDrive 8), ${checks} checks pass`);

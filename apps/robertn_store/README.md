@@ -1,4 +1,4 @@
-# robertn_store 0.9.16
+# robertn_store 0.9.17
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -79,11 +79,23 @@ cap) into the renderer's box: embed (inside the page, iDrive 7 once the
 template is loaded) or layer (over the page, on the app area). On iDrive 8
 they are App Manager 2's design (2880 x 960) scaled into the box; on
 iDrive 7 (a box under 700 px high) `src/store_compact.js` lays the same
-screens out for the box itself at full size. Text is
-Inter (SIL OFL, `src/LICENSE-Inter.txt`), baked by `tools/bake_fonts.py`;
-the atlases are at most 1024 px wide and use about a quarter of the
-renderer's glyph texture, which all apps share. Nothing from the HMI is
-drawn: icons are the kit's vector icons or package pictures.
+screens out for the box itself at full size. Nothing from the HMI is
+drawn: icons are the kit's vector icons or package pictures (the app
+icons the sources name, the Store's own tile icon for itself).
+
+**Two looks**, picked in Settings (iDrive 7 | iDrive 8; without a pick the
+head unit's own), kept in the app's data folder (`look`):
+- *iDrive 7*: the idrive7-apps kit's screens (its kit/runtime/gauges.js):
+  the menu as its button bar along the bottom, tabs as its header's,
+  panels with the M stripe, badges, red selection, labels in capitals, the
+  Ubuntu font condensed (Ubuntu Font Licence 1.0,
+  `src/LICENSE-Ubuntu-font.txt`); on iDrive 7's box `src/store_compact.js`
+  lays the screens out for it with the menu at the bottom;
+- *iDrive 8*: App Manager 2's, in Inter (SIL OFL, `src/LICENSE-Inter.txt`).
+
+Both are baked by `tools/bake_fonts.py`; a look's atlases load on first
+use, are at most 1024 px wide and each look's use about a quarter of the
+renderer's glyph texture, which all apps share.
 
 **The HMI's own widgets** (below) whenever the renderer is not there, not
 yet answering at start (1.5 s), or gone (the Store installs or updates it):
@@ -347,14 +359,15 @@ locales/<code>.json        a language's words (README "Languages")
 src/i18n.js                the words in the display language
 src/locales.js             the languages, written by tools/gen_locales.js
 src/kit_*.js               the kit: record, canvas, vicons, png, themes (MIT, src/LICENSE-kit.txt);
-                           kit_fonts.js maps its families onto Inter, and Chinese onto Noto Sans SC
-src/font_regular.js, src/font_semibold.js   Inter glyph atlases (tools/bake_fonts.py)
+                           kit_fonts.js maps its families onto the look's faces (Chinese onto Noto Sans SC); kit_themes.js idrive7 is the iDrive 7 look
+src/font_regular.js, src/font_semibold.js   Inter glyph atlases, the iDrive 8 look (tools/bake_fonts.py)
+src/font_id7_regular.js, src/font_id7_semibold.js   Ubuntu condensed atlases, the iDrive 7 look (tools/bake_fonts.py --ubuntu)
 src/font_chinese.js        Noto Sans SC glyph atlases (tools/bake_chinese.py)
 lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
 tools/gen_locales.js       src/locales.js from locales/*.json
 tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table, and the RHMI texts
 tools/build.js             languages, RHMI, lib/, the source package, and given a donor the OAP tgz
-tools/bake_fonts.py        the Inter atlases (Pillow, Inter 4.1's TTFs)
+tools/bake_fonts.py        the font atlases (Pillow; Inter 4.1's TTFs, the Ubuntu font's Ubuntu[wdth,wght].ttf)
 tools/bake_chinese.py      the Noto Sans SC atlases (Pillow, NotoSansSC[wght].ttf of google/fonts, SHA-256 checked)
 tools/gen_screens.py       src/am_screens.js from App Manager 2's screens.json
 tools/fixture.js           an updater state with one of everything, and the drawn screens over it
@@ -367,7 +380,7 @@ tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, upda
 tools/test_i18n.js         every language: its words, placeholders, RHMI text file, font
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
-tools/make_icon.py         the 140x140 tile icon
+tools/make_icon.py         the 140x140 tile icon from tools/store_icon.svg (headless Chromium)
 robertn_store@0.9.17/       staged package tree (no javascript/: the build writes it)
 ```
 

@@ -12,6 +12,9 @@
  *   dragOf(model, { textScale, scroll, layout }, key) -> what a drag of grid or list key draws (store_drawn.js)
  *   dragFrame(drag, baseLayer, rowsLayer, from, top, textScale) -> one frame of that drag
  *
+ * model.look: 'id7' or 'id8' (Settings), else the head unit's own
+ * (store_ui.js lookOf); it picks the theme and the fonts.
+ *
  * layout: placement()'s; the iDrive 8 design when null.
  *
  * items: { x, y, w, h, r, label, act, reveal?, box? }; an item of a grid or
@@ -31,6 +34,7 @@ const { view, icons } = require('./store_ui.js');
 const { tabCells } = require('./am_widgets.js');
 const { gridView, listView, navItems, rightBoxes, keyBoxes, shown, chipBoxes } = require('./am_store_widgets.js');
 const { compact } = require('./store_compact.js');
+const fonts = require('./kit_fonts.js');
 const { t } = require('./i18n.js');
 
 /* The part of the design the renderer's box shows: the screens' content
@@ -50,9 +54,15 @@ const AFTER_GAP = 24;                     // a text placed after another (opts.a
  * (viewport, logical px). A box under COMPACT_H high (iDrive 7) gets the
  * compact layout made for it at scale 1; a higher one (iDrive 8) the
  * design's VIEWPORT fitted in, centred, on whole device pixels. */
-function placement(w, h) {
+function placement(w, h, full) {
+    if (full) {
+        // iDrive 7 layer mode over the whole screen (right of the HMI's back arrow column): the header tabs in the HMI's strip
+        return { scale: 1, ox: 0, oy: 0, viewport: { x: 0, y: 0, w, h },
+            layout: Object.assign(compact(w, h, undefined, { full: true }), { id7: compact(w, h, 'id7', { full: true }) }) };
+    }
     if (h < COMPACT_H) {
-        return { scale: 1, ox: 0, oy: 0, viewport: { x: 0, y: 0, w, h }, layout: compact(w, h) };
+        // the iDrive 7 look's own layout beside it: the menu along the bottom
+        return { scale: 1, ox: 0, oy: 0, viewport: { x: 0, y: 0, w, h }, layout: Object.assign(compact(w, h), { id7: compact(w, h, 'id7') }) };
     }
     const scale = Math.min(w / VIEWPORT.w, h / VIEWPORT.h);
     return { scale, ox: Math.round((w - VIEWPORT.w * scale) / 2 - VIEWPORT.x * scale),
@@ -85,13 +95,19 @@ function itemsOf(st, page, look) {
         if (o.hidden) {
             return;
         }
-        if (c.gpu === 'sideNav') {
+        if (c.gpu === 'sideNav' && b.w > b.h) {         // along the bottom (the iDrive 7 look)
+            const list = navItems(o);
+            const iw = b.w / Math.max(1, list.length);
+            // header tabs (full screen): the focus ring inside the screen's top edge
+            const iy = o.head ? 12 : 8;
+            list.forEach((it, i) => items.push({ x: b.x + i * iw + 8, y: b.y + iy, w: iw - 16, h: b.h - 2 * iy, r: 2, label: it.label, act: it.act }));
+        } else if (c.gpu === 'sideNav') {
             const list = navItems(o);
             const ih = b.h / Math.max(1, list.length);
             list.forEach((it, i) => items.push({ x: b.x + 8, y: b.y + i * ih + 8, w: b.w - 24, h: ih - 16, r: 16, label: it.label, act: it.act }));
         } else if (c.gpu === 'chips') {
             // a chip with an act (the app page's version: its changelog)
-            chipBoxes(measure, b, o).forEach((q) => {
+            chipBoxes(measure, b, o, look === 'id7').forEach((q) => {
                 if (q.it.act) items.push({ x: q.x, y: b.y, w: q.w, h: b.h, r: b.h / 2, label: q.it.text, act: q.it.act });
             });
         } else if (c.gpu === 'vbutton') {
@@ -169,8 +185,15 @@ function screenOf(v, scroll, layout) {
         }
         return Object.assign({}, c, { opts });
     });
-    return { kind: 'gpu', name: def.name, theme: def.theme, bg: 'theme',
-        components: components.map((c) => {
+    // head: the full-screen layout's title strip, filled only as far as the header (am_gpu.js record)
+    return { kind: 'gpu', name: def.name, theme: v.look === 'id7' ? 'idrive7' : def.theme, bg: 'theme', head: def.head,
+        components: components.map((c0) => {
+            let c = c0;
+            // over: an element whose box this one takes over too, down to its bottom (a failure's description over the history)
+            const under = c.opts.over && components.find((o) => o.name === c.opts.over);
+            if (under && under.y + under.h > c.y + c.h) {
+                c = Object.assign({}, c, { h: under.y + under.h - c.y });
+            }
             const a = c.opts.after && components.find((o) => o.name === c.opts.after);
             const end = a && a.opts.text ? a.x + measure.textWidth(a.opts.text, a.opts.size, { font: a.opts.font }) + AFTER_GAP : 0;
             return end > c.x ? Object.assign({}, c, { x: Math.round(end), w: Math.max(0, c.w - Math.round(end - c.x)) }) : c;
@@ -190,8 +213,9 @@ const recordOpts = (layout, textScale) => (layout ? { textScale: textScale || 1,
  * high. null when key is not on the screen or has nothing to scroll. */
 function dragOf(m, opts, key) {
     const o = opts || {};
-    const layout = o.layout || null;
-    const st = screenOf(view(m), o.scroll || {}, layout);
+    const v = view(m);
+    const layout = o.layout && v.look === 'id7' && o.layout.id7 ? o.layout.id7 : o.layout || null;
+    const st = screenOf(v, o.scroll || {}, layout);
     const c = st.components.find((x) => `${st.name}.${x.name}` === key);
     if (!c || (c.gpu !== 'appGrid' && c.gpu !== 'appList') || c.opts.hidden) {
         return null;
@@ -237,8 +261,9 @@ function layoutOf(m, opts) {
     const o = opts || {};
     const scroll = o.scroll || {};
     const v = view(m);
+    fonts.setLook(v.look);              // before anything measures text
     const page = m.stack.length > 1;
-    const layout = o.layout || null;
+    const layout = o.layout && v.look === 'id7' && o.layout.id7 ? o.layout.id7 : o.layout || null;
     let st = screenOf(v, scroll, layout);
     let laid = itemsOf(st, page, v.look);
     const it = laid.items[o.focus];
@@ -247,7 +272,7 @@ function layoutOf(m, opts) {
         st = screenOf(v, scroll, layout);
         laid = itemsOf(st, page, v.look);
     }
-    return { st, screen: v.screen, items: laid.items, regions: laid.regions, icons: icons(v), values: v.values };
+    return { st, look: v.look, screen: v.screen, items: laid.items, regions: laid.regions, icons: icons(v), values: v.values };
 }
 
 function frame(m, opts) {
@@ -256,7 +281,8 @@ function frame(m, opts) {
     const rec = record(l.st, recordOpts(o.layout || null, o.textScale));
     const f = l.items[o.focus];
     if (f && !f.reveal) {
-        rec.strokeRoundRect(f.x - 8, f.y - 8, f.w + 16, f.h + 16, f.r + 8, 5, FOCUS);
+        // the iDrive 7 look's boxes are square
+        rec.strokeRoundRect(f.x - 8, f.y - 8, f.w + 16, f.h + 16, l.look === 'id7' ? Math.min(f.r + 8, 12) : f.r + 8, 5, FOCUS);
     }
     return { screen: l.screen, rec, items: l.items, regions: l.regions, icons: l.icons, values: l.values };
 }

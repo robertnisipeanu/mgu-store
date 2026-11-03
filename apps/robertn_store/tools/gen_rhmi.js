@@ -341,15 +341,20 @@ function english() {
     return out;
 }
 
-/* The RHMI text files: en_GB.json, and one per locale. */
+/* The RHMI text files: every language the head unit may ask for gets one, so the tile's name
+ * always shows (robertn_store 0.9.18) - its translation where there is one (src/locales.js
+ * rhmiTexts), else the English texts, as the idrive7-apps kit ships them. */
 function texts() {
     const en = english();
-    const out = { 'en_GB.json': en };
+    const translated = {};
     require('./gen_locales.js').read().forEach((l) => {
         const file = {};
         Object.keys(en).forEach((id) => { file[id] = Object.prototype.hasOwnProperty.call(l.words, en[id]) ? l.words[en[id]] : en[id]; });
-        out[`${l.rhmiTexts}.json`] = file;
+        translated[`${l.rhmiTexts}.json`] = file;
     });
+    const out = {};
+    const have = fs.existsSync(TEXTS) ? fs.readdirSync(TEXTS).filter((f) => /^[a-z]{2}_[A-Z]{2}\.json$/.test(f)) : [];
+    new Set(have.concat('en_GB.json', Object.keys(translated))).forEach((f) => { out[f] = translated[f] || en; });
     return out;
 }
 

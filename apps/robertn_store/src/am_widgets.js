@@ -59,6 +59,29 @@ function wrap(cv, s, x, y, w, size, c, max, font) {
     return n;
 }
 
+/** The iDrive 7 look (theme style 'id7', the idrive7-apps kit's screens) instead of the App Manager's. */
+const id7 = (t) => t.style === 'id7';
+
+/** A panel in the iDrive 7 look, as the kit draws its widgets (idrive7-apps kit/runtime/gauges.js drawPanel): a flat
+ * light grey overlay; with stripe, along the top a short bar in the stripe colours (the last with an angled end) and
+ * a thin white line. */
+function panel7(cv, t, x, y, w, h, stripe) {
+    cv.fillRect(x, y, w, h, withAlpha('#b4bccc', 0.07));
+    if (!stripe) return;
+    const st = t.stripes || [t.accent], BW = 78, gap = 3, sw = (BW - gap * (st.length - 1)) / st.length;
+    st.forEach((c, i) => {
+        const sx = x + i * (sw + gap);
+        if (i === st.length - 1) cv.quad([[sx, y], [sx + sw, y], [sx + sw - 8, y + 5], [sx, y + 5]], c);
+        else cv.fillRect(sx, y, sw, 5, c);
+    });
+    cv.fillRect(x + BW + 2, y + 2, w - BW - 2, 1.5, withAlpha('#ffffff', 0.9));
+}
+
+/** Text in capitals with letter spacing, as the iDrive 7 look's tabs, buttons and badges have it. */
+function caps(cv, s, x, y, size, c, opts) {
+    return cv.text(String(s).toUpperCase(), x, y, size, c, Object.assign({ spacing: 2 }, opts || {}));
+}
+
 /** Card background in the app style; sel = highlighted (accent edge, tint and glow). */
 function surface(cv, t, x, y, w, h, r, sel, acc) {
     if (sel) for (let k = 3; k >= 1; k--) cv.strokeRoundRect(x - k * 3, y - k * 3, w + k * 6, h + k * 6, r + k * 3, 3, withAlpha(acc, 0.06 * (4 - k)));
@@ -139,7 +162,25 @@ function tabCells(b, o) {
     return { n, gap, cw: (b.w - gap * (n - 1)) / n };
 }
 
+/** Tabs in the iDrive 7 look, as the kit's header has its page tabs (gauges.js header): names in capitals, the
+ * selected one lit from below with a line of the selection colour, thin separators, a light line along the bottom. */
+function tabs7(cv, t, b, o) {
+    const items = list(o.items), sz = o.size || Math.round(b.h * 0.34), { cw } = tabCells(b, o), S = t.sel || t.accent;
+    cv.fillRect(b.x, b.y + b.h - 2, b.w, 2, withAlpha('#ffffff', 0.22));
+    items.forEach((s, i) => {
+        const x = b.x + i * cw, on = i === (o.sel | 0);
+        if (on) {
+            cv.gradientRect(x, b.y, cw, b.h, [[0, withAlpha(S, 0)], [1, withAlpha(S, 0.25)]]);
+            cv.fillRect(x, b.y + b.h - 5, cw, 5, S);
+        }
+        cv.text(String(s).toUpperCase(), x + cw / 2, b.y + b.h / 2 + sz * 0.36, sz, on ? t.selText || '#ffffff' : t.dim,
+            { align: 'center', font: 'bold', spacing: 2 });
+        if (i < items.length - 1) cv.fillRect(x + cw, b.y + b.h * 0.28, 1, b.h * 0.44, withAlpha('#ffffff', 0.14));
+    });
+}
+
 function tabs(cv, t, b, o) {
+    if (id7(t)) return tabs7(cv, t, b, o);
     const items = list(o.items), acc = C(t, o.color, t.accent), sz = o.size || Math.round(b.h * 0.34);
     const style = o.style || 'joined', { gap, cw } = tabCells(b, o), r = Math.min(12, b.h / 2);
     if (style === 'joined') { cv.roundRect(b.x, b.y, b.w, b.h, r, withAlpha(t.panelBottom, 0.92)); cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 1.5, t.panelEdge); }
@@ -506,4 +547,4 @@ const TRY = {
     }, { drag: true }),
 };
 
-module.exports = { DRAW, TRY, ICONS, icon, chevron, legend, surface, wrap, fit, picture, setPicture, tabCells };
+module.exports = { DRAW, TRY, ICONS, icon, chevron, legend, surface, wrap, fit, picture, setPicture, tabCells, id7, panel7, caps };

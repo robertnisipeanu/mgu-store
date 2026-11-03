@@ -5,6 +5,12 @@ License 1.1 (src/LICENSE-Inter.txt). The renderer has no font rasteriser:
 an app uploads each atlas once (8-bit alpha) and draws text as glyph quads.
 
     python3 tools/bake_fonts.py <folder with Inter-Regular.ttf and Inter-SemiBold.ttf>
+    python3 tools/bake_fonts.py --ubuntu <Ubuntu[wdth,wght].ttf>
+
+--ubuntu bakes the iDrive 7 look's faces (src/font_id7_regular.js,
+src/font_id7_semibold.js): the Ubuntu font condensed, as the idrive7-apps
+kit draws its apps (Ubuntu Font Licence 1.0, src/LICENSE-Ubuntu-font.txt;
+the fonts-ubuntu package has the file).
 
 Inter 4.1 (https://github.com/rsms/inter/releases, extras/ttf/). Needs Pillow.
 Each module: { family, sizes: [{ size, ascent, descent, atlasW, atlasH,
@@ -24,13 +30,15 @@ TEXT = ''.join(chr(c) for c in range(32, 127)) + '·…→–—°×'
 # all apps share the renderer's glyph texture: no size more than needed.
 FACES = {'regular': ('Inter-Regular.ttf', [17, 23, 31, 41, 50]),
          'semibold': ('Inter-SemiBold.ttf', [19, 25, 33, 44, 58, 77, 103])}
+# the iDrive 7 look: Ubuntu at 85 % width, regular 400 and bold 700 (idrive7-apps kit/tools/bake_fonts.py)
+UBUNTU = {'regular': (85, 400), 'semibold': (85, 700)}
 PAD = 1
 
 
-def bake(path, size, weight=None, width=None):
+def bake(path, size, axes=None, width=None):
     f = ImageFont.truetype(path, size)
-    if weight is not None:
-        f.set_variation_by_axes([weight])
+    if axes:
+        f.set_variation_by_axes(list(axes))
     ascent, descent = f.getmetrics()
     glyphs, boxes = {}, []
     for ch in TEXT:
@@ -58,6 +66,16 @@ def bake(path, size, weight=None, width=None):
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == '--ubuntu':
+        for name, axes in UBUNTU.items():
+            fam = {'family': 'Ubuntu condensed ' + name, 'sizes': [bake(sys.argv[2], s, axes) for s in FACES[name][1]]}
+            out = os.path.join(SRC, 'font_id7_%s.js' % name)
+            with open(out, 'w') as o:
+                o.write('/* Ubuntu condensed %s glyph atlases (the iDrive 7 look), baked by tools/bake_fonts.py --ubuntu.\n'
+                        ' * Copyright 2010-2022 Canonical Ltd. Ubuntu Font Licence 1.0: src/LICENSE-Ubuntu-font.txt */\n'
+                        "'use strict';\nmodule.exports = %s;\n" % (name, json.dumps(fam, separators=(',', ':'))))
+            print('%s: %d bytes' % (os.path.relpath(out), os.path.getsize(out)))
+        return
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     for name, (file, sizes) in FACES.items():

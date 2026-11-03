@@ -33,6 +33,7 @@ const kit = require('./kit_record.js');
 const png = require('./kit_png.js');
 const { setPicture } = require('./am_widgets.js');
 const { frame, layoutOf, dragOf, dragFrame, hit, placement } = require('./store_frame.js');
+const FULL_X = 84;              // the HMI's back arrow column (x 0..84): kept the HMI's, as the idrive7-apps keep it
 
 const DEPTHS = 3;
 const ICON_BYTES = 128 * 1024;          // a package picture: at most this big
@@ -40,6 +41,9 @@ const ICONS_KEPT = 48;                  // decoded pictures kept, the most recen
 const FPS = 60;                         // frames a second at most (mgu-render's fps setting can give another)
 const KEEPALIVE_MS = 1000;              // the renderer hides an app silent for 3 s
 const CLOSED_RESHOW_MS = 700;           // a touch outside that left the page where it was
+const STUCK_MS = 6000;                  // asked to show and off screen this long: the widget screens instead
+const RETRY_MS = 30000;                 // after a picture that showed was taken away: the drawn screens tried again
+const RETRIES = 3;                      // that often on a timer (30, 60, 120 s); an install or removal ending always retries
 const DRAG_PX = 14;
 const DRAG_ROWS_PX = 2048;                // a drag's cached rows: at most this high on the device (mgu-render takes 4096)
 const PREBUILD_MS = 300;                  // a drag's layers made ahead once the page has stayed this long
@@ -134,6 +138,8 @@ class Drawn extends EventEmitter {
         super();
         this.host = host;
         this.log = host.log;
+        this.opts = opts || {};
+        this.stuckMs = opts && opts.stuckMs;
         this.gpu = (opts && opts.client) || new RenderClient('robertn_store', this.log, { kit, mode: 'layer' });
         this.gpu.fps(FPS);
         this.timing = new Timing((opts && opts.statsLog) || STATS_LOG, (opts && opts.statsOut) || STATS_OUT, (opts && opts.traceOut) || TRACE_OUT);
@@ -157,6 +163,14 @@ class Drawn extends EventEmitter {
         this.suspended = false;             // the HMI's speller is up
         this.closedHide = false;
         this.on_ = false;
+        this.onScreen = false;              // the renderer says the picture is on screen
+        this.stuck = false;                 // it never was: widget screens from then on
+        this.shownOnce = false;             // the picture was on screen once: a later loss is not for good
+        this.lost = false;                  // widget screens for now, after a picture that showed was taken away
+        this.info = null;                   // the renderer's last READY info, to try the drawn screens again
+        this.retries = 0;
+        this.retryTimer = null;
+        this.stuckTimer = null;
         this.dirty = false;
         this.sentAt = 0;
         this.keepalive = null;
@@ -204,6 +218,17 @@ class Drawn extends EventEmitter {
             }, CLOSED_RESHOW_MS);
         });
         this.gpu.on('ccu', (e) => this._ccu(e));
+        // the renderer's word that the picture is on screen (X_STATE)
+        this.gpu.on('state', (st) => {
+            this.onScreen = !!(st && st.onScreen);
+            if (this.onScreen) {
+                this.shownOnce = true;
+                this.retries = 0;
+                clearTimeout(this.stuckTimer);
+            } else if (this.on_) {
+                this._watchStuck();         // taken off screen while the Store still asks for it
+            }
+        });
     }
 
     connect() {
@@ -213,6 +238,7 @@ class Drawn extends EventEmitter {
     /* At shutdown: the connection ends without switching to the widget screens. */
     close() {
         clearInterval(this.keepalive);
+        clearTimeout(this.retryTimer);
         clearTimeout(this.prebuild);
         clearTimeout(this.held);
         this.timing.close();
@@ -221,8 +247,9 @@ class Drawn extends EventEmitter {
     }
 
     _ready(info) {
+        this.info = info;
         let mode = null;
-        if (info) {
+        if (info && !this.stuck) {
             if (info.modes.indexOf('embed') >= 0 && this.host.modes.indexOf('embed') >= 0) {
                 mode = 'embed';
             } else if (info.modes.indexOf('layer') >= 0 && this.host.modes.indexOf('layer') >= 0) {
@@ -230,8 +257,13 @@ class Drawn extends EventEmitter {
             }
         }
         if (mode) {
-            const box = mode === 'embed' ? info.embedBox : info.appArea;
-            const p = placement(box.w, box.h);
+            let box = mode === 'embed' ? info.embedBox : info.appArea;
+            // iDrive 7 layer mode: the whole screen right of the HMI's back arrow column, the header in its title
+            // strip, as the idrive7-apps run (store_compact.js full)
+            const scr = this.gpu.screen || {};
+            const full = mode === 'layer' && box.h < 700 && scr.w === 1920 && scr.h === 720;
+            if (full) box = { x: FULL_X, y: 0, w: scr.w - FULL_X, h: scr.h };
+            const p = placement(box.w, box.h, full);
             this.scale = p.scale;
             this.layout = p.layout;
             this.viewport = p.viewport;
@@ -403,15 +435,29 @@ class Drawn extends EventEmitter {
     proxyFocus(depth, i, value) {
         if (depth === this.stack.length && value) {
             this.focus = i;
+            this._focusBack();
             this.render();
         }
     }
 
     proxyPress(depth, i) {
         this._proxyInput();
+        if (depth === this.stack.length) {
+            this._focusBack();
+        }
         if (depth === this.stack.length && this.items[i]) {
             this.focus = i;
             this.host.act(this.items[i].act);
+        }
+    }
+
+    /* The HMI's focus is on the top page's buttons, so no popup covers it: the HMI does not always
+     * say the page has its focus back (after another app was updated in place, the picture stayed
+     * hidden behind the page's empty rows). */
+    _focusBack() {
+        if (this.focusLost) {
+            this.focusLost = false;
+            this._updateShow();
         }
     }
 
@@ -446,7 +492,8 @@ class Drawn extends EventEmitter {
         if (!on) {
             this._dropKept();
         }
-        this.gpu.claim(on ? [this.viewport] : []);
+        // full screen: not the HMI's status icons at the title strip's right end
+        this.gpu.claim(on ? (this.layout && this.layout.claims) || [this.viewport] : []);
         this.gpu.grab(on && !!this.controller);
         if (on) {
             // the frame before it shows: at once (a frame the renderer had may draw layers dropped while hidden)
@@ -455,12 +502,57 @@ class Drawn extends EventEmitter {
             this.showing = false;
         }
         this.gpu.show(on);
+        // a renderer that does not put the picture on screen (seen on some HMI builds) would leave the
+        // host state's empty page up: after STUCK_MS the Store goes on with its widget screens
+        clearTimeout(this.stuckTimer);
+        if (on && !this.onScreen) {
+            this._watchStuck();
+        }
         clearInterval(this.keepalive);
         this.keepalive = on ? setInterval(() => {
             if (Date.now() - this.sentAt >= KEEPALIVE_MS) {
                 this.render(true);
             }
         }, KEEPALIVE_MS) : null;
+    }
+
+    /* Asked to show and not on screen for STUCK_MS: the widget screens. A picture that never showed
+     * (an HMI build that does not put it on screen): until the Store restarts. One that showed and was
+     * taken away (an app install restarts the app manager, which closes the Store's screen meanwhile):
+     * for now, and the drawn screens are tried again (retry). */
+    _watchStuck() {
+        const ms = this.stuckMs || STUCK_MS;
+        clearTimeout(this.stuckTimer);
+        this.stuckTimer = setTimeout(() => {
+            if (this.on_ && !this.onScreen && this.mode) {
+                this.log.warn(`renderer: ${this.mode} asked to show, not on screen for ${ms / 1000} s; widget screens${
+                    this.shownOnce ? ' until it can show again' : ''}`);
+                if (this.shownOnce) {
+                    this.lost = true;
+                    this._setMode(null);
+                    if (this.retries < RETRIES) {
+                        clearTimeout(this.retryTimer);
+                        this.retryTimer = setTimeout(() => this.retry(), ((this.opts && this.opts.retryMs) || RETRY_MS) * 2 ** this.retries);
+                    }
+                } else {
+                    this.stuck = true;
+                    this._setMode(null);
+                }
+            }
+        }, ms);
+    }
+
+    /* The drawn screens again after a picture that showed was taken away (lost): on a timer, or when an
+     * install or removal has ended. Not on screen again within STUCK_MS: the widget screens once more. */
+    retry() {
+        clearTimeout(this.retryTimer);
+        if (!this.lost || this.mode || !this.info || this.stuck) {
+            return;
+        }
+        this.lost = false;
+        this.retries++;
+        this.log.info('renderer: drawn screens again');
+        this._ready(this.info);
     }
 
     /* Draws the frame (sent while the renderer is ready and the page is
@@ -737,11 +829,10 @@ class Drawn extends EventEmitter {
         const n = this.host.proxies[depth - 1] || 0;
         for (let i = 0; i < n; i++) {
             const name = this.host.proxyName(this.mode, depth, i);
-            const it = this.items[i];
-            if (it) {
-                this.host.set(name, it.label);
-            }
-            this.host.show(name, !!it);
+            // unlabelled: the HMI shows the host state for a moment when the page opens and closes,
+            // before the renderer's picture is over it and after it has gone
+            this.host.set(name, ' ');
+            this.host.show(name, !!this.items[i]);
         }
     }
 

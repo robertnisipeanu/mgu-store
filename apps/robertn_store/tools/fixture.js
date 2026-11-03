@@ -139,9 +139,6 @@ function screens() {
             sym: true, go: 'Connect' }]) }],
         // Wi-Fi (the uplink's): its networks, off, a join that failed; a password; Forget; the preferred connection
         ['wifi', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) }],
-        ['internet', { tab: 'settings', stack: main.concat([{ name: 'internet' }]) }],
-        ['internet-offline', { tab: 'settings', stack: main.concat([{ name: 'internet' }]) }, { online: false }],
-        ['store-no-internet', { tab: 'store', stack: main }, { online: false, busy: null }],
         ['wifi-off', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
             wifiSt(st, { enabled: false, link: 'off', ssid: '', ip: '', signal: null, networks: [] })],
         ['wifi-failed', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
@@ -153,6 +150,9 @@ function screens() {
             focus: 0 }],
         ['prefer', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'prefer' }]) }],
         ['offline', { tab: 'store', stack: main, connected: false, st: null, secret: false }],
+        ['internet', { tab: 'settings', stack: main.concat([{ name: 'internet' }]) }],
+        ['internet-offline', { tab: 'settings', stack: main.concat([{ name: 'internet' }]) }, { online: false }],
+        ['store-no-internet', { tab: 'store', stack: main }, { online: false, busy: null }],
         // an error of about 200 characters: on a component's page, a source's page
         ['app-failed', { stack: main.concat([{ name: 'app', id: 'vehicle_control' }]) }, failedSt(st, 'vehicle_control', { error: LONG_ERROR })],
         ['source-failed', { tab: 'settings', stack: main.concat([{ name: 'source', id: 'car-apps' }]) }, sourceFailed(st)]

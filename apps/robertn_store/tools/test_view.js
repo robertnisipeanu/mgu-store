@@ -146,7 +146,7 @@ const cases = [
     [rowAction(row({}), { id: 'doom', phase: 'download' }), null],
     [rowAction(row({ queued: true }), null), null],
     [rowState(row({}), { id: 'doom', phase: 'build' }), 'Building'],
-    [rowState(row({ version: '1.0.0', revision: 'a1b2c3d' }), null), 'Update a1b2c3d'],
+    [rowState(row({ version: '1.0.0', revision: 'a1b2c3d' }), null), 'Update 1.0.0'],
     [rowState(row({ revision: 'a1b2c3d' }), null), 'Update 1.0.1'],
     [rowState(row({ version: '1.0.0', revision: null }), null), 'Update 1.0.0'],
     [rowState(row({ status: 'installed', installed: '1.0.1', revision: 'a1b2c3d' }), null), 'Installed 1.0.1'],

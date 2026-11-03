@@ -76,6 +76,33 @@ const ICONS = {
     route(cv, x, y, s, c) { const p = P(x, y, s), w = s * 0.08;
         cv.line(...p(0.3, 0.88), ...p(0.44, 0.12), w, c); cv.line(...p(0.7, 0.88), ...p(0.56, 0.12), w, c);
         for (const v of [0.2, 0.45, 0.7]) cv.line(...p(0.5, v), ...p(0.5, v + 0.12), w * 0.8, c); },
+    // the head-unit tools' logos (store_ui.js TOOL_ICONS)
+    // Python: the two interlocked snakes as two rounded blocks, each with its eye
+    python(cv, x, y, s, c) { const r = s * 0.1, f = faint(c);
+        cv.roundRect(x + s * 0.2, y + s * 0.12, s * 0.42, s * 0.42, r, c); cv.roundRect(x + s * 0.12, y + s * 0.34, s * 0.3, s * 0.2, r * 0.6, c);
+        cv.roundRect(x + s * 0.38, y + s * 0.46, s * 0.42, s * 0.42, r, f); cv.roundRect(x + s * 0.58, y + s * 0.46, s * 0.3, s * 0.2, r * 0.6, f);
+        cv.circle(x + s * 0.33, y + s * 0.22, s * 0.04, withAlpha('#000000', 0.5)); cv.circle(x + s * 0.67, y + s * 0.78, s * 0.04, withAlpha('#000000', 0.5)); },
+    // multitouch: two fingertips with their touch rings
+    touch(cv, x, y, s, c) { const w = s * 0.06;
+        for (const [u, v] of [[0.32, 0.5], [0.68, 0.5]]) {
+            cv.circle(x + u * s, y + v * s, s * 0.09, c); cv.arc(x + u * s, y + v * s, s * 0.17 - w, s * 0.17, 0, 360, faint(c)); }
+        cv.line(x + s * 0.2, y + s * 0.82, x + s * 0.8, y + s * 0.82, w, c); },
+    // the iDrive controller: the knob from above, its ring and the four push directions
+    knob(cv, x, y, s, c) { const cx = x + s / 2, cy = y + s / 2, w = s * 0.07, p = P(x, y, s);
+        cv.arc(cx, cy, s * 0.26 - w, s * 0.26, 0, 360, c); cv.circle(cx, cy, s * 0.12, faint(c));
+        for (const q of [[[0.5, 0.04], [0.42, 0.14], [0.58, 0.14]], [[0.5, 0.96], [0.42, 0.86], [0.58, 0.86]],
+            [[0.04, 0.5], [0.14, 0.42], [0.14, 0.58]], [[0.96, 0.5], [0.86, 0.42], [0.86, 0.58]]]) { const t3 = q.map((v) => p(v[0], v[1])); cv.quad([t3[0], t3[1], t3[2], t3[2]], c); } },
+    // a box with a shield: privacy
+    shield(cv, x, y, s, c) { const p = P(x, y, s), w = s * 0.08;
+        cv.polyline([p(0.5, 0.1), p(0.82, 0.22), p(0.78, 0.56), p(0.5, 0.9), p(0.22, 0.56), p(0.18, 0.22), p(0.5, 0.1)], w, c);
+        cv.polyline([p(0.36, 0.5), p(0.47, 0.62), p(0.66, 0.38)], w, c); },
+    // a box being put in place: the deploy tool
+    box(cv, x, y, s, c) { const p = P(x, y, s), w = s * 0.07;
+        cv.polyline([p(0.5, 0.1), p(0.86, 0.28), p(0.86, 0.72), p(0.5, 0.9), p(0.14, 0.72), p(0.14, 0.28), p(0.5, 0.1)], w, c);
+        cv.polyline([p(0.14, 0.28), p(0.5, 0.46), p(0.86, 0.28)], w, c); cv.line(...p(0.5, 0.46), ...p(0.5, 0.9), w, c); },
+    // the renderer: a screen with layers on it
+    layers(cv, x, y, s, c) { const p = P(x, y, s), w = s * 0.07, f = faint(c);
+        for (const [v, col] of [[0.62, f], [0.44, f], [0.26, c]]) cv.polyline([p(0.5, v - 0.14), p(0.88, v), p(0.5, v + 0.14), p(0.12, v), p(0.5, v - 0.14)], w, col); },
     // the ways to connect (Settings > Internet)
     // a USB LTE stick: the stick with its plug and the signal bars
     lteStick(cv, x, y, s, c) { const w = s * 0.06, f = faint(c);

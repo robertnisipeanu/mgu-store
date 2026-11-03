@@ -30,6 +30,8 @@
     "src/kit_themes.js",
     "src/font_regular.js",
     "src/font_semibold.js",
+    "src/font_id7_regular.js",
+    "src/font_id7_semibold.js",
     "src/font_chinese.js",
     "lib/mgu_render_client.js"
   ],
