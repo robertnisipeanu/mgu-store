@@ -193,7 +193,7 @@ func TestWiFiProvider(t *testing.T) {
 	})
 
 	// The uplink's lease on the interface makes it online.
-	p.setOnline("172.20.10.2")
+	p.setOnline("172.20.10.2", "")
 	waitWiFi(t, p, "online", func(st wifiStatus) bool { return st.Link == "online" && st.IP == "172.20.10.2" })
 	if b, _ := os.ReadFile(c.statusFile()); !strings.Contains(string(b), `"link": "online"`) ||
 		!strings.Contains(string(b), `"ssid": "Home"`) {

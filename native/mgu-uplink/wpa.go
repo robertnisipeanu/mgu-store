@@ -387,6 +387,11 @@ func (s *supplicant) reload() error {
 	return err
 }
 
+// setQuiet does nothing on wlan1: mgu-wpa's radio is not the one wireless
+// CarPlay uses, and DISABLE_NETWORK would reach wpa.conf on the next
+// SAVE_CONFIG.
+func (s *supplicant) setQuiet(bool) {}
+
 func (s *supplicant) forget(ssid string) error {
 	id, ok := s.saved()[ssid]
 	if !ok {

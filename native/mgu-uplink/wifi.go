@@ -117,6 +117,7 @@ type wifiBackend interface {
 	joined() error
 	reload() error
 	forget(ssid string) error
+	setQuiet(on bool) // our networks off (no station scans) or back on
 }
 
 type wifiProvider struct {
@@ -135,6 +136,9 @@ type wifiProvider struct {
 	// notify, when set, is called once the provider takes or gives back the
 	// interface (the service's firewall guards it meanwhile).
 	notify func()
+	// outranks says whether an uplink of kind ranks above Wi-Fi, so Wi-Fi
+	// could not take over from it (scanUplink.rank); nil: any kind does.
+	outranks func(kind string) bool
 	// iftype reads the interface's nl80211 type; dbusHas asks a D-Bus
 	// wpa_supplicant whether it has the interface.
 	iftype      func(iface string) (uint32, error)
@@ -172,6 +176,7 @@ type wifiProvider struct {
 	note      string    // the saved networks set aside, shown until the next join or switch
 	switched  bool      // setEnabled ran: the tick ends a run of give-backs (retakeAt, givebacks: reqMu's)
 	ip        string    // the uplink's lease on the interface
+	other     string    // the kind of another device the uplink is online on, "" none
 	link      *wifiLink
 }
 
@@ -406,6 +411,17 @@ func (p *wifiProvider) up(st *wifiStatus) {
 			p.joining = ""
 		}
 		p.mu.Unlock()
+	}
+	// While the uplink is online on a device Wi-Fi can't take over from, our
+	// networks are off, so the supplicant stops its station scans (they take
+	// the shared radio off CarPlay's channel); on again as soon as it is not,
+	// for a scan request, and never under a join or an association.
+	if joining == "" {
+		p.mu.Lock()
+		other := p.other
+		p.mu.Unlock()
+		idle := ws["wpa_state"] == "SCANNING" || ws["wpa_state"] == "INACTIVE" || ws["wpa_state"] == "DISCONNECTED"
+		p.wpa.setQuiet(other != "" && (p.outranks == nil || p.outranks(other)) && idle && !st.Scanning)
 	}
 	for i := range st.Networks {
 		st.Networks[i].Saved = slices.Contains(st.Saved, st.Networks[i].SSID)
@@ -724,11 +740,12 @@ func (p *wifiProvider) guarding() bool {
 	return p.owned
 }
 
-// setOnline records the uplink's lease address on the interface ("" none).
-func (p *wifiProvider) setOnline(ip string) {
+// setOnline records the uplink's lease address on the interface ("" none)
+// and the kind of another device it is online on ("" none).
+func (p *wifiProvider) setOnline(ip, other string) {
 	p.mu.Lock()
-	changed := p.ip != ip
-	p.ip = ip
+	changed := p.ip != ip || p.other != other
+	p.ip, p.other = ip, other
 	p.mu.Unlock()
 	if changed {
 		p.poke()

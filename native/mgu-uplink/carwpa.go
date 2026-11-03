@@ -67,6 +67,7 @@ type carSupplicant struct {
 	ours     map[objPath]string // our networks in the car's supplicant: SSID
 	pending  *savedNet          // join's network until joined or reload
 	setAside bool
+	quiet    bool // our networks are off (setQuiet)
 }
 
 func newCarSupplicant(iface, conf, ctrl string) *carSupplicant {
@@ -244,12 +245,12 @@ func (s *carSupplicant) addSaved() error {
 		return err
 	}
 	for _, n := range nets {
-		if _, err := s.add(n, true); err != nil {
+		if _, err := s.add(n, !s.quiet); err != nil {
 			return err
 		}
 	}
 	// Reassociate would put ours ahead of a network the car just added
-	if car, err := s.carNetwork(); len(nets) > 0 && !car && err == nil {
+	if car, err := s.carNetwork(); len(nets) > 0 && !s.quiet && !car && err == nil {
 		s.call(s.path, wpaDBusIface, "Reassociate", "")
 	}
 	return nil
@@ -315,7 +316,7 @@ func (s *carSupplicant) stop() {
 	if car, err := s.carNetwork(); onOurs && !car && err == nil {
 		s.call(s.path, wpaDBusIface, "Disconnect", "")
 	}
-	s.path, s.pending = "", nil
+	s.path, s.pending, s.quiet = "", nil, false
 	if s.bus != nil {
 		s.bus.close()
 		s.bus = nil
@@ -524,6 +525,7 @@ func (s *carSupplicant) joined() error {
 			return err
 		}
 	}
+	s.quiet = false
 	if s.pending == nil {
 		return nil
 	}
@@ -542,12 +544,38 @@ func (s *carSupplicant) joined() error {
 	return s.writeSaved(out)
 }
 
-func (s *carSupplicant) setEnabled(p objPath) error {
-	_, err := s.call(p, "org.freedesktop.DBus.Properties", "Set", "ssv", wpaDBusNet, "Enabled", dbusVariant{"b", true})
+func (s *carSupplicant) setEnabled(p objPath) error { return s.setNetEnabled(p, true) }
+
+func (s *carSupplicant) setNetEnabled(p objPath, on bool) error {
+	_, err := s.call(p, "org.freedesktop.DBus.Properties", "Set", "ssv", wpaDBusNet, "Enabled", dbusVariant{"b", on})
 	if err != nil {
-		return fmt.Errorf("the car's wpa_supplicant: enable a network: %v", err)
+		return fmt.Errorf("the car's wpa_supplicant: set a network's Enabled: %v", err)
 	}
 	return nil
+}
+
+// setQuiet turns our networks off (on: with none enabled the supplicant
+// logs "No enabled networks - do not scan" and goes inactive) or back on.
+// Only ours, in the supplicant's memory: the car's networks and its P2P
+// groups are other objects. A failed Set is tried again on the next call.
+func (s *carSupplicant) setQuiet(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.path == "" || s.quiet == on || on && len(s.ours) == 0 {
+		return
+	}
+	for p := range s.ours {
+		if err := s.setNetEnabled(p, !on); err != nil {
+			logf("wifi: %v", err)
+			return
+		}
+	}
+	s.quiet = on
+	if on {
+		logf("wifi: saved networks paused on %s: the uplink is online on another device", s.iface)
+	} else {
+		logf("wifi: saved networks on again on %s", s.iface)
+	}
 }
 
 // reload drops what join set up: our networks are the saved ones again.
