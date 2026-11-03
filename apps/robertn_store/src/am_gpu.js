@@ -58,7 +58,9 @@ function record(st, opts = {}) {
     rec.clear([0, 0, 0, 0]);
     if (st.bg !== 'none') {
         const a = st.bgArea === 'app' ? area : { x: 0, y: 0, w: tg.w, h: tg.h };
-        rec.fillRect(a.x, a.y, a.w, a.h, st.bg && st.bg !== 'theme' ? st.bg : t.bg);
+        if (st.bg && st.bg !== 'theme') rec.fillRect(a.x, a.y, a.w, a.h, st.bg);
+        else if (t.bgGrad) rec.gradientRect(a.x, a.y, a.w, a.h, t.bgGrad);
+        else rec.fillRect(a.x, a.y, a.w, a.h, t.bg);
     }
     (st.components || []).forEach((c, i) => {
         const def = E.ELEMENTS[c.gpu];

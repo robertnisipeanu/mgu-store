@@ -6,6 +6,8 @@
  * bar = fill of the OEM-style bars, hang = their peak hold (default: the fill colour), sel = selected tab (selText = its name, default sel), marker = the '|' at the end of a bar / on a chart.
  * ramp = colours a bar runs through from low to high; hotRamp = a dial's arc, running
  * from the theme colour to red at the dial's limit (redline, max boost, ...).
+ * bgGrad (optional) = the screen's background, top to bottom (gradient stops), in place of bg;
+ * sheen = the light top edge of cards and pills.
  */
 const THEMES = {
     m_red: {
@@ -24,6 +26,15 @@ const THEMES = {
         glow: '#ffffff40', stripes: ['#81c4ff', '#16588e', '#e7222e'], oil: '#ef2b2d', ramp: ['#7d8694', '#c9d0da', '#ffffff'],
         bar: '#a8101c', hang: '#ef2b2d', sel: '#ef2b2d', selText: '#ffffff', marker: '#ef2b2d',
         hotRamp: ['#1f5fd0', '#3d9bff', '#3d9bff', '#c04cdc', '#ef2b2d'],
+    },
+    midnight: {
+        name: 'Midnight Blue',
+        bg: '#040811', bgGrad: [[0, '#0d182b'], [1, '#03060c']],
+        panelTop: '#17243a', panelBottom: '#0b1322', panelEdge: '#1f2e46', sheen: '#ffffff1c',
+        tab: '#e6eefb', track: '#16223a', tick: '#4a5a74', text: '#f3f7fd', dim: '#8e9cb3',
+        accent: '#3d8bff', accent2: '#8cc2ff', ok: '#3d8bff', warn: '#ffb020', crit: '#ff4b55', cold: '#7fd1ff',
+        glow: '#3d8bff40', stripes: ['#3d8bff'], oil: '#ff4b55', bar: '#2f7cf6', sel: '#2f7cf6', selText: '#ffffff', marker: '#ffffff',
+        ramp: ['#1f4f9e', '#3d8bff', '#9fcbff'], hotRamp: ['#1f5fd0', '#3d8bff', '#3d8bff', '#c04cdc', '#ff4b55'],
     },
     ice: {
         name: 'Ice White',

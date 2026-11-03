@@ -63,7 +63,7 @@ function wrap(cv, s, x, y, w, size, c, max, font) {
 function surface(cv, t, x, y, w, h, r, sel, acc) {
     if (sel) for (let k = 3; k >= 1; k--) cv.strokeRoundRect(x - k * 3, y - k * 3, w + k * 6, h + k * 6, r + k * 3, 3, withAlpha(acc, 0.06 * (4 - k)));
     cv.card(x, y, w, h, r, sel ? [[0, mix(t.panelTop, acc, 0.2)], [1, mix(t.panelBottom, acc, 0.06)]] : [[0, t.panelTop], [1, t.panelBottom]]);
-    cv.strokeRoundRect(x, y, w, h, r, sel ? 2.5 : 1.5, sel ? acc : t.panelEdge);
+    cv.strokeRoundRect(x, y, w, h, r, sel ? 2.5 : 1.5, sel ? acc : t.sheen || t.panelEdge);
 }
 
 /** icon + text centred on (cx, cy) */
@@ -141,15 +141,16 @@ function tabCells(b, o) {
 
 function tabs(cv, t, b, o) {
     const items = list(o.items), acc = C(t, o.color, t.accent), sz = o.size || Math.round(b.h * 0.34);
-    const style = o.style || 'joined', { gap, cw } = tabCells(b, o), r = Math.min(12, b.h / 2);
-    if (style === 'joined') { cv.roundRect(b.x, b.y, b.w, b.h, r, withAlpha(t.panelBottom, 0.92)); cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 1.5, t.panelEdge); }
+    const style = o.style || 'joined', { gap, cw } = tabCells(b, o), pill = !!t.sheen, r = pill ? b.h / 2 : Math.min(12, b.h / 2);
+    if (style === 'joined') { cv.roundRect(b.x, b.y, b.w, b.h, r, withAlpha(t.panelBottom, 0.92)); cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 1.5, t.sheen || t.panelEdge); }
     if (style === 'underline') cv.fillRect(b.x, b.y + b.h - 2, b.w, 2, t.panelEdge);
     items.forEach((s, i) => {
         const x = b.x + i * (cw + gap), on = i === (o.sel | 0);
         if (style === 'chips' && !on) { cv.roundRect(x, b.y, cw, b.h, r, withAlpha(t.panelTop, 0.9)); cv.strokeRoundRect(x, b.y, cw, b.h, r, 1.5, t.panelEdge); }
         if (on && style === 'underline') cv.roundRect(x + cw * 0.15, b.y + b.h - 5, cw * 0.7, 5, 2.5, acc);
+        else if (on && pill) { const p = 5; cv.card(x + p, b.y + p, cw - 2 * p, b.h - 2 * p, r - p, [[0, mix(acc, '#ffffff', 0.12)], [1, mix(acc, '#000000', 0.3)]]); }
         else if (on) { cv.card(x, b.y, cw, b.h, r, [[0, withAlpha(acc, 0.32)], [1, withAlpha(acc, 0.12)]]); cv.strokeRoundRect(x, b.y, cw, b.h, r, 2, acc); }
-        else if (style === 'joined' && i) cv.fillRect(x, b.y + b.h * 0.22, 1.5, b.h * 0.56, t.panelEdge);
+        else if (style === 'joined' && i && !pill) cv.fillRect(x, b.y + b.h * 0.22, 1.5, b.h * 0.56, t.panelEdge);
         mid(cv, s, x + cw / 2, b.y + b.h / 2, sz, on ? t.text : t.dim, { align: 'center', font: on ? 'bold' : 'label' });
     });
 }

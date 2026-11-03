@@ -34,7 +34,7 @@ function compact(W, H) {
     const B = H - M;                  // its bottom
     const CW = R - X;
     const nav = (sel) => el('nav', 'sideNav', M, M, RAIL, H - 2 * M, { items: NAV_ITEMS, sel, labelSize: 24 });
-    const screen = (name, sel, components) => ({ kind: 'gpu', name, theme: 'm_tricolour', bg: 'theme',
+    const screen = (name, sel, components) => ({ kind: 'gpu', name, theme: 'midnight', bg: 'theme',
         components: [nav(sel)].concat(components) });
     // the header row: the title, then the status on its baseline (one right after the title moved right of a longer title)
     const HEAD = M + 64;
@@ -44,7 +44,7 @@ function compact(W, H) {
     const back = () => el('back', 'vbutton', X, M, 64, 64, { text: '', vicon: 'back', style: 'round', color: '#f4f7fb' }, 'event:back');
     const BTN_H = 76;
     const GRID_Y = HEAD + 10;
-    const grid = () => el('grid', 'appGrid', X - 8, GRID_Y, CW + 8, B - GRID_Y, { items: '', cols: 5, tileH: Math.floor((B - GRID_Y) / 3),
+    const grid = () => el('grid', 'appGrid', X - 8, GRID_Y, CW + 16, B - GRID_Y, { items: '', cols: 5, tileH: Math.floor((B - GRID_Y) / 3),
         iconK: 0.46, titleSize: 28, subSize: 22, empty: '' });
     const LIST = { rowH: 92, titleSize: 28, subSize: 22, ctlK: 0.85 };
     const list = (name, x, y, w, h, extra) => el(name, 'appList', x, y, w, h, Object.assign({ items: '' }, LIST, extra || {}));
@@ -107,8 +107,8 @@ function compact(W, H) {
         text('name', ix, M, lw - 224, 72, '', 63, 'bold'),
         text('author', ix, M + 76, lw - 224, 32, '', 27, 'label', DIM),
         el('facts', 'chips', ix, M + 114, lw - 224, 44, { items: '' }),
-        text('desc', X, M + 176, lw, B - M - 176 - 84, '', 27, 'label', TEXT, { wrap: true }),
-        text('problem', X, B - 76, lw, 76, '', 27, 'label', AMBER, { wrap: true }),
+        text('desc', X + 84, M + 176, lw - 84, B - M - 176 - 84, '', 27, 'label', TEXT, { wrap: true }),
+        text('problem', X + 84, B - 76, lw - 84, 76, '', 27, 'label', AMBER, { wrap: true }),
         el('panel', 'rect', px, M, PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
         text('instLabel', px + 20, M + 16, 200, 28, '', 22, 'label', DIM),
         text('instValue', px + 20, M + 46, 200, 58, '', 46, 'num'),

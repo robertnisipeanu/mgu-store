@@ -33,7 +33,7 @@
     };
 
     // kit themes (kit/themes.js ids) and the theme colour names an option can use
-    const THEMES = [['m_tricolour', 'M Tricolour'], ['m_red', 'M Red'], ['ice', 'Ice White'], ['amber', 'Amber']];
+    const THEMES = [['m_tricolour', 'M Tricolour'], ['m_red', 'M Red'], ['ice', 'Ice White'], ['amber', 'Amber'], ['midnight', 'Midnight Blue']];
     const COLORS = ['', 'accent', 'accent2', 'text', 'dim', 'ok', 'warn', 'crit', 'cold', 'oil', 'bar', 'track', 'panelTop', 'bg'];
     const FONTS = ['label', 'bold', 'num', 'light', 'gear'];
 

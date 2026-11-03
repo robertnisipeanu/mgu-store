@@ -85,7 +85,7 @@ function appIconEl(cv, t, b, o) {
     const s = Math.min(b.w, b.h), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
     let bg = t.bg;
     if (o.glow) {
-        const c = o.icon ? t.dim : pair(o.colors, ['#3a4352'])[0], n = 16, a = 0.022, r0 = 0.82, dr = 0.02;
+        const c = o.icon ? t.dim : pair(o.colors, ['#3a4352'])[0], n = 10, a = 0.02, r0 = 0.68, dr = 0.02;
         for (let i = 0; i < n; i++) cv.circle(cx, cy, s * (r0 - i * dr), withAlpha(c, a));
         const d = s * 0.56;                                 // the badge's distance from the centre (appIcon)
         const under = Math.max(0, Math.min(n, Math.ceil((r0 - d / s) / dr)));
@@ -114,28 +114,47 @@ function fitSource(cv, s, w, size) {
     const repo = s.slice(i);
     return W.fit(cv, s.slice(0, i), Math.max(0, w - cv.textWidth(repo, size)), size) + repo;
 }
-// (the Store: o.iconK, o.titleSize, o.subSize size a smaller tile's icon and texts; the defaults are the design's.
-// Tiles with a source line (item.src, dim, under the title) set the three lines closer and take the icon that
-// leaves them, descenders included, above the tile's bottom 8 px, where the focus rings are drawn: store_frame.js.)
+// a long text steps down to 4/5 of its size before it is shortened
+const fitSize = (cv, s, w, size, font) => Math.max(Math.round(size * 0.8),
+    Math.min(size, Math.floor(size * w / Math.max(1, cv.textWidth(s, size, font ? { font } : undefined)))));
+// (the Store: o.iconK, o.titleSize, o.subSize size a smaller tile's icon and texts; the defaults are the design's.)
+// A tile is a card in the focus ring's box (store_frame.js), lit from the top by its icon's colour. A wide tile has
+// the icon at its left and beside it the title, the source line (item.src, dim) and the status (item.sub) as a block
+// centred on the icon, at the same heights in every tile; a squarer one has the icon top left, the status right
+// aligned on the icon's middle, and the title and source line along the bottom, descenders inside the padding.
 function appGrid(cv, t, b, o) {
-    const g = gridView(b, o), k = g.th / 274;
-    const ts = o.titleSize || 40, ss = o.subSize || 30, rs = Math.round(ss * 0.9), top = 12 * k;
+    const g = gridView(b, o), k = g.th / 274, cw = g.tw - 16, ch = g.th - 8, wide = cw >= 2.2 * ch;
+    const ts = o.titleSize || 40, ss = o.subSize || 30, rs = Math.round(ss * 0.9), pad = Math.round((wide ? ch * 0.17 : 26 * k));
     const src = g.all.some((a) => a.src);
-    const gap = src ? [ts * 1.2, rs * 1.25, ss * 1.25] : [ts * 1.45, 0, ss * 1.4];
-    const s = src ? Math.floor(Math.min(g.th * (o.iconK || 0.5), g.th - 8 - top - gap[0] - gap[1] - gap[2] - ss * 0.25))
-        : Math.round(g.th * (o.iconK || 0.5));
+    const srcY = ch - pad - Math.round(rs * 0.24), titleY = src ? srcY - Math.round(rs * 1.32) : ch - pad - Math.round(ts * 0.24);
+    const s = wide ? Math.round(ch - 2 * pad) : Math.round(Math.min(g.th * (o.iconK || 0.5), titleY - ts * 0.78 - 18 * k - pad));
+    const lead = Math.round(ts * 0.74), step = (z) => Math.round(z * 1.36), block = lead + (src ? step(rs) : 0) + step(ss);
     cv.clip(b.x, b.y, b.w, b.h);
     g.all.slice(g.first * g.cols, g.end * g.cols).forEach((a, i) => {
-        const x = b.x + (i % g.cols) * g.tw, y = b.y + (g.first + Math.floor(i / g.cols) - g.top) * g.th, room = g.tw - 40;
-        // each tile on a card in the focus ring's box (store_frame.js), lit from the top by its icon's colour
-        const tint = mix(t.panelTop, a.icon ? t.panelEdge : pair(a.colors, ['#3a4352'])[0], 0.22);
-        cv.card(x + 8, y, g.tw - 16, g.th - 8, 24, [[0, tint], [0.55, t.panelBottom], [1, t.panelBottom]]);
-        cv.strokeRoundRect(x + 8, y, g.tw - 16, g.th - 8, 24, 1.5, t.panelEdge);
-        appIcon(cv, t, a, x + (g.tw - s) / 2, y + top, s, tint);
-        const ny = y + top + s + gap[0], sy = ny + gap[1];
-        cv.text(W.fit(cv, String(a.title || ''), room, ts, 'bold'), x + g.tw / 2, ny, ts, t.text, { align: 'center', font: 'bold' });
-        if (a.src) cv.text(fitSource(cv, String(a.src), room, rs), x + g.tw / 2, sy, rs, t.dim, { align: 'center' });
-        if (a.sub) cv.text(W.fit(cv, String(a.sub), room, ss), x + g.tw / 2, sy + gap[2], ss, C(t, a.subColor, t.dim), { align: 'center' });
+        const x = b.x + (i % g.cols) * g.tw + 8, y = b.y + (g.first + Math.floor(i / g.cols) - g.top) * g.th;
+        const ix = x + pad, iy = y + pad, title = String(a.title || ''), sub = String(a.sub || '');
+        const tint = mix(t.panelTop, a.icon ? t.panelEdge : pair(a.colors, ['#3a4352'])[0], 0.2);
+        cv.card(x, y, cw, ch, 24, [[0, tint], [0.6, t.panelBottom], [1, t.panelBottom]]);
+        cv.strokeRoundRect(x, y, cw, ch, 24, 1.5, t.sheen || t.panelEdge);
+        appIcon(cv, t, a, ix, iy, s, tint);
+        if (wide) {
+            const tx = ix + s + Math.round(s * 0.17) + 16, room = x + cw - pad - tx;
+            let by = y + Math.round((ch - block - ss * 0.2) / 2) + lead;
+            const tz = fitSize(cv, title, room, ts, 'bold');
+            cv.text(W.fit(cv, title, room, tz, 'bold'), tx, by, tz, t.text, { font: 'bold' });
+            if (src) { by += step(rs); cv.text(fitSource(cv, String(a.src || ''), room, rs), tx, by, rs, t.dim); }
+            by += step(ss);
+            const sz = fitSize(cv, sub, room, ss);
+            if (sub) cv.text(W.fit(cv, sub, room, sz), tx, by, sz, C(t, a.subColor, t.dim));
+            return;
+        }
+        const room = cw - 2 * pad;
+        cv.text(W.fit(cv, title, room, ts, 'bold'), ix, y + titleY, ts, t.text, { font: 'bold' });
+        if (a.src) cv.text(fitSource(cv, String(a.src), room, rs), ix, y + srcY, rs, t.dim);
+        if (sub) {
+            const sx = ix + s + Math.round(s * 0.17) + 16, w = x + cw - pad - sx, sz = fitSize(cv, sub, w, ss);
+            mid(cv, W.fit(cv, sub, w, sz), x + cw - pad, iy + s / 2, sz, C(t, a.subColor, t.dim), { align: 'right' });
+        }
     });
     cv.noclip();
     if (!g.all.length && o.empty) mid(cv, o.empty, b.x + b.w / 2, b.y + b.h / 2, 36, t.dim, { align: 'center' });
@@ -203,13 +222,15 @@ const navItems = (o) => (Array.isArray(o.items) ? o.items
 // (the Store: o.labelSize for a narrower menu; the default is the design's)
 function sideNav(cv, t, b, o) {
     const items = navItems(o), ih = b.h / Math.max(1, items.length), is = Math.min(68, ih * 0.38), ls = o.labelSize || 34;
-    cv.fillRect(b.x, b.y, b.w, b.h, withAlpha(t.panelBottom, 0.85));
-    cv.fillRect(b.x + b.w - 1.5, b.y, 1.5, b.h, t.panelEdge);
+    cv.card(b.x, b.y, b.w, b.h, 0, [[0, withAlpha(t.panelTop, 0.7)], [1, withAlpha(t.panelBottom, 0.4)]]);
+    cv.fillRect(b.x + b.w - 1.5, b.y, 1.5, b.h, withAlpha(t.panelEdge, 0.6));
     items.forEach((it, i) => {
         const y = b.y + i * ih, on = i === (o.sel | 0), c = on ? t.text : t.dim, iy = y + ih * 0.18;
-        if (on) {
-            cv.card(b.x + 8, y + 8, b.w - 24, ih - 16, 16, [[0, withAlpha('#ffffff', 0.16)], [1, withAlpha('#ffffff', 0.04)]]);
-            cv.roundRect(b.x + 8, y + ih * 0.22, 6, ih * 0.56, 3, t.text);
+        if (on) {                                   // the open page: a lit glass pill, the accent glowing up from its foot
+            const px = b.x + 14, pw = b.w - 30, py = y + 10, ph = ih - 20;
+            cv.card(px, py, pw, ph, 28, [[0, withAlpha('#ffffff', 0.13)], [0.6, withAlpha(t.accent, 0.12)], [1, withAlpha(t.accent, 0.3)]]);
+            cv.strokeRoundRect(px, py, pw, ph, 28, 1.5, t.sheen || withAlpha('#ffffff', 0.12));
+            cv.roundRect(px + pw * 0.3, py + ph - 6, pw * 0.4, 5, 2.5, t.accent);
         }
         vicon(cv, it.vicon, b.x + b.w / 2 - is / 2, iy, is, c);
         cv.text(String(it.label), b.x + b.w / 2, iy + is + ls * 1.47, ls, c, { align: 'center' });
@@ -223,7 +244,7 @@ function sideNav(cv, t, b, o) {
 
 // ---- button with a vector icon -------------------------------------------------------------------------------
 function vbutton(cv, t, b, o) {
-    const c = C(t, o.color, BLUE), s = o.size || Math.round(b.h * 0.34), is = Math.round(b.h * 0.4), r = Math.min(18, b.h / 2);
+    const c = C(t, o.color, t.sheen ? t.accent : BLUE), s = o.size || Math.round(b.h * 0.34), is = Math.round(b.h * 0.4), r = t.sheen ? b.h / 2 : Math.min(18, b.h / 2);
     const off = o.disabled;
     if (o.style === 'round') {                       // an icon on a soft disc (back, close)
         const d = Math.min(b.w, b.h), g = d * 0.55;
@@ -231,9 +252,14 @@ function vbutton(cv, t, b, o) {
         vicon(cv, o.vicon, b.x + (b.w - g) / 2, b.y + (b.h - g) / 2, g, off ? t.dim : c);
         return;
     }
-    if (o.style === 'primary') cv.card(b.x, b.y, b.w, b.h, r, off ? [[0, '#2a3341'], [1, '#232a35']] : [[0, c], [1, withAlpha(c, 0.78)]]);
-    else cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 3, off ? t.panelEdge : o.style === 'outline' ? withAlpha(t.text, 0.6) : withAlpha(c, 0.6));
-    const fg = off ? t.dim : o.style === 'primary' ? '#ffffff' : o.style === 'outline' ? t.text : c;
+    if (o.style === 'primary') {
+        cv.card(b.x, b.y, b.w, b.h, r, off ? [[0, '#2a3341'], [1, '#232a35']] : [[0, mix(c, '#ffffff', 0.14)], [1, mix(c, '#000000', 0.25)]]);
+        if (t.sheen && !off) cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 1.5, withAlpha('#ffffff', 0.22));
+    } else if (t.sheen) {                           // a glass pill
+        cv.card(b.x, b.y, b.w, b.h, r, [[0, withAlpha('#ffffff', 0.1)], [1, withAlpha('#ffffff', 0.03)]]);
+        cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 1.5, off ? t.panelEdge : t.sheen);
+    } else cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 3, off ? t.panelEdge : o.style === 'outline' ? withAlpha(t.text, 0.6) : withAlpha(c, 0.6));
+    const fg = off ? t.dim : o.style === 'primary' ? '#ffffff' : o.style === 'outline' || t.sheen ? t.text : c;
     const hasIcon = !!o.vicon, tw = cv.textWidth(String(o.text || ''), s, { font: 'bold' }) + (hasIcon ? is + 18 : 0), x1 = b.x + (b.w - tw) / 2;
     if (hasIcon) vicon(cv, o.vicon, x1, b.y + (b.h - is) / 2, is, fg);
     cv.text(String(o.text || ''), x1 + (hasIcon ? is + 18 : 0), b.y + b.h / 2 + s * 0.36, s, fg, { font: 'bold' });
@@ -288,7 +314,9 @@ function keyboard(cv, t, b, o) {
 function sheet(cv, t, b, o) {
     const a = o.area || { x: 0, y: 0, w: 2880, h: 960 };
     cv.fillRect(a.x, a.y, a.w, a.h, withAlpha('#000000', o.dim == null ? 0.55 : o.dim));
-    cv.card(b.x, b.y, b.w, b.h, o.radius == null ? 32 : o.radius, [[0, '#1e2632'], [1, '#121820']]);
+    const r = o.radius == null ? 32 : o.radius;
+    cv.card(b.x, b.y, b.w, b.h, r, t.sheen ? [[0, mix(t.panelTop, '#ffffff', 0.04)], [1, t.panelBottom]] : [[0, '#1e2632'], [1, '#121820']]);
+    if (t.sheen) cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 1.5, t.sheen);
 }
 
 const DRAW = { appIcon: appIconEl, chips, appGrid, appList, sideNav, vbutton, keyboard, sheet };

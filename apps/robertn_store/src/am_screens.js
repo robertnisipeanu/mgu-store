@@ -19,7 +19,7 @@ module.exports = {
    "name": "store",
    "kind": "gpu",
    "title": "App Manager",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "bgArea": "app",
    "components": [
@@ -73,9 +73,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "tabs",
      "x": 1500,
-     "y": 140,
+     "y": 128,
      "w": 760,
-     "h": 92,
+     "h": 84,
      "opts": {
       "items": "All,Apps,Tools",
       "sel": 0,
@@ -88,9 +88,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "chips",
      "x": 1980,
-     "y": 146,
+     "y": 130,
      "w": 860,
-     "h": 84,
+     "h": 80,
      "opts": {
       "items": "",
       "align": "right"
@@ -100,14 +100,16 @@ module.exports = {
      "name": "grid",
      "rtype": "gpu",
      "gpu": "appGrid",
-     "x": 460,
+     "x": 472,
      "y": 292,
-     "w": 2380,
+     "w": 2376,
      "h": 548,
      "opts": {
       "items": "",
       "cols": 5,
-      "tileH": 274,
+      "tileH": 182,
+      "titleSize": 36,
+      "subSize": 28,
       "empty": ""
      }
     }
@@ -118,7 +120,7 @@ module.exports = {
    "name": "app",
    "kind": "gpu",
    "title": "App Manager",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "bgArea": "app",
    "components": [
@@ -156,9 +158,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "appIcon",
      "x": 630,
-     "y": 150,
-     "w": 300,
-     "h": 300,
+     "y": 166,
+     "w": 280,
+     "h": 280,
      "opts": {
       "vicon": "gauge",
       "colors": "#ff4b55,#a8101c",
@@ -170,7 +172,7 @@ module.exports = {
      "name": "name",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 1000,
+     "x": 950,
      "y": 161,
      "w": 1200,
      "h": 120,
@@ -186,7 +188,7 @@ module.exports = {
      "name": "author",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 1004,
+     "x": 954,
      "y": 272,
      "w": 1100,
      "h": 50,
@@ -202,8 +204,8 @@ module.exports = {
      "name": "facts",
      "rtype": "gpu",
      "gpu": "chips",
-     "x": 1000,
-     "y": 352,
+     "x": 950,
+     "y": 378,
      "w": 1080,
      "h": 68,
      "opts": {
@@ -214,10 +216,10 @@ module.exports = {
      "name": "desc",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 480,
-     "y": 470,
-     "w": 1560,
-     "h": 250,
+     "x": 630,
+     "y": 500,
+     "w": 1410,
+     "h": 220,
      "opts": {
       "text": "",
       "size": 40,
@@ -230,9 +232,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "rect",
      "x": 2100,
-     "y": 136,
+     "y": 166,
      "w": 740,
-     "h": 700,
+     "h": 674,
      "opts": {
       "color": "panelTop",
       "radius": 28
@@ -243,7 +245,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 2140,
-     "y": 187,
+     "y": 206,
      "w": 340,
      "h": 43,
      "opts": {
@@ -259,7 +261,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 2140,
-     "y": 239,
+     "y": 258,
      "w": 340,
      "h": 80,
      "opts": {
@@ -275,7 +277,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 2500,
-     "y": 187,
+     "y": 206,
      "w": 300,
      "h": 43,
      "opts": {
@@ -291,7 +293,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 2500,
-     "y": 239,
+     "y": 258,
      "w": 300,
      "h": 80,
      "opts": {
@@ -307,7 +309,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 2140,
-     "y": 364,
+     "y": 384,
      "w": 660,
      "h": 40,
      "opts": {
@@ -323,7 +325,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 2140,
-     "y": 410,
+     "y": 430,
      "w": 660,
      "h": 40,
      "opts": {
@@ -339,7 +341,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 2140,
-     "y": 474,
+     "y": 494,
      "w": 660,
      "h": 40,
      "opts": {
@@ -355,7 +357,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "progress",
      "x": 2140,
-     "y": 560,
+     "y": 556,
      "w": 660,
      "h": 124,
      "opts": {
@@ -373,9 +375,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 2140,
-     "y": 562,
+     "y": 570,
      "w": 660,
-     "h": 120,
+     "h": 110,
      "opts": {
       "text": "",
       "vicon": "arrowDown",
@@ -389,9 +391,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 2140,
-     "y": 702,
+     "y": 700,
      "w": 660,
-     "h": 106,
+     "h": 100,
      "opts": {
       "text": "",
       "vicon": "trash",
@@ -403,9 +405,9 @@ module.exports = {
      "name": "problem",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 480,
+     "x": 630,
      "y": 730,
-     "w": 1560,
+     "w": 1410,
      "h": 90,
      "opts": {
       "text": "",
@@ -422,7 +424,7 @@ module.exports = {
    "name": "confirm",
    "kind": "gpu",
    "title": "App Manager",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "bgArea": "app",
    "components": [
@@ -547,7 +549,7 @@ module.exports = {
    "name": "installed",
    "kind": "gpu",
    "title": "App Manager",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "bgArea": "app",
    "components": [
@@ -601,9 +603,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 2300,
-     "y": 140,
+     "y": 124,
      "w": 540,
-     "h": 100,
+     "h": 92,
      "opts": {
       "text": "",
       "vicon": "arrowDown",
@@ -677,7 +679,7 @@ module.exports = {
    "name": "usb",
    "kind": "gpu",
    "title": "App Manager",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "bgArea": "app",
    "components": [
@@ -730,14 +732,16 @@ module.exports = {
      "name": "grid",
      "rtype": "gpu",
      "gpu": "appGrid",
-     "x": 460,
+     "x": 472,
      "y": 292,
-     "w": 2380,
+     "w": 2376,
      "h": 548,
      "opts": {
       "items": "",
       "cols": 5,
-      "tileH": 274,
+      "tileH": 182,
+      "titleSize": 36,
+      "subSize": 28,
       "empty": ""
      }
     }
@@ -747,7 +751,7 @@ module.exports = {
    "name": "settings",
    "kind": "gpu",
    "title": "App Manager",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "bgArea": "app",
    "components": [
@@ -842,8 +846,8 @@ module.exports = {
      "name": "connLabel",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 1880,
-     "y": 368,
+     "x": 1840,
+     "y": 292,
      "w": 600,
      "h": 38,
      "opts": {
@@ -859,7 +863,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "appList",
      "x": 1880,
-     "y": 412,
+     "y": 360,
      "w": 920,
      "h": 260,
      "opts": {
@@ -872,7 +876,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1880,
-     "y": 668,
+     "y": 636,
      "w": 920,
      "h": 40,
      "opts": {
@@ -888,7 +892,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1880,
-     "y": 714,
+     "y": 682,
      "w": 920,
      "h": 38,
      "opts": {
@@ -904,9 +908,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 1880,
-     "y": 764,
+     "y": 736,
      "w": 440,
-     "h": 56,
+     "h": 64,
      "opts": {
       "text": "Check now",
       "vicon": "refresh",
@@ -920,9 +924,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 2340,
-     "y": 764,
+     "y": 736,
      "w": 460,
-     "h": 56,
+     "h": 64,
      "opts": {
       "text": "Restart head unit",
       "vicon": "refresh",
@@ -952,7 +956,7 @@ module.exports = {
   {
    "kind": "gpu",
    "name": "source",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "components": [
     {
@@ -1136,7 +1140,7 @@ module.exports = {
   {
    "kind": "gpu",
    "name": "accounts",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "components": [
     {
@@ -1250,7 +1254,7 @@ module.exports = {
   {
    "kind": "gpu",
    "name": "pick",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "components": [
     {
@@ -1379,7 +1383,7 @@ module.exports = {
   {
    "kind": "gpu",
    "name": "login",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "components": [
     {
@@ -1506,7 +1510,7 @@ module.exports = {
   {
    "kind": "gpu",
    "name": "phone",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "components": [
     {
@@ -1618,7 +1622,7 @@ module.exports = {
   {
    "kind": "gpu",
    "name": "type",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "components": [
     {
@@ -1698,7 +1702,7 @@ module.exports = {
   {
    "kind": "gpu",
    "name": "wifi",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "components": [
     {
@@ -1902,7 +1906,7 @@ module.exports = {
   {
    "kind": "gpu",
    "name": "prefer",
-   "theme": "m_tricolour",
+   "theme": "midnight",
    "bg": "theme",
    "components": [
     {
