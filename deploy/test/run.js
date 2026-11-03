@@ -620,7 +620,8 @@ function testApps() {
     let st = root.status();
     const a = st.components.find((c) => c.id === 'fixture_app');
     check('status: the app with version, uid and tile fields', a && a.kind === 'app' && a.version === '1.0.0' &&
-        a.uid === 13001 && a.tile_provisioned === true && a.tile_fallback === false && a.tile_visible === true &&
+        a.uid === 13001 && st.fallback.manager_runs_copy === false && a.tile_provisioned === false && a.tile_fallback === false &&
+        a.tile_visible === false &&
         a.installationSource === 'PREINSTALLED', JSON.stringify(a));
     check('app: a unit without the retired installer\'s leftovers has no migration snapshot and reports none',
         !fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).some((d) => d.endsWith('-migrate')) &&
@@ -3650,6 +3651,9 @@ function testRetiredDetect() {
     check('retired: status --json lists the leftovers', JSON.stringify(st.retired_leftovers) === JSON.stringify(
         [root.src('main.js.capbak'), root.src('main.js.vcbak'), root.src('AppManagement/AppManagement.js.capbak')]),
     JSON.stringify(st.retired_leftovers));
+    const store = st.components.find((x) => x.id === 'store_app') || {};
+    check('retired: with the leftovers, a listed app\'s tile is reported from the registry cache while the manager is not on the copy',
+        st.fallback.manager_runs_copy === false && 'store_app' in root.custom() && store.tile_visible === true, JSON.stringify(st));
     check('retired: check and status change nothing', root.hash().hash === before.hash, treeDiff(before, root.hash()));
 }
 
@@ -3704,7 +3708,6 @@ function testRetiredMigrate() {
         root.managerLog().includes('update old_app 1.1.0 uid 13002'), root.managerLog().join('\n'));
     const st = root.status();
     const tile = (id) => st.components.find((x) => x.id === id) || {};
-    // the fake root binds nothing, so status reports these tiles as provisioned
     check('retired: status lists no leftovers; the fallback lists the old apps, whose tiles stay visible',
         st.retired_leftovers.length === 0 && JSON.stringify(st.fallback.apps) === '["legacy_app","old_app","old_two","store_app"]' &&
         tile('old_app').tile_visible === true && tile('old_two').tile_visible === true, JSON.stringify(st));
@@ -6868,6 +6871,15 @@ function testRelist() {
     lose(root);
     check('relist: status --json says the fallback is off and the manager does not run its copy',
         root.status().fallback.unit_present === false && root.status().fallback.manager_runs_copy === false);
+    const app = (st) => st.components.find((c) => c.id === 'fixture_app') || {};
+    const cached = readJson(root.entry('fixture_app')).provisioningCache;
+    let st = root.status();
+    check('relist: with the registry cache still enabled and allowed, status --json reports the tile hidden',
+        cached['-enabled'] === 'true' && cached['-allowed'] === 'true' && app(st).tile_visible === false &&
+        app(st).tile_provisioned === false && app(st).tile_fallback === false, JSON.stringify(app(st)));
+    check('relist: status prints tile=hidden and check tile hidden',
+        root.run(['status']).stdout.includes('app fixture_app 1.0.0 uid=13001 source=PREINSTALLED running=false tile=hidden') &&
+        root.run(['check']).stdout.includes('app fixture_app 1.0.0: tile hidden'), root.run(['status']).out);
     let r = again(root);
     check('relist: the app current and the fallback unit gone, the install turns it on again and restarts the manager once',
         r.status === 0 && r.out.includes('fixture_app 1.0.0 already installed; nothing to change') &&
@@ -6886,6 +6898,15 @@ function testRelist() {
     startInplace(root);
     check('relist: status --json says the manager runs the copy once its hook announced itself',
         root.status().fallback.manager_runs_copy === true);
+    st = root.status();
+    check('relist: with the manager on the copy, status reports the tile from the fallback',
+        app(st).tile_fallback === true && app(st).tile_visible === true && app(st).tile_provisioned === false &&
+        root.run(['status']).stdout.includes('tile=fallback'), JSON.stringify(app(st)));
+    fs.writeFileSync(root.env.FAKE_MGR_PIDFILE, '');
+    st = root.status();
+    check('relist: with no app manager running, status reports the tile hidden',
+        st.fallback.manager_runs_copy === null && app(st).tile_visible === false && app(st).tile_fallback === false,
+        JSON.stringify(app(st)));
 
     // the HMI and the SOME/IP daemon not running: no restart, the boot unit lists the app from the next start
     root = fakeRoot();

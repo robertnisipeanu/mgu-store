@@ -1,5 +1,9 @@
 # Deploy tool changelog
 
+## 0.7.14
+
+- iDrive 7: `status` and `check` report the tile of an app listed in `custom_apps.json` (ours and the other apps the provisioning fallback lists) as shown only while the running app manager runs the fallback copy (`fallback.manager_runs_copy` true); otherwise, and with no app manager running, as `hidden`, whatever the app's registry `provisioningCache` holds. `tile_provisioned`, `tile_fallback` and `tile_visible` in `status --json` follow the same rule. Apps not in `custom_apps.json`, units with the retired installer's leftovers, and iDrive 8 are reported from the registry cache.
+
 ## 0.7.13
 
 - iDrive 7: an install in which every app is already current, on a unit whose provisioning fallback is not active (its unit missing, or `main.js` not bound to its copy) while our apps are listed in `custom_apps.json`, turns the fallback on again and restarts the app manager once, under the usual restart rules (none when it already runs the fallback copy), so the apps' tiles show. While `vsomeipd.service` or `hmi.service` is not running, the manager is not restarted (a restarted one could not start) and the apps are listed from the next start. A copy that does not build leaves the fallback as it was; the install stands, and `status --json` gives the reason as `fallback.refused`.
