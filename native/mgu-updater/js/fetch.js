@@ -6,14 +6,19 @@
  * Node 8.
  *
  * stdin: one JSON job
- *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], ca, method, body, keep, idleMs, retryMs }
+ *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], lease, ca, method, body, keep,
+ *     connectMs, idleMs, retryMs }
  *   dns: resolve host names through these servers (the uplink lease's);
- *   empty: the system resolver. ca: PEM roots to trust instead of Node's
- *   bundled ones (a self-hosted catalog with its own CA). method: GET
- *   (default) or POST, with body (a string) sent as it is. keep: the
- *   response headers (lower case) to report with done. idleMs: how long a
- *   connection may go without data (30 s); retryMs: the first wait before
- *   trying again (1 s).
+ *   empty: the system resolver. lease: the uplink's lease file, read again
+ *   for each try: its dns servers replace dns, and a try without one fails
+ *   as having no connection (the uplink is down, or between networks). ca:
+ *   PEM roots to trust instead of Node's bundled ones (a self-hosted catalog
+ *   with its own CA). method: GET (default) or POST, with body (a string)
+ *   sent as it is. keep: the response headers (lower case) to report with
+ *   done. connectMs: how long the name lookup, the TCP connection and the
+ *   TLS handshake may take together (15 s); idleMs: how long the answer's
+ *   headers, and then each part of its body, may take to come (30 s);
+ *   retryMs: the first wait before trying again (1 s).
  * stdout: one JSON line per event
  *   { progress: <bytes>, total: <bytes|null> }  while downloading
  *   { done: true, bytes, status, headers }      dest complete (headers: those kept)
@@ -31,7 +36,7 @@
  * Exactly one of done, notModified and error ends the output.
  *
  * A GET whose connection fails (cut mid-download, no data for idleMs, a
- * reset, no connection) or that gets a 500, 502, 503 or 504 is tried again,
+ * reset, no connection within connectMs) or that gets a 500, 502, 503 or 504 is tried again,
  * after 1, 2, 4 and 8 s: up to 4 times in a row without getting further, 200
  * tries in all. When the server takes byte ranges (Accept-Ranges: bytes,
  * with a strong ETag), the next try asks for the rest (Range, with that
@@ -64,6 +69,8 @@ const { URL } = require('url');
 const certs = require('./certs');
 
 const MAX_REDIRECTS = 5;
+// a network that has moved on leaves a connection silent, never reset: these bound each wait
+const CONNECT_MS = 15000;
 const IDLE_MS = 30000;
 const RETRIES = 4;             // tries in a row that get no further, after the first
 const RETRY_MS = 1000;         // the wait before the first of them, doubled for each after
@@ -128,10 +135,14 @@ function connect(job, target, cb) {
     const finish = (err, sock) => {
         if (!done) {
             done = true;
+            clearTimeout(timer);
             cb(err, sock);
         }
     };
     const host = target.hostname;
+    const connectMs = job.connectMs || CONNECT_MS;
+    // a timer of its own: Node 8's socket timeout can fire at up to twice its time
+    const timer = setTimeout(() => sock.destroy(new Error(`no connection in ${Math.round(connectMs / 1000)} s`)), connectMs);
     const sock = tls.connect({
         host,
         port: Number(target.port) || 443,
@@ -140,7 +151,6 @@ function connect(job, target, cb) {
         ca: job.ca || undefined,
         rejectUnauthorized: false
     }, () => {
-        sock.setTimeout(0, idle);
         if (sock.authorized) {
             finish(null, sock);
             return;
@@ -155,8 +165,6 @@ function connect(job, target, cb) {
         emit({ certDates: host, error: code });
         finish(null, sock);
     });
-    const idle = () => sock.destroy(new Error('ETIMEDOUT'));
-    sock.setTimeout(job.idleMs || IDLE_MS, idle);
     sock.on('error', finish);
 }
 
@@ -182,12 +190,26 @@ function validatorOf(res) {
     return res.headers['accept-ranges'] === 'bytes' && etag && !/^W\//.test(etag) ? etag : null;
 }
 
-function request(job, url, target, headers, hops, sock, from, finish) {
+function request(job, url, target, headers, hops, sock, from, settle) {
     const host = target.hostname;
     const post = hops === 0 && job.method === 'POST';
     const body = post ? Buffer.from(String(job.body || '')) : null;
     let stop = null;   // ends the body under way, once there is one
     const lost = (why) => (stop ? stop({ error: why, retry: true }) : finish({ error: why, retry: true }));
+    // the headers, then each part of the body, within idleMs
+    const idleMs = job.idleMs || IDLE_MS;
+    let timer = null;
+    const finish = (r) => {
+        clearTimeout(timer);
+        settle(r);
+    };
+    const wait = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            lost(`${host}: no data for ${Math.round(idleMs / 1000)} s`);
+            req.abort();
+        }, idleMs);
+    };
     const req = https.request({
         method: post ? 'POST' : 'GET',
         hostname: host,
@@ -196,8 +218,10 @@ function request(job, url, target, headers, hops, sock, from, finish) {
         headers: post ? Object.assign({}, headers, { 'Content-Length': body.length }) : headers,
         createConnection: () => sock
     }, (res) => {
+        wait();
         if (!post && [301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
             res.resume();
+            clearTimeout(timer);
             stop = () => {};   // the next host's request answers from here
             sock.destroy();
             if (hops >= MAX_REDIRECTS) {
@@ -212,7 +236,7 @@ function request(job, url, target, headers, hops, sock, from, finish) {
                     along[h] = headers[h];
                 }
             });
-            get(job, new URL(res.headers.location, url).toString(), along, hops + 1, from, finish);
+            get(job, new URL(res.headers.location, url).toString(), along, hops + 1, from, settle);
             return;
         }
         if (res.statusCode === 304) {
@@ -263,6 +287,10 @@ function request(job, url, target, headers, hops, sock, from, finish) {
             }
         };
         res.on('data', (chunk) => {
+            if (failure) {
+                return;
+            }
+            wait();
             bytes += chunk.length;
             if (job.maxBytes && bytes > job.maxBytes) {
                 stop({ error: `more than the expected ${job.maxBytes} bytes`, tooBig: true });
@@ -292,12 +320,9 @@ function request(job, url, target, headers, hops, sock, from, finish) {
             finish(failure);
         });
     });
-    req.setTimeout(job.idleMs || IDLE_MS, () => {
-        lost(`${host}: no data for ${Math.round((job.idleMs || IDLE_MS) / 1000)} s`);
-        req.abort();
-    });
     req.on('error', (err) => lost(`${host}: ${err.code || err.message}`));
     req.end(body || undefined);
+    wait();
 }
 
 /* job, tried again while the connection fails, from where the last try
@@ -319,7 +344,7 @@ function download(job) {
             headers['If-Range'] = validator;
         }
         let settled = false;
-        get(job, job.url, headers, 0, from, (r) => {
+        const tried = (r) => {
             if (settled) {
                 return;
             }
@@ -348,7 +373,14 @@ function download(job) {
             const after = retryMs * Math.pow(2, Math.max(0, misses - 1));
             emit({ retry: tries, error: r.error, from, after });
             setTimeout(next, after);
-        });
+        };
+        // the network's servers now: a network joined since the job started has its own
+        const dns = job.lease ? leaseDns(job.lease) : job.dns;
+        if (!dns) {
+            tried({ error: 'no internet (the uplink is down)', retry: true });
+            return;
+        }
+        get(Object.assign({}, job, { dns }), job.url, headers, 0, from, tried);
     };
     const finishAll = (r) => {
         delete r.retry;
@@ -357,12 +389,20 @@ function download(job) {
         if (r.error && tries > 1) {
             r.error += ` (${tries} tries)`;
         }
-        if (r.error) {
-            process.exitCode = 1;
-        }
-        emit(r);
+        // a name lookup still under way would keep the process, and the updater waiting, for minutes
+        process.stdout.write(JSON.stringify(r) + '\n', () => process.exit(r.error ? 1 : 0));
     };
     next();
+}
+
+/* The dns servers of the lease file at file; null without a lease. */
+function leaseDns(file) {
+    try {
+        const lease = JSON.parse(fs.readFileSync(file, 'utf8'));
+        return Array.isArray(lease.dns) ? lease.dns : [];
+    } catch (e) {
+        return null;
+    }
 }
 
 let input = '';

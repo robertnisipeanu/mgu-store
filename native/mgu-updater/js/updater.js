@@ -728,7 +728,7 @@ class Fetcher {
                         result && result.tooBig ? { tooBig: true } : {}));
                 }
             });
-            child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, ca: this.ca,
+            child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, lease: this.conf.lease || undefined, ca: this.ca,
                 method: job.method || 'GET', body: job.body, keep: job.keep || [] }));
         }).then((bytes) => {
             this.retire(dir);
