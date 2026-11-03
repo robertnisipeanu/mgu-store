@@ -196,7 +196,8 @@ function storeView(m) {
     return {
         title: { text: tr("Store") },
         subtitle: busyRow ? { text: `${busy.phase === 'download' ? tr("Downloading {0} %", percent(busy)) : tr(PHASE[busy.phase] || 'Installing')} · ${named(m, busyRow)}`, color: BLUE }
-            : { text: m.connected ? statusLine(st, true) : statusLine(null, false, m.secret), color: DIM },
+            : m.connected && !checking && !online ? { text: tr("No internet: Settings > Internet shows how to connect the car"), color: AMBER }
+                : { text: m.connected ? statusLine(st, true) : statusLine(null, false, m.secret), color: DIM },
         filter: { sel: Math.max(0, FILTERS.indexOf(m.filter)), acts: FILTERS.map((f) => ({ do: 'filter', filter: f })) },
         online: { items: !m.connected ? [] : checking ? [{ text: tr("Checking"), color: BLUE, dot: true }]
             : online ? [{ text: tr("Online"), color: GREEN, dot: true }] : [{ text: tr("Offline"), color: AMBER, dot: true }] },
@@ -266,6 +267,10 @@ function settingsView(m) {
         const s = wifiState(w);
         access.push({ id: 'wifi', title: 'Wi-Fi', sub: s[0], subColor: s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
             right: 'chevron', act: { do: 'open', page: { name: 'wifi' } } });
+    }
+    if (m.connected && st) {
+        access.push({ id: 'internet', title: tr("Internet"), sub: st.online ? tr("Online") : tr("Offline"), subColor: st.online ? GREEN : AMBER,
+            plain: true, vicon: 'tether', iconColor: 'text', right: 'chevron', act: { do: 'open', page: { name: 'internet' } } });
     }
     if (toks) {
         access.push({ id: 'accounts', title: tr("Accounts"), sub: accountsState(toks), plain: true, vicon: 'lock', iconColor: 'text',
@@ -651,6 +656,26 @@ function wifiView(m) {
 }
 
 /* The connection the uplink tries first; the others follow as fallbacks. */
+/* How the car gets internet: the head unit has none of its own; the uplink
+ * gives it through its Wi-Fi or a USB device. */
+const INTERNET_WAYS = () => [
+    { vicon: 'wifi', title: 'Wi-Fi', text: [tr("Turn the phone's hotspot on."), tr("Here, open Settings > Wi-Fi and tap Scan."),
+        tr("Pick the phone's network, type its password and tap Connect.")] },
+    { vicon: 'iphone', title: 'iPhone', text: tr("Cable it to a USB port, Personal Hotspot on, the phone unlocked; tap Trust when it asks.") },
+    { vicon: 'android', title: tr("Android phone"), text: tr("Cable it to a USB port, then on the phone: Settings > Network > Hotspot & tethering > USB tethering on.") },
+    { vicon: 'lteStick', title: tr("USB LTE stick"), text: tr("A USB LTE stick with a SIM card that has mobile data (e.g. Huawei E3372h), in a USB port in the car.") }
+];
+
+function internetView(m) {
+    const online = !!(m.connected && m.st && m.st.online);
+    return {
+        title: { text: tr("Internet") },
+        status: { text: !m.connected ? '' : online ? tr("Connected") : tr("Not connected"), color: online ? GREEN : AMBER },
+        ways: { items: INTERNET_WAYS() },
+        steps: { text: tr("Within a minute this page says Connected. No internet at all? Apps on a USB stick show under USB.") }
+    };
+}
+
 function preferView(m) {
     const u = (m.connected && m.st && m.st.uplink) || {};
     const preferred = u.preferred || '';
@@ -687,6 +712,7 @@ function view(m) {
     case 'type': values = typeView(m, page); break;
     case 'wifi': values = wifiView(m); break;
     case 'prefer': values = preferView(m); break;
+    case 'internet': values = internetView(m); break;
     default: screen = 'store'; values = storeView(m);
     }
     values.nav = nav(m, tabSel);

@@ -7,7 +7,15 @@
  * one-row header (title, status, filters, online state), small margins,
  * three rows of tiles, list rows and buttons sized for the iDrive 7's text.
  *
- *   compact(w, h) -> { design: { w, h }, screens }
+ *   compact(w, h, look, { full }) -> { design: { w, h }, screens }
+ *
+ * full (iDrive 7, layer mode, the Store placed over the whole screen right
+ * of the HMI's back arrow column, as the idrive7-apps run): the top HEAD_H
+ * px are the HMI's title strip. The iDrive 7 look has its pages there as
+ * header tabs after the Store's name, as the apps have theirs, and no
+ * button bar along the bottom; the status icons at the strip's right end
+ * (STATUS_X on) stay the HMI's. The iDrive 8 look keeps its side menu
+ * under the strip.
  *
  * Every element stays inside the box with room for the focus ring (8 px
  * out, 5 px wide).
@@ -15,6 +23,13 @@
 
 const M = 14;                 // the box's margin: the focus ring's room
 const RAIL = 150;
+const BAR = 64;               // the iDrive 7 look's menu bar
+const HEAD_H = 80;            // full: the HMI's title strip (idrive7-apps kit display.js FULL.headH)
+// full: the header as compact as Fault Scanner's: it ends before the HMI's notification arrow (screen x ~1140), which
+// with the status icons stays the HMI's, seen and tapped
+const NAV_X = 200;            // full: the header tabs, after the Store's name
+const NAV_CELL = 196;
+const STATUS_X = NAV_X + 4 * NAV_CELL + 12;   // full: where the HMI's strip takes over, in the box
 const NAV_ITEMS = 'Store, grid\nInstalled, check\nUSB, usb\nSettings, gear';
 const TEXT = 'text';
 const DIM = 'dim';
@@ -28,36 +43,54 @@ const text = (name, x, y, w, h, t, size, font, color, extra) => el(name, 'text',
 const button = (name, x, y, w, h, t, style, size, extra) => el(name, 'vbutton', x, y, w, h,
     Object.assign({ text: t, vicon: '', style: style || 'outline', size }, extra || {}), `event:${name}`);
 
-function compact(W, H) {
-    const X = M + RAIL + 16;          // the content's left edge
-    const R = W - M;                  // its right edge
-    const B = H - M;                  // its bottom
+function compact(W, H0, look, opts) {
+    const full = !!(opts && opts.full);
+    const TOP = full ? HEAD_H : 0;        // laid out under the strip, then moved down by it (end of this function)
+    const H = H0 - TOP;
+    // the iDrive 7 look has the menu along the bottom, as the idrive7-apps have their buttons (full: as header tabs at
+    // the top, as the apps have their pages); the iDrive 8 look on the left
+    const low = look === 'id7';
+    const headTabs = full && low;
+    const X = low ? M : M + RAIL + 16;    // the content's left edge
+    const R = W - M;                      // its right edge
+    const B = low && !headTabs ? H - M - BAR - 12 : H - M; // its bottom
     const CW = R - X;
-    const nav = (sel) => el('nav', 'sideNav', M, M, RAIL, H - 2 * M, { items: NAV_ITEMS, sel, labelSize: 24 });
-    const screen = (name, sel, components) => ({ kind: 'gpu', name, theme: 'm_tricolour', bg: 'theme',
-        components: [nav(sel)].concat(components) });
-    // the header row: the title, then the status on its baseline (one right after the title moved right of a longer title)
+    const nav = (sel) => (headTabs ? el('nav', 'sideNav', NAV_X, -TOP, NAV_CELL * 4, TOP, { items: NAV_ITEMS, sel, labelSize: 18, head: true })
+        : low ? el('nav', 'sideNav', M, H - M - BAR, W - 2 * M, BAR, { items: NAV_ITEMS, sel, labelSize: 22 })
+        : el('nav', 'sideNav', M, M, RAIL, H - 2 * M, { items: NAV_ITEMS, sel, labelSize: 24 }));
+    // full: the strip's left part the Store's (its name and tabs, iDrive 7 look), the rest the HMI's (record: head)
+    const appName = () => text('appName', 20, -TOP + 24, NAV_X - 30, 48, 'MGU Store', 32, 'label');
+    const screen = (name, sel, components) => Object.assign({ kind: 'gpu', name, theme: 'm_tricolour', bg: 'theme',
+        components: (headTabs ? [appName()] : []).concat([nav(sel)], components) },
+    full ? { head: { h: TOP, end: headTabs ? STATUS_X : 0 } } : {});
+    // the header row: the title, then the status on its baseline (one with opts.after moves right of a longer title)
     const HEAD = M + 64;
-    const title = (t, x) => text('title', x === undefined ? X : x, M + 2, 640, 60, t, 50, 'bold');
+    // the iDrive 7 look's titles as the kit's header has the app's name: regular weight
+    const title = (t, x) => text('title', x === undefined ? X : x, M + 2, 640, 60, t, low ? 46 : 50, low ? 'label' : 'bold',
+        undefined, headTabs && x === undefined ? { hidden: true } : undefined);
     const status = (name, x, w, color) => text(name, x, M + 24, w, 30, '', 23, 'label', color || DIM);
     const after = (name, x, w, color) => text(name, x, M + 24, w, 30, '', 23, 'label', color || DIM, { after: 'title' });
     const back = () => el('back', 'vbutton', X, M, 64, 64, { text: '', vicon: 'back', style: 'round', color: '#f4f7fb' }, 'event:back');
     const BTN_H = 76;
     const GRID_Y = HEAD + 10;
-    const grid = () => el('grid', 'appGrid', X - 8, GRID_Y, CW + 8, B - GRID_Y, { items: '', cols: 5, tileH: Math.floor((B - GRID_Y) / 3),
-        iconK: 0.46, titleSize: 28, subSize: 22, empty: '' });
+    // four big tiles a row, under two and a half rows in view: the part-shown row says the page scrolls on
+    const grid = () => el('grid', 'appGrid', X - 8, GRID_Y, CW + 8, B - GRID_Y, { items: '', cols: 4, tileH: Math.floor((B - GRID_Y) / 2.4),
+        iconK: 0.6, titleSize: 32, subSize: 24, empty: '' });
     const LIST = { rowH: 92, titleSize: 28, subSize: 22, ctlK: 0.85 };
     const list = (name, x, y, w, h, extra) => el(name, 'appList', x, y, w, h, Object.assign({ items: '' }, LIST, extra || {}));
     const label = (name, x, y, t) => text(name, x, y, 400, 26, t, 20, 'bold', DIM);
 
     const FILTER_W = 420;
     const ONLINE_W = 190;
-    const filterX = R - ONLINE_W - 20 - FILTER_W;
+    // the iDrive 7 look: the online state after the title, the filters at the right edge
+    const filterX = low ? R - FILTER_W : R - ONLINE_W - 20 - FILTER_W;
+    const onlineX = low ? X + 150 : R - ONLINE_W;
+    const subX = low ? onlineX + ONLINE_W + 20 : X + 160;
     const store = screen('store', 0, [
         title('Store'),
-        after('subtitle', X + 160, filterX - X - 180),
+        status('subtitle', subX, filterX - subX - 20),
         el('filter', 'tabs', filterX, M + 2, FILTER_W, 60, { items: 'All,Apps,Tools', sel: 0, style: 'joined', size: 24 }),
-        el('online', 'chips', R - ONLINE_W, M + 8, ONLINE_W, 48, { items: '', align: 'right' }),
+        el('online', 'chips', onlineX, M + 8, ONLINE_W, 48, { items: '', align: low ? 'left' : 'right' }),
         grid()
     ]);
     const usb = screen('usb', 2, [title('USB'), after('subtitle', X + 130, CW - 130), grid()]);
@@ -78,17 +111,18 @@ function compact(W, H) {
     const rx = X + leftW + 24;
     const rw = R - rx;
     const SET_H = 72;
+    const LOOK_W = 360;
     const settings = screen('settings', 3, [
         title('Settings'),
-        after('note', X + 230, CW - 230, AMBER),
+        status('note', X + 230, CW - 230 - LOOK_W - 20, AMBER),
+        el('look', 'tabs', R - LOOK_W, M + 2, LOOK_W, 60, { items: 'iDrive 7,iDrive 8', sel: 0, style: 'joined', size: 24 }),
         label('reposLabel', X, HEAD + 8, 'SOURCES'),
         list('repos', X, LIST_Y, leftW, B - SET_H - 12 - LIST_Y),
         button('addRepo', X, B - SET_H, leftW, SET_H, 'Add source', 'tinted', 25, { vicon: 'plus', color: BLUE }),
         el('connPanel', 'rect', rx, HEAD + 4, rw, B - HEAD - 4, { color: 'panelTop', radius: 20 }),
         label('connLabel', rx + 18, HEAD + 18, 'ACCESS'),
-        list('access', rx + 12, HEAD + 52, rw - 24, 2 * LIST.rowH),
-        text('unit', rx + 18, HEAD + 60 + 2 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
-        text('versions', rx + 18, HEAD + 100 + 2 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
+        // Wi-Fi, Internet, Accounts, Phone access and Information, all in view
+        list('access', rx + 12, HEAD + 52, rw - 24, B - SET_H - 26 - HEAD - 52, { rowH: Math.min(LIST.rowH, Math.floor((B - SET_H - 26 - HEAD - 52) / 5)) }),
         button('checkNow', rx + 16, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Check now', 'outline', 25, { vicon: 'refresh' }),
         button('restart', rx + 28 + (rw - 44) / 2, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Restart head unit', 'outline', 25,
             { vicon: 'refresh' })
@@ -107,9 +141,10 @@ function compact(W, H) {
         text('name', ix, M, lw - 224, 72, '', 63, 'bold'),
         text('author', ix, M + 76, lw - 224, 32, '', 27, 'label', DIM),
         el('facts', 'chips', ix, M + 114, lw - 224, 44, { items: '' }),
-        text('desc', X, M + 176, lw, B - M - 176 - 84, '', 27, 'label', TEXT, { wrap: true }),
+        text('desc', X, M + 176, lw, 72, '', 27, 'label', TEXT, { wrap: true }),
+        list('history', X, M + 256, lw, B - M - 256 - 84, { empty: '' }),
         text('problem', X, B - 76, lw, 76, '', 27, 'label', AMBER, { wrap: true }),
-        el('panel', 'rect', px, M, PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
+        el('panel', 'rect', px, M, PW, B - M, { color: 'panelTop', radius: 20 }),
         text('instLabel', px + 20, M + 16, 200, 28, '', 22, 'label', DIM),
         text('instValue', px + 20, M + 46, 200, 58, '', 46, 'num'),
         text('availLabel', px + 230, M + 16, 220, 28, '', 22, 'label', DIM),
@@ -127,7 +162,7 @@ function compact(W, H) {
     const SW = Math.min(1200, CW);
     const SH = 380;
     const sx = X + (CW - SW) / 2;
-    const sy = (H - SH) / 2;
+    const sy = (B + M - SH) / 2;
     const BW = (SW - 100) / 2;
     const confirm = screen('confirm', 0, [
         el('sheet', 'sheet', sx, sy, SW, SH, { radius: 24 }),
@@ -150,7 +185,7 @@ function compact(W, H) {
         el('facts', 'chips', ix, M + 104, sw, 44, { items: [] }),
         text('desc', X, M + 166, qx - X - 24, B - BTN_H - 24 - M - 166, '', 26, 'label', AMBER, { wrap: true }),
         button('remove', X, B - BTN_H, 420, BTN_H, 'Remove', 'outline', 29, { vicon: 'trash' }),
-        el('panel', 'rect', qx, M, QR_PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
+        el('panel', 'rect', qx, M, QR_PW, B - M, { color: 'panelTop', radius: 20 }),
         text('appLabel', qx + 20, M + 14, QR_PW - 40, 34, '', 26, 'bold'),
         el('appQr', 'qr', qx + 30, M + 58, QR_PW - 60, QR_PW - 60, { text: '' }),
         text('appUrl', qx + 20, B - 40, QR_PW - 40, 26, '', 17, 'label', DIM)
@@ -167,8 +202,9 @@ function compact(W, H) {
     ]);
     const changelog = screen('changelog', 3, [
         back(),
-        text('title', titleX, M + 2, CW - 84, 60, 'Changelog', 50, 'bold'),
-        after('status', titleX + 260, CW - 360),
+        // the version installed at the title row's right end, where the title leaves room
+        text('title', titleX, M + 2, CW - 84 - 440, 60, 'Changelog', 50, 'bold'),
+        status('status', R - 420, 420),
         list('list', X, HEAD + 14, CW, B - HEAD - 14, { empty: '', rowH: 52, titleSize: 26, subSize: 24 })
     ]);
     const pick = screen('pick', 3, [
@@ -201,6 +237,20 @@ function compact(W, H) {
         text('error', X, HEAD + 264, phoneW, 130, '', 26, 'label', AMBER, { wrap: true }),
         el('qr', 'qr', R - PQR, M, PQR, PQR, { text: '' })
     ]);
+    const internet = screen('internet', 3, [
+        back(),
+        title('Internet', titleX),
+        text('status', X, HEAD + 14, CW, 44, '', 32, 'bold'),
+        el('ways', 'ways', X, HEAD + 70, CW, B - HEAD - 70 - 60, { items: [] }),
+        text('steps', X, B - 44, CW, 40, '', 23, 'label', DIM)
+    ]);
+    // the head unit and the versions of everything on it (Settings > Information)
+    const information = screen('information', 3, [
+        back(),
+        title('Information', titleX),
+        status('status', titleX + 300, CW - 384),
+        list('list', X, HEAD + 14, CW, B - HEAD - 14, { empty: '', rowH: 64, titleSize: 26, subSize: 22 })
+    ]);
     // text typed on the drawn keyboard: the text box under the title, the keyboard below
     const FIELD_H = 64;
     const keysY = HEAD + 14 + FIELD_H + 16;
@@ -217,7 +267,7 @@ function compact(W, H) {
         title('Wi-Fi', titleX),
         after('subtitle', titleX + 170, px - titleX - 194),
         list('networks', X, HEAD + 14, px - X - 24, B - HEAD - 14, { empty: '' }),
-        el('panel', 'rect', px, M, PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
+        el('panel', 'rect', px, M, PW, B - M, { color: 'panelTop', radius: 20 }),
         el('icon', 'appIcon', px + 20, M + 20, 96, 96, { vicon: 'wifi', kind: 'service', colors: '#7a808a,#3a3f47' }),
         text('state', px + 132, M + 30, PW - 152, 36, '', 28, 'bold'),
         text('info', px + 132, M + 72, PW - 152, 30, '', 23, 'label', DIM),
@@ -232,8 +282,12 @@ function compact(W, H) {
         status('status', R - 420, 420),
         list('list', X, HEAD + 14, Math.min(1100, CW), B - HEAD - 14, { empty: '' })
     ]);
-    return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, changelog, pick, login, phone, type,
-        wifi, prefer] };
+    const screens = [store, app, confirm, installed, usb, settings, source, accounts, changelog, pick, login, phone, type,
+        wifi, prefer, internet, information];
+    if (TOP) screens.forEach((st) => st.components.forEach((c) => { c.y += TOP; }));
+    return { design: { w: W, h: H0 }, screens, full, // full: touch claimed under the strip and in it up to the status icons, in either look (store_drawn.js claims the
+        // top-level layout's, whichever look shows: the header tabs had no touch under the iDrive 7 look)
+        claims: full ? [{ x: 0, y: TOP, w: W, h: H }, { x: 0, y: 0, w: STATUS_X, h: TOP }] : null };
 }
 
 module.exports = { compact };

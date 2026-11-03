@@ -9,7 +9,7 @@
  * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page), prefer and changelog are the Store's
  * own in the same frame. Each element is drawn by am_gpu.js; src/store_ui.js gives their values.
  */
-module.exports = {
+const SCREENS = {
  "design": {
   "w": 2880,
   "h": 960
@@ -216,12 +216,26 @@ module.exports = {
      "x": 480,
      "y": 470,
      "w": 1560,
-     "h": 250,
+     "h": 104,
      "opts": {
       "text": "",
       "size": 40,
       "wrap": true,
       "color": "text"
+     }
+    },
+    {
+     "name": "history",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 480,
+     "y": 590,
+     "w": 1560,
+     "h": 132,
+     "opts": {
+      "items": [],
+      "rowH": 108,
+      "empty": ""
      }
     },
     {
@@ -777,6 +791,21 @@ module.exports = {
       "font": "bold",
       "align": "left",
       "color": "text"
+     }
+    },
+    {
+     "name": "look",
+     "rtype": "gpu",
+     "gpu": "tabs",
+     "x": 2080,
+     "y": 140,
+     "w": 760,
+     "h": 92,
+     "opts": {
+      "items": "iDrive 7,iDrive 8",
+      "sel": 0,
+      "style": "joined",
+      "size": 34
      }
     },
     {
@@ -1699,6 +1728,24 @@ module.exports = {
   },
   {
    "kind": "gpu",
+   "name": "internet",
+   "theme": "m_tricolour",
+   "bg": "theme",
+   "components": [
+    { "name": "nav", "rtype": "gpu", "gpu": "sideNav", "x": 126, "y": 114, "w": 300, "h": 726,
+      "opts": { "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear", "sel": 3 } },
+    { "name": "back", "rtype": "gpu", "gpu": "vbutton", "x": 480, "y": 138, "w": 96, "h": 96,
+      "opts": { "text": "", "vicon": "back", "style": "round", "color": "#f4f7fb" }, "onTap": "event:back" },
+    { "name": "title", "rtype": "gpu", "gpu": "text", "x": 610, "y": 138, "w": 1200, "h": 90,
+      "opts": { "text": "Internet", "size": 72, "font": "bold", "align": "left", "color": "text" } },
+    { "name": "status", "rtype": "gpu", "gpu": "text", "x": 610, "y": 260, "w": 2100, "h": 60,
+      "opts": { "text": "", "size": 44, "font": "bold", "align": "left", "color": "text" } },
+    { "name": "steps", "rtype": "gpu", "gpu": "text", "x": 610, "y": 340, "w": 2140, "h": 500,
+      "opts": { "text": "", "size": 34, "font": "label", "align": "left", "color": "text", "wrap": true } }
+   ]
+  },
+  {
+   "kind": "gpu",
    "name": "type",
    "theme": "m_tricolour",
    "bg": "theme",
@@ -2066,3 +2113,26 @@ module.exports = {
   }
  ]
 };
+
+/* Settings: the access list over the head-unit lines (Information has them); Internet: the ways as cards, its note
+ * under them; Information: changelog's page. */
+(function () {
+    const by = (n) => SCREENS.screens.find((x) => x.name === n);
+    const comp = (st, n) => st.components.find((c) => c.name === n);
+    const set = by('settings');
+    const access = comp(set, 'access'), check = comp(set, 'checkNow');
+    access.h = check.y - 30 - access.y;
+    access.opts.rowH = Math.min(120, Math.floor(access.h / 5));
+    set.components = set.components.filter((c) => c.name !== 'unit' && c.name !== 'versions');
+    const net = by('internet');
+    const steps = comp(net, 'steps');
+    net.components.splice(net.components.indexOf(steps), 0, { name: 'ways', rtype: 'gpu', gpu: 'ways', x: steps.x, y: steps.y,
+        w: steps.w, h: steps.h - 90, opts: { items: [] } });
+    Object.assign(steps, { y: steps.y + steps.h - 70, h: 60 });
+    const info = JSON.parse(JSON.stringify(by('changelog')));
+    info.name = 'information';
+    comp(info, 'nav').opts.sel = 3;
+    SCREENS.screens.push(info);
+}());
+
+module.exports = SCREENS;
