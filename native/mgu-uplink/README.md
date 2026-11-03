@@ -189,6 +189,15 @@ its configuration; the car's own networks, hotspot and radio are left
 alone. Wi-Fi is `unavailable` while the car uses `wlan0` itself (a network
 of its own, or its Wi-Fi switched off). WPA2 personal and open networks.
 
+The radio is shared with wireless CarPlay, and every station scan takes it
+off CarPlay's channel. So while the uplink is online on a device that ranks
+above Wi-Fi (`preferred = phone` with a phone, `usb` with an adapter or
+stick), and Wi-Fi is not joined, our networks are switched off in the car's
+supplicant (`wifi.link` `idle`). With none enabled, it stops its periodic
+scans. They are switched on again as soon as that uplink is offline or gone,
+and for 8 s after a `wifi-scan` request. A start or a Wi-Fi switch-on adds
+them switched on.
+
 ### status.json
 
 `/run/mgu-uplink/status.json` (0644, present while the service runs), for

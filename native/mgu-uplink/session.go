@@ -92,6 +92,7 @@ func runService(c config, up Uplink) error {
 	if su, ok := up.(*scanUplink); ok {
 		s.wifi = newWiFiProvider(c, filepath.Join(filepath.Dir(self), wpaBin))
 		s.wifi.notify = s.kickReconcile
+		s.wifi.outranks = func(kind string) bool { return su.rank(kind) < su.rank(kindWiFi) }
 		su.wifi = s.wifi
 		s.wifi.start()
 	}
@@ -249,11 +250,13 @@ func (s *service) setLease(l *Lease) {
 	}
 	s.lease = l
 	if s.wifi != nil {
-		ip := ""
+		ip, other := "", ""
 		if l != nil && l.Interface == s.wifi.ifname() {
 			ip = l.IP
+		} else if d, ok := s.link.(deviceLink); ok && l != nil {
+			other = d.device().Kind
 		}
-		s.wifi.setOnline(ip)
+		s.wifi.setOnline(ip, other)
 	}
 	s.reconcile(false)
 	switch {

@@ -195,8 +195,8 @@ func (f *fakeCar) reply(m dbusMsg) (string, string, []any) {
 		if n == nil {
 			return unknown()
 		}
-		if m.body[1] == "Enabled" && m.body[2].(dbusVariant).val == true {
-			n["disabled"] = "0"
+		if m.body[1] == "Enabled" {
+			n["disabled"] = map[bool]string{true: "0", false: "1"}[m.body[2].(dbusVariant).val == true]
 		}
 		return "", "", nil
 	case "AddNetwork":
@@ -452,7 +452,7 @@ func TestCarWiFi(t *testing.T) {
 	if l.Ifname() != "wlanc0" {
 		t.Fatalf("link on %s", l.Ifname())
 	}
-	p.setOnline("172.20.10.4")
+	p.setOnline("172.20.10.4", "")
 	waitWiFi(t, p, "online", func(st wifiStatus) bool { return st.Link == "online" })
 
 	// An open network, then forgetting it: back on the saved one.
@@ -568,6 +568,111 @@ func TestCarWiFiResume(t *testing.T) {
 		defer p.mu.Unlock()
 		return st.Link == "connected" && st.SSID == "Robert’s iPhone" && p.ownedIdx == 27
 	})
+}
+
+// enabledOurs counts our networks in the car's supplicant that are enabled.
+func (f *fakeCar) enabledOurs() (on, all int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, n := range f.nets {
+		if n["id_str"] == `"`+carTag+`"` {
+			all++
+			if n["disabled"] != "1" {
+				on++
+			}
+		}
+	}
+	return
+}
+
+// While the uplink is online on a device that outranks Wi-Fi, our networks
+// are off (no station scans), except for a scan request; on again when it
+// is not; an association and a device Wi-Fi outranks are left alone; stop
+// and off remove them as before.
+func TestCarWiFiQuiet(t *testing.T) {
+	p, _, f := carProvider(t)
+	shown := scanShown
+	scanShown = 300 * time.Millisecond
+	t.Cleanup(func() { scanShown = shown })
+	p.outranks = func(kind string) bool { return kind == kindIPhone }
+	p.car.writeSaved([]savedNet{{ssid: "Home", psk: "homepass1", priority: 5}})
+	p.setEnabled(true)
+	p.start()
+	stopped := false
+	defer func() {
+		if !stopped {
+			p.stop()
+		}
+	}()
+	enabled := func(want int) func(wifiStatus) bool {
+		return func(wifiStatus) bool { on, all := f.enabledOurs(); return all == 1 && on == want }
+	}
+	waitWiFi(t, p, "scanning for Home", func(st wifiStatus) bool { return st.Link == "scanning" && enabled(1)(st) })
+	reassoc := f.called("Reassociate")
+
+	// online on a device Wi-Fi outranks: nothing changes
+	p.setOnline("", kindUSB)
+	time.Sleep(10 * wifiEvery)
+	if st := p.status(); st.Link != "scanning" || !enabled(1)(st) {
+		t.Fatalf("under a usb uplink Wi-Fi outranks: %+v", st)
+	}
+
+	p.setOnline("", kindIPhone)
+	waitWiFi(t, p, "paused under the iPhone", func(st wifiStatus) bool { return st.Link == "idle" && enabled(0)(st) })
+
+	// a connect request while paused joins, then out of range: paused again
+	f.do(func() { f.bss = append(f.bss, fakeBSS{"Home", -50, "homepass1"}) })
+	if err := p.connect("Home", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitWiFi(t, p, "joined Home while paused", func(st wifiStatus) bool { return st.Link == "connected" && enabled(1)(st) })
+	f.do(func() { f.bss = f.bss[:len(f.bss)-1] })
+	waitWiFi(t, p, "paused again", func(st wifiStatus) bool { return st.Link == "idle" && enabled(0)(st) })
+
+	// a scan request: on for the scan, then off again
+	if err := p.scan(); err != nil {
+		t.Fatal(err)
+	}
+	waitWiFi(t, p, "on for the scan", enabled(1))
+	waitWiFi(t, p, "paused after the scan", func(st wifiStatus) bool { return st.Link == "idle" && !st.Scanning && enabled(0)(st) })
+
+	// a supplicant retake (reload) while paused adds ours off, no Reassociate
+	if err := p.car.reload(); err != nil {
+		t.Fatal(err)
+	}
+	if on, all := f.enabledOurs(); on != 0 || all != 1 || f.called("Reassociate") != reassoc {
+		t.Fatalf("reload while paused: %d of %d on, %d reassociates", on, all, f.called("Reassociate")-reassoc)
+	}
+
+	// the iPhone goes: on again, as before
+	p.setOnline("", "")
+	waitWiFi(t, p, "scanning again", func(st wifiStatus) bool { return st.Link == "scanning" && enabled(1)(st) })
+
+	// joined Home, then the iPhone online: the association stays
+	f.do(func() { f.bss = append(f.bss, fakeBSS{"Home", -50, "homepass1"}) })
+	waitWiFi(t, p, "joined Home", func(st wifiStatus) bool { return st.Link == "connected" && st.SSID == "Home" })
+	p.setOnline("", kindIPhone)
+	time.Sleep(10 * wifiEvery)
+	if st := p.status(); st.Link != "connected" || !enabled(1)(st) {
+		t.Fatalf("joined under the iPhone: %+v", st)
+	}
+
+	// out of range again: paused; switched off: ours removed as before
+	f.do(func() { f.bss = f.bss[:len(f.bss)-1] })
+	waitWiFi(t, p, "paused out of range", func(st wifiStatus) bool { return st.Link == "idle" && enabled(0)(st) })
+	p.setEnabled(false)
+	waitWiFi(t, p, "off", func(st wifiStatus) bool { return st.Link == "off" && !p.guarding() })
+	if _, all := f.enabledOurs(); all != 0 || p.car.quiet {
+		t.Fatalf("after off: %d of ours, quiet %v", all, p.car.quiet)
+	}
+	// on again with the iPhone still online: added on, then paused
+	p.setEnabled(true)
+	waitWiFi(t, p, "paused after on", func(st wifiStatus) bool { return st.Link == "idle" && enabled(0)(st) })
+	stopped = true
+	p.stop()
+	if _, all := f.enabledOurs(); all != 0 || p.car.quiet {
+		t.Fatalf("after stop: %d of ours, quiet %v", all, p.car.quiet)
+	}
 }
 
 // Without wlan1 the car's wlan0 is used only with the Broadcom driver; with

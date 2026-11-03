@@ -1,5 +1,9 @@
 # mgu-uplink changelog
 
+## 0.7.4
+
+- Wi-Fi through the car's supplicant (iDrive 7, `wlan0`): while the uplink is online on a device that ranks above Wi-Fi (a phone with `preferred = phone`, an adapter with `usb`) and Wi-Fi is not joined, our networks are switched off in the car's supplicant, which then stops scanning every 5 s for a saved network out of range. Those scans took the shared radio off wireless CarPlay's channel and flooded the journal. They are switched on again as soon as that uplink is offline or gone, and for a `wifi-scan` request. They are only ever in the supplicant's memory, and a start adds them switched on. `wlan1` (our own wpa_supplicant) is unchanged.
+
 ## 0.7.3
 
 - Wi-Fi on iDrive 7 units without `wlan1` (Broadcom BCM4359, `bcmdhd`): the unit joins on the car's own `wlan0` through the car's D-Bus wpa_supplicant, beside the car's hotspot and wireless CarPlay, with the same requests, saved networks, DHCP, routing and firewall as on `wlan1`. Our networks live only in the car's supplicant's memory, tagged `id_str="mgu-uplink"`, and are removed when Wi-Fi is switched off, the service stops or the car starts using `wlan0` (a network of its own, its Wi-Fi switched off); a start removes the ones a killed run left. `wlan1`, where there is one, is used as before.
