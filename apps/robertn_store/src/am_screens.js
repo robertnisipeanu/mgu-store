@@ -162,7 +162,8 @@ module.exports = {
      "opts": {
       "vicon": "gauge",
       "colors": "#ff4b55,#a8101c",
-      "badge": "update"
+      "badge": "update",
+      "glow": true
      }
     },
     {

@@ -80,9 +80,18 @@ function chips(cv, t, b, o) {
     }
 }
 
+// o.glow: a soft halo of the icon's colour (a picture's: dim) around it; the badge's cut-out takes the halo's colour
 function appIconEl(cv, t, b, o) {
-    const s = Math.min(b.w, b.h);
-    appIcon(cv, t, o, b.x + (b.w - s) / 2, b.y + (b.h - s) / 2, s);
+    const s = Math.min(b.w, b.h), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    let bg = t.bg;
+    if (o.glow) {
+        const c = o.icon ? t.dim : pair(o.colors, ['#3a4352'])[0], n = 16, a = 0.022, r0 = 0.82, dr = 0.02;
+        for (let i = 0; i < n; i++) cv.circle(cx, cy, s * (r0 - i * dr), withAlpha(c, a));
+        const d = s * 0.56;                                 // the badge's distance from the centre (appIcon)
+        const under = Math.max(0, Math.min(n, Math.ceil((r0 - d / s) / dr)));
+        bg = mix(t.bg, c, 1 - Math.pow(1 - a, under));
+    }
+    appIcon(cv, t, o, cx - s / 2, cy - s / 2, s, bg);
 }
 
 // ---- app grid: tiles in rows, scrolled by the pixel (o.top: rows scrolled, fractional) -------------------------
@@ -117,12 +126,16 @@ function appGrid(cv, t, b, o) {
         : Math.round(g.th * (o.iconK || 0.5));
     cv.clip(b.x, b.y, b.w, b.h);
     g.all.slice(g.first * g.cols, g.end * g.cols).forEach((a, i) => {
-        const x = b.x + (i % g.cols) * g.tw, y = b.y + (g.first + Math.floor(i / g.cols) - g.top) * g.th;
-        appIcon(cv, t, a, x + (g.tw - s) / 2, y + top, s);
+        const x = b.x + (i % g.cols) * g.tw, y = b.y + (g.first + Math.floor(i / g.cols) - g.top) * g.th, room = g.tw - 40;
+        // each tile on a card in the focus ring's box (store_frame.js), lit from the top by its icon's colour
+        const tint = mix(t.panelTop, a.icon ? t.panelEdge : pair(a.colors, ['#3a4352'])[0], 0.22);
+        cv.card(x + 8, y, g.tw - 16, g.th - 8, 24, [[0, tint], [0.55, t.panelBottom], [1, t.panelBottom]]);
+        cv.strokeRoundRect(x + 8, y, g.tw - 16, g.th - 8, 24, 1.5, t.panelEdge);
+        appIcon(cv, t, a, x + (g.tw - s) / 2, y + top, s, tint);
         const ny = y + top + s + gap[0], sy = ny + gap[1];
-        cv.text(W.fit(cv, String(a.title || ''), g.tw - 16, ts, 'bold'), x + g.tw / 2, ny, ts, t.text, { align: 'center', font: 'bold' });
-        if (a.src) cv.text(fitSource(cv, String(a.src), g.tw - 16, rs), x + g.tw / 2, sy, rs, t.dim, { align: 'center' });
-        if (a.sub) cv.text(W.fit(cv, String(a.sub), g.tw - 16, ss), x + g.tw / 2, sy + gap[2], ss, C(t, a.subColor, t.dim), { align: 'center' });
+        cv.text(W.fit(cv, String(a.title || ''), room, ts, 'bold'), x + g.tw / 2, ny, ts, t.text, { align: 'center', font: 'bold' });
+        if (a.src) cv.text(fitSource(cv, String(a.src), room, rs), x + g.tw / 2, sy, rs, t.dim, { align: 'center' });
+        if (a.sub) cv.text(W.fit(cv, String(a.sub), room, ss), x + g.tw / 2, sy + gap[2], ss, C(t, a.subColor, t.dim), { align: 'center' });
     });
     cv.noclip();
     if (!g.all.length && o.empty) mid(cv, o.empty, b.x + b.w / 2, b.y + b.h / 2, 36, t.dim, { align: 'center' });

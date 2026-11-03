@@ -103,7 +103,7 @@ function compact(W, H) {
     const primaryY = secondaryY - 12 - 84;
     const app = screen('app', 0, [
         back(),
-        el('icon', 'appIcon', X + 84, M, 120, 120, { vicon: '', colors: '#3a4352,#232a35' }),
+        el('icon', 'appIcon', X + 84, M, 120, 120, { vicon: '', colors: '#3a4352,#232a35', glow: true }),
         text('name', ix, M, lw - 224, 72, '', 63, 'bold'),
         text('author', ix, M + 76, lw - 224, 32, '', 27, 'label', DIM),
         el('facts', 'chips', ix, M + 114, lw - 224, 44, { items: '' }),
