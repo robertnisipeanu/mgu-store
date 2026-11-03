@@ -44,8 +44,8 @@ const HANDOVER_EXIT = 75;
 const TRIAL_WAIT_MS = Number(process.env.MGU_UPDATER_TRIAL_WAIT_MS || 120000);
 // A restart the unit has not carried out by then is reported as failed.
 const REBOOT_WAIT_MS = Number(process.env.MGU_UPDATER_REBOOT_WAIT_MS || 180000);
-// The limits on restarts the updater asks for (README.md, "Restarting the
-// head unit"): none before the unit has been up REBOOT_MIN_UPTIME_S, so one
+// The limits on restarts the updater asks for without someone's tap
+// (README.md, "Restarting the head unit"): none before the unit has been up REBOOT_MIN_UPTIME_S, so one
 // asked for at every start cannot restart it in a loop; at most one per
 // REBOOT_SPACING_MS and REBOOT_HOUR_MAX an hour, kept across restarts in
 // state_dir/reboots.json.
@@ -2205,15 +2205,16 @@ class Updater {
 
     /* Restarts the head unit with the `reboot` command (updater.conf), on the
      * Store's request. Refused while an install runs or waits, so a restart
-     * never cuts one short, and within the limits (rebootWait), with
-     * rebootError saying why and when a restart can be asked for, until
-     * then. The request is in reboots.json, on disk, before the command runs;
-     * installs asked for afterwards are refused. A command that cannot run,
-     * exits non-zero or prints nsm_control's "[Error. <why>]" (it exits 0
-     * then too) does not count against the limits; it, or a unit still up
-     * after REBOOT_WAIT_MS, ends the restart with rebootError until the next
-     * check. */
-    reboot() {
+     * never cuts one short. A restart someone tapped (tapped: the Store's,
+     * with the secret) runs at once; any other is held to the limits
+     * (rebootWait), with rebootError saying why and when a restart can be
+     * asked for, until then, and is in reboots.json, on disk, before the
+     * command runs. Installs asked for afterwards are refused. A command that
+     * cannot run, exits non-zero or prints nsm_control's "[Error. <why>]" (it
+     * exits 0 then too) does not count against the limits; it, or a unit
+     * still up after REBOOT_WAIT_MS, ends the restart with rebootError until
+     * the next check. */
+    reboot(tapped) {
         if (this.busy || this.queue.length) {
             return 'an install is running';
         }
@@ -2225,16 +2226,18 @@ class Updater {
             return 'no reboot command configured';
         }
         const now = Date.now();
-        const wait = this.rebootWait(now);
-        if (wait) {
-            return this.rebootRefused(wait.ms > 0 ? `${wait.why}, possible in ${Math.max(1, Math.ceil(wait.ms / 60000))} min` : wait.why, wait.ms);
-        }
         const record = (times) => writeDurable(path.join(this.conf.state_dir, 'reboots.json'), JSON.stringify({ at: times }));
-        try {
-            mkdirp(this.conf.state_dir, 0o755);
-            record(this.rebootTimes(now).concat(now));
-        } catch (e) {
-            return this.rebootRefused(`cannot record the restart: ${e.message}`, 0);
+        if (!tapped) {
+            const wait = this.rebootWait(now);
+            if (wait) {
+                return this.rebootRefused(wait.ms > 0 ? `${wait.why}, possible in ${Math.max(1, Math.ceil(wait.ms / 60000))} min` : wait.why, wait.ms);
+            }
+            try {
+                mkdirp(this.conf.state_dir, 0o755);
+                record(this.rebootTimes(now).concat(now));
+            } catch (e) {
+                return this.rebootRefused(`cannot record the restart: ${e.message}`, 0);
+            }
         }
         const failed = (why, counts) => {
             if (!this.rebooting) {
@@ -2244,7 +2247,7 @@ class Updater {
             this.rebooting = false;
             this.rebootError = why;
             console.log(`restart failed: ${why}`);
-            if (!counts) {
+            if (!counts && !tapped) {
                 try {
                     record(this.rebootTimes(Date.now()).filter((t) => t !== now));
                 } catch (e) {
@@ -3330,7 +3333,7 @@ class Updater {
         case 'status': return null;
         case 'check': this.check(); return null;
         case 'install': return typeof req.id === 'string' ? this.request(req.id) : 'install needs an id';
-        case 'reboot': return this.reboot();
+        case 'reboot': return this.reboot(this.authorized(req.secret));
         case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id) : 'uninstall needs an id';
         case 'rollback': return typeof req.id === 'string' ? this.requestRollback(req.id) : 'rollback needs an id';
         case 'hello': this.storeHello(req); return undefined;
