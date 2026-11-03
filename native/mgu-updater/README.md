@@ -543,8 +543,13 @@ fetcher can change nothing it installs.
   not redirected.
 - The size the source states is the most that is read; API answers at
   most 4 MiB.
-- A download whose connection breaks (cut mid-transfer, reset, no data for
-  30 s, no connection) or that gets a 500, 502, 503 or 504 is tried again
+- A connection waits at most 15 s for the name lookup, TCP and TLS
+  together, and 30 s for the answer's headers and for each part of its body:
+  a network the uplink has left gives the connection neither data nor a
+  reset. Each try resolves names through the servers of the uplink's lease
+  as it is then, so a download carries on over a network joined meanwhile.
+- A download whose connection breaks (cut mid-transfer, reset, one of those
+  waits over, no connection) or that gets a 500, 502, 503 or 504 is tried again
   after 1, 2, 4 and 8 s, up to 4 times in a row without getting further, 200
   tries in all. Where the server takes byte ranges with a strong ETag
   (GitHub's release downloads do; `codeload.github.com` does not), the next

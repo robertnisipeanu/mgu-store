@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.21
+
+- A download carries on after the uplink moves to another network (a Wi-Fi switch, a new lease): each try resolves names through the servers of the lease it finds then, and a try without a lease fails as having no internet, to be tried again. A connection that gets neither data nor a reset gives up within its bound: 15 s for the name lookup, TCP and TLS together, 30 s for the answer's headers and 30 s for each part of its body (`<host>: no connection in 15 s`, `<host>: no data for 30 s`). A download that fails is reported as soon as its last try ends.
+
 ## 0.8.20
 
 - A component the deploy tool says does not work (its `stale` in `status --json`: a firmware update took what it set up outside `/var/opt`) and cannot set up again from a copy it keeps is installed again from its source (the version the source has, which may be newer), once for each reason while the updater runs: one that did not help, or did not get through, is asked for again after the next start. Not the updater itself, which first-install installs, nor an app on iDrive 8, whose deploy tool installs no current app afresh. Its row has `repair` (the reason) and `problem` (`Not working: <reason>`) until then.
