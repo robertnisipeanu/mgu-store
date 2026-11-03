@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.17
+
+Installed: with no update left, the button at the top checks for new ones
+(Check for updates, Checking while the updater looks). With no internet and
+no USB stick it says No internet for a moment instead of sending a check
+that cannot find anything; Settings' Check now does the same.
+
 ## 0.9.16
 
 Restart head unit carries the updater's secret, which mgu-updater 0.8.14

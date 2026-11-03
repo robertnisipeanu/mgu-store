@@ -209,7 +209,8 @@ f = laterOf({});
 eq([f.values.grid.items.map((t) => [t.id, t.sub, t.badge]), f.values.nav.items[1].badge],
     [[['car_vitals', 'Restart pending', ''], ['doom', 'Restart pending', 'installed']], ''], 'tiles; not counted as an update');
 f = laterOf({ tab: 'installed' });
-eq([f.values.apps.items.map((i) => [i.id, i.right, i.chipAct]), f.values.updateAll.hidden], [[['doom', 'chip:Restart pending', null]], true]);
+eq([f.values.apps.items.map((i) => [i.id, i.right, i.chipAct]), f.values.updateAll.text], [[['doom', 'chip:Restart pending', null]], 'Check for updates'],
+    'no update left: the button checks for new ones');
 // with the updater's nextStart: a queued first install has Remove (drops it), a queued removal none; a failed apply shows why
 later.components = [Object.assign({}, later.components[0], { nextStart: 'install' }),
     Object.assign({}, later.components[1], { status: 'installed', installed: '1.0.1', nextStart: 'remove' })];
@@ -272,6 +273,11 @@ eq(text(f, 'text'), 'robertn · robertnisipeanu/mgu-store');
 f = screen('installed');
 eq(f.labels[4], 'Update all (1)', 'DOOM downloads and Extended dashboard waits: one update left');
 eq(f.items.find((i) => i.label === 'Update').act, { do: 'install', id: 'gauges' });
+// no update: Check for updates (Checking while the updater looks); No internet for a moment when it cannot look
+const noUp = screen('installed', {}, { components: fixture.state().components.map((c) => Object.assign({}, c, { status: c.installed ? 'installed' : c.status })) });
+eq([noUp.values.updateAll.text, noUp.values.updateAll.act], ['Check for updates', { do: 'check' }], 'no update: Check for updates');
+eq(screen('installed', { noNet: true }, { components: fixture.state().components.map((c) => Object.assign({}, c, { status: c.installed ? 'installed' : c.status })) }).values.updateAll.text,
+    'No internet', 'no internet: the button says so');
 ok(f.labels.indexOf('Display bridge') >= 0 && f.labels.indexOf('M Vitals') < 0, 'installed ones only');
 eq(f.values.apps.items.filter((i) => i.id === 'gauges' || i.id === 'robertn_store').map((i) => i.sub),
     ['1.2.0 → a1b2c3d · idrive7-apps', '0.7.0 · mgu-store'], 'a row names its source');
