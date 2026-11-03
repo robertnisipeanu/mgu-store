@@ -1238,9 +1238,29 @@ function testReboot() {
         })
         .then(() => {
             ok('reboot: the refusal clears once a restart is possible', u.rebootError === null, u.rebootError);
-            upFor(600);
             ok('reboot: the socket refuses a restart without the secret', u.handle({ op: 'reboot' }) === 'forbidden' && !u.rebooting);
-            ok('reboot: and accepts the Store\'s, with the secret', u.handle({ op: 'reboot', secret: u.secret }) === null && u.rebooting);
+
+            // the Store's, with the secret, is someone's tap: it runs at once, whatever the limits
+            upFor(60);
+            const now = Date.now();
+            const hour = JSON.stringify({ at: [now - 30 * 60000, now - 20 * 60000, now - 60000] });
+            fs.writeFileSync(record, hour);
+            u = make(`${script} --requestRestart 7`);
+            ok('reboot: a limited request 1 min after start-up and the last restart, after 3 in the hour, is refused',
+                u.reboot() === '3 restarts in the last hour, possible in 30 min' && !u.rebooting, u.rebootError);
+            const before = rebootRuns(dir).length;
+            ok('reboot: the Store\'s, with the secret, runs then, clearing the refusal',
+                u.handle({ op: 'reboot', secret: u.secret }) === null && u.rebooting && u.rebootError === null, u.rebootError);
+            ok('reboot: and is not held against later requests', fs.readFileSync(record, 'utf8') === hour);
+            fs.writeFileSync(record, '{');
+            u = make(`${script} --requestRestart 7`);
+            u.conf.proc = path.join(dir, 'no-proc');
+            ok('reboot: the Store\'s runs with the uptime unknown and the record unreadable',
+                u.handle({ op: 'reboot', secret: u.secret }) === null && u.rebooting);
+            return sleep(1000).then(() => ok('reboot: and the command runs for both', rebootRuns(dir).length === before + 2, rebootRuns(dir).length));
+        })
+        .then(() => {
+            upFor(600);
             // a Store before 0.9.16 sends no secret: while one is installed, its restart is taken without it, within the limits
             fs.unlinkSync(record);
             const storeAt = (v) => {

@@ -667,8 +667,11 @@ which no BMW unit hooks, and it stops the services by their `KillSignal`
   restart with that reason. Any other restart that does not happen shows
   as a unit still up 3 minutes later: `rebootError` is `the head unit did
   not restart`. `rebootError` stays until the next catalog check.
-- Limited, so that nothing can restart the unit in a loop (on a car,
-  recmgr answers repeated failed starts with a data wipe). A request is
+- The Store's request, with the secret, is someone's tap: it runs at
+  once, whatever the limits below, and is not recorded against them.
+- Any other request (without the secret, from a Store before 0.9.16) is
+  limited, so that nothing can restart the unit in a loop (on a car,
+  recmgr answers repeated failed starts with a data wipe). It is
   refused, with `rebootError` saying why and when a restart is possible
   (`too soon after start-up, possible in 3 min`) until then:
   - before the unit has been up 4 minutes (`/proc/uptime`, so a restart of
@@ -887,7 +890,7 @@ Store says it at each connection (below, "The Store's update").
 
 | Request | Does |
 |---|---|
-| `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"); without the secret while a Store older than 0.9.16 is installed |
+| `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"): at once with the secret; without it while a Store older than 0.9.16 is installed, within the restart limits |
 | `{"op":"uninstall","id"}` | removes an `uninstallable` component (every app but the Store) |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
