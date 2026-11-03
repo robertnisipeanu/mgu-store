@@ -55,20 +55,28 @@ static int ax, ay, aw, ah;                     /* area apps may claim; aw 0 = wh
 static unsigned be16(const unsigned char *p) { return p[0] << 8 | p[1]; }
 static unsigned be32(const unsigned char *p) { return (unsigned)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
 
+/* the script goes to nft in a file: the nft of some units (MainApp 6.5.5 cars) cannot read one from "-" */
 static int nft(const char *script)
 {
-    FILE *f = popen("nft -f - 2>&1", "w");
-    if (!f) return -1;
-    fputs(script, f);
-    return pclose(f) == 0 ? 0 : -1;
+    char path[] = "/tmp/mgu-render-nft-XXXXXX", cmd[64];
+    int fd = mkstemp(path);
+    if (fd < 0) return -1;
+    size_t n = strlen(script);
+    int ok = write(fd, script, n) == (ssize_t)n;
+    close(fd);
+    snprintf(cmd, sizeof cmd, "nft -f %s 2>&1", path);
+    ok = ok && system(cmd) == 0;
+    unlink(path);
+    return ok ? 0 : -1;
 }
+/* in, and there: a load nft reports done without the table is a failure */
 static int rule_in(void)
 {
     if (open_fw[0] && system(open_fw) != 0) fprintf(stderr, "[mgu-render] touch: opening the firewall for %d failed\n", PORT_IN);
     char s[768];
     snprintf(s, sizeof s, "table " TABLE "\ndelete table " TABLE "\ntable " TABLE " {\n"
         "chain pre {\ntype filter hook prerouting priority -300; policy accept;\n%s\n}\n}\n", rule);
-    return nft(s);
+    return nft(s) == 0 && system("nft list table " TABLE " >/dev/null 2>&1") == 0 ? 0 : -1;
 }
 static void rule_out(void) { nft("table " TABLE "\ndelete table " TABLE "\n"); }
 

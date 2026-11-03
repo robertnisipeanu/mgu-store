@@ -65,7 +65,7 @@ int main(void)
     snprintf(nft_log, sizeof nft_log, "%s/nft.log", dir);
     snprintf(nft_path, sizeof nft_path, "%s/nft", dir);
     FILE *f = fopen(nft_path, "w");
-    fprintf(f, "#!/bin/sh\n{ echo \"nft $*\"; [ \"$1\" = -f ] && cat; } >> %s\n", nft_log);
+    fprintf(f, "#!/bin/sh\n{ echo \"nft $*\"; [ \"$1\" = -f ] && cat \"$2\"; } >> %s; true\n", nft_log);
     fclose(f); chmod(nft_path, 0755);
     snprintf(path, sizeof path, "%s:%s", dir, getenv("PATH") ? getenv("PATH") : "/usr/bin:/bin");
     setenv("PATH", path, 1);

@@ -1,5 +1,9 @@
 # mgu-render changelog
 
+## 0.6.11
+
+- Touch: the divert rule goes to nft in a file (`/tmp/mgu-render-nft-*`), and a load counts only when the table is then there. The nft of some iDrive 7 units (seen with MainApp 6.5.5) cannot read a script from `-`: the rule never went in while the log said `touch: diverted`, and touches never reached the apps.
+
 ## 0.6.10
 
 Both changes are for iDrive 8 only (centre display 2880x960); on iDrive 7 the renderer behaves as 0.6.9.
