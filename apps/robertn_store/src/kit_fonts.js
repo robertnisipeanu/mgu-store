@@ -113,10 +113,13 @@ function get(name, size, text) {
     const s = text === undefined || text === null ? '' : String(text);
     const sizes = ownSizes(s !== '' && !has(fam[0], s), name);
     if (sizes) {
+        const whole = sizes.filter((f) => has(f, s));
+        if (whole.length) {
+            return pick(whole, size);
+        }
         const count = (f) => Object.keys(f.glyphs).length;
         const most = Math.max(...sizes.map(count));
-        const whole = sizes.filter((f) => has(f, s));
-        return pick(whole.length ? whole : sizes.filter((f) => count(f) === most), size);
+        return pick(sizes.filter((f) => count(f) === most), size);
     }
     return pick(fam, size);
 }

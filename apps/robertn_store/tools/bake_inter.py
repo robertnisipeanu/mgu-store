@@ -43,8 +43,8 @@ def ranges(*spans):
 PUNCTUATION = '¡¿«»‘’‚“”„‹›€−'
 FONTS = {
     # Latin-1, and Latin Extended-A's letters of the HMI's languages: Polish, Czech, Slovak, Slovenian,
-    # Hungarian, Romanian (with its comma-below), Turkish, French
-    'latin': ranges((0xC0, 0xFF), (0x218, 0x21B)) + 'ĄąĆćĘęŁłŃńŚśŹźŻżČčĎďĚěŇňŘřŠšŤťŮůŽžĹĺĽľŔŕŐőŰűĂăĞğİıŞşŒœ' + PUNCTUATION,
+    # Hungarian, Romanian (comma-below and the older cedilla), Turkish, French
+    'latin': ranges((0xC0, 0xFF), (0x218, 0x21B)) + 'ĄąĆćĘęŁłŃńŚśŹźŻżČčĎďĚěŇňŘřŠšŤťŮůŽžĹĺĽľŔŕŐőŰűĂăŢţĞğİıŞşŒœŸ' + PUNCTUATION,
     'greek': ranges((0x386, 0x386), (0x388, 0x38A), (0x38C, 0x38C), (0x38E, 0x3A1), (0x3A3, 0x3CE)) + PUNCTUATION,
     'cyrillic': ranges((0x400, 0x45F), (0x490, 0x491)) + PUNCTUATION + '₴₽№',
     'vietnamese': ranges((0xC0, 0xFF), (0x1EA0, 0x1EF9)) + 'ĂăĐđĨĩŨũƠơƯư' + PUNCTUATION + '₫',

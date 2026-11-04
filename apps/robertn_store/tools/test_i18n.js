@@ -238,8 +238,8 @@ all.filter((l) => l.drawn !== false).forEach((l) => {
     })));
 });
 // mgu-render's glyph texture (src/gfx.c gfx_atlas): two 1024-px columns of 4096 rows, shared by every app
-// and never emptied while it runs: Inter's atlases and any language's fit, and a change between two of the
-// largest (Chinese, Japanese, Korean)
+// and never emptied while it runs: Inter's atlases and any language's fit, and, uploaded in this order, those
+// of a change between two of the largest (Chinese, Japanese, Korean)
 const rows = (m) => (m.sizes || [].concat(...Object.keys(m.faces).map((k) => m.faces[k].sizes))).map((a) => a.atlasH);
 const shelves = (heights) => heights.reduce((col, h) => {
     const c = col[0] <= col[1] ? 0 : 1;

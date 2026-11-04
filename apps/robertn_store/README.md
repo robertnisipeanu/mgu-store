@@ -153,9 +153,9 @@ loaded the first time it is:
 
 The renderer's glyph texture (two columns of 1024 x 4096) is shared by
 every app and keeps every atlas until the renderer restarts. Inter's and
-any one language's atlases fit, and so do those of a change between two of
-Chinese, Japanese and Korean; after more language changes the head unit's
-next start brings the newest language's text back if it went missing.
+one language's atlases fit with room to spare. After display-language
+changes the texture can fill up, and the new language's text then shows
+after the head unit's next start.
 
 ## The widget screens
 
