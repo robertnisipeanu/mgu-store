@@ -8,13 +8,17 @@
  * Node 8.
  *
  * stdin: one JSON job
- *   { token, uid, dns: ["1.2.3.4", ...], maxBytes, idleMs, open }
+ *   { token, uid, dns: ["1.2.3.4", ...], lease, maxBytes, connectMs, idleMs, open }
  *   token: the password every request carries (Proxy-Authorization: Basic,
  *   any user name); uid: the only uid whose connections are served (read
  *   from /proc/net/tcp; not checked where that file is missing); dns: the
- *   uplink lease's servers (empty: the system resolver); maxBytes: the most
- *   that may pass, both ways, in all; open (the tests only): any port and
- *   address.
+ *   uplink lease's servers (empty: the system resolver); lease: the uplink's
+ *   lease file, read again for each connection: its dns servers replace dns,
+ *   and without one the connection is refused (the uplink is down, or
+ *   between networks); maxBytes: the most that may pass, both ways, in all;
+ *   connectMs: how long the name lookup and the TCP connection may take
+ *   together (15 s); idleMs: how long a connection may go without data;
+ *   open (the tests only): any port and address.
  * stdout: one JSON line per event
  *   { listening: <port> }
  *   { request: "CONNECT host:443" | "GET http://host/..." }
@@ -31,6 +35,7 @@ const dns = require('dns');
 const http = require('http');
 const crypto = require('crypto');
 const { URL } = require('url');
+const { leaseDns, CONNECT_MS } = require('./fetch');
 
 const HOST = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$/i;
 
@@ -50,24 +55,75 @@ function isPublic(ip) {
         (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)));
 }
 
-function resolver(servers, open) {
-    const r = new dns.Resolver();
-    if (servers && servers.length) {
-        r.setServers(servers);
-    }
+/* lookup(host, cb) -> cancel(): host's first public IPv4 address, through
+ * the servers of the uplink's lease as it is then (job.lease), else job.dns:
+ * a network joined since the build started has its own. */
+function resolver(job) {
     return (host, cb) => {
         if (!HOST.test(host)) {
             cb(new Error(`${host}: not a host name`));
-            return;
+            return () => {};
+        }
+        const servers = job.lease ? leaseDns(job.lease) : job.dns;
+        if (!servers) {
+            cb(new Error('no internet (the uplink is down)'));
+            return () => {};
+        }
+        const r = new dns.Resolver();
+        if (servers.length) {
+            r.setServers(servers);
         }
         r.resolve4(host, (err, addrs) => {
-            const ok = !err && addrs.filter((a) => open || isPublic(a));
+            const ok = !err && addrs.filter((a) => job.open || isPublic(a));
             if (!ok || !ok.length) {
                 cb(err || new Error(`${host}: no public address`));
                 return;
             }
             cb(null, ok[0]);
         });
+        return () => r.cancel();
+    };
+}
+
+/* host's address and a connection to it, within connectMs: a network the
+ * uplink has left answers neither the lookup nor the connection. A timer of
+ * its own: Node 8's socket timeout can fire at up to twice its time on a
+ * socket that has not connected yet. open(ip) starts the connection and
+ * returns its socket; cb(err) once, on failure or once it has connected;
+ * the function returned stops waiting. */
+function connectTo(lookup, connectMs, host, open, cb) {
+    let done = false;
+    let sock = null;
+    const finish = (err) => {
+        if (!done) {
+            done = true;
+            clearTimeout(timer);
+            cb(err);
+        }
+    };
+    const timer = setTimeout(() => {
+        finish(new Error(`${host}: no connection in ${Math.round(connectMs / 1000)} s`));
+        cancel();
+        if (sock) {
+            sock.destroy();
+        }
+    }, connectMs);
+    const cancel = lookup(host, (err, ip) => {
+        if (done) {
+            return;
+        }
+        if (err) {
+            finish(err);
+            return;
+        }
+        sock = open(ip);
+        sock.once('connect', () => finish(null));
+        sock.once('error', finish);
+    });
+    return () => {
+        done = true;
+        clearTimeout(timer);
+        cancel();
     };
 }
 
@@ -88,7 +144,8 @@ function peerUid(port, ourPort) {
 }
 
 function main(job) {
-    const lookup = resolver(job.dns, job.open);
+    const lookup = resolver(job);
+    const connectMs = job.connectMs || CONNECT_MS;
     const httpPort = job.open ? null : '80';
     const tlsPort = job.open ? null : '443';
     const token = Buffer.from(String(job.token));
@@ -119,7 +176,12 @@ function main(job) {
         } catch (e) {
             target = null;
         }
+        let refused = false;
         const refuse = (code, text) => {
+            if (refused) {
+                return;
+            }
+            refused = true;
             emit({ refused: text });
             // an answer already under way can only be cut off
             if (res.headersSent) {
@@ -140,16 +202,15 @@ function main(job) {
             return;
         }
         emit({ request: `${req.method} http://${target.hostname}${target.pathname}` });
-        lookup(target.hostname, (err, ip) => {
-            if (err) {
-                refuse(502, err.message);
-                return;
-            }
+        const stop = connectTo(lookup, connectMs, target.hostname, (ip) => {
             const headers = Object.assign({}, req.headers);
             delete headers['proxy-authorization'];
             delete headers['proxy-connection'];
             headers.host = target.host;
-            const up = http.request({ host: ip, port: Number(target.port) || 80, method: req.method, path: target.pathname + target.search, headers }, (r) => {
+            // one request a connection: nothing reuses the upstream socket, so it closes with the answer
+            headers.connection = 'close';
+            const sock = net.connect(Number(target.port) || 80, ip);
+            const up = http.request({ method: req.method, path: target.pathname + target.search, headers, createConnection: () => sock }, (r) => {
                 res.writeHead(r.statusCode, r.headers);
                 r.on('data', (d) => {
                     if (!count(d.length)) {
@@ -163,17 +224,25 @@ function main(job) {
             up.setTimeout(idleMs, () => up.abort());
             up.on('error', (e) => refuse(502, `${target.hostname}: ${e.code || e.message}`));
             up.end();
+            return sock;
+        }, (err) => {
+            if (err) {
+                refuse(502, err.message);
+            }
         });
+        res.on('close', stop);
     });
     server.on('connect', (req, socket, head) => {
         // the client's socket from now on is ours, errors too (a reset while the name resolves)
         let up = null;
+        let stop = () => {};
         socket.on('error', () => {
             socket.destroy();
             if (up) {
                 up.destroy();
             }
         });
+        socket.on('close', () => stop());
         const why = allowed(req, socket);
         const m = /^([^:\s]+):(\d+)$/.exec(req.url || '');
         const refuse = (code, text) => {
@@ -189,13 +258,7 @@ function main(job) {
             return;
         }
         emit({ request: `CONNECT ${m[1]}:${m[2]}` });
-        lookup(m[1], (err, ip) => {
-            if (err || socket.destroyed) {
-                if (err) {
-                    refuse(502, err.message);
-                }
-                return;
-            }
+        stop = connectTo(lookup, connectMs, m[1], (ip) => {
             up = net.connect(Number(m[2]), ip, () => {
                 socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
                 if (head && head.length) {
@@ -223,6 +286,11 @@ function main(job) {
                 up.destroy();
                 socket.destroy();
             });
+            return up;
+        }, (err) => {
+            if (err) {
+                refuse(502, err.message);
+            }
         });
     });
     server.listen(0, '127.0.0.1', () => emit({ listening: server.address().port }));

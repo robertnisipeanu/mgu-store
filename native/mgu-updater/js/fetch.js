@@ -405,17 +405,21 @@ function leaseDns(file) {
     }
 }
 
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (d) => { input += d; });
-process.stdin.on('end', () => {
-    let job;
-    try {
-        job = JSON.parse(input);
-    } catch (e) {
-        emit({ error: 'bad job' });
-        process.exitCode = 2;
-        return;
-    }
-    download(job);
-});
+module.exports = { leaseDns, CONNECT_MS };
+
+if (require.main === module) {
+    let input = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (d) => { input += d; });
+    process.stdin.on('end', () => {
+        let job;
+        try {
+            job = JSON.parse(input);
+        } catch (e) {
+            emit({ error: 'bad job' });
+            process.exitCode = 2;
+            return;
+        }
+        download(job);
+    });
+}
