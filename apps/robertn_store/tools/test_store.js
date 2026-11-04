@@ -910,6 +910,27 @@ function runWidgetsExtra() {
         reset();
         app._remove();
         eq(sent.map(secretless), [{ op: 'uninstall', id: 'doom' }]);
+        // an app with a tool only it requires: the step lists it, and Remove all takes it along
+        reset();
+        app._client.emit('state', Object.assign({}, st, { components: [comp({ installed: '1.0.0', status: 'installed', requiredAlone: ['mgu-renderd'] }),
+            id8only, id8installed, renderer, held] }));
+        return tick();
+    }).then(() => {
+        eq([last(/storeRemoveTools\.0\.Text=/), last(/storeRemoveAll\.Visible/)],
+            ['storeRemoveTools.0.Text=Tools only it uses: GPU renderer 1.1.0', 'storeRemoveAll.Visible=1'], 'the tools only it uses, and Remove all');
+        reset();
+        app._components.storeRemoveAll.emit('action', {});
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'uninstall', id: 'doom', tools: ['mgu-renderd'] }], 'Remove all sends the tools with the app');
+        reset();
+        app._act({ do: 'remove', id: 'doom', tools: ['mgu-renderd'] });
+        eq(sent.map(secretless), [{ op: 'uninstall', id: 'doom', tools: ['mgu-renderd'] }], 'as the drawn Remove all does');
+        reset();
+        app._client.emit('state', st);
+        return tick();
+    }).then(() => {
+        eq(last(/storeRemoveAll\.Visible/), 'storeRemoveAll.Visible=0', 'none without such tools');
         reset();
         app._client.emit('state', Object.assign({}, st, { signin: true }));
         return tick();
@@ -1111,7 +1132,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.20', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.21', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));

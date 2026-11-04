@@ -513,6 +513,23 @@ module.exports = {
      }
     },
     {
+     "name": "also",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 1150,
+     "y": 456,
+     "w": 1190,
+     "h": 84,
+     "opts": {
+      "text": "Remove all",
+      "vicon": "trash",
+      "style": "outline",
+      "size": 32,
+      "hidden": true
+     },
+     "onTap": "event:also"
+    },
+    {
      "name": "now",
      "rtype": "gpu",
      "gpu": "vbutton",

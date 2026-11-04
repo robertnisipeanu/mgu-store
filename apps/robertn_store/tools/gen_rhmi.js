@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Writes robertn_store@0.9.20's application.xml and uiDescription.json for
+ * Writes robertn_store@0.9.21's application.xml and uiDescription.json for
  * iDrive 7 (uiDescriptions/ID7) and iDrive 8 (uiDescriptions/ID8) from the
  * tables below, so container and component ids, names, widgets and cells
  * stay in lockstep.
@@ -47,7 +47,9 @@
  *                                      text, the status
  *   8  ST_OnlineApps_StoreSourceRemove the confirm step of a source's Remove
  *   9  ST_OnlineApps_StoreRemove       the confirm step of a component's Remove:
- *                                      its name, Cancel, Remove
+ *                                      its name, the tools only it uses,
+ *                                      Cancel, Remove, and Remove all while it
+ *                                      lists tools
  *  30  ST_OnlineApps_StorePhone        Phone access: On/Off, the page's QR code,
  *                                      its address, its error
  *
@@ -79,7 +81,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PKG = path.join(__dirname, '..', 'robertn_store@0.9.20');
+const PKG = path.join(__dirname, '..', 'robertn_store@0.9.21');
 const DIR = (hmi) => path.join(PKG, 'rhmiData', 'uiDescriptions', hmi);
 const TEXTS = path.join(PKG, 'rhmiData', 'variantGroups', 'Common', 'texts');
 const ID7 = DIR('ID7');
@@ -209,8 +211,10 @@ const WIDGET_STATES = [
     ]),
     state(9, 'ST_OnlineApps_StoreRemove', 18, 'Remove?', MAIN.id, [
         label(97, 'storeRemoveName'),
+        label(148, 'storeRemoveTools'),
         button(98, 'storeRemoveCancel', 'Cancel'),
-        button(99, 'storeRemoveConfirm', 'Remove')
+        button(99, 'storeRemoveConfirm', 'Remove'),
+        button(149, 'storeRemoveAll', 'Remove all')
     ]),
     state(30, 'ST_OnlineApps_StorePhone', 19, 'Phone access', MAIN.id, [
         row(130, 'storePhoneToggle', 'Phone access'),

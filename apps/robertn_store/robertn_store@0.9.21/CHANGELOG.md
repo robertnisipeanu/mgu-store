@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.21
+
+Removing an app lists, in its confirm step, the tools only that app uses
+(mgu-updater 0.8.25 names them), with **Remove all**, which removes the app
+and then those tools. **Remove** removes the app alone.
+
 ## 0.9.20
 
 Tiles, Installed rows and the widget screens' rows show who an app or

@@ -39,8 +39,12 @@ restart_now(st, 'filter', 936, 134, 84, {}); screens.append(st)
 # app: his, and under the description what an installed tool says is wrong
 st = copy.deepcopy(S['app']); get(st, 'desc')['h'] = 250
 st['components'].append(text('problem', 480, 730, 1560, 90, '', 36, 'label', '#ffb020', wrap=True)); screens.append(st)
-# confirm: his restart sheet, for every confirm step
-st = copy.deepcopy(S['restart']); st['name'] = 'confirm'; screens.append(st)
+# confirm: his restart sheet, for every confirm step; under its line Remove all, shown while an app's removal may take tools along
+st = copy.deepcopy(S['restart']); st['name'] = 'confirm'
+i = next(k for k, c in enumerate(st['components']) if c['name'] == 'text')
+st['components'].insert(i + 1, comp('also', 'vbutton', 1150, 456, 1190, 84, {'text': 'Remove all', 'vicon': 'trash', 'style': 'outline',
+    'size': 32, 'hidden': True}, 'event:also'))
+screens.append(st)
 # installed: his, tools for system services
 st = copy.deepcopy(S['installed']); get(st, 'svcLabel')['opts']['text'] = 'HEAD-UNIT TOOLS'
 restart_now(st, 'appsLabel', 2300, 140, 100, {'updateAll': [-564, 0], 'subtitle': [0, -70]}); screens.append(st)

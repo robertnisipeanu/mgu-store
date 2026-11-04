@@ -310,11 +310,19 @@
                 <property id="2" value="1"/>
                 <property id="3" value="0"/>
             </component>
+            <component id="148" type="label" widget="LT_ScrollLabel">
+                <property id="2" value="1"/>
+                <property id="3" value="0"/>
+            </component>
             <component id="98" type="button" widget="LT_Button_MediaEntry_1Row">
                 <property id="2" value="1"/>
                 <property id="3" value="3"/>
             </component>
             <component id="99" type="button" widget="LT_Button_MediaEntry_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
+            <component id="149" type="button" widget="LT_Button_MediaEntry_1Row">
                 <property id="2" value="1"/>
                 <property id="3" value="3"/>
             </component>

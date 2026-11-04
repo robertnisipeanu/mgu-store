@@ -142,6 +142,7 @@ function compact(W, H) {
         el('icon', 'appIcon', sx + 40, sy + 36, 110, 110, { vicon: '', colors: '#3a4352,#232a35' }),
         text('title', sx + 176, sy + 44, SW - 216, 50, '', 41, 'bold'),
         text('text', sx + 176, sy + 104, SW - 216, 32, '', 26, 'label', DIM),
+        button('also', sx + 176, sy + 150, SW - 216, 80, '', 'outline', 28, { vicon: 'trash', hidden: true }),
         button('now', sx + 40, sy + SH - 126, BW, 90, '', 'primary', 31, { color: BLUE }),
         button('later', sx + 60 + BW, sy + SH - 126, BW, 90, 'Cancel', 'outline', 31),
         text('note', sx + 40, sy + SH - 30, SW - 80, 24, '', 21, 'label', DIM, { align: 'center' })

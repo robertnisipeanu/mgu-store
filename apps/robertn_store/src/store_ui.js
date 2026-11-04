@@ -24,7 +24,7 @@ const { t: tr } = require('./i18n.js');
  * each nav, grid and list item, on each filter cell (acts). The acts:
  * { do: 'tab', tab }, { do: 'filter', filter }, { do: 'open', page },
  * { do: 'back' }, { do: 'check' }, { do: 'install', id }, { do: 'update-all' },
- * { do: 'remove', id }, { do: 'restart' },
+ * { do: 'remove', id, tools? }, { do: 'restart' },
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
  * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
  * { do: 'pick', channel }, { do: 'pick-retry' }, { do: 'pick-add-token' }, { do: 'key', key } (typeKey),
@@ -44,7 +44,7 @@ const { t: tr } = require('./i18n.js');
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    notForUnit, removable, undoable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
+    notForUnit, removable, requiredAlone, undoable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -403,9 +403,15 @@ function confirmView(m, page) {
     let title = '';
     let line = '';
     let now = null;
+    let also = hidden;
     if (page.kind === 'remove') {
         title = c ? tr("Remove {0} {1}?", named(m, c), c.installed || '').replace(' ?', '?') : tr("Remove?");
         now = button(tr("Remove"), { do: 'remove', id: page.id }, { vicon: 'trash', style: 'primary', color: RED });
+        const tools = c ? requiredAlone(all, c) : [];
+        if (tools.length) {
+            line = tr("Tools only it uses: {0}", tools.map((t) => `${named(m, t)} ${t.installed}`).join(', '));
+            also = button(tr("Remove all"), { do: 'remove', id: page.id, tools: tools.map((t) => t.id) }, { vicon: 'trash', style: 'outline' });
+        }
     } else if (page.kind === 'undo') {
         title = c ? tr("Back to {0} {1}?", named(m, c), c.previous || '').replace(' ?', '?') : tr("Undo update");
         now = button(tr("Undo update"), { do: 'undo', id: page.id }, { vicon: 'back', style: 'primary', color: BLUE });
@@ -428,7 +434,7 @@ function confirmView(m, page) {
         line = page.ssid;
         now = button(tr("Forget"), { do: 'wifi-forget', ssid: page.ssid }, { vicon: 'trash', style: 'primary', color: RED });
     }
-    return { icon, title: { text: title }, text: { text: line }, now, later: button(tr("Cancel"), { do: 'back' }, { vicon: 'back', style: 'outline' }),
+    return { icon, title: { text: title }, text: { text: line }, now, also, later: button(tr("Cancel"), { do: 'back' }, { vicon: 'back', style: 'outline' }),
         note: { text: '' } };
 }
 
