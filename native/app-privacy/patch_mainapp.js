@@ -52,10 +52,11 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = '1.7.1';
+const VERSION = '1.8.0';
 const MARKER_KEY = 'mguLocalOnly';
 const OAP_ROOT = '/var/opt/public/oap/';
 const OVERRIDE_FILE = OAP_ROOT + 'oap_12201/data/local-only-apps.json';
+const NEVER_START_FILE = OAP_ROOT + 'oap_12201/data/never-start-apps.json';
 // MainApp's localPackageSource: the packages it installs from offline.
 const PREINSTALLED_DIR = '/usr/lib/oap-mainapp/preinstalled_apps/';
 const DEFAULT_PATHS = {
@@ -167,7 +168,11 @@ const EDIT_TITLES = {
     'diag-app-list': 'diagnostic app list',
     'diag-crash-status': 'diagnostic crash status',
     'diag-entries': 'diagnostic entries',
-    'diag-entry-values': 'diagnostic entry values'
+    'diag-entry-values': 'diagnostic entry values',
+    'never-start-startable': 'never-start apps not startable',
+    'never-start-type': 'never-start apps started manually',
+    'never-start-config-queue': 'never-start apps out of the config-state queue',
+    'never-start-queue-filter': 'never-start apps dropped from the config-state queue'
 };
 
 /* An edit that inserts `insert` between the stock text `before` and
@@ -295,6 +300,36 @@ function certEdit(n) {
 const APPMANAGEMENT_PATCHES_1_4_0 = APPMANAGEMENT_PATCHES.slice();
 APPMANAGEMENT_PATCHES.push(certEdit(2));
 
+// Apps that never start: a BMW app whose appId is in NEVER_START_FILE (a
+// JSON array) is not startable (App._isStartable, which every start path
+// asks: its tile, widgets, voice, the backend, other apps, crash recovery),
+// and runs as start type "manually" whatever its provisioning says, so the
+// autostart queue never waits on it; it stays out of the config-state queue
+// too. The backend's provisioning is not changed, so emptying the file
+// restores the stock start at the next MainApp start. Apps the car needs
+// (calls, diagnosis, privacy, the platform's own) are never matched. Any
+// read or parse failure means "start as provisioned".
+const NEVER_START_DENIED = ['x_call', 'ts_diagnostic_service', 'privacy_manager', 'oap-cdc-2018'];
+const NEVER_START_JS = 'function isNeverStartApp(appId){' +
+    'if(' + JSON.stringify(NEVER_START_DENIED) + '.indexOf(appId)>=0)return!1;' +
+    'try{var listed=JSON.parse(require("fs").readFileSync(' + JSON.stringify(NEVER_START_FILE) + ',"utf8"));' +
+    'return Array.isArray(listed)&&listed.indexOf(appId)>=0}catch(e){return!1}}';
+const MAIN_PATCHES_1_7_1 = MAIN_PATCHES.slice();
+MAIN_PATCHES.push(
+    helperInjection('App-never-start', 'class App extends events.EventEmitter{', NEVER_START_JS),
+    edit('never-start-startable', 'helper:App-never-start',
+        ins('_isStartable(){return ', '!isNeverStartApp(this._appId)&&', 'Boolean(this._startableCouncil.vote()&&', 1)),
+    helperInjection('AppsRuntimeController-never-start', 'class AppsRuntimeController{', NEVER_START_JS),
+    edit('never-start-type', 'helper:AppsRuntimeController-never-start',
+        ins('try{app.setStartType(', 'isNeverStartApp(appId)?"manually":', 'newProvisioning["-appStartType"])', 1)),
+    edit('never-start-config-queue', 'helper:AppsRuntimeController-never-start',
+        ins('if(app.isAutostart()', '||isNeverStartApp(appId)', ')return logger.verbose(`${logPrefix} Skip autostart app.`)', 1)),
+    edit('never-start-queue-filter', 'helper:AppsRuntimeController-never-start',
+        ['filter(app=>(app.isAutostart()&&(app.runtimeProperties[CONFIG_STATE_QUEUE_KEY]=null)',
+            'filter(app=>((app.isAutostart()||isNeverStartApp(app.getAppId()))&&' +
+            '(app.runtimeProperties[CONFIG_STATE_QUEUE_KEY]=null)', 1])
+);
+
 const PATCH_SETS = { main: MAIN_PATCHES, appmanagement: APPMANAGEMENT_PATCHES };
 
 // Patch sets of earlier releases whose edits differ from PATCH_SETS, as
@@ -302,16 +337,18 @@ const PATCH_SETS = { main: MAIN_PATCHES, appmanagement: APPMANAGEMENT_PATCHES };
 // text an edit writes or HELPER_JS moves the outgoing sets here under the
 // last version that shipped them; an anchor that pins the same insertion
 // point needs no entry (tests: "the patch set is recorded", and the
-// reference firmware case). 1.4.0 (and 1.3.0) differs from this release in
-// the CertificateManager kill time only; 1.2.2 (and 1.2.0, 1.2.1) also in
+// reference firmware case). 1.7.1 (and 1.5.0 to 1.7.0) differs from this
+// release in the never-start edits only; 1.4.0 (and 1.3.0) also in the
+// CertificateManager kill time; 1.2.2 (and 1.2.0, 1.2.1) also in
 // the crash-recovery edit; 1.1.0 (and 1.0.0) in those and the helper.
 function withHelper(patches, helper) {
     return patches.map((p) => [p[0], p[1].split(HELPER_JS).join(helper), p[2]]);
 }
-const MAIN_PATCHES_1_2_2 = MAIN_PATCHES.filter((p) => p !== CRASH_EDITS[1]).map((p) => p === CRASH_EDITS[0] ?
+const MAIN_PATCHES_1_2_2 = MAIN_PATCHES_1_7_1.filter((p) => p !== CRASH_EDITS[1]).map((p) => p === CRASH_EDITS[0] ?
     ins('Corruption:0});', 'isLocalOnlyApp(appId)||', 'buildAnalyticsService()', 1) : p);
 const EARLIER_PATCH_SETS = [
-    { version: '1.4.0', main: MAIN_PATCHES, appmanagement: APPMANAGEMENT_PATCHES_1_4_0 },
+    { version: '1.7.1', main: MAIN_PATCHES_1_7_1, appmanagement: APPMANAGEMENT_PATCHES },
+    { version: '1.4.0', main: MAIN_PATCHES_1_7_1, appmanagement: APPMANAGEMENT_PATCHES_1_4_0 },
     { version: '1.2.2', main: MAIN_PATCHES_1_2_2, appmanagement: APPMANAGEMENT_PATCHES_1_4_0 },
     { version: '1.1.0', main: withHelper(MAIN_PATCHES_1_2_2, HELPER_JS_1_1_0),
         appmanagement: withHelper(APPMANAGEMENT_PATCHES_1_4_0, HELPER_JS_1_1_0) }
@@ -364,7 +401,7 @@ const KNOWN_SHA256_8_2_10 = {
     appmanagement: '21d8d9a9054860e5e3ec4b2233e73e84bba7b7526c1b654c1f86b8e98cd4884e'
 };
 const PATCH_SETS_8_2_10 = {
-    main: MAIN_PATCHES.map((p) => p[0] === 'this.appRegistry.getAll(),app=>{const appId' ?
+    main: MAIN_PATCHES_1_7_1.map((p) => p[0] === 'this.appRegistry.getAll(),app=>{const appId' ?
         edit('update-availability-sweep', 'helper:AppsAutoupdater',
             ins('this._appRegistry.getAll()', KEEP_APP, ',app=>{const appId', 1)) : p),
     appmanagement: APPMANAGEMENT_PATCHES
@@ -1355,7 +1392,7 @@ function main(argv) {
 }
 
 module.exports = {
-    VERSION, MARKER_KEY, OVERRIDE_FILE, PREINSTALLED_DIR, HELPER_JS, PATCH_SETS, EARLIER_PATCH_SETS, KNOWN_SHA256,
+    VERSION, MARKER_KEY, OVERRIDE_FILE, NEVER_START_FILE, NEVER_START_JS, PREINSTALLED_DIR, HELPER_JS, PATCH_SETS, EARLIER_PATCH_SETS, KNOWN_SHA256,
     PATCH_SETS_8_1_1, KNOWN_SHA256_8_1_1, KNOWN_SHA256_6_5_5, PATCH_SETS_8_2_10, KNOWN_SHA256_8_2_10,
     PREINSTALLED_DIR_21, HELPER_JS_21, PATCH_SETS_21, KNOWN_SHA256_21,
     PATCH_SETS_21_9_2_15, KNOWN_SHA256_21_9_2_15,

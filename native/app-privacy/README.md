@@ -99,6 +99,23 @@ link an oap-sdk closure without the analytics modules and declare no
 `check-apps` below enforces that and the marker. `data/oap-sdk-analytics.json`
 in stock apps is a local `{version}` marker for the install/update event.
 
+## BMW apps that never start
+
+iDrive 7 (MainApp 8.3.2) only. A BMW app whose appId is in
+`/var/opt/public/oap/oap_12201/data/never-start-apps.json` (a JSON array)
+is not startable: MainApp refuses every start of it, the same way it
+refuses an app that is waiting for a login (its tile, widgets, voice
+commands, the backend, other apps, crash recovery, autostart and last-used
+restore). Its tile and voice command stay listed; using them does nothing.
+It runs as start type `manually` whatever its provisioning says, and stays
+out of the config-state queue. Its provisioning stays as the backend sent
+it. The list takes effect at the next start of MainApp; an app already
+running keeps running until then. `x_call`, `ts_diagnostic_service`,
+`privacy_manager` and `oap-cdc-2018` are never matched. A missing or
+unreadable file starts every app as provisioned. The file must be readable
+by MainApp (uid 12201); nothing writes it yet. The edits (`never-start-*`)
+are optional.
+
 ## On the unit
 
 `patch_mainapp.js` runs on the unit's Node 8 as root; the unit has no
@@ -113,7 +130,7 @@ that rewrites all of it removes the unit too, and the component has to be
 installed again.
 
 ```sh
-node patch_mainapp.js --version          # app-privacy 1.7.1
+node patch_mainapp.js --version          # app-privacy 1.8.0
 node patch_mainapp.js check [--json]     # 0 patched, 1 unpatched, 2 mismatch
 node patch_mainapp.js apply [--json]     # 0 patched, 2 refused, 1 write error
 node patch_mainapp.js revert [--json]    # 0 unpatched, 2 refused, 1 write error
@@ -179,7 +196,7 @@ their data safely without:
 Every other edit is optional: it keeps our apps out of a backend report or
 query (inventory, update-all, update-availability sweeps, repository version
 queries, release notes, analytics events, corrupt-app reports, diagnostic
-readout). With all of them left out, our apps install from the Store and
+readout), or keeps a BMW app on the never-start list from starting. With all of them left out, our apps install from the Store and
 start on both head units. A predicate copy (`helper:<module>`) goes in
 only with an edit that calls it, and is required when a required edit
 calls it.
