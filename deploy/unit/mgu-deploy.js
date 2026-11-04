@@ -4161,7 +4161,6 @@ function id8Unlisted() {
             (!!lstatOrNull(appEntryFile(id)) || preinstalledFor(id).length > 0) && !!dasFlags(id);
     });
 }
-/* The missing entries put in; the ids listed. */
 function relistId8() {
     var ids = id8Unlisted();
     ids.forEach(function (id) { customAppsPut(id, dasFlags(id)); });
@@ -4188,8 +4187,9 @@ function filledByManager() {
 function fallbackUnitOld() {
     return fallbackPresent() && !bytesEqualFile(fs.readFileSync(fallbackUnitSource()), path.join(CFG.systemd, FALLBACK_UNIT));
 }
-/* status, run as root: relistId8, and the fallback's boot unit brought up
- * to date; both count from MainApp-21's next start. */
+/* status, run as root: relistId8, and the fallback's boot unit file
+ * brought up to date (main.js stays bound as it is); both count from
+ * MainApp-21's next start. */
 function syncListingId8() {
     if (!isId8()) return null;
     var out = process.stdout.write, locked = false;
@@ -4205,10 +4205,10 @@ function syncListingId8() {
         if (fallbackUnitOld()) {
             var busy = rootBusy();
             if (busy) return { state: ids.length ? 'changed' : 'pending', reason: done.concat(['boot unit: ' + busy]).join('; ') };
-            var state = loadState();
-            takeSnapshot('listing', fallbackTouched());
-            ensureFallback(state, true);
-            saveState(state);
+            takeSnapshot('listing', [path.join(CFG.systemd, FALLBACK_UNIT)]);
+            syncDisks();
+            rootfsWindow([{ type: 'copy', src: fallbackUnitSource(), path: path.join(CFG.systemd, FALLBACK_UNIT), mode: 0o644 }]);
+            runOk(CFG.systemctl, ['daemon-reload']);
             pruneBackups();
             done.push('boot unit brought up to date');
         }
@@ -4221,8 +4221,8 @@ function syncListingId8() {
         process.stdout.write = out;
     }
 }
-/* relist (the fallback's boot unit, before MainApp-21): relistId8 when
- * the lock is free. */
+/* The fallback's boot unit runs it before MainApp-21; another run holding
+ * the lock leaves it to status. */
 function cmdRelist() {
     if (!isId8()) { say('nothing to list: not iDrive 8'); return 0; }
     if (!statusLock()) { say('another mgu-deploy run holds the lock; status lists them'); return 0; }
@@ -6021,8 +6021,10 @@ function installRun(args, afresh) {
         });
         if (relist) { attempted = true; relistApps(state); }
         if (id8 && !noOap) {
-            var listedNow = relistId8();
-            if (listedNow.length) say('listed for the provisioning fallback, from the next start of the head unit: ' + listedNow.join(', '));
+            try {
+                var listedNow = relistId8();
+                if (listedNow.length) say('listed for the provisioning fallback, from the next start of the head unit: ' + listedNow.join(', '));
+            } catch (e) { warn('our apps not listed for the provisioning fallback: ' + e.message); }
         }
         settlePrivacyBounce();
         /* out of the staging folder, which goes before they install */

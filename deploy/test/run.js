@@ -6498,6 +6498,13 @@ function testId8Listing() {
     const unit = fs.readFileSync(path.join(HERE, '..', 'unit', 'mgu-app-fallback-id8.service'), 'utf8');
     check('id8 listing: the fallback\'s boot unit relists before it builds the copy',
         /\nExecStartPre=-\/bin\/sh \/var\/opt\/mgu-deploy\/mgu-deploy\.sh relist\n/.test(unit));
+    const unitPath = root.p('etc/systemd/system/mgu-app-fallback.service');
+    write(unitPath, '[Unit]\nDescription=an older boot unit\n');
+    const ur = root.status();
+    check('id8 listing: status brings an older fallback boot unit up to date, and only the unit file',
+        fs.readFileSync(unitPath, 'utf8') === unit && ur.listing.reason === 'boot unit brought up to date' && !root.kills().length &&
+        root.status().listing.state === 'ok', JSON.stringify(ur.listing));
+    fs.unlinkSync(unitPath);
     // a queued removal is not listed again
     root.run(['uninstall', 'oap-cardash', '--yes']);
     const rs = root.status();
