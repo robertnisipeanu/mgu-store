@@ -63,7 +63,9 @@ them:
   always there and not removable.
 - **Default sources** (`default_sources`: `<owner>/<repo>[:<channel>]`
   separated by spaces; `cauliflowermossgrape/idrive7-apps:branch
-  robertnisipeanu/idrive-apps:releases IterioDev/car-apps:tags`): each is
+  robertnisipeanu/idrive-apps:releases IterioDev/car-apps:tags
+  JustAnotherPU/mgu-apps:releases JustAnotherPU/moonride:releases
+  JustAnotherPU/waze-hud:releases`): each is
   added once, at the first start of an updater that names it, unless a
   source of that repo is there already (the installers seed it too,
   `deploy/sources.json`). `state/default-sources.json` (`{"added":
