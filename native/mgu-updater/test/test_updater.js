@@ -692,6 +692,43 @@ function testCatalog() {
     ok('versions compare numerically', catalogLib.compareVersions('1.10.0', '1.9.9') === 1);
 }
 
+/* The tools an app's removal may take along: those it requires itself or
+ * through them that nothing else installed keeps, a tool before those it
+ * requires; one another app, a capability's need or its row keeps stays. */
+function testRequiredAlone() {
+    const { Updater } = require('../js/updater');
+    const rows = [
+        ['app', 'app', { mid: '1.0.0', low: '1.0.0', shared: '1.0.0', fixed: '1.0.0' }],
+        ['mid', 'tool', { low: '1.0.0' }],
+        ['low', 'tool', {}],
+        ['shared', 'tool', {}],
+        ['fixed', 'tool', {}],
+        ['other', 'app', { shared: '1.0.0' }],
+        ['renderer', 'tool', {}, 'gpu'],
+        ['viewer', 'app', { renderer: '1.0.0' }]
+    ];
+    const all = new Map(rows.map(([id, kind, requires, cap]) => [id, { entry: { id, kind, title: id, requires, mguProvides: cap || null } }]));
+    const u = Object.assign(Object.create(Updater.prototype), {
+        installedVersion: (id) => (id === 'viewer' ? null : '1.0.0'),
+        removableRow: (id) => id !== 'fixed',
+        providers: { gpu: [{ id: 'renderer' }] },
+        nextStart: {}
+    });
+    ok('required alone: the tools only the app needs, a tool before those it requires; shared, unremovable ones stay',
+        JSON.stringify(u.requiredAlone('app', all)) === '["mid","low"]', JSON.stringify(u.requiredAlone('app', all)));
+    all.get('app').entry.requires.renderer = '1.0.0';
+    all.get('viewer').entry.requires = {};
+    all.get('viewer').entry.mguNeeds = ['gpu'];
+    u.installedVersion = () => '1.0.0';
+    ok('required alone: the last provider of a capability another installed app needs stays',
+        u.requiredAlone('app', all).indexOf('renderer') < 0 && JSON.stringify(u.requiredAlone('other', all)) === '[]',
+        JSON.stringify(u.requiredAlone('app', all)));
+    u.nextStart = { other: 'remove' };
+    ok('required alone: an app whose removal waits for the next start (iDrive 8) keeps none of its tools',
+        u.keptBy('shared', all, ['shared', 'app']) === null && /^app needs mid$/.test(u.keptBy('mid', all, ['mid']) || ''),
+        JSON.stringify([u.keptBy('shared', all, ['shared', 'app']), u.keptBy('mid', all, ['mid'])]));
+}
+
 /* tar.js: what it packs it reads back; links, `..` and oversize archives are refused or left out. */
 function testTar() {
     const tar = require('../js/tar');
@@ -2455,14 +2492,35 @@ function testSources(certs) {
             ok('uninstall: privileged; refused while something installed requires it, when not installed, and for a tool its source does not mark',
                 errs[0] === 'forbidden' && /Needs needs base_tool/.test(errs[1]) && errs[2] === 'robertn_demo is not installed' && /cannot be removed/.test(errs[3]),
                 JSON.stringify(errs));
+            ok('required alone: an installed app\'s row names the installed tools only it requires',
+                JSON.stringify(comp('needs_app').requiredAlone) === '["base_tool"]' && JSON.stringify(comp('base_tool').requiredAlone) === '[]',
+                JSON.stringify([comp('needs_app').requiredAlone, comp('base_tool').requiredAlone]));
+            return priv({ op: 'uninstall', id: 'needs_app', tools: ['opt_tool'] });
+        })
+        .then((err) => {
+            ok('required alone: a tool the app does not alone require is refused, nothing queued',
+                err === 'opt_tool cannot be removed with needs_app' && !st().components.some((c) => c.queued), err);
+            fs.writeFileSync(deployLog, '');
+            fs.writeFileSync(`${deployLog}.fail`, '1');
+            return priv({ op: 'uninstall', id: 'needs_app', tools: ['base_tool'] })
+                .then((err2) => until(st, () => !st().busy && !comp('needs_app').queued && !comp('base_tool').queued && comp('needs_app').error,
+                    20000, 'the failed removal').then(() => err2));
+        })
+        .then((err) => {
+            ok('required alone: when the app\'s removal fails, the tool it would take along stays', err === null &&
+                deployed().join() === 'uninstall needs_app --yes' && comp('base_tool').status === 'installed' && comp('base_tool').error === null,
+                JSON.stringify([err, deployed(), comp('base_tool')]));
+            fs.unlinkSync(`${deployLog}.fail`);
+            fs.writeFileSync(deployLog, '');
             const phases = [];
             const t = setInterval(() => {
                 if (u.busy && u.busy.id === 'needs_app' && phases.indexOf(u.busy.phase) < 0) {
                     phases.push(u.busy.phase);
                 }
             }, 5);
-            return priv({ op: 'uninstall', id: 'needs_app' })
-                .then((err) => until(st, () => !st().busy && comp('needs_app').status === 'available', 20000, 'needs_app removed')
+            return priv({ op: 'uninstall', id: 'needs_app', tools: ['base_tool'] })
+                .then((err) => until(st, () => !st().busy && comp('needs_app').status === 'available' && comp('base_tool').status === 'available',
+                    20000, 'needs_app removed with base_tool')
                     .then(() => {
                         clearInterval(t);
                         return { err, phases };
@@ -2473,6 +2531,11 @@ function testSources(certs) {
             ok('uninstall: through the deploy tool\'s uninstall; the row is available again', err === null &&
                 /^uninstall needs_app --yes$/m.test(fs.readFileSync(deployLog, 'utf8')) &&
                 !JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).needs_app);
+            ok('required alone: the tools asked for go after the app, through the deploy tool\'s uninstall',
+                deployed().join() === 'uninstall needs_app --yes,uninstall base_tool --yes', JSON.stringify(deployed()));
+            return ask(sock, { op: 'install', id: 'base_tool' }).then(() => installed('base_tool'));
+        })
+        .then(() => {
             // another source's row of an id whose install it queued for the next start (iDrive 8)
             process.env.FAKE_PENDING = 'dup_app=installs at the next start';
             u.origins.dup_app = { source: 'second', commit: null };
@@ -5792,6 +5855,7 @@ function main() {
     testCatalog();
     testCollect();
     testFileLog();
+    testRequiredAlone();
     return testTar()
         .then(() => testDeployTimeout())
         .then(() => testIndexV1Cache().catch((e) => ok('index v1 cache scenario', false, e.stack)))

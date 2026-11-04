@@ -823,7 +823,7 @@ each request, and whenever it changes (at most every 250 ms):
     "icon": "/var/opt/mgu-updater/state/icons/…png",
     "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null,
     "listedId": null, "installAs": "doom", "blocked": null, "pendingReboot": false, "problem": null, "repair": null, "nextStart": null, "queued": false,
-    "previous": null, "error": null } ] }
+    "previous": null, "requiredAlone": [], "error": null } ] }
 ```
 
 - `texts`: the component's title and description in other languages, by
@@ -869,6 +869,11 @@ each request, and whenever it changes (at most every 250 ms):
   deploy tool's check at the start of the head unit found a tool's new
   version not working (`last_verify`): `<version> did not work after the
   restart (<why>); <previous> is back`, while that version runs.
+  `requiredAlone`: of an installed app, the installed tools only it
+  requires, itself or through one another, that its removal may take along
+  (each one its row may remove, nothing else installed requires, and none
+  the last provider of a capability another installed component needs),
+  in the order they are removed; else `[]`.
 - `unit`: the head unit (`hmi` `ID7`, `ID8` or null, `firmware` its build
   string), null until the deploy tool says. `allProviders`: the installed tools
   providing each capability; `providers`: the first of them each, for the
@@ -913,7 +918,7 @@ Store says it at each connection (below, "The Store's update").
 | Request | Does |
 |---|---|
 | `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"): at once with the secret; without it while a Store older than 0.9.16 is installed, within the restart limits |
-| `{"op":"uninstall","id"}` | removes an `uninstallable` component (every app but the Store) |
+| `{"op":"uninstall","id","tools"?}` | removes an `uninstallable` component (every app but the Store); then each of `tools`, which must be among the app row's `requiredAlone` (else nothing is queued), a tool before those it requires. A tool whose turn comes while something installed still requires it (the app's removal failed) stays; an app whose removal waits for the next start (iDrive 8) requires none |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A repo that is already a source is refused |
