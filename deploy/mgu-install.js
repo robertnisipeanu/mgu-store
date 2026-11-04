@@ -86,7 +86,10 @@ const FROM_STDIN = __filename === '[stdin]';
 const SOURCES = { schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: STORE_REPO, builtin: true },
     { id: 'idrive7-apps', type: 'github', repo: 'cauliflowermossgrape/idrive7-apps', channel: 'branch' },
     { id: 'idrive-apps', type: 'github', repo: 'robertnisipeanu/idrive-apps', channel: 'releases' },
-    { id: 'car-apps', type: 'github', repo: 'IterioDev/car-apps', channel: 'tags' }] };
+    { id: 'car-apps', type: 'github', repo: 'IterioDev/car-apps', channel: 'tags' },
+    { id: 'mgu-apps', type: 'github', repo: 'JustAnotherPU/mgu-apps', channel: 'releases' },
+    { id: 'moonride', type: 'github', repo: 'JustAnotherPU/moonride', channel: 'releases' },
+    { id: 'waze-hud', type: 'github', repo: 'JustAnotherPU/waze-hud', channel: 'releases' }] };
 /* the installed deploy tool */
 const DEPLOY = '/var/opt/mgu-deploy/mgu-deploy.sh';
 const UPDATER_JS = '/var/opt/mgu-updater/current/updater.js';
