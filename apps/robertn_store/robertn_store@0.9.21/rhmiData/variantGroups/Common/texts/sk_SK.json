@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Skúsiť znova",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Odstrániť účet?",
   "SID_STORE_REMOVE_SOURCE_Q": "Odstrániť zdroj?",
-  "SID_STORE_REMOVE_Q": "Odstrániť?"
+  "SID_STORE_REMOVE_Q": "Odstrániť?",
+  "SID_STORE_REMOVE_ALL": "Odstrániť všetko"
 }

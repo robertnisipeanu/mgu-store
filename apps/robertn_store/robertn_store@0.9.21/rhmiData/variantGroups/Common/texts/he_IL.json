@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "ניסיון חוזר",
   "SID_STORE_REMOVE_ACCOUNT_Q": "להסיר את החשבון?",
   "SID_STORE_REMOVE_SOURCE_Q": "להסיר את המקור?",
-  "SID_STORE_REMOVE_Q": "להסיר?"
+  "SID_STORE_REMOVE_Q": "להסיר?",
+  "SID_STORE_REMOVE_ALL": "הסרת הכול"
 }

@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "重试",
   "SID_STORE_REMOVE_ACCOUNT_Q": "移除此账户？",
   "SID_STORE_REMOVE_SOURCE_Q": "移除此来源？",
-  "SID_STORE_REMOVE_Q": "移除？"
+  "SID_STORE_REMOVE_Q": "移除？",
+  "SID_STORE_REMOVE_ALL": "全部移除"
 }

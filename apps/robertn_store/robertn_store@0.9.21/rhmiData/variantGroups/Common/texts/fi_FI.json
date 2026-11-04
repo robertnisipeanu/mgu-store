@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Yritä uudelleen",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Poistetaanko tili?",
   "SID_STORE_REMOVE_SOURCE_Q": "Poistetaanko lähde?",
-  "SID_STORE_REMOVE_Q": "Poistetaanko?"
+  "SID_STORE_REMOVE_Q": "Poistetaanko?",
+  "SID_STORE_REMOVE_ALL": "Poista kaikki"
 }

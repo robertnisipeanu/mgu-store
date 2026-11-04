@@ -176,6 +176,8 @@
     "{0} networks": "{0} Netzwerke",
     "Space": "Leerzeichen",
     "Delete": "Löschen",
-    "Shift": "Umschalt"
+    "Shift": "Umschalt",
+    "Remove all": "Alle entfernen",
+    "Tools only it uses: {0}": "Nur von ihr genutzte Tools: {0}"
   }
 }

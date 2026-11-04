@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Försök igen",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Ta bort kontot?",
   "SID_STORE_REMOVE_SOURCE_Q": "Ta bort källan?",
-  "SID_STORE_REMOVE_Q": "Ta bort?"
+  "SID_STORE_REMOVE_Q": "Ta bort?",
+  "SID_STORE_REMOVE_ALL": "Ta bort alla"
 }

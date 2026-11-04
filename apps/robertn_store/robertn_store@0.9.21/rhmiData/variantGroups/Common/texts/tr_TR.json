@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Tekrar dene",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Hesap kaldırılsın mı?",
   "SID_STORE_REMOVE_SOURCE_Q": "Kaynak kaldırılsın mı?",
-  "SID_STORE_REMOVE_Q": "Kaldırılsın mı?"
+  "SID_STORE_REMOVE_Q": "Kaldırılsın mı?",
+  "SID_STORE_REMOVE_ALL": "Tümünü kaldır"
 }

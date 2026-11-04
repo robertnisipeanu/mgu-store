@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Thử lại",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Xóa tài khoản?",
   "SID_STORE_REMOVE_SOURCE_Q": "Xóa nguồn?",
-  "SID_STORE_REMOVE_Q": "Xóa?"
+  "SID_STORE_REMOVE_Q": "Xóa?",
+  "SID_STORE_REMOVE_ALL": "Xóa tất cả"
 }

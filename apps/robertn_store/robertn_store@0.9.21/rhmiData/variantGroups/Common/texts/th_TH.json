@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "ลองอีกครั้ง",
   "SID_STORE_REMOVE_ACCOUNT_Q": "ลบบัญชีนี้?",
   "SID_STORE_REMOVE_SOURCE_Q": "ลบแหล่งที่มานี้?",
-  "SID_STORE_REMOVE_Q": "ลบ?"
+  "SID_STORE_REMOVE_Q": "ลบ?",
+  "SID_STORE_REMOVE_ALL": "ลบทั้งหมด"
 }

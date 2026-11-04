@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "再試行",
   "SID_STORE_REMOVE_ACCOUNT_Q": "アカウントを削除しますか？",
   "SID_STORE_REMOVE_SOURCE_Q": "ソースを削除しますか？",
-  "SID_STORE_REMOVE_Q": "削除しますか？"
+  "SID_STORE_REMOVE_Q": "削除しますか？",
+  "SID_STORE_REMOVE_ALL": "すべて削除"
 }

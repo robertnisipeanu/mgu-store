@@ -176,6 +176,8 @@
     "{0} networks": "{0} hálózat",
     "Space": "Szóköz",
     "Delete": "Törlés",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Összes eltávolítása",
+    "Tools only it uses: {0}": "Csak általa használt eszközök: {0}"
   }
 }

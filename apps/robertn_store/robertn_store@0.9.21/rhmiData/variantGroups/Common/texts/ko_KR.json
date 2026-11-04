@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "다시 시도",
   "SID_STORE_REMOVE_ACCOUNT_Q": "계정을 제거할까요?",
   "SID_STORE_REMOVE_SOURCE_Q": "소스를 제거할까요?",
-  "SID_STORE_REMOVE_Q": "제거할까요?"
+  "SID_STORE_REMOVE_Q": "제거할까요?",
+  "SID_STORE_REMOVE_ALL": "모두 제거"
 }

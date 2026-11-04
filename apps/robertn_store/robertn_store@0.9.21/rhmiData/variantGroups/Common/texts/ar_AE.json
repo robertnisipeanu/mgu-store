@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "إعادة المحاولة",
   "SID_STORE_REMOVE_ACCOUNT_Q": "إزالة الحساب؟",
   "SID_STORE_REMOVE_SOURCE_Q": "إزالة المصدر؟",
-  "SID_STORE_REMOVE_Q": "إزالة؟"
+  "SID_STORE_REMOVE_Q": "إزالة؟",
+  "SID_STORE_REMOVE_ALL": "إزالة الكل"
 }

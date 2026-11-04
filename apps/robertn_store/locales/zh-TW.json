@@ -178,6 +178,8 @@
     "{0} networks": "{0} 個網路",
     "Space": "空格",
     "Delete": "刪除",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "全部移除",
+    "Tools only it uses: {0}": "僅它使用的工具：{0}"
   }
 }

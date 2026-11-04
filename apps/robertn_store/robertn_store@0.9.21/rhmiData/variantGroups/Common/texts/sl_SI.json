@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Poskusi znova",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Odstrani račun?",
   "SID_STORE_REMOVE_SOURCE_Q": "Odstrani vir?",
-  "SID_STORE_REMOVE_Q": "Odstrani?"
+  "SID_STORE_REMOVE_Q": "Odstrani?",
+  "SID_STORE_REMOVE_ALL": "Odstrani vse"
 }

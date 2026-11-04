@@ -176,6 +176,8 @@
     "{0} networks": "{0} เครือข่าย",
     "Space": "เว้นวรรค",
     "Delete": "ลบ",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "ลบทั้งหมด",
+    "Tools only it uses: {0}": "เครื่องมือที่ใช้เฉพาะแอปนี้: {0}"
   }
 }

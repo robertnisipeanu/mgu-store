@@ -180,7 +180,9 @@ module.exports = [
    "{0} networks": "الشبكات: {0}",
    "Space": "مسافة",
    "Delete": "حذف",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "إزالة الكل",
+   "Tools only it uses: {0}": "أدوات لا يستخدمها غيره: {0}"
   }
  },
  {
@@ -362,7 +364,9 @@ module.exports = [
    "{0} networks": "Sítě: {0}",
    "Space": "Mezera",
    "Delete": "Smazat",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Odebrat vše",
+   "Tools only it uses: {0}": "Nástroje, které používá jen ona: {0}"
   }
  },
  {
@@ -544,7 +548,9 @@ module.exports = [
    "{0} networks": "{0} netværk",
    "Space": "Mellemrum",
    "Delete": "Slet",
-   "Shift": "Skift"
+   "Shift": "Skift",
+   "Remove all": "Fjern alle",
+   "Tools only it uses: {0}": "Værktøjer kun den bruger: {0}"
   }
  },
  {
@@ -726,7 +732,9 @@ module.exports = [
    "{0} networks": "{0} Netzwerke",
    "Space": "Leerzeichen",
    "Delete": "Löschen",
-   "Shift": "Umschalt"
+   "Shift": "Umschalt",
+   "Remove all": "Alle entfernen",
+   "Tools only it uses: {0}": "Nur von ihr genutzte Tools: {0}"
   }
  },
  {
@@ -908,7 +916,9 @@ module.exports = [
    "{0} networks": "{0} δίκτυα",
    "Space": "Διάστημα",
    "Delete": "Διαγραφή",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Κατάργηση όλων",
+   "Tools only it uses: {0}": "Εργαλεία που χρησιμοποιεί μόνο αυτή: {0}"
   }
  },
  {
@@ -1090,7 +1100,9 @@ module.exports = [
    "{0} networks": "{0} redes",
    "Space": "Espacio",
    "Delete": "Borrar",
-   "Shift": "Mayús"
+   "Shift": "Mayús",
+   "Remove all": "Eliminar todo",
+   "Tools only it uses: {0}": "Herramientas que solo usa ella: {0}"
   }
  },
  {
@@ -1272,7 +1284,9 @@ module.exports = [
    "{0} networks": "{0} redes",
    "Space": "Espacio",
    "Delete": "Borrar",
-   "Shift": "Mayús"
+   "Shift": "Mayús",
+   "Remove all": "Eliminar todo",
+   "Tools only it uses: {0}": "Herramientas que solo usa ella: {0}"
   }
  },
  {
@@ -1454,7 +1468,9 @@ module.exports = [
    "{0} networks": "{0} verkkoa",
    "Space": "Välilyönti",
    "Delete": "Poista",
-   "Shift": "Vaihto"
+   "Shift": "Vaihto",
+   "Remove all": "Poista kaikki",
+   "Tools only it uses: {0}": "Vain sen käyttämät työkalut: {0}"
   }
  },
  {
@@ -1636,7 +1652,9 @@ module.exports = [
    "{0} networks": "Réseaux : {0}",
    "Space": "Espace",
    "Delete": "Effacer",
-   "Shift": "Maj"
+   "Shift": "Maj",
+   "Remove all": "Tout supprimer",
+   "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}"
   }
  },
  {
@@ -1818,7 +1836,9 @@ module.exports = [
    "{0} networks": "Réseaux : {0}",
    "Space": "Espace",
    "Delete": "Effacer",
-   "Shift": "Maj"
+   "Shift": "Maj",
+   "Remove all": "Tout supprimer",
+   "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}"
   }
  },
  {
@@ -2000,7 +2020,9 @@ module.exports = [
    "{0} networks": "{0} רשתות",
    "Space": "רווח",
    "Delete": "מחיקה",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "הסרת הכול",
+   "Tools only it uses: {0}": "כלים שרק היא משתמשת בהם: {0}"
   }
  },
  {
@@ -2182,7 +2204,9 @@ module.exports = [
    "{0} networks": "{0} hálózat",
    "Space": "Szóköz",
    "Delete": "Törlés",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Összes eltávolítása",
+   "Tools only it uses: {0}": "Csak általa használt eszközök: {0}"
   }
  },
  {
@@ -2364,7 +2388,9 @@ module.exports = [
    "{0} networks": "{0} jaringan",
    "Space": "Spasi",
    "Delete": "Hapus",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Hapus semua",
+   "Tools only it uses: {0}": "Alat yang hanya dipakai aplikasi ini: {0}"
   }
  },
  {
@@ -2546,7 +2572,9 @@ module.exports = [
    "{0} networks": "{0} reti",
    "Space": "Spazio",
    "Delete": "Elimina",
-   "Shift": "Maiusc"
+   "Shift": "Maiusc",
+   "Remove all": "Rimuovi tutto",
+   "Tools only it uses: {0}": "Strumenti usati solo da essa: {0}"
   }
  },
  {
@@ -2728,7 +2756,9 @@ module.exports = [
    "{0} networks": "{0} 個のネットワーク",
    "Space": "スペース",
    "Delete": "削除",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "すべて削除",
+   "Tools only it uses: {0}": "このアプリだけが使うツール：{0}"
   }
  },
  {
@@ -2910,7 +2940,9 @@ module.exports = [
    "{0} networks": "네트워크 {0}개",
    "Space": "스페이스",
    "Delete": "삭제",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "모두 제거",
+   "Tools only it uses: {0}": "이 앱만 사용하는 도구: {0}"
   }
  },
  {
@@ -3092,7 +3124,9 @@ module.exports = [
    "{0} networks": "{0} nettverk",
    "Space": "Mellomrom",
    "Delete": "Slett",
-   "Shift": "Skift"
+   "Shift": "Skift",
+   "Remove all": "Fjern alle",
+   "Tools only it uses: {0}": "Verktøy bare den bruker: {0}"
   }
  },
  {
@@ -3276,7 +3310,9 @@ module.exports = [
    "{0} networks": "{0} netwerken",
    "Space": "Spatie",
    "Delete": "Wissen",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Alles verwijderen",
+   "Tools only it uses: {0}": "Tools die alleen zij gebruikt: {0}"
   }
  },
  {
@@ -3458,7 +3494,9 @@ module.exports = [
    "{0} networks": "Sieci: {0}",
    "Space": "Spacja",
    "Delete": "Usuń",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Usuń wszystko",
+   "Tools only it uses: {0}": "Narzędzia używane tylko przez nią: {0}"
   }
  },
  {
@@ -3640,7 +3678,9 @@ module.exports = [
    "{0} networks": "{0} redes",
    "Space": "Espaço",
    "Delete": "Apagar",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Remover tudo",
+   "Tools only it uses: {0}": "Ferramentas que só ela usa: {0}"
   }
  },
  {
@@ -3822,7 +3862,9 @@ module.exports = [
    "{0} networks": "{0} redes",
    "Space": "Espaço",
    "Delete": "Apagar",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Remover tudo",
+   "Tools only it uses: {0}": "Ferramentas que só ela usa: {0}"
   }
  },
  {
@@ -4004,7 +4046,9 @@ module.exports = [
    "{0} networks": "Rețele: {0}",
    "Space": "Spațiu",
    "Delete": "Șterge",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Eliminați tot",
+   "Tools only it uses: {0}": "Instrumente folosite doar de ea: {0}"
   }
  },
  {
@@ -4186,7 +4230,9 @@ module.exports = [
    "{0} networks": "Сети: {0}",
    "Space": "Пробел",
    "Delete": "Удалить",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Удалить всё",
+   "Tools only it uses: {0}": "Утилиты только для неё: {0}"
   }
  },
  {
@@ -4368,7 +4414,9 @@ module.exports = [
    "{0} networks": "Siete: {0}",
    "Space": "Medzera",
    "Delete": "Vymazať",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Odstrániť všetko",
+   "Tools only it uses: {0}": "Nástroje, ktoré používa len ona: {0}"
   }
  },
  {
@@ -4550,7 +4598,9 @@ module.exports = [
    "{0} networks": "Omrežja: {0}",
    "Space": "Presledek",
    "Delete": "Izbriši",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Odstrani vse",
+   "Tools only it uses: {0}": "Orodja, ki jih uporablja samo ta: {0}"
   }
  },
  {
@@ -4732,7 +4782,9 @@ module.exports = [
    "{0} networks": "{0} nätverk",
    "Space": "Mellanslag",
    "Delete": "Radera",
-   "Shift": "Skift"
+   "Shift": "Skift",
+   "Remove all": "Ta bort alla",
+   "Tools only it uses: {0}": "Verktyg som bara den använder: {0}"
   }
  },
  {
@@ -4914,7 +4966,9 @@ module.exports = [
    "{0} networks": "{0} เครือข่าย",
    "Space": "เว้นวรรค",
    "Delete": "ลบ",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "ลบทั้งหมด",
+   "Tools only it uses: {0}": "เครื่องมือที่ใช้เฉพาะแอปนี้: {0}"
   }
  },
  {
@@ -5096,7 +5150,9 @@ module.exports = [
    "{0} networks": "{0} ağ",
    "Space": "Boşluk",
    "Delete": "Sil",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Tümünü kaldır",
+   "Tools only it uses: {0}": "Yalnızca onun kullandığı araçlar: {0}"
   }
  },
  {
@@ -5278,7 +5334,9 @@ module.exports = [
    "{0} networks": "Мережі: {0}",
    "Space": "Пробіл",
    "Delete": "Видалити",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Видалити все",
+   "Tools only it uses: {0}": "Утиліти лише для неї: {0}"
   }
  },
  {
@@ -5460,7 +5518,9 @@ module.exports = [
    "{0} networks": "{0} mạng",
    "Space": "Dấu cách",
    "Delete": "Xóa",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "Xóa tất cả",
+   "Tools only it uses: {0}": "Công cụ chỉ ứng dụng này dùng: {0}"
   }
  },
  {
@@ -5830,7 +5890,9 @@ module.exports = [
    "{0} networks": "{0} 個網路",
    "Space": "空格",
    "Delete": "刪除",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Remove all": "全部移除",
+   "Tools only it uses: {0}": "僅它使用的工具：{0}"
   }
  }
 ];

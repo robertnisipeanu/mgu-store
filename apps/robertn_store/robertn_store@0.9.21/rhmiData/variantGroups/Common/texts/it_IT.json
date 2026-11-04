@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Riprova",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Rimuovere l'account?",
   "SID_STORE_REMOVE_SOURCE_Q": "Rimuovere la fonte?",
-  "SID_STORE_REMOVE_Q": "Rimuovere?"
+  "SID_STORE_REMOVE_Q": "Rimuovere?",
+  "SID_STORE_REMOVE_ALL": "Rimuovi tutto"
 }

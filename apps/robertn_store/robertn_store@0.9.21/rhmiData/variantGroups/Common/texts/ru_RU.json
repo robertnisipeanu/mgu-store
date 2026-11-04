@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Повторить",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Удалить аккаунт?",
   "SID_STORE_REMOVE_SOURCE_Q": "Удалить источник?",
-  "SID_STORE_REMOVE_Q": "Удалить?"
+  "SID_STORE_REMOVE_Q": "Удалить?",
+  "SID_STORE_REMOVE_ALL": "Удалить всё"
 }

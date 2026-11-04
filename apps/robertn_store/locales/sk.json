@@ -176,6 +176,8 @@
     "{0} networks": "Siete: {0}",
     "Space": "Medzera",
     "Delete": "Vymazať",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Odstrániť všetko",
+    "Tools only it uses: {0}": "Nástroje, ktoré používa len ona: {0}"
   }
 }

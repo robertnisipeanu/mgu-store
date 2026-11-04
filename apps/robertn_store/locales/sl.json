@@ -176,6 +176,8 @@
     "{0} networks": "Omrežja: {0}",
     "Space": "Presledek",
     "Delete": "Izbriši",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Odstrani vse",
+    "Tools only it uses: {0}": "Orodja, ki jih uporablja samo ta: {0}"
   }
 }

@@ -176,6 +176,8 @@
     "{0} networks": "{0} verkkoa",
     "Space": "Välilyönti",
     "Delete": "Poista",
-    "Shift": "Vaihto"
+    "Shift": "Vaihto",
+    "Remove all": "Poista kaikki",
+    "Tools only it uses: {0}": "Vain sen käyttämät työkalut: {0}"
   }
 }

@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Zkusit znovu",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Odebrat účet?",
   "SID_STORE_REMOVE_SOURCE_Q": "Odebrat zdroj?",
-  "SID_STORE_REMOVE_Q": "Odebrat?"
+  "SID_STORE_REMOVE_Q": "Odebrat?",
+  "SID_STORE_REMOVE_ALL": "Odebrat vše"
 }

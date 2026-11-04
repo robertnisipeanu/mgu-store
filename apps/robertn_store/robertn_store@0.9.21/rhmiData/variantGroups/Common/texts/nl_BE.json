@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Opnieuw proberen",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Account verwijderen?",
   "SID_STORE_REMOVE_SOURCE_Q": "Bron verwijderen?",
-  "SID_STORE_REMOVE_Q": "Verwijderen?"
+  "SID_STORE_REMOVE_Q": "Verwijderen?",
+  "SID_STORE_REMOVE_ALL": "Alles verwijderen"
 }

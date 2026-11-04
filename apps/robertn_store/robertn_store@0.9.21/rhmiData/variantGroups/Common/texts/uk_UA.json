@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Повторити",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Видалити обліковий запис?",
   "SID_STORE_REMOVE_SOURCE_Q": "Видалити джерело?",
-  "SID_STORE_REMOVE_Q": "Видалити?"
+  "SID_STORE_REMOVE_Q": "Видалити?",
+  "SID_STORE_REMOVE_ALL": "Видалити все"
 }

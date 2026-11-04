@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Prøv igen",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Fjern konto?",
   "SID_STORE_REMOVE_SOURCE_Q": "Fjern kilde?",
-  "SID_STORE_REMOVE_Q": "Fjern?"
+  "SID_STORE_REMOVE_Q": "Fjern?",
+  "SID_STORE_REMOVE_ALL": "Fjern alle"
 }

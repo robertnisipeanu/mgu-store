@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Reîncercare",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Eliminați contul?",
   "SID_STORE_REMOVE_SOURCE_Q": "Eliminați sursa?",
-  "SID_STORE_REMOVE_Q": "Eliminați?"
+  "SID_STORE_REMOVE_Q": "Eliminați?",
+  "SID_STORE_REMOVE_ALL": "Eliminați tot"
 }

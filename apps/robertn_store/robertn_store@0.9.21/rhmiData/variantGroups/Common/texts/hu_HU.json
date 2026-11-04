@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Próbálja újra",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Eltávolítja a fiókot?",
   "SID_STORE_REMOVE_SOURCE_Q": "Eltávolítja a forrást?",
-  "SID_STORE_REMOVE_Q": "Eltávolítja?"
+  "SID_STORE_REMOVE_Q": "Eltávolítja?",
+  "SID_STORE_REMOVE_ALL": "Összes eltávolítása"
 }

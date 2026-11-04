@@ -176,6 +176,8 @@
     "{0} networks": "{0} netværk",
     "Space": "Mellemrum",
     "Delete": "Slet",
-    "Shift": "Skift"
+    "Shift": "Skift",
+    "Remove all": "Fjern alle",
+    "Tools only it uses: {0}": "Værktøjer kun den bruger: {0}"
   }
 }

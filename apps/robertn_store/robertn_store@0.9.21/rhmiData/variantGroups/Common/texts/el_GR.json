@@ -24,5 +24,6 @@
   "SID_STORE_TRY_AGAIN": "Ξανά",
   "SID_STORE_REMOVE_ACCOUNT_Q": "Κατάργηση λογαριασμού;",
   "SID_STORE_REMOVE_SOURCE_Q": "Κατάργηση πηγής;",
-  "SID_STORE_REMOVE_Q": "Κατάργηση;"
+  "SID_STORE_REMOVE_Q": "Κατάργηση;",
+  "SID_STORE_REMOVE_ALL": "Κατάργηση όλων"
 }

@@ -176,6 +176,8 @@
     "{0} networks": "Мережі: {0}",
     "Space": "Пробіл",
     "Delete": "Видалити",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Видалити все",
+    "Tools only it uses: {0}": "Утиліти лише для неї: {0}"
   }
 }
