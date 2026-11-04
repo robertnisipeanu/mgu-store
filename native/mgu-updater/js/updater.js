@@ -1125,13 +1125,25 @@ class Updater {
      * more, or that has none (installed from outside the updater, imported),
      * of the origins listing it that hold no other id for it (aside): the
      * one whose listing has the installed one's title (an app's en_GB
-     * entry-point text, a tool's component.json title), or, for one with
+     * entry-point text, a tool's component.json title), of several the
+     * built-in source (the installers install from it), or, for one with
      * no recorded origin, the only one listing it. Else none: two of that
-     * title, or none of it. */
+     * title and neither built in, or none of it. */
     openLead(id, origins, recorded) {
         const have = installedApp(this.conf, id, true) || installedTool(this.conf, id);
         const titled = origins.filter((g) => have.title && g.best.entry.title === have.title);
-        return !recorded && origins.length === 1 ? origins[0] : titled.length === 1 ? titled[0] : null;
+        const builtin = titled.filter((g) => this.stored.some((d) => d.builtin && d.id === g.origin));
+        return !recorded && origins.length === 1 ? origins[0] : titled.length === 1 ? titled[0] : builtin.length === 1 ? builtin[0] : null;
+    }
+
+    /* Why another origin's listing of installed id cannot install, given
+     * the id's row (resolved): the source it came from, else the one that
+     * updates it. */
+    installedWhy(id, lead) {
+        const holder = this.holder(id);
+        const from = holder ? ` from ${this.sourceLabel(holder)}` : !lead.entry.unlisted ?
+            `; its updates come from ${this.sourceLabel(lead.source)}` : '';
+        return `${id} is already installed${from}`;
     }
 
     /* Of one origin's listings of an id, the one it offers: the highest
@@ -1241,7 +1253,7 @@ class Updater {
                 }
                 const key = `${id}@${source}`;
                 map.set(key, { entry: Object.assign({}, entry, { id: key, listedId: id, installAs: id,
-                    blocked: installed ? `${id} is already installed${holder ? ` from ${this.sourceLabel(holder)}` : ''}` : null }), source });
+                    blocked: installed ? this.installedWhy(id, map.get(id)) : null }), source });
             });
         });
         this.unlisted().forEach((r) => {
@@ -2475,8 +2487,7 @@ class Updater {
                 // installed (since this was asked for): only the origin that updates it (resolved)
                 const lead = this.installedOf(id) ? this.resolved().get(id) : null;
                 if (lead && (lead.entry.unlisted || this.originOf(lead.source) !== this.originOf(item.source))) {
-                    const holder = this.holder(id);
-                    throw new Error(`${id} is already installed${holder ? ` from ${this.sourceLabel(holder)}` : ''}`);
+                    throw new Error(this.installedWhy(id, lead));
                 }
                 return this.artifact(rt, entry, own);
             })
