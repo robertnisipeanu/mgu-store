@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.22
+
+- A build with internet carries on after the uplink moves to another network (a Wi-Fi switch, a new lease): its proxy resolves each new connection's host name through the servers of the lease it finds then, and refuses one without a lease as having no internet. The name lookup and the TCP connection together take at most 15 s (`<host>: no connection in 15 s`).
+
 ## 0.8.21
 
 - A download carries on after the uplink moves to another network (a Wi-Fi switch, a new lease): each try resolves names through the servers of the lease it finds then, and a try without a lease fails as having no internet, to be tried again. A connection that gets neither data nor a reset gives up within its bound: 15 s for the name lookup, TCP and TLS together, 30 s for the answer's headers and 30 s for each part of its body (`<host>: no connection in 15 s`, `<host>: no data for 30 s`). A download that fails is reported as soon as its last try ends.

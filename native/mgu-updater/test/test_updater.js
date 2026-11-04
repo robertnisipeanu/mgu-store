@@ -40,6 +40,8 @@
  *    that downloads through its proxy (and fails without the uplink), a
  *    service tool and a preload tool with the capability it needs.
  *    MGU_TEST_PROXY_OPEN lets that proxy reach the tests' local servers.
+ *  - the build proxy across a network switch: the lease read for each
+ *    connection, none, and a name server or an upstream that stays silent.
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -4446,6 +4448,104 @@ function testPythonRepo() {
         });
 }
 
+/* The build proxy across a network switch: each new connection resolves
+ * through the lease as it is then; without a lease, or with a name server
+ * that never answers, it is refused within connectMs (1 s here); an
+ * upstream that goes quiet is cut after idleMs. One proxy for all. */
+function testProxyLease() {
+    const lease = path.join(T, 'proxy-lease.json');
+    const good = JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] });
+    fs.writeFileSync(lease, good);
+    let silentDns;
+    let upstream;
+    let quiet;
+    let web;
+    let child;
+    let port;
+    const token = 'secret';
+    const auth = { 'Proxy-Authorization': `Basic ${Buffer.from(`mgu:${token}`).toString('base64')}` };
+    // CONNECT host:port: { code, text, body, ms }, body what came through the tunnel before it closed
+    const tunnel = (target) => new Promise((resolve) => {
+        const t0 = Date.now();
+        const req = require('http').request({ host: '127.0.0.1', port, method: 'CONNECT', path: target, headers: auth });
+        req.on('connect', (res, socket) => {
+            let body = '';
+            socket.on('data', (d) => { body += d; });
+            socket.on('error', () => {});
+            socket.on('close', () => resolve({ code: res.statusCode, text: res.statusMessage, body, ms: Date.now() - t0 }));
+        });
+        req.on('error', (e) => resolve({ code: 0, text: e.message, ms: Date.now() - t0 }));
+        req.end();
+    });
+    const get = (url) => new Promise((resolve) => {
+        const t0 = Date.now();
+        const req = require('http').request({ host: '127.0.0.1', port, path: url, headers: auth }, (res) => {
+            let body = '';
+            res.on('data', (d) => { body += d; });
+            res.on('end', () => resolve({ code: res.statusCode, body, ms: Date.now() - t0 }));
+        });
+        req.on('error', (e) => resolve({ code: 0, body: e.message, ms: Date.now() - t0 }));
+        req.end();
+    });
+    const listen = (srv) => new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve(srv.address().port)));
+    return Promise.resolve().then(() => new Promise((resolve) => {
+        // a name server that takes every query and answers none: the network the uplink has left
+        silentDns = dgram.createSocket('udp4');
+        silentDns.bind(0, '127.0.0.1', resolve);
+    })).then(() => {
+        upstream = net.createServer((c) => c.end('through\n'));
+        quiet = net.createServer((c) => c.on('error', () => {}));
+        web = require('http').createServer((req, res) => res.end(`got ${req.headers.host}${req.url}\n`));
+        return Promise.all([listen(upstream), listen(quiet), listen(web)]);
+    }).then(() => new Promise((resolve, reject) => {
+        child = cp.spawn(process.execPath, [path.join(ROOT, 'js', 'proxy.js')], { stdio: ['pipe', 'pipe', 'inherit'], env: {} });
+        let buf = '';
+        child.stdout.on('data', (d) => {
+            buf += d;
+            const m = /"listening":(\d+)/.exec(buf);
+            if (m && !port) {
+                port = Number(m[1]);
+                resolve();
+            }
+        });
+        child.on('exit', () => reject(new Error('the proxy did not start')));
+        child.stdin.end(JSON.stringify({ token, uid: process.getuid(), dns: [`127.0.0.1:${silentDns.address().port}`], lease,
+            maxBytes: 1 << 20, connectMs: 1000, idleMs: 1000, open: true }));
+    })).then(() => tunnel(`up.test:${upstream.address().port}`)).then((r) => {
+        ok('proxy: a CONNECT resolves through the lease, not the servers it started with', r.code === 200 && r.body === 'through\n',
+            JSON.stringify(r));
+        return get(`http://up.test:${web.address().port}/x?y`);
+    }).then((r) => {
+        ok('proxy: an http GET resolves through the lease', r.code === 200 && r.body === `got up.test:${web.address().port}/x?y\n`,
+            JSON.stringify(r));
+        // the uplink on a network whose name server is gone
+        fs.writeFileSync(lease, JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${silentDns.address().port}`] }));
+        return Promise.all([tunnel(`up.test:${upstream.address().port}`), get(`http://up.test:${web.address().port}/x`)]);
+    }).then(([c, g]) => {
+        ok('proxy: a name server that never answers refuses the connection within connectMs (502)',
+            c.code === 502 && c.text === 'up.test: no connection in 1 s' && c.ms < 2500 &&
+            g.code === 502 && g.body === 'up.test: no connection in 1 s\n' && g.ms < 2500, JSON.stringify([c, g]));
+        // a new network's lease, read by the next connection of the same proxy
+        fs.writeFileSync(lease, good);
+        return tunnel(`up.test:${upstream.address().port}`);
+    }).then((r) => {
+        ok('proxy: the next connection uses the lease that changed meanwhile', r.code === 200 && r.body === 'through\n', JSON.stringify(r));
+        fs.unlinkSync(lease);
+        return Promise.all([tunnel(`up.test:${upstream.address().port}`), get(`http://up.test:${web.address().port}/x`)]);
+    }).then(([c, g]) => {
+        ok('proxy: without a lease a connection is refused as having no internet (502)',
+            c.code === 502 && c.text === 'no internet (the uplink is down)' && g.code === 502 &&
+            g.body === 'no internet (the uplink is down)\n', JSON.stringify([c, g]));
+        fs.writeFileSync(lease, good);
+        return tunnel(`up.test:${quiet.address().port}`);
+    }).then((r) => {
+        ok('proxy: an upstream that sends nothing is cut after idleMs', r.code === 200 && r.body === '' && r.ms < 2500, JSON.stringify(r));
+    }).then(() => {
+        child.kill('SIGKILL');
+        [upstream, quiet, web, silentDns].forEach((srv) => srv.close());
+    });
+}
+
 /* Ids two origins share (README.md, "Ids"): mgu-apps' doom is installed
  * from a catalog; a repo laid out as idrive7-apps (an apps pattern, a
  * Python build taking {id}, deriving the package name and its UUIDs from
@@ -5677,6 +5777,7 @@ function main() {
             .then(() => testAppRemove().catch((e) => ok('app remove scenario', false, e.stack)))
             .then(() => testUndo().catch((e) => ok('undo scenario', false, e.stack)))
             .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
+            .then(() => testProxyLease().catch((e) => ok('build proxy lease scenario', false, e.stack)))
             .then(() => testIdClash().catch((e) => ok('id clash scenario', false, e.stack)))
             .then(() => testDefaultPrivate(certs).catch((e) => ok('default private source scenario', false, e.stack)))
             .then(() => testAnonymous(certs).catch((e) => ok('anonymous GitHub scenario', false, e.stack)))

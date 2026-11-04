@@ -238,7 +238,9 @@ uid, over a file the build left there under that name; that goes to the deploy t
 module generated for it there when it requires one). A build with
 `network` gets the internet through `js/proxy.js`, an HTTP proxy on
 127.0.0.1 at a random port that the updater runs as the fetch uid for that
-build alone, resolving names through the lease's DNS: `http_proxy`,
+build alone, resolving each connection's host name through the DNS of the
+lease as it is then, within 15 s for the lookup and the TCP connection
+together: `http_proxy`,
 `https_proxy` (and upper case) name it with a random password, and it
 serves only connections of the build uid (`/proc/net/tcp`) that carry it;
 CONNECT to port 443 and http GET/HEAD to port 80, to host names with a
