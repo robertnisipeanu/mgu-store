@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.18
+
+Store and Installed have **Restart now** while an app or tool waits for a
+restart, beside Update all on Installed. It opens the same confirm step as
+Settings' Restart head unit.
+
 ## 0.9.17
 
 An installed app or tool that does not work until it is set up again

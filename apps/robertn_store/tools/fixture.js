@@ -98,10 +98,12 @@ function screens() {
         ['confirm-undo', { tab: 'installed', stack: main.concat([{ name: 'app', id: 'mgu-uplink' }, { name: 'confirm', kind: 'undo', id: 'mgu-uplink' }]),
             focus: 0 }],
         ['installed', { tab: 'installed', stack: main }],
+        // nothing installing, a restart pending: Restart now on Store and Installed (with a tool that does not work)
+        ['store-restart', { tab: 'store', stack: main }, idleSt(st)],
+        ['installed-restart', { tab: 'installed', stack: main }, failedSt(idleSt(st), 'mgu-uplink', { repair: 'installed under firmware 23-07' })],
         ['usb', { tab: 'usb', stack: main }],
         ['settings', { tab: 'settings', stack: main }],
-        ['confirm-restart', { tab: 'settings', stack: main.concat([{ name: 'confirm', kind: 'restart' }]), focus: 0 },
-            { busy: null, components: st.components.map((c) => Object.assign({}, c, { queued: false })) }],
+        ['confirm-restart', { tab: 'settings', stack: main.concat([{ name: 'confirm', kind: 'restart' }]), focus: 0 }, idleSt(st)],
         ['source', { tab: 'settings', stack: main.concat([{ name: 'source', id: 'idrive7-apps' }]) }],
         ['source-install-app', { tab: 'settings', stack: main.concat([{ name: 'source', id: 'car-apps' }]) }],
         ['accounts', { tab: 'settings', stack: main.concat([{ name: 'accounts' }]) }],
@@ -142,6 +144,11 @@ function screens() {
         ['app-failed', { stack: main.concat([{ name: 'app', id: 'vehicle_control' }]) }, failedSt(st, 'vehicle_control', { error: LONG_ERROR })],
         ['source-failed', { tab: 'settings', stack: main.concat([{ name: 'source', id: 'car-apps' }]) }, sourceFailed(st)]
     ];
+}
+
+/* State overrides: nothing installing or waiting. */
+function idleSt(st) {
+    return { busy: null, components: st.components.map((c) => Object.assign({}, c, { queued: false })) };
 }
 
 /* State overrides: nothing installing, component id with o over it. */

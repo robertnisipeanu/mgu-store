@@ -28,15 +28,22 @@ def text(name, x, y, w, h, t, size, font='label', color='text', align='left', wr
     return comp(name, 'text', x, y, w, h, o)
 BACK = copy.deepcopy(get(S['app'], 'back'))
 screens = []
+# Restart now, Update all's button beside it while a restart waits; shown, it moves shift
+def restart_now(st, before, x, y, h, shift):
+    i = next(k for k, c in enumerate(st['components']) if c['name'] == before)
+    st['components'].insert(i, comp('restartNow', 'vbutton', x, y, 540, h, {'text': 'Restart now', 'vicon': 'refresh', 'style': 'primary',
+        'size': 34, 'color': '#3d9bff', 'hidden': True, 'shift': shift}, 'event:restartNow'))
 # store: his, filter Apps / Tools
-st = copy.deepcopy(S['store']); get(st, 'filter')['opts']['items'] = 'All,Apps,Tools'; screens.append(st)
+st = copy.deepcopy(S['store']); get(st, 'filter')['opts']['items'] = 'All,Apps,Tools'
+restart_now(st, 'filter', 936, 134, 84, {}); screens.append(st)
 # app: his, and under the description what an installed tool says is wrong
 st = copy.deepcopy(S['app']); get(st, 'desc')['h'] = 250
 st['components'].append(text('problem', 480, 730, 1560, 90, '', 36, 'label', '#ffb020', wrap=True)); screens.append(st)
 # confirm: his restart sheet, for every confirm step
 st = copy.deepcopy(S['restart']); st['name'] = 'confirm'; screens.append(st)
 # installed: his, tools for system services
-st = copy.deepcopy(S['installed']); get(st, 'svcLabel')['opts']['text'] = 'HEAD-UNIT TOOLS'; screens.append(st)
+st = copy.deepcopy(S['installed']); get(st, 'svcLabel')['opts']['text'] = 'HEAD-UNIT TOOLS'
+restart_now(st, 'appsLabel', 2300, 140, 100, {'updateAll': [-564, 0], 'subtitle': [0, -70]}); screens.append(st)
 st = copy.deepcopy(S['usb']); get(st, 'title')['opts']['text'] = 'USB'; screens.append(st)
 # settings: sources on the left, access and the head unit on the right
 st = copy.deepcopy(S['settings'])
