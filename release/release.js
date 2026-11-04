@@ -340,7 +340,7 @@ function catalogTexts(ids, root) {
         const file = readJson(path.join(dir, n));
         Object.keys(file).forEach((id) => {
             const one = textsOf({ [code]: file[id] });
-            if (ids.indexOf(id) < 0 || !one || JSON.stringify(one[code]) !== JSON.stringify(file[id])) {
+            if (ids.indexOf(id) < 0 || !one || !Object.keys(file[id]).every((k) => one[code][k] === file[id][k])) {
                 throw new Error(`release/texts/${n}: "${id}" is not a component's { "title", "description" }`);
             }
             out[id] = Object.assign(out[id] || {}, one);

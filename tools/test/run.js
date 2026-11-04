@@ -522,6 +522,8 @@ function testReleaseTexts() {
     const write = (o) => fs.writeFileSync(path.join(root, 'release', 'texts', 'de.json'), JSON.stringify(o));
     write({ a: { title: 'A-de' } });
     check('release: texts by id and language', JSON.stringify(catalogTexts(['a'], root)) === JSON.stringify({ a: { de: { title: 'A-de' } } }));
+    write({ a: { description: 'D', title: 'A-de' } });
+    check('release: texts in any key order', JSON.stringify(catalogTexts(['a'], root)) === JSON.stringify({ a: { de: { title: 'A-de', description: 'D' } } }));
     [{ b: { title: 'B' } }, { a: { title: 'A', extra: 1 } }, { a: { title: 7 } }, { a: 'A' }].forEach((o) => {
         write(o);
         let thrown = null;
