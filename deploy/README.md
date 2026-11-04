@@ -933,16 +933,19 @@ them (below).
   `mgu-deploy` (`<id> removed: <reason>`), since the tool's own entries go
   with it. A rollback runs the `deactivate` of the version it leaves the
   same way, before it switches (Rollback, below). `state.json` records
-  the kept versions whose `deactivate` ran last (`deactivated`; an
-  `activate` clears it), which are not deactivated again, and those an
-  install could not deactivate (`deactivate_owed`), which the next install
-  or removal deactivates; a version made current again has neither, and a
-  removal that fails keeps them. An install deactivates a kept version
-  newer than the one it replaces and never deactivated before removing it;
-  one that fails stays kept and owed (with two versions kept, `rollback`
-  needs `--to`), and the install goes on; a failure after it activates the
-  version it replaces again. A unit, link or
-  drop-in another installed tool lists is never stopped or taken out.
+  the kept versions whose `deactivate` ran last (`deactivated`), which are
+  not deactivated again, and those an install could not deactivate
+  (`deactivate_owed`), which the next install or removal deactivates; a
+  version made current again, or no longer kept, has neither. Each record
+  is on disk (written by rename, file and folder synced) as soon as its
+  hook has run, and a snapshot put back keeps them. An install deactivates
+  a kept version newer than the one it replaces and never deactivated (or
+  one owed) before removing it: one that fails refuses the install (exit
+  2), naming it, and stays kept and owed; a failure after it activates
+  the version it replaces again. Laying the current version again after a
+  firmware update leaves such versions kept, for a later install or the
+  removal. A unit, link or drop-in another installed tool lists is never
+  stopped or taken out.
 
 **Files removed once unused.** A hook that replaced a binary a process still
 runs keeps the old file linked (an unlinked file a process holds keeps `/`

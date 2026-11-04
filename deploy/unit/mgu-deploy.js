@@ -209,12 +209,21 @@ function sha256File(p) {
     return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 }
 function sha256Buf(b) { return crypto.createHash('sha256').update(b).digest('hex'); }
+/* file replaced by rename, the new file and its folder on disk before it returns */
 function writeAtomic(file, data, mode) {
     mkdirp(path.dirname(file));
-    var tmp = file + '.tmp-' + process.pid;
-    fs.writeFileSync(tmp, data);
-    if (mode !== undefined) fs.chmodSync(tmp, mode);
+    var tmp = file + '.tmp-' + process.pid, fd = fs.openSync(tmp, 'w');
+    try {
+        fs.writeFileSync(fd, data);
+        if (mode !== undefined) fs.fchmodSync(fd, mode);
+        fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, file);
+    fsyncDir(path.dirname(file));
+}
+function fsyncDir(dir) {
+    var fd = fs.openSync(dir, 'r');
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
 }
 function copyFileMode(src, dest, mode) {
     mkdirp(path.dirname(dest));
@@ -1277,7 +1286,10 @@ function restoreSnapshot(dir, only) {
         if (only && only.indexOf(e.path) < 0) return;
         (isRootfsPath(e.path) ? rootEntries : plain).push(e);
     });
+    /* the hooks' marks (noteHook) record hooks that ran, which no snapshot undoes */
+    var marks = readJsonOrNull(STATE_FILE);
     plain.forEach(function (e) { putBackEntry(dir, e); });
+    if (marks && typeof marks === 'object' && plain.some(function (e) { return e.path === STATE_FILE; })) persistMarks(marks);
     /* The lists' entries cover every unit on disk at each step: entries the
      * snapshot has go in first (added only), the units, links and drop-ins
      * go back, and only then the lists as the snapshot has them. */
@@ -2288,8 +2300,8 @@ function runHook(id, dir, c, which, state) {
     var reboot = result && typeof result.reboot === 'string' && result.reboot.trim() ? oneLine(result.reboot).trim() : null;
     if (result && result.reboot !== undefined && !reboot) warn(prefix + '"reboot" is not a reason; ignored');
     if (reboot) say(prefix + 'a head-unit restart is pending: ' + reboot);
-    if (result && result.removeWhenUnused !== undefined) handOver(id, result.removeWhenUnused, state);
     noteHook(state, id, c.version, which);
+    if (result && result.removeWhenUnused !== undefined) handOver(id, result.removeWhenUnused, state);
     return { ok: true, reboot: reboot };
 }
 /* Per tool, in state.json: the kept versions whose last hook to run was
@@ -2307,6 +2319,17 @@ function noteHook(state, id, version, which) {
         if (list.length) all[id] = list;
         else delete all[id];
     });
+    persistMarks(state);
+}
+/* The marks of state (noteHook) written into state.json at once, whatever
+ * else the command changes and saves later. */
+function persistMarks(state) {
+    var disk = readJsonOrNull(STATE_FILE);
+    if (!disk || typeof disk !== 'object') disk = {};
+    disk.deactivated = state.deactivated;
+    disk.deactivate_owed = state.deactivate_owed;
+    mkdirp(DEPLOY_DIR);
+    writeAtomic(STATE_FILE, JSON.stringify(disk, null, 2) + '\n', 0o644);
 }
 function noted(state, key, id, version) {
     return !!(state[key] && Array.isArray(state[key][id]) && state[key][id].indexOf(version) >= 0);
@@ -2417,22 +2440,23 @@ function installTool(a, state, tx) {
         if (dr.reboot) addPending(state, c.id, dr.reboot);
     }
     /* a kept version whose deactivate is due (deactivateDue) runs it before
-     * the version goes, as at its removal; one that fails stays kept and
-     * owed, for the tool's next install or removal, and the install goes on.
-     * A failed install activates the version it replaces again. */
-    tx.keep = [];
-    (before ? deactivateDue(state, c.id, root, before) : []).filter(function (v) { return v !== c.version; }).forEach(function (v) {
+     * the version goes, as at its removal; one that fails refuses the
+     * install, the version kept and owed for the tool's next install or
+     * removal. A failed install activates the version it replaces again.
+     * Laying the current version again (a.repair) leaves them, kept. */
+    var due = before ? deactivateDue(state, c.id, root, before).filter(function (v) { return v !== c.version; }) : [];
+    tx.keep = a.repair ? due : [];
+    (a.repair ? [] : due).forEach(function (v) {
         var vc = readJsonOrNull(path.join(versions, v, 'component.json'));
         if (!vc || vc.id !== c.id || !vc.deactivate) return;
         var hr = runHook(c.id, path.join(versions, v), vc, 'deactivate', state);
         if (!hr.ok) {
-            tx.keep.push(v);
             noteHook(state, c.id, v, 'owed');
-            warn(c.id + ' ' + v + ': deactivate ' + hr.why + '; versions/' + v + ' stays, for the next install or removal of ' + c.id);
-        } else {
-            tx.deactivated = true;
-            if (hr.reboot) addPending(state, c.id, hr.reboot);
+            throw refuse(c.id + ' ' + c.version + ': the kept ' + c.id + ' ' + v + ' must be deactivated first, and its deactivate ' +
+                hr.why + '; ' + before + ' stays current');
         }
+        tx.deactivated = true;
+        if (hr.reboot) addPending(state, c.id, hr.reboot);
     });
     /* A current that is no link (a folder an earlier installer left, e.g.
      * app-privacy 1.5.0's) cannot be replaced by rename: it goes aside, and
@@ -2871,6 +2895,7 @@ function rollbackTool(a, tx, backup, e, state) {
             say(c.id + ': the earlier install\'s current folder is back');
         }
     }
+    if (!fs.existsSync(path.join(tx.root, 'versions', c.version))) noteHook(state, c.id, c.version, 'gone');
     Object.keys(tx.socketsActive || {}).forEach(function (u) {
         if (!tx.socketsActive[u] && !fs.existsSync(path.join(CFG.systemd, u))) {
             systemctl(['stop', u]); say('stopped ' + u);
@@ -2898,7 +2923,8 @@ function rollbackTool(a, tx, backup, e, state) {
  * another version's activate or the tool's deactivate did not go through. */
 function reactivate(id, dir, state) {
     var prev = dir ? readJsonOrNull(path.join(dir, 'component.json')) : null;
-    if (!prev || !prev.activate) return;
+    if (!prev) return;
+    if (!prev.activate) { noteHook(state, id, prev.version, 'gone'); return; }
     var hr = runHook(id, dir, prev, 'activate', state);
     if (hr.ok && hr.reboot) addPending(state, id, hr.reboot);
     say(hr.ok ? id + ' ' + prev.version + ' activated again' : id + ' ' + prev.version + ' activate failed too: ' + hr.why);
