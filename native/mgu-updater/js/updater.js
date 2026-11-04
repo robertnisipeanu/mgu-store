@@ -2595,7 +2595,10 @@ class Updater {
                     this.installedVersion(id, 'app') !== entry.version) {
                     this.startStoreTrial(entry.version);
                 }
-                return this.deploy(verified);
+                // a tool installed from another origin: the version it replaces is deactivated first
+                const rec = this.origins[id];
+                const moved = entry.kind === 'tool' && !!this.installedVersion(id, 'tool') && !!rec && rec.source !== this.originOf(item.source);
+                return this.deploy(verified, moved);
             })
             .then((code) => {
                 if (code !== 0) {
@@ -2925,8 +2928,10 @@ class Updater {
             });
     }
 
-    deploy(file) {
-        return this.deployTool(['install', '--artifact', file, '--yes']).then((code) => this.checkUids().then(() => code));
+    /* otherSource: the artifact replaces an installed tool another origin installed. */
+    deploy(file, otherSource) {
+        return this.deployTool(['install', '--artifact', file, '--yes'].concat(otherSource ? ['--other-source'] : []))
+            .then((code) => this.checkUids().then(() => code));
     }
 
     /* Picks a uid again that something else holds now (an install, an

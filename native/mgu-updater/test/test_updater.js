@@ -2536,6 +2536,23 @@ function testSources(certs) {
             return ask(sock, { op: 'install', id: 'base_tool' }).then(() => installed('base_tool'));
         })
         .then(() => {
+            // a tool another origin installed, now updated from this one (its title leads): the deploy tool hears so
+            const cj = path.join(opt, 'base_tool', 'current', 'component.json');
+            fs.writeFileSync(cj, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(cj, 'utf8')), { title: 'Base' })));
+            u.origins.base_tool = { source: 'gone', commit: null };
+            fs.writeFileSync(deployLog, '');
+            return u.install({ op: 'install', id: 'base_tool', source: 'mgu-store' });
+        })
+        .then(() => {
+            ok('move: a tool another origin installed goes to the deploy tool with --other-source, and this origin is its own',
+                deployed().length === 1 && / --other-source$/.test(deployed()[0]) && u.origins.base_tool.source === 'mgu-store', JSON.stringify(deployed()));
+            fs.writeFileSync(deployLog, '');
+            return u.install({ op: 'install', id: 'base_tool', source: 'mgu-store' });
+        })
+        .then(() => {
+            ok('move: an install from its own origin has no --other-source', deployed().length === 1 && !/--other-source/.test(deployed()[0]),
+                JSON.stringify(deployed()));
+
             // another source's row of an id whose install it queued for the next start (iDrive 8)
             process.env.FAKE_PENDING = 'dup_app=installs at the next start';
             u.origins.dup_app = { source: 'second', commit: null };

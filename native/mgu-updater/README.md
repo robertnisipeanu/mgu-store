@@ -33,7 +33,9 @@ core, the deploy tool's on-unit `mgu-deploy.js` (`deploy/README.md`):
   (`deploy/hu` from a checkout, for development). It bootstraps the car
   and installs the deploy tool, the uplink and this updater.
 - **Sources**: this updater and the Store. It hands each verified
-  artifact to `/var/opt/mgu-deploy/mgu-deploy.sh install --artifact`.
+  artifact to `/var/opt/mgu-deploy/mgu-deploy.sh install --artifact`, with
+  `--other-source` for a tool another source installed (its origin in
+  `origins.json`), whose version going is deactivated first.
 
 Both take the same artifacts (`release.js` packs tools with `deploy/hu
 artifact`), the same `component.json`, the same `versions/<v>` + `current`
