@@ -99,7 +99,7 @@ function visibleIds(b, o) {
     const g = gridView(b, o);
     return g.all.slice(g.first * g.cols, g.end * g.cols).map((a) => a.id);
 }
-// a source line (or a row's line ending in one) too long for its place keeps its repo name whole and shortens what comes before
+// a source line too long for its tile keeps its repo name whole and shortens the owner
 function fitSource(cv, s, w, size) {
     const i = s.lastIndexOf('/');
     if (i < 0 || cv.textWidth(s, size) <= w) return W.fit(cv, s, w, size);
@@ -168,7 +168,7 @@ function appList(cv, t, b, o) {
         }
         const boxes = rightBoxes(b, it, cv, q), room = (boxes.length ? boxes[boxes.length - 1].x : b.x + b.w) - tx - 8;
         cv.text(W.fit(cv, String(it.title || ''), room, ts, 'bold'), tx, it.sub ? y + h * 0.47 : y + h / 2 + ts * 0.36, ts, t.text, { font: 'bold' });
-        if (it.sub) cv.text(fitSource(cv, String(it.sub), room, ss), tx, y + h * 0.83, ss, C(t, it.subColor, t.dim));
+        if (it.sub) cv.text(W.fit(cv, String(it.sub), room, ss), tx, y + h * 0.83, ss, C(t, it.subColor, t.dim));
         const cy = y + h / 2;
         for (const rb of boxes) {
             const re = rb.x + rb.w - 24 * q;                // the control's right edge
