@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.24
+
+- A component installed without a recorded origin (by an installer, a stick, the deploy tool), or whose origin lists it no more, that more than one source lists under its title is updated by the built-in source, so the Store shows one row for it, installed, with its update. For one without a recorded origin the other sources' listings are beside it, blocked: `<id> is already installed; its updates come from <source>`. Of two such sources neither built in, it has no update.
+
 ## 0.8.23
 
 - A component's title and description in other languages (a catalog entry's, an `mgu-repo.json` entry's or an `mgu-store.json` app's `texts`) reach the Store, which shows them in the head unit's language.

@@ -4759,7 +4759,7 @@ function testIdClash() {
             let got = view({});
             ok('ids: an app installed from outside is updated by the origin whose listing has its title (DOOM: mgu-apps, not Doom or ' +
                 'DOOM (App Manager)); the others are beside it', got.get('doom').source === 'mgu-apps' && !got.get('doom').entry.unlisted &&
-                got.get('doom2').entry.listedId === 'doom' && got.get('doom@iterio').entry.blocked === 'doom is already installed',
+                got.get('doom2').entry.listedId === 'doom' && got.get('doom@iterio').entry.blocked === `doom is already installed; its updates come from ${mguApps}`,
                 JSON.stringify(Array.from(got.keys())));
             got = view({}, { at: null, imported: ['doom'] });
             ok('ids: ...an imported one too', got.get('doom').source === 'mgu-apps' && !got.get('doom').entry.blocked);
@@ -4787,7 +4787,7 @@ function testIdClash() {
             titled('stubborn', 'Stubborn');
             got = view({});
             ok('ids: of two sources listing an id, the one whose listing has the installed title updates it',
-                got.get('stubborn').source === 'idrive7-apps' && got.get('stubborn@mgu-apps').entry.blocked === 'stubborn is already installed',
+                got.get('stubborn').source === 'idrive7-apps' && got.get('stubborn@mgu-apps').entry.blocked === `stubborn is already installed; its updates come from ${repo}`,
                 JSON.stringify(Array.from(got.keys()).filter((k) => /stubborn/.test(k))));
             titled('stubborn', 'Something else');
             got = view({});
@@ -4883,6 +4883,22 @@ function testIdClash() {
                 const py2 = lone.resolved().get('mgu-python');
                 ok('ids: ...unless its own origin is gone: then only a listing with its title updates it', py2.entry.unlisted === true,
                     JSON.stringify(py2));
+                // installed from outside (an installer), listed under its title by the built-in source and by another (a fork)
+                const titledPy = Object.assign({}, u.src.get('pytools').components.find((c) => c.id === 'mgu-python'), { title: 'Python runtime' });
+                const forked = new Map(u.src);
+                ['mgu-store', 'pytools'].forEach((s) => forked.set(s, Object.assign({}, u.src.get(s), { components: [titledPy] })));
+                Object.assign(lone, { src: forked, origins: {} });
+                let py3 = lone.resolved();
+                ok('ids: of two sources listing an installed id without an origin under its title, the built-in source updates it; ' +
+                    'the other is beside it, blocked, naming where its updates come from', py3.get('mgu-python').source === 'mgu-store' &&
+                    !py3.get('mgu-python').entry.unlisted && py3.get('mgu-python@pytools').entry.blocked ===
+                    `mgu-python is already installed; its updates come from ${store}`,
+                    JSON.stringify(Array.from(py3.entries()).filter(([k]) => /python/.test(k))));
+                Object.assign(lone, { stored: lone.stored.filter((d) => d.id !== 'mgu-store').concat([{ id: 'mgu-store', type: 'file', path: store }]) });
+                py3 = lone.resolved();
+                ok('ids: ...and with neither of them built in, it has no update: a row of its own, both beside it blocked',
+                    py3.get('mgu-python').entry.unlisted === true && py3.get('mgu-python@pytools').entry.blocked === 'mgu-python is already installed',
+                    JSON.stringify(Array.from(py3.entries()).filter(([k]) => /python/.test(k))));
                 fs.writeFileSync(py, pyWas);
                 tool('plain-tool', { title: 'Plain', uninstallable: true });
                 tool('bare-tool', { mguProvides: 'widget' });

@@ -281,7 +281,9 @@ lists the id.
 - Every other origin's listing is beside it, as a row keyed `<id>@<source>`
   that installs as `<id>` (`installAs`), and, while another origin's `<id>`
   is installed, `blocked` with the reason (`<id> is already installed from
-  <source>`): its install is refused. A tool and a package built elsewhere
+  <source>`, or, for one installed without a recorded origin,
+  `<id> is already installed; its updates come from <source>`): its
+  install is refused. A tool and a package built elsewhere
   (a release, catalog or index package, a stick's `oap/`), which may name
   its id in its code, keep their id so.
 - An app the updater builds (a repo tree's build script, or source
@@ -306,11 +308,12 @@ lists the id.
   updater: the installers, the emulator's provisioning; `imported`), or
   whose origin lists its id no more (a stick that is gone, a source
   removed), is updated by the origin whose listing has its title (an
-  app's en_GB entry-point text, a tool's `component.json` title); one
+  app's en_GB entry-point text, a tool's `component.json` title), of
+  several the built-in source (the installers install from it); one
   without a recorded origin also by the only origin listing its id,
   whatever its title. An origin holding
   another id for an app of that id (`doom2`) is not counted. With two of
-  that title, or none of it, it has no update. That origin's row has the
+  that title and neither built in, or none of it, it has no update. That origin's row has the
   id, and installing from it records it as the origin. So a car set up
   offline updates the Store, the updater and the uplink from a stick, an
   App Manager app from a stick's `oap/`, and a source removed and added
