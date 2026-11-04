@@ -21,7 +21,9 @@
  * one: an $OAP_ROOT/oap_12201 registry entry naming its uid (one per app)
  * and that uid's source/package.json. Every call is logged
  * to $FAKE_DEPLOY_LOG; while $FAKE_DEPLOY_LOG.fail exists, install exits
- * with the status it holds, giving "test failure <status>" as its reason.
+ * with the status it holds, giving "test failure <status>" as its reason;
+ * while $FAKE_DEPLOY_LOG.failafter exists, a tool install exits 1 once the
+ * new version is current.
  * $FAKE_DEPLOY_LOG.pending lists ids (one per line) reported under
  * pending_reboot, whose service counts as not restarted; $FAKE_PENDING
  * more, comma-separated, each `id` or `id=reason`; $FAKE_LAST_APPLY is
@@ -251,6 +253,10 @@ if (fs.existsSync(path.join(tmp, 'component.json'))) {
     uplinkRuns(root);
     unstale(c.id);
     console.log(`${c.id} ${c.version} installed`);
+    if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.failafter`)) {
+        process.stderr.write(`mgu-deploy: ${c.id} ${c.version}: activate failed, and its deactivate too\n`);
+        process.exit(1);
+    }
 } else {
     const read = (p) => JSON.parse(fs.readFileSync(path.join(tmp, p), 'utf8'));
     const own = ['package.json', 'package/package.json', 'mgu-app.json', 'meta.json'].find((p) => fs.existsSync(path.join(tmp, p)));

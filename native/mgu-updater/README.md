@@ -35,7 +35,9 @@ core, the deploy tool's on-unit `mgu-deploy.js` (`deploy/README.md`):
 - **Sources**: this updater and the Store. It hands each verified
   artifact to `/var/opt/mgu-deploy/mgu-deploy.sh install --artifact`, with
   `--other-source` for a tool another source installed (its origin in
-  `origins.json`), whose version going is deactivated first.
+  `origins.json`), whose version going is deactivated first. A tool with
+  no recorded origin (installed over SSH, or before origins were kept)
+  installs without it, as an update or a downgrade of the same tool.
 
 Both take the same artifacts (`release.js` packs tools with `deploy/hu
 artifact`), the same `component.json`, the same `versions/<v>` + `current`
@@ -875,7 +877,10 @@ each request, and whenever it changes (at most every 250 ms):
   requires, itself or through one another, that its removal may take along
   (each one its row may remove, nothing else installed requires, and none
   the last provider of a capability another installed component needs),
-  in the order they are removed; else `[]`.
+  in the order they are removed; else `[]`. The requirements it follows
+  are the sources' catalog rows (`requires`), not the installed
+  components' own files, so a requirement only an installed version
+  declares is not seen.
 - `unit`: the head unit (`hmi` `ID7`, `ID8` or null, `firmware` its build
   string), null until the deploy tool says. `allProviders`: the installed tools
   providing each capability; `providers`: the first of them each, for the

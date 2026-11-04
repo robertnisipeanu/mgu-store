@@ -2463,7 +2463,7 @@ function testSources(certs) {
             ok('requires: a requirement that fails to install is the app\'s error, with its reason; the app is not installed',
                 comp('needs_app').error === `needs base_tool 1.0.0 or newer, which did not install from ${src('mgu-store').label}: ` +
                 'install failed: test failure 1; ' +
-                'the previous version was kept' && lines.length === 1 && /base_tool@1\.0\.0/.test(lines[0]) &&
+                'nothing is installed' && lines.length === 1 && /base_tool@1\.0\.0/.test(lines[0]) &&
                 comp('needs_app').status === 'available', JSON.stringify([comp('needs_app').error, lines]));
             // Try again: the requirement installs first again
             fs.writeFileSync(deployLog, '');
@@ -2552,7 +2552,24 @@ function testSources(certs) {
         .then(() => {
             ok('move: an install from its own origin has no --other-source', deployed().length === 1 && !/--other-source/.test(deployed()[0]),
                 JSON.stringify(deployed()));
-
+            // a failed update that leaves the new version current says so
+            const root = path.join(opt, 'base_tool');
+            cp.execFileSync('cp', ['-a', path.join(root, 'versions', '1.0.0'), path.join(root, 'versions', '0.9.0')]);
+            const cj = path.join(root, 'versions', '0.9.0', 'component.json');
+            fs.writeFileSync(cj, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(cj, 'utf8')), { version: '0.9.0' })));
+            fs.unlinkSync(path.join(root, 'current'));
+            fs.symlinkSync('versions/0.9.0', path.join(root, 'current'));
+            fs.writeFileSync(`${deployLog}.failafter`, '');
+            return u.refresh().then(() => u.install({ op: 'install', id: 'base_tool', source: 'mgu-store' }));
+        })
+        .then(() => {
+            fs.unlinkSync(`${deployLog}.failafter`);
+            ok('install: a failure that leaves the new version current says it stays current (a first one that leaves none, that nothing is)',
+                /^install failed: .*activate failed, and its deactivate too; 1\.0\.0 stays current$/.test(u.errors.base_tool || ''), u.errors.base_tool);
+            delete u.errors.base_tool;
+            return u.refresh();
+        })
+        .then(() => {
             // another source's row of an id whose install it queued for the next start (iDrive 8)
             process.env.FAKE_PENDING = 'dup_app=installs at the next start';
             u.origins.dup_app = { source: 'second', commit: null };

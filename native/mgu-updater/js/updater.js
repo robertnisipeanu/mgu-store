@@ -2603,8 +2603,10 @@ class Updater {
             .then((code) => {
                 if (code !== 0) {
                     const why = this.deployError;
-                    throw new Error(code === 2 ? `${why || 'refused by the deploy tool'}; nothing changed` :
-                        `install failed${why ? ': ' + why : ''}; the previous version was kept`);
+                    const now = this.installedVersion(id, entry.kind);
+                    const left = !now ? 'nothing is installed' : now === entry.version && path.basename(before || '') !== entry.version ?
+                        `${entry.version} stays current` : 'the previous version was kept';
+                    throw new Error(code === 2 ? `${why || 'refused by the deploy tool'}; nothing changed` : `install failed${why ? ': ' + why : ''}; ${left}`);
                 }
                 console.log(`installed ${id}@${entry.version}`);
                 // installed from a stick's copy of a source: that source is its origin
