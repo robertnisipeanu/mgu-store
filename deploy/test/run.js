@@ -6085,6 +6085,233 @@ function testMguInstallPaths() {
         packed.length === 1 && packed[0].name === 'files/a.sh' && packed[0].mode === 0o755);
 }
 
+/* ---- remove-all and the restore's firmware guard ---------------------------------------- */
+
+/* /etc, MainApp's tree and the app manager's tree, but the manager's uid records (restore's boundary too). */
+const systemTrees = (rel) => rel.endsWith('/security/uids.txt') ||
+    !(rel === 'etc' || rel.startsWith('etc/') || rel === 'usr' || rel.startsWith('usr/') ||
+    rel === 'var' || rel === 'var/opt' || rel === 'var/opt/public' || rel.startsWith('var/opt/public/'));
+
+/* A unit with the Store setup: app-privacy, the updater with sources and a
+ * token, a tool with a service, recmgr names and a program, our app and a
+ * third-party app, the fallback on. */
+function storeSetupRoot(root) {
+    const tool = elfArtifact('fixture-tool', '0.2.0', 'fixtured');
+    const steps = [
+        ['install', '--artifact', privacyArtifact(), '--artifact', namedTool('mgu-updater', '0.2.0'), '--artifact', tool, '--artifact',
+            appArtifact('fixture_app', '1.0.0', true), '--artifact', appArtifact('other_app', '2.0.0', false), '--yes']
+    ];
+    steps.forEach((a) => {
+        const r = root.run(a);
+        if (r.status !== 0) {
+            throw new Error(`setup: ${a.join(' ')}: ${r.out}`);
+        }
+    });
+    let r = cp.spawnSync(UNIT_NODE, [UNIT_JS, 'updater-sources'], { encoding: 'utf8', env: root.env, input: JSON.stringify({ schema: 1, sources: [{ id: 'a', type: 'github', repo: 'x/y' }] }) });
+    r = cp.spawnSync(UNIT_NODE, [UNIT_JS, 'updater-token'], { encoding: 'utf8', env: root.env, input: 'ghp_removeall\n' });
+    if (r.status !== 0) {
+        throw new Error(`setup token: ${r.stdout}${r.stderr}`);
+    }
+    return root;
+}
+
+function testRemoveAll() {
+    const root = fakeRoot();
+    write(root.p('etc/os-release-id-dlt'), 'BMW MGU FW-1 mgu-high\n');
+    write(root.p('etc/crashhandler-restartlist.conf'), '[Whitelist]\nstockcrash\n\n[ForceRestartList]\nhmi\n');
+    const stock = root.hash(systemTrees);
+    storeSetupRoot(root);
+    const before = root.hash();
+    const list = root.run(['remove-all', '--json']);
+    const plan = list.status === 0 ? JSON.parse(list.stdout) : {};
+    check('remove-all --json: lists our app and the third-party app, every tool but the deploy tool, the updater\'s source and token',
+        list.status === 0 && JSON.stringify(plan.apps.map((a) => a.id)) === '["fixture_app","other_app"]' &&
+        JSON.stringify(plan.tools.map((t) => t.id).sort()) === '["app-privacy","fixture-tool","mgu-updater"]' &&
+        plan.sources === 1 && plan.tokens === 1 && plan.fallback === true && plan.deploy_tool === VERSION &&
+        plan.unit.firmware === 'BMW MGU FW-1 mgu-high', list.out);
+    check('remove-all --json and remove-all without --yes change nothing',
+        root.run(['remove-all']).status === 0 && root.hash().hash === before.hash, treeDiff(before, root.hash()));
+    const kills = root.kills().length;
+    const r = root.run(['remove-all', '--yes']);
+    const res = r.status === 0 ? JSON.parse(r.stdout.trim().split('\n').pop()) : {};
+    check('remove-all --yes: exit 0, nothing left, the deploy tool removed, no restart needed, the result the one stdout line',
+        r.status === 0 && res.self === 'removed' && res.left.length === 0 && res.restart === false && r.stdout.trim().split('\n').length === 1 &&
+        ['fixture_app', 'other_app', 'fixture-tool', 'mgu-updater', 'app-privacy'].every((id) => res.removed.includes(id)), r.out);
+    const now = root.hash(systemTrees);
+    check('remove-all: /etc, MainApp\'s tree and the app manager\'s tree are as before the setup',
+        now.hash === stock.hash, treeDiff(stock, now));
+    check('remove-all: no tool, updater state or deploy tool folder is left under /var/opt',
+        JSON.stringify(fs.readdirSync(root.p('var/opt'))) === '["public"]', fs.readdirSync(root.p('var/opt')).join(', '));
+    check('remove-all: the app-privacy patch reverted, the app manager restarted once',
+        fs.readFileSync(`${root.R}.privacy.log`, 'utf8').split('\n').includes('revert') && root.kills().length - kills === 1,
+        `${root.kills().length - kills} bounces\n${r.out}`);
+    const again = root.run(['remove-all', '--json']);
+    check('remove-all: run again it finds nothing', again.status === 0 && JSON.parse(again.stdout).apps.length === 0 &&
+        JSON.parse(again.stdout).tools.length === 0, again.out);
+}
+
+/* A step that fails leaves the deploy tool, and what depends on the step;
+ * running remove-all again finishes. */
+function testRemoveAllAgain() {
+    const root = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+    const hookLog = `${root.R}.hooks.log`;
+    const env = { FAKE_HOOK_LOG: hookLog };
+    root.run(['install', '--artifact', privacyArtifact(), '--artifact', namedTool('lib-tool', '0.1.0'), '--artifact', hookArtifact('1.0.0'),
+        '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes'], env);
+    const r = root.run(['remove-all', '--yes'], Object.assign({ FAKE_HOOK_FAIL: 'deactivate@1.0.0' }, env));
+    const res = JSON.parse(r.stdout.trim().split('\n').pop());
+    check('remove-all: a tool whose deactivate fails stays, named; the rest goes; the deploy tool stays',
+        r.status === 1 && JSON.stringify(res.left) === '["fixture-tool"]' && res.self === 'kept' &&
+        fs.existsSync(root.tool('fixture-tool')) && !fs.existsSync(root.tool('lib-tool')) && !fs.existsSync(root.tool('app-privacy')) &&
+        !fs.existsSync(root.entry('fixture_app')) && fs.existsSync(root.p('var/opt/mgu-deploy/current')), r.out);
+    check('remove-all: the tool another one requires goes after it',
+        r.out.indexOf('uninstalling tool fixture-tool') >= 0 && r.out.indexOf('uninstalling tool lib-tool') > r.out.indexOf('uninstalling tool fixture-tool'), r.out);
+    const r2 = root.run(['remove-all', '--yes'], env);
+    const res2 = JSON.parse(r2.stdout.trim().split('\n').pop());
+    check('remove-all again: finishes the job', r2.status === 0 && res2.self === 'removed' && !fs.existsSync(root.tool('fixture-tool')) &&
+        !fs.existsSync(root.p('var/opt/mgu-deploy')), r2.out);
+}
+
+/* After a firmware update: the lists are the new firmware's; remove-all
+ * takes our names out of them as they are, and restore refuses to write the
+ * old firmware's files. */
+function testRemoveAllFirmware() {
+    const root = fakeRoot({ recmgr: ['fixture-tool'] });
+    write(root.p('etc/os-release-id-dlt'), 'BMW MGU FW-1 mgu-high\n');
+    write(root.p('etc/crashhandler-restartlist.conf'), '[Whitelist]\nstockcrash\n');
+    root.run(['install', '--artifact', elfArtifact('fixture-tool', '0.2.0', 'fixtured'), '--yes']);
+    // the firmware update: new lists, written again with our names by the next status
+    write(root.p('etc/os-release-id-dlt'), 'BMW MGU FW-2 mgu-high\n');
+    const rec = fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8').replace('[Other]\n', '[Other]\nnewfw-entry\n')
+        .replace('[Whitelist]\n', '[Whitelist]\nnewfwd\n');
+    write(root.p('etc/recmgr-restartlist.conf'), rec);
+    const crash = fs.readFileSync(root.p('etc/crashhandler-restartlist.conf'), 'utf8').replace('stockcrash\n', 'stockcrash\nnewcrash\n');
+    write(root.p('etc/crashhandler-restartlist.conf'), crash);
+    const before = root.hash();
+    const res = root.run(['restore', 'stock', '--yes']);
+    check('restore: refused for a backup taken on other firmware, nothing changed', res.status === 2 &&
+        res.out.includes('it was taken on firmware BMW MGU FW-1 mgu-high and this head unit runs BMW MGU FW-2 mgu-high') &&
+        res.out.includes('etc/recmgr-restartlist.conf') && root.hash().hash === before.hash, res.out);
+    const r = root.run(['remove-all', '--yes']);
+    const recNow = fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8');
+    check('remove-all after a firmware update: our names out of the lists as they are now; the new firmware\'s lines stay',
+        r.status === 0 && recNow === rec.split('\n').filter((l) => !/^fixture-tool$/.test(l)).join('\n').replace(/\nfixture-tool\n/g, '\n') &&
+        !/fixture-tool|fixtured/.test(recNow + fs.readFileSync(root.p('etc/crashhandler-restartlist.conf'), 'utf8')) &&
+        recNow.includes('newfwd') && recNow.includes('newfw-entry') &&
+        fs.readFileSync(root.p('etc/crashhandler-restartlist.conf'), 'utf8') === '[Whitelist]\nstockcrash\nnewcrash\n', `${r.out}\n${recNow}`);
+}
+
+function testRestoreFirmwareGuard() {
+    const root = fakeRoot();
+    write(root.p('etc/os-release-id-dlt'), 'BMW MGU FW-1 mgu-high\n');
+    root.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    const stockManifest = root.p('var/opt/mgu-deploy/backups/stock/manifest.json');
+    check('backups record the firmware they were taken on', readJson(stockManifest).firmware === 'BMW MGU FW-1 mgu-high');
+    // a backup from before the record: the same files, no firmware
+    const m = readJson(stockManifest);
+    delete m.firmware;
+    fs.writeFileSync(stockManifest, JSON.stringify(m));
+    const before = root.hash();
+    const old = root.run(['restore', 'stock', '--yes']);
+    check('restore: a backup without the firmware record that would write system files is refused', old.status === 2 &&
+        old.out.includes('it does not record the firmware it was taken on') && root.hash().hash === before.hash, old.out);
+    // one whose system files are as they are now restores
+    const tok = cp.spawnSync(UNIT_NODE, [UNIT_JS, 'updater-token'], { encoding: 'utf8', env: root.env, input: 'ghp_guard\n' });
+    const name = fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).filter((n) => n.endsWith('-updater-token'))[0];
+    const tm = readJson(root.p(`var/opt/mgu-deploy/backups/${name}/manifest.json`));
+    delete tm.firmware;
+    fs.writeFileSync(root.p(`var/opt/mgu-deploy/backups/${name}/manifest.json`), JSON.stringify(tm));
+    const same = root.run(['restore', name, '--yes']);
+    check('restore: a backup without the record goes back when it writes no system file', tok.status === 0 && same.status === 0, same.out);
+    m.firmware = 'BMW MGU FW-1 mgu-high';
+    fs.writeFileSync(stockManifest, JSON.stringify(m));
+    const ok = root.run(['restore', 'stock', '--yes']);
+    check('restore: a backup of the firmware the unit runs restores', ok.status === 0 && !fs.existsSync(root.tool('fixture-tool')), ok.out);
+}
+
+/* iDrive 8: removals MainApp-21 does not take in place wait for the next
+ * start; the queue's boot unit and the deploy tool stay for it, apply them,
+ * then go. */
+function testRemoveAllId8() {
+    const root = id8Root();
+    const dasBefore = id8Das(root);
+    const recBefore = fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8');
+    const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097, marked: true });
+    root.run(['install', '--artifact', art, '--yes']);
+    root.noManager();
+    root.run(['apply-pending']);
+    write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED' }));
+    write(root.p('var/opt/public/oap/oap_13001/source/package.json'), JSON.stringify({ name: 'oap-cardash', version: '1.1.4', mguLocalOnly: true }));
+    write(root.p(`var/opt/public/oap/oap_${MGR}/security/uids.txt`), '13000=stock_app\n13001=oap-cardash\n');
+    const plan = JSON.parse(root.run(['remove-all', '--json']).stdout);
+    check('id8 remove-all --json: the app MainApp-21 installed from our das lines', JSON.stringify(plan.apps.map((a) => a.id)) === '["oap-cardash"]',
+        JSON.stringify(plan));
+    const r = root.run(['remove-all', '--yes']);
+    const res = JSON.parse(r.stdout.trim().split('\n').pop());
+    check('id8 remove-all: the app is removed at the next start; the queue\'s boot unit and the deploy tool stay for it; a restart is asked for',
+        r.status === 0 && res.self === 'next-start' && res.restart === true && JSON.stringify(res.next_start) === '["oap-cardash"]' &&
+        fs.existsSync(root.p('etc/systemd/system/mgu-deploy-apply.service')) && fs.existsSync(root.p('var/opt/mgu-deploy/remove-all.json')) &&
+        !fs.existsSync(root.p('var/opt/mgu-deploy/backups')), r.out);
+    const a = root.run(['apply-pending']);
+    check('id8 remove-all, next start: the app, its das lines, the boot unit, its recmgr entry and the deploy tool are gone',
+        a.status === 0 && !fs.existsSync(root.entry('oap-cardash')) && JSON.stringify(id8Das(root)) === JSON.stringify(dasBefore) &&
+        !fs.existsSync(root.p('etc/systemd/system/mgu-deploy-apply.service')) &&
+        !fs.existsSync(root.p('etc/systemd/system/late.target.wants/mgu-deploy-apply.service')) &&
+        fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8') === recBefore &&
+        JSON.stringify(fs.readdirSync(root.p('var/opt'))) === '["public"]', `${a.out}\n${fs.readdirSync(root.p('var/opt'))}`);
+}
+
+/* mgu-install uninstall: lists, asks, removes with the unit's deploy tool,
+ * or the published one when the unit's has no remove-all. */
+function testMguInstallUninstall() {
+    const gh = fakeGithub({ files: [], repos: {} });
+    try {
+        const rel = fakeRelease(gh.api);
+        gh.set({ files: rel.files, repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.catalogIndex } } });
+        const setup = () => {
+            const root = donorRoot();
+            writeCoding(root, 0x09);
+            const bin = installBin(root);
+            const opts = { bin, api: gh.api, env: { FAKE_GH_TOKEN: TOKEN } };
+            const r = mguInstall(['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'], opts);
+            if (r.status !== 0) {
+                throw new Error(r.out);
+            }
+            return { root, bin, opts };
+        };
+        let { root, bin, opts } = setup();
+        let r = mguInstall(['uninstall', '--host', '10.0.0.9'], opts);
+        check('mgu-install uninstall: with no terminal and no --yes it lists, removes nothing, exit 2', r.status === 2 &&
+            r.out.includes('Uninstall removes what the Store setup put on the head unit:') && r.out.includes('robertn_store') &&
+            r.out.includes('mgu-updater') && r.stdout.endsWith('Nothing was removed: run uninstall at a terminal to answer, or add --yes.\n') &&
+            fs.existsSync(root.p('var/opt/mgu-deploy/current')), r.out.slice(-2000));
+        r = mguInstallTerminal(['uninstall', '--host', '10.0.0.9'], opts, 'n');
+        check('mgu-install uninstall: at a terminal, no keeps everything', r.status === 0 && r.out.includes('Remove all of it? [y/N] ') &&
+            r.out.includes('Nothing was removed.') && fs.existsSync(root.p('var/opt/mgu-deploy/current')), r.out.slice(-1000));
+        r = mguInstallTerminal(['uninstall', '--host', '10.0.0.9'], opts, 'y');
+        check('mgu-install uninstall: yes removes everything; one line says so',
+            r.status === 0 && /Removed(: nothing of the Store setup is left on the head unit\.|\. Restart the head unit to finish\.)/.test(r.out) &&
+            JSON.stringify(fs.readdirSync(root.p('var/opt'))) === '["public"]', r.out.slice(-3000));
+        check('mgu-install uninstall: no remote command carries a double quote or a backslash',
+            r.calls.every((a) => !/["\\]/.test(a[a.length - 1])), r.calls.map((a) => a[a.length - 1]).join('\n'));
+        r = mguInstall(['uninstall', '--host', '10.0.0.9', '--yes'], opts);
+        check('mgu-install uninstall: on a unit without the setup, nothing to remove', r.status === 0 &&
+            r.stdout.endsWith('The Store setup is not on this head unit: nothing to remove.\n'), r.out);
+        // a deploy tool on the unit without remove-all: the published one removes the setup
+        ({ root, bin, opts } = setup());
+        const shim = root.p('var/opt/mgu-deploy/mgu-deploy.sh');
+        const real = fs.readFileSync(shim, 'utf8');
+        fs.writeFileSync(shim, `[ "$1" = help ] && { echo 'mgu-deploy 0.7.15'; exit 0; }\n${real}`);
+        gh.reset();
+        r = mguInstall(['uninstall', '--host', '10.0.0.9', '--yes'], opts);
+        check('mgu-install uninstall --yes: with an older deploy tool on the unit, the published one removes the setup, no question asked',
+            r.status === 0 && !r.out.includes('[y/N]') && gh.requests().some((x) => x.path.startsWith('/blob/')) &&
+            JSON.stringify(fs.readdirSync(root.p('var/opt'))) === '["public"]', r.out.slice(-3000));
+    } finally {
+        gh.stop();
+    }
+}
+
 /* ---- run ------------------------------------------------------------------------------------- */
 
 /* ---- head units, compatibility, iDrive 8, service packages, capabilities ---------- */
@@ -7814,7 +8041,13 @@ const SUITES = [
     testId8Listing,
     testId8LiveOn,
     testAppManager,
-    testId8Complete
+    testId8Complete,
+    testRemoveAll,
+    testRemoveAllAgain,
+    testRemoveAllFirmware,
+    testRestoreFirmwareGuard,
+    testRemoveAllId8,
+    testMguInstallUninstall
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;

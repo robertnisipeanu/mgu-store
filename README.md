@@ -94,6 +94,31 @@ curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/depl
 irm https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/mgu-install.js -OutFile mgu-install.js; if ($?) { node mgu-install.js first-install --identity $HOME\.ssh\mgu_root_key }
 ```
 
+## Uninstall
+
+To take the Store off the head unit, run the installer with `uninstall`
+in place of `first-install`:
+
+```sh
+# macOS, Linux
+curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.sh | sh -s -- uninstall --identity ~/.ssh/mgu_root_key
+```
+
+```powershell
+# Windows PowerShell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.ps1))) uninstall --identity $HOME\.ssh\mgu_root_key
+```
+
+It lists the apps and tools installed through the Store, including other
+repositories' tools, and asks `Remove all of it? [y/N]` (`--yes` answers
+for you). It then removes them and everything the setup changed on the
+head unit, and the Store's settings and tokens with them. It ends with one
+line saying whether anything is left; running it again finishes what is
+left. When the head unit needs a restart to finish, it asks
+`Restart the head unit now? [y/N]`. It finds the head unit the same way
+and takes the same SSH options (`--identity`, `--host`, `--port`, `--user`,
+`--ssh-opt`).
+
 ## Using the Store
 
 The side menu has four pages:
