@@ -1,5 +1,12 @@
 # Deploy tool changelog
 
+## 0.7.17
+
+- `rollback <tool>` runs the deactivate of the version it leaves first, with all of that version in place, as its removal does. One that fails refuses the rollback (exit 2): that version stays current and its activate runs again. A rollback that fails after it (the health check, app-privacy's apply, the activate of the version it goes to) puts the snapshot back and runs the deactivated version's activate again.
+- A rollback takes out what the version it leaves installed and the version it goes to does not list: its units (stopped first while recmgr has loaded them), enablement links, drop-ins and their limits, its recmgr names no installed tool has, and the crash handler's names no installed tool wants. Units leave before list entries, as in an uninstall. Units both versions list stay as the newer version installed them. A rollback to a version whose own units, links or drop-ins are missing (one an earlier rollback left) says which; an install of its artifact lays them again.
+- An install that fails after the new version's activate ran runs that version's deactivate before it rolls back. One that fails keeps the new version current; the install still fails (exit 1).
+- `uninstall <tool>` takes out the units, enablement links, drop-ins and recmgr names of every version kept under `/var/opt/<id>/versions/`, so a rollback that left a newer version's pieces in place leaves nothing behind at the removal.
+
 ## 0.7.16
 
 - iDrive 8: once the car has synced with BMW's backend (System settings, Update apps and services), Telematics serves the backend's provisioning instead of the das files, and it has no section for our apps, so MainApp-21 shows no tile for them. Every app of ours the das files list (registered, or with its package in place) keeps a `custom_apps.json` entry with the flags of its das line, which the provisioning fallback gives the app as its section. `apply-pending`, every `install` (an app already current included), `status` run as root, which the updater runs, and the new `relist` command, which the fallback's boot unit runs before MainApp-21, put a missing entry back; an app with a queued removal is left out. An entry put back counts from MainApp-21's next start.
