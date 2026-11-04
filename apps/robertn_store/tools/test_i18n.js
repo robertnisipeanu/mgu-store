@@ -254,6 +254,13 @@ langFonts.forEach((a) => langFonts.filter((b) => b === a || (CJK.indexOf(a) >= 0
     const col = shelves(interRows.concat(ownRows(a), a === b ? [] : ownRows(b)));
     ok(Math.max(...col) <= 4096, `${a} then ${b}: Inter's and their atlases in the glyph texture (${col})`);
 }));
+// every character of a Chinese, Japanese or Korean language's words in its sharp 40 px set (tools/bake_cjk.py)
+all.filter((l) => CJK.indexOf(l.font) >= 0).forEach((l) => {
+    const sharp = JSON.parse(fs.readFileSync(path.join(TREE, 'fonts', `${l.font}.json`), 'utf8')).sizes.find((a) => / ui@40@/.test(a.key));
+    ok(sharp, `${l.font}: a ui@40 atlas`);
+    Object.keys(l.words).forEach((k) => eq(Array.from(l.words[k]).filter((ch) => !sharp.glyphs[ch.codePointAt(0)]), [],
+        `${l.code}.json: "${l.words[k]}" in ${sharp.key}`));
+});
 i18n.setHmiLanguage('CHINESISCH_SIMPLE');
 const ui48 = fonts.get('bold', 50, '应用商店');
 const common = fonts.get('label', 22, '这是一个应用的说明');

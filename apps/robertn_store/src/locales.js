@@ -3680,7 +3680,7 @@ module.exports = [
    "Delete": "Apagar",
    "Shift": "Shift",
    "Remove all": "Remover tudo",
-   "Tools only it uses: {0}": "Ferramentas que só ela usa: {0}"
+   "Tools only it uses: {0}": "Ferramentas que só ele usa: {0}"
   }
  },
  {
@@ -4232,7 +4232,7 @@ module.exports = [
    "Delete": "Удалить",
    "Shift": "Shift",
    "Remove all": "Удалить всё",
-   "Tools only it uses: {0}": "Утилиты только для неё: {0}"
+   "Tools only it uses: {0}": "Утилиты, которые использует только оно: {0}"
   }
  },
  {
