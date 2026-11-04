@@ -6491,8 +6491,9 @@ var GUARD_FILE_NAME = 'mgu-deploy-guard.json';
 function amAdopted() {
     var rec = readJsonOrNull(AM_RECORD) || {};
     var apps = (Array.isArray(rec.apps) ? rec.apps : []).concat(amPresent() ? amApps() : []);
-    return { apps: apps.map(function (x) { return x && x.id; })
-        .filter(function (x) { return typeof x === 'string'; }), renderer: !!rec.renderer };
+    var ids = [];
+    apps.forEach(function (x) { if (x && typeof x.id === 'string' && ids.indexOf(x.id) < 0) ids.push(x.id); });
+    return { apps: ids, renderer: !!rec.renderer };
 }
 /* The apps this tool installed: recorded, listed by the fallback or marked
  * local-only; on iDrive 8 also those with our das lines and queued installs. */
@@ -6680,11 +6681,6 @@ function removeDeployDir() {
 /* At the next start on iDrive 8, after a remove-all's queued removals went
  * through: the queue's boot unit and its entry, then this tool. */
 function removeSelfAtStart() {
-    if (installedTools().some(function (t) { return t.id !== 'mgu-deploy'; })) {
-        rmrf(REMOVE_ALL_FILE);
-        say('a tool is installed again: the deploy tool stays');
-        return;
-    }
     var ops = [path.join(CFG.systemd, APPLY_WANTS, APPLY_UNIT), path.join(CFG.systemd, APPLY_UNIT)]
         .filter(function (p) { return !!lstatOrNull(p); }).map(function (p) { return { type: 'delete', path: p }; });
     var rec = recmgrOp([], [APPLY_NAME]);

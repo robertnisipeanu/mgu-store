@@ -782,7 +782,7 @@ function promptLine(question, input) {
 
 /* Asks whether to restart the head unit now, at a terminal only; on yes
  * restarts it. Its exit status. */
-async function offerRestart(o, later = 'Restart it from the Store') {
+async function offerRestart(o, later = 'restart it from the Store') {
     const term = o.noRestartPrompt || process.env.CI ? null : terminal();
     if (!term || !/^y(es)?$/i.test((await promptLine('Restart the head unit now? [y/N] ', term)).trim())) {
         return 0;
@@ -790,11 +790,11 @@ async function offerRestart(o, later = 'Restart it from the Store') {
     const r = ssh(o, RESTART, { input: Buffer.alloc(0), capture: true });
     const refused = /\[Error\.\s*([^\]]*)\]/.exec(r.stdout);
     if (r.status === 3) {
-        say(`An install is running on the head unit. ${later} once it is done.`);
+        say(`An install is running on the head unit: ${later} once it is done.`);
         return 1;
     }
     if (r.status !== 0 || refused) {
-        say(`The head unit did not take the restart${refused ? `: ${refused[1].trim()}` : ''}. ${later}.`);
+        say(`The head unit did not take the restart${refused ? `: ${refused[1].trim()}` : ''}. ${later[0].toUpperCase()}${later.slice(1)}.`);
         return 1;
     }
     say('Restarting the head unit.');
@@ -1067,8 +1067,8 @@ function showPlan(plan) {
     }
 }
 
-/* Without the Store, a restart is the car's own. */
-const AFTER_UNINSTALL = 'Restart it by switching the car off and on again';
+/* Without the Store there is no Restart head unit to point at. */
+const AFTER_UNINSTALL = 'restart the head unit later';
 
 async function uninstall(o) {
     const from = o.from ? fromFolder(o.from) : null;

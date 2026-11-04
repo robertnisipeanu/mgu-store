@@ -2222,7 +2222,7 @@ function testSelf() {
     check('self: status through the shim answers from the new current at once', s2.status === 0 && st && st.version === NEXT &&
         st.components.some((x) => x.id === 'mgu-deploy' && x.version === NEXT), s2.stdout + s2.stderr);
     const un = sroot.run(['uninstall', 'mgu-deploy', '--yes']);
-    check('self: uninstall mgu-deploy is refused, exit 2', un.status === 2 && un.out.includes('does not uninstall itself') &&
+    check('self: uninstall mgu-deploy is refused, exit 2', un.status === 2 && un.out.includes('the deploy tool goes with remove-all') &&
         fs.existsSync(sroot.p('var/opt/mgu-deploy/current')), un.out);
     const res = sroot.run(['restore', 'stock', '--yes']);
     check('self: restore stock keeps the deploy tool', res.status === 0 && fs.readlinkSync(sroot.p('var/opt/mgu-deploy/current')) === `versions/${NEXT}`,
