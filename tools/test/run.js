@@ -510,6 +510,30 @@ function testReleaseRequires() {
         /requires itself/.test(unmetRequires([{ id: 'a', version: '1.0.0', requires: { a: '1.0.0' } }], published).join()));
 }
 
+/* release.js: each component's texts in other languages from release/texts. */
+function testReleaseTexts() {
+    const { components, catalogTexts } = require(path.join(__dirname, '..', '..', 'release', 'release.js'));
+    const store = components().find((c) => c.id === 'robertn_store');
+    check('release: a component lists its texts of every language', store.texts && store.texts.de && store.texts['zh-TW'] &&
+        typeof store.texts.de.description === 'string');
+    const root = fs.mkdtempSync(path.join(T, 'texts-'));
+    fs.mkdirSync(path.join(root, 'release'));
+    fs.mkdirSync(path.join(root, 'release', 'texts'));
+    const write = (o) => fs.writeFileSync(path.join(root, 'release', 'texts', 'de.json'), JSON.stringify(o));
+    write({ a: { title: 'A-de' } });
+    check('release: texts by id and language', JSON.stringify(catalogTexts(['a'], root)) === JSON.stringify({ a: { de: { title: 'A-de' } } }));
+    [{ b: { title: 'B' } }, { a: { title: 'A', extra: 1 } }, { a: { title: 7 } }, { a: 'A' }].forEach((o) => {
+        write(o);
+        let thrown = null;
+        try {
+            catalogTexts(['a'], root);
+        } catch (e) {
+            thrown = e.message;
+        }
+        check(`release: texts refused: ${JSON.stringify(o)}`, /release\/texts\/de\.json/.test(thrown || ''));
+    });
+}
+
 /* release.js publish: a gated component needs a passing emulator gate record for its exact source. */
 function testReleaseGate() {
     const { gateProblem } = require(path.join(__dirname, '..', '..', 'release', 'release.js'));
@@ -532,6 +556,7 @@ function testReleaseGate() {
 
 try {
     testReleaseRequires();
+    testReleaseTexts();
     testReleaseGate();
     testUntar();
     testUnitDonors();

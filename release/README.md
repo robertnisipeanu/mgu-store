@@ -120,7 +120,8 @@ compress differently, which publishing reports as other content.
       "version": "0.4.0",
       "artifact": { "name": "robertn_store@0.4.0.tgz", "size": 41210, "sha256": "…", "url": "…" },
       "build": "unit",
-      "requires": { "mgu-deploy": "0.2.0" }
+      "requires": { "mgu-deploy": "0.2.0" },
+      "texts": { "de": { "title": "Store", "description": "…" } }
     },
     {
       "id": "mgu-uplink",
@@ -133,7 +134,12 @@ compress differently, which publishing reports as other content.
 }
 ```
 
-It lists the newest published version of every component. `artifact.url`
+It lists the newest published version of every component. `texts` is
+each component's title and description in other languages, from
+`release/texts/<code>.json` (`{ "<id>": { "title", "description" } }`,
+one file per language of the Store's `locales/`); the Store shows the head
+unit's language and English where a language has none. `publish` lists
+them on every entry, so changed texts need no new version. `artifact.url`
 is where the unit downloads it: the GitHub asset's release download
 (`https://github.com/<owner>/<repo>/releases/download/<tag>/<name>`) in a
 public repository, its API URL in a private one, or a path relative to the

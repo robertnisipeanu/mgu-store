@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Jokaisen lähteen sovellukset ja pääyksikön työkalut tiloineen sekä lähteet; asentaa, päivittää ja poistaa ne mgu-updaterin kautta"
+  },
+  "mgu-updater": {
+    "title": "Päivityspalvelu",
+    "description": "Asentaa, päivittää ja poistaa sovelluksia ja pääyksikön työkaluja lähteistään"
+  },
+  "mgu-deploy": {
+    "title": "Asennustyökalu",
+    "description": "Asentaa, päivittää, palauttaa ja poistaa työkalumme ja sovelluksemme pääyksikössä ja ottaa tilannevedoksen ennen jokaista muutosta"
+  },
+  "mgu-render": {
+    "title": "Renderöijä",
+    "description": "Piirtää sovellusten näkymät GPU:lla HMI:n päälle tai sovelluksen sivulle"
+  },
+  "mgu-uplink": {
+    "title": "Internet-yhteys",
+    "description": "Internet valituille sovelluksille USB-verkkosovittimen, LTE-tikun, USB:llä internetyhteyttä jakavan puhelimen tai Wi-Fin kautta"
+  },
+  "app-privacy": {
+    "title": "Sovellusten yksityisyys",
+    "description": "Pitää sovelluksemme poissa pääyksikön taustajärjestelmän sovellusraportoinnista ja käynnistää ne uudelleen kaatumisen jälkeen"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 sovelluksille, jotka koostetaan pääyksikössä Pythonilla"
+  }
+}

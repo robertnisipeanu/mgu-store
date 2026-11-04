@@ -74,7 +74,7 @@ const { typeKey, wifiOf } = require('./store_ui.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
     loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage,
-    removable, undoable, withSources, listed } = require('./store_view.js');
+    removable, undoable, withSources, listed, localized } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 const tr = i18n.t;
@@ -262,6 +262,7 @@ class Store extends OnlineApp {
             this._render();
         });
         this._st = null;
+        this._stRaw = null;
         this._connected = false;
         this._client = new UpdaterClient(SOCKET, { reconnectMs: RECONNECT_MS });
         this._client.on('state', (st) => {
@@ -270,7 +271,8 @@ class Store extends OnlineApp {
                 this._client.send({ op: 'hello', id: APP_ID, version: this._version() });
             }
             this._connected = true;
-            this._st = st;
+            this._stRaw = st;
+            this._st = localized(st);
             this._tokenAdded(st);
             this._reprobe();
             this._render();
@@ -398,6 +400,7 @@ class Store extends OnlineApp {
     _displayLanguage(value) {
         if (i18n.setHmiLanguage(value)) {
             logger.info(`display language ${value}: ${i18n.language()}`);
+            this._st = localized(this._stRaw);
             this._forgetWritten();
             this._render();
         }
@@ -600,6 +603,9 @@ class Store extends OnlineApp {
         }
         logger.info(`screens: ${ui}`);
         this._ui = ui;
+        if (i18n.useDrawn(ui !== 'widgets')) {
+            this._st = localized(this._stRaw);
+        }
         this._forgetWritten();
         this._render();
         if (!this._entryUuid) {

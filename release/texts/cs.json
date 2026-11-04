@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Aplikace a nástroje hlavní jednotky ze všech zdrojů s jejich stavem a zdroje; instaluje, aktualizuje a odebírá je přes mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Služba aktualizací",
+    "description": "Instaluje, aktualizuje a odebírá aplikace a nástroje hlavní jednotky ze svých zdrojů"
+  },
+  "mgu-deploy": {
+    "title": "Nástroj nasazení",
+    "description": "Instaluje, aktualizuje, vrací zpět a odebírá naše nástroje a aplikace na hlavní jednotce a před každou změnou pořizuje snímek"
+  },
+  "mgu-render": {
+    "title": "Renderer",
+    "description": "Vykresluje obrazovky aplikací na GPU, nad HMI nebo uvnitř stránky aplikace"
+  },
+  "mgu-uplink": {
+    "title": "Připojení k internetu",
+    "description": "Internet pro vybrané aplikace přes síťový adaptér USB, LTE modem, telefon sdílející internet přes USB nebo Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "Soukromí aplikací",
+    "description": "Vyřazuje naše aplikace z hlášení aplikací hlavní jednotky na server a po pádu je znovu spouští"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 pro aplikace, které se na hlavní jednotce sestavují v Pythonu"
+  }
+}

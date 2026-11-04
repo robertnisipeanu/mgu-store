@@ -1096,7 +1096,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.18', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.19', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1724,7 +1724,11 @@ function runLanguage() {
         displayLanguage('DEUTSCH');
         return tick();
     }).then(() => {
-        eq([check(), nav()], ['Check for updates', '1 update'], 'a language without a translation: English');
+        eq([check(), nav()], ['Nach Updates suchen', '1 Update'], 'German');
+        displayLanguage('KEINE_SPRACHE');
+        return tick();
+    }).then(() => {
+        eq([check(), nav()], ['Check for updates', '1 update'], 'no language: English');
         displayLanguage('CHINESISCH_SIMPLE');
         displayLanguage(255);
         return tick();

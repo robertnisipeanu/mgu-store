@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Apps og hovedenhedsværktøjer fra hver kilde med deres status samt kilderne; installerer, opdaterer og fjerner dem via mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Updater",
+    "description": "Installerer, opdaterer og fjerner apps og hovedenhedsværktøjer fra sine kilder"
+  },
+  "mgu-deploy": {
+    "title": "Installationsværktøj",
+    "description": "Installerer, opdaterer, ruller tilbage og fjerner vores værktøjer og apps på hovedenheden, med et snapshot før hver ændring"
+  },
+  "mgu-render": {
+    "title": "Renderer",
+    "description": "Tegner apps' skærme på GPU'en, oven på HMI'en eller inde på appens side"
+  },
+  "mgu-uplink": {
+    "title": "Internetforbindelse",
+    "description": "Internet til udvalgte apps via en USB-netværksadapter, en LTE-nøgle, en telefon med USB-tethering eller Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "App-privatliv",
+    "description": "Holder vores apps ude af hovedenhedens app-rapportering til backend og genstarter dem efter et nedbrud"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 til apps, der bygges på hovedenheden med Python"
+  }
+}
