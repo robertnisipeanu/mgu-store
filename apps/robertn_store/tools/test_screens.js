@@ -157,26 +157,40 @@ eq([own(f), text(f, 'note1')], [['Back'], 'doom is already installed from robert
 ok(!f.values.facts.items.some((c) => /^Id /.test(c.text)), 'blocked: no id of its own');
 f = frame(fixture.model({}, two), { textScale: 1, focus: 0, scroll: {} });
 eq(f.values.grid.items[1].sub, 'Not installable');
-// two sources' Doom: two tiles, each named with its source; a page follows its row when the install gives it another id
+// two sources' Doom: two tiles, each named with its source's author; a page follows its row when the install gives it another id
 two.sources = [{ id: 'idrive7-apps', label: 'cauliflowermossgrape/idrive7-apps' }, { id: 'iterio', label: 'https://apps.example.org/index.json' }];
 eq(frame(fixture.model({}, two), { textScale: 1, focus: 0, scroll: {} }).values.grid.items.map((t) => [t.title, t.src]),
-    [['DOOM', 'idrive7-apps'], ['DOOM', 'apps.example.org']]);
-// two sources of the same repo name: owner/repo on each
+    [['DOOM', 'cauliflowermossgrape'], ['DOOM', 'apps.example.org']]);
+// two sources of the same repo name: each one's author
 two.sources = [{ id: 'idrive7-apps', label: 'one/apps' }, { id: 'iterio', label: 'two/apps' }];
-eq(frame(fixture.model({}, two), { textScale: 1, focus: 0, scroll: {} }).values.grid.items.map((t) => t.src), ['one/apps', 'two/apps']);
+eq(frame(fixture.model({}, two), { textScale: 1, focus: 0, scroll: {} }).values.grid.items.map((t) => t.src), ['one', 'two']);
+// one author's two repos' DOOM: owner/repo on those tiles and rows, the author alone on the rest; on a page, from owner/repo
+const same = Object.assign({}, two, { sources: [{ id: 'idrive7-apps', label: 'robertnisipeanu/mgu-store' }, { id: 'iterio', label: 'robertnisipeanu/idrive-apps' }],
+    components: two.components.map((c) => Object.assign({}, c, { blocked: null, installed: '1.0.0', status: 'installed' }))
+        .concat([Object.assign({}, two.components[0], { id: 'quake', title: 'Quake', listedId: null, installAs: null, installed: '1.0.0', status: 'installed' })]) });
+eq(frame(fixture.model({}, same), { textScale: 1, focus: 0, scroll: {} }).values.grid.items.map((t) => t.src),
+    ['robertnisipeanu/mgu-store', 'robertnisipeanu/idrive-apps', 'robertnisipeanu']);
+eq(frame(fixture.model({ tab: 'installed' }, same), { textScale: 1, focus: 0, scroll: {} }).values.apps.items.map((t) => t.sub),
+    ['1.0.0 · robertnisipeanu/mgu-store', '1.0.0 · robertnisipeanu/idrive-apps', '1.0.0 · robertnisipeanu']);
+eq(text(frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'quake' }] }, same), { textScale: 1, focus: 0, scroll: {} }), 'author'),
+    'from robertnisipeanu/mgu-store');
+// the fixture's tiles, rows and USB tiles: the author, a stick's label
+f = screen('store');
+eq(f.values.grid.items.slice(0, 2).map((t) => t.src), ['robertnisipeanu', 'cauliflower'], 'tiles: the author');
+eq(screen('usb').values.grid.items.map((t) => t.src), ['USB STICK', 'USB STICK'], 'USB: the stick');
 // the status line names the source of a row whose title another row has: downloading, and a failure
 const sub = (st) => text(frame(fixture.model({}, st), { textScale: 1, focus: 0, scroll: {} }), 'subtitle');
 two.sources = [{ id: 'idrive7-apps', label: 'cauliflowermossgrape/idrive7-apps' }, { id: 'iterio', label: 'someone/other-apps' }];
 const dooms = (o) => Object.assign({}, two, { components: [Object.assign({}, two.components[0], o), Object.assign({}, two.components[1], { blocked: null })] });
 eq(sub(Object.assign(dooms({}), { busy: { id: 'doom2', op: 'install', phase: 'download', progress: 42, total: 100 } })),
-    'Downloading 42 % · DOOM (idrive7-apps)');
-eq(sub(dooms({ error: 'the build failed (exit 3)' })), 'DOOM (idrive7-apps): the build failed (exit 3)');
+    'Downloading 42 % · DOOM (cauliflowermossgrape)');
+eq(sub(dooms({ error: 'the build failed (exit 3)' })), 'DOOM (cauliflowermossgrape): the build failed (exit 3)');
 // Remove? names which of two installed DOOMs; with one DOOM, its title alone
 const confirmOf = (st) => text(frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom2' }, { name: 'confirm', kind: 'remove', id: 'doom2' }] }, st),
     { textScale: 1, focus: 0, scroll: {} }), 'title');
 const both = dooms({ installed: '1.0.0', status: 'installed' });
 both.components[1] = Object.assign({}, both.components[1], { installed: '1.0.1', status: 'installed' });
-eq(confirmOf(both), 'Remove DOOM (idrive7-apps) 1.0.0?');
+eq(confirmOf(both), 'Remove DOOM (cauliflowermossgrape) 1.0.0?');
 eq(confirmOf(Object.assign({}, both, { components: [both.components[0]] })), 'Remove DOOM 1.0.0?');
 // one DOOM listed: its title alone
 eq(sub(Object.assign({}, dooms({}), { components: [dooms({}).components[0]], busy: { id: 'doom2', op: 'install', phase: 'download', progress: 42, total: 100 } })),
@@ -283,7 +297,7 @@ eq(f.labels[4], 'Update all (1)', 'DOOM downloads and Extended dashboard waits: 
 eq(f.items.find((i) => i.label === 'Update').act, { do: 'install', id: 'gauges' });
 ok(f.labels.indexOf('Display bridge') >= 0 && f.labels.indexOf('M Vitals') < 0, 'installed ones only');
 eq(f.values.apps.items.filter((i) => i.id === 'gauges' || i.id === 'robertn_store').map((i) => i.sub),
-    ['1.2.0 → a1b2c3d · idrive7-apps', '0.7.0 · mgu-store'], 'a row names its source');
+    ['1.2.0 → a1b2c3d · cauliflower', '0.7.0 · robertnisipeanu'], 'a row names its source\'s author');
 // Installed: what runs or waits first (downloading, an update, queued, failed, restart pending), each part in the catalog's order
 const ids = (g) => [g.values.apps.items.map((i) => i.id), g.values.services.items.map((i) => i.id)];
 eq(ids(f), [['doom', 'gauges', 'extended_dashboard', 'vehicle_control', 'robertn_store'],
@@ -322,7 +336,7 @@ Object.keys(UNITS).forEach((unit) => {
     const th = def.opts.tileH;
     // the first row's texts but the letter tiles' letters
     const row0 = texts.filter((t) => t.y < def.y + th && t.str.length > 1);
-    eq(row0.slice(0, 3).map((t) => t.str), ['Store', 'mgu-store', 'Installed'], `${unit}: title, source, state`);
+    eq(row0.slice(0, 3).map((t) => t.str), ['Store', 'robertnisipeanu', 'Installed'], `${unit}: title, source, state`);
     // the tile's bottom 8 px hold the focus rings (store_frame.js): every line, descenders included, ends above them
     ok(row0.every((t) => t.y + 0.25 * t.size <= def.y + th - 8),
         `${unit}: the lines clear of the focus rings (${row0.map((t) => Math.round(t.y + 0.25 * t.size))} of ${def.y + th - 8})`);
