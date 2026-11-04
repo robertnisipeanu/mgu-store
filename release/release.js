@@ -699,4 +699,4 @@ if (require.main === module) {
     }
 }
 
-module.exports = { components, compareVersions, unmetRequires, sourceCommit, gateProblem, GATED };
+module.exports = { components, catalogTexts, compareVersions, unmetRequires, sourceCommit, gateProblem, GATED };

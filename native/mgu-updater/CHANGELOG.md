@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.23
+
+- A component's title and description in other languages (a catalog entry's, an `mgu-repo.json` entry's or an `mgu-store.json` app's `texts`) reach the Store, which shows them in the head unit's language.
+
 ## 0.8.22
 
 - A build with internet carries on after the uplink moves to another network (a Wi-Fi switch, a new lease): its proxy resolves each new connection's host name through the servers of the lease it finds then, and refuses one without a lease as having no internet. The name lookup and the TCP connection together take at most 15 s (`<host>: no connection in 15 s`).

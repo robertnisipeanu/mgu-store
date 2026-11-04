@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.19
+
+The Store, its tile name and the titles and descriptions of the catalog's
+components are in every display language the head unit offers. Arabic,
+Hebrew and Thai show on the tile and the widget screens; the drawn screens
+stay English in those three. Tab and side-menu labels too long for their
+place are drawn smaller.
+
 ## 0.9.18
 
 Store and Installed have **Restart now** while an app or tool waits for a
