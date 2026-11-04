@@ -173,6 +173,9 @@
     "{0} component": "{0} komponent",
     "{0} components": "{0} komponenter",
     "{0} network": "{0} nätverk",
-    "{0} networks": "{0} nätverk"
+    "{0} networks": "{0} nätverk",
+    "Space": "Mellanslag",
+    "Delete": "Radera",
+    "Shift": "Skift"
   }
 }

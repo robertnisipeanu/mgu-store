@@ -173,6 +173,9 @@
     "{0} component": "{0} componente",
     "{0} components": "{0} componentes",
     "{0} network": "{0} red",
-    "{0} networks": "{0} redes"
+    "{0} networks": "{0} redes",
+    "Space": "Espacio",
+    "Delete": "Borrar",
+    "Shift": "Mayús"
   }
 }

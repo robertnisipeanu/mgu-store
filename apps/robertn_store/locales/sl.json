@@ -173,6 +173,9 @@
     "{0} component": "{0} komponenta",
     "{0} components": "Komponente: {0}",
     "{0} network": "{0} omrežje",
-    "{0} networks": "Omrežja: {0}"
+    "{0} networks": "Omrežja: {0}",
+    "Space": "Presledek",
+    "Delete": "Izbriši",
+    "Shift": "Shift"
   }
 }

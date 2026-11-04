@@ -173,6 +173,9 @@
     "{0} component": "구성 요소 {0}개",
     "{0} components": "구성 요소 {0}개",
     "{0} network": "네트워크 {0}개",
-    "{0} networks": "네트워크 {0}개"
+    "{0} networks": "네트워크 {0}개",
+    "Space": "스페이스",
+    "Delete": "삭제",
+    "Shift": "Shift"
   }
 }

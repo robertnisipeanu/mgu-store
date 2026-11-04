@@ -47,10 +47,10 @@ function fit(cv, s, w, size, font) {
     return s.slice(0, lo).replace(/\s+$/, '') + '…';
 }
 
-/** The size s takes to fit w, down to three quarters of size. */
-function shrink(cv, s, w, size, font) {
+/** The size s takes to fit w, down to least (a share of size, three quarters unless given). */
+function shrink(cv, s, w, size, font, least) {
     const tw = cv.textWidth(String(s), size, { font });
-    return tw > w ? Math.max(Math.round(size * 0.75), Math.floor(size * w / tw)) : size;
+    return tw > w ? Math.max(Math.round(size * (least || 0.75)), Math.floor(size * w / tw)) : size;
 }
 
 /** Words wrapped into w, from top y; at most max lines (the last one cut with …). Returns the lines drawn. */
@@ -73,11 +73,14 @@ function surface(cv, t, x, y, w, h, r, sel, acc) {
 }
 
 /** icon + text centred on (cx, cy) */
-function content(cv, cx, cy, ic, text, sz, c, font) {
+function content(cv, cx, cy, ic, text, sz, c, font, w) {
     const is = ic && CP.has(String(ic).toUpperCase()) ? Math.round(sz * 1.35) : 0, gap = is && text ? sz * 0.4 : 0;
-    const tw = text ? cv.textWidth(text, sz, { font }) : 0, x0 = cx - (is + gap + tw) / 2;
+    const room = w ? w - is - gap : 0;
+    const ts = text && room ? shrink(cv, text, room, sz, font) : sz;
+    if (text && room) text = fit(cv, text, room, ts, font);
+    const tw = text ? cv.textWidth(text, ts, { font }) : 0, x0 = cx - (is + gap + tw) / 2;
     if (is) icon(cv, ic, x0, cy - is / 2, is, c);
-    if (text) mid(cv, text, x0 + is + gap, cy, sz, c, { font });
+    if (text) mid(cv, text, x0 + is + gap, cy, ts, c, { font });
 }
 
 function button(cv, t, b, o) {
@@ -87,7 +90,7 @@ function button(cv, t, b, o) {
     else if (o.style === 'secondary') { cv.roundRect(b.x, b.y, b.w, b.h, r, withAlpha(t.panelTop, 0.9)); cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 2, t.panelEdge); }
     else if (o.style === 'outline') { cv.roundRect(b.x, b.y, b.w, b.h, r, withAlpha(acc, 0.08)); cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 2, acc); fg = acc; }
     else fg = acc;                                                                                   // ghost: text only
-    content(cv, b.x + b.w / 2, b.y + b.h / 2, o.icon, o.text, sz, fg, 'bold');
+    content(cv, b.x + b.w / 2, b.y + b.h / 2, o.icon, o.text, sz, fg, 'bold', b.w - 2 * Math.max(r, 12));
 }
 
 function roundButton(cv, t, b, o) {
@@ -515,4 +518,4 @@ const TRY = {
     }, { drag: true }),
 };
 
-module.exports = { DRAW, TRY, ICONS, icon, chevron, legend, surface, wrap, fit, picture, setPicture, tabCells };
+module.exports = { DRAW, TRY, ICONS, icon, chevron, legend, surface, wrap, fit, shrink, picture, setPicture, tabCells };

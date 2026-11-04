@@ -173,6 +173,9 @@
     "{0} component": "{0} רכיב",
     "{0} components": "{0} רכיבים",
     "{0} network": "{0} רשת",
-    "{0} networks": "{0} רשתות"
+    "{0} networks": "{0} רשתות",
+    "Space": "רווח",
+    "Delete": "מחיקה",
+    "Shift": "Shift"
   }
 }

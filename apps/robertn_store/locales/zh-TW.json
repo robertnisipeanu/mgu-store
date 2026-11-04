@@ -175,6 +175,9 @@
     "{0} component": "{0} 個元件",
     "{0} components": "{0} 個元件",
     "{0} network": "{0} 個網路",
-    "{0} networks": "{0} 個網路"
+    "{0} networks": "{0} 個網路",
+    "Space": "空格",
+    "Delete": "刪除",
+    "Shift": "Shift"
   }
 }

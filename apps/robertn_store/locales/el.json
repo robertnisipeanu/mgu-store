@@ -8,7 +8,7 @@
   "font": "greek",
   "words": {
     "Store": "Store",
-    "Installed": "Εγκατεστημένα",
+    "Installed": "Στη μονάδα",
     "Settings": "Ρυθμίσεις",
     "Apps": "Εφαρμογές",
     "Head-unit tools": "Εργαλεία συστήματος",
@@ -173,6 +173,9 @@
     "{0} component": "{0} στοιχείο",
     "{0} components": "{0} στοιχεία",
     "{0} network": "{0} δίκτυο",
-    "{0} networks": "{0} δίκτυα"
+    "{0} networks": "{0} δίκτυα",
+    "Space": "Διάστημα",
+    "Delete": "Διαγραφή",
+    "Shift": "Shift"
   }
 }

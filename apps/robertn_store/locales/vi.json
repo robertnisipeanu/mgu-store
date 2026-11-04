@@ -173,6 +173,9 @@
     "{0} component": "{0} thành phần",
     "{0} components": "{0} thành phần",
     "{0} network": "{0} mạng",
-    "{0} networks": "{0} mạng"
+    "{0} networks": "{0} mạng",
+    "Space": "Dấu cách",
+    "Delete": "Xóa",
+    "Shift": "Shift"
   }
 }

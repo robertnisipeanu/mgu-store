@@ -173,6 +173,9 @@
     "{0} component": "{0} komponenta",
     "{0} components": "Komponenty: {0}",
     "{0} network": "{0} síť",
-    "{0} networks": "Sítě: {0}"
+    "{0} networks": "Sítě: {0}",
+    "Space": "Mezera",
+    "Delete": "Smazat",
+    "Shift": "Shift"
   }
 }

@@ -173,6 +173,9 @@
     "{0} component": "{0} összetevő",
     "{0} components": "{0} összetevő",
     "{0} network": "{0} hálózat",
-    "{0} networks": "{0} hálózat"
+    "{0} networks": "{0} hálózat",
+    "Space": "Szóköz",
+    "Delete": "Törlés",
+    "Shift": "Shift"
   }
 }

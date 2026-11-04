@@ -173,6 +173,9 @@
     "{0} component": "{0} مكوّن",
     "{0} components": "المكونات: {0}",
     "{0} network": "{0} شبكة",
-    "{0} networks": "الشبكات: {0}"
+    "{0} networks": "الشبكات: {0}",
+    "Space": "مسافة",
+    "Delete": "حذف",
+    "Shift": "Shift"
   }
 }

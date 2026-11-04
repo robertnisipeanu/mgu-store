@@ -173,6 +173,9 @@
     "{0} component": "{0} Komponente",
     "{0} components": "{0} Komponenten",
     "{0} network": "{0} Netzwerk",
-    "{0} networks": "{0} Netzwerke"
+    "{0} networks": "{0} Netzwerke",
+    "Space": "Leerzeichen",
+    "Delete": "Löschen",
+    "Shift": "Umschalt"
   }
 }

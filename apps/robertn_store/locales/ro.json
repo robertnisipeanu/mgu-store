@@ -173,6 +173,9 @@
     "{0} component": "{0} componentă",
     "{0} components": "Componente: {0}",
     "{0} network": "{0} rețea",
-    "{0} networks": "Rețele: {0}"
+    "{0} networks": "Rețele: {0}",
+    "Space": "Spațiu",
+    "Delete": "Șterge",
+    "Shift": "Shift"
   }
 }

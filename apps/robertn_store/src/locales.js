@@ -177,7 +177,10 @@ module.exports = [
    "{0} component": "{0} مكوّن",
    "{0} components": "المكونات: {0}",
    "{0} network": "{0} شبكة",
-   "{0} networks": "الشبكات: {0}"
+   "{0} networks": "الشبكات: {0}",
+   "Space": "مسافة",
+   "Delete": "حذف",
+   "Shift": "Shift"
   }
  },
  {
@@ -356,7 +359,10 @@ module.exports = [
    "{0} component": "{0} komponenta",
    "{0} components": "Komponenty: {0}",
    "{0} network": "{0} síť",
-   "{0} networks": "Sítě: {0}"
+   "{0} networks": "Sítě: {0}",
+   "Space": "Mezera",
+   "Delete": "Smazat",
+   "Shift": "Shift"
   }
  },
  {
@@ -535,7 +541,10 @@ module.exports = [
    "{0} component": "{0} komponent",
    "{0} components": "{0} komponenter",
    "{0} network": "{0} netværk",
-   "{0} networks": "{0} netværk"
+   "{0} networks": "{0} netværk",
+   "Space": "Mellemrum",
+   "Delete": "Slet",
+   "Shift": "Skift"
   }
  },
  {
@@ -714,7 +723,10 @@ module.exports = [
    "{0} component": "{0} Komponente",
    "{0} components": "{0} Komponenten",
    "{0} network": "{0} Netzwerk",
-   "{0} networks": "{0} Netzwerke"
+   "{0} networks": "{0} Netzwerke",
+   "Space": "Leerzeichen",
+   "Delete": "Löschen",
+   "Shift": "Umschalt"
   }
  },
  {
@@ -728,7 +740,7 @@ module.exports = [
   "font": "greek",
   "words": {
    "Store": "Store",
-   "Installed": "Εγκατεστημένα",
+   "Installed": "Στη μονάδα",
    "Settings": "Ρυθμίσεις",
    "Apps": "Εφαρμογές",
    "Head-unit tools": "Εργαλεία συστήματος",
@@ -893,7 +905,10 @@ module.exports = [
    "{0} component": "{0} στοιχείο",
    "{0} components": "{0} στοιχεία",
    "{0} network": "{0} δίκτυο",
-   "{0} networks": "{0} δίκτυα"
+   "{0} networks": "{0} δίκτυα",
+   "Space": "Διάστημα",
+   "Delete": "Διαγραφή",
+   "Shift": "Shift"
   }
  },
  {
@@ -1072,7 +1087,10 @@ module.exports = [
    "{0} component": "{0} componente",
    "{0} components": "{0} componentes",
    "{0} network": "{0} red",
-   "{0} networks": "{0} redes"
+   "{0} networks": "{0} redes",
+   "Space": "Espacio",
+   "Delete": "Borrar",
+   "Shift": "Mayús"
   }
  },
  {
@@ -1251,7 +1269,10 @@ module.exports = [
    "{0} component": "{0} componente",
    "{0} components": "{0} componentes",
    "{0} network": "{0} red",
-   "{0} networks": "{0} redes"
+   "{0} networks": "{0} redes",
+   "Space": "Espacio",
+   "Delete": "Borrar",
+   "Shift": "Mayús"
   }
  },
  {
@@ -1430,7 +1451,10 @@ module.exports = [
    "{0} component": "{0} komponentti",
    "{0} components": "{0} komponenttia",
    "{0} network": "{0} verkko",
-   "{0} networks": "{0} verkkoa"
+   "{0} networks": "{0} verkkoa",
+   "Space": "Välilyönti",
+   "Delete": "Poista",
+   "Shift": "Vaihto"
   }
  },
  {
@@ -1609,7 +1633,10 @@ module.exports = [
    "{0} component": "{0} composant",
    "{0} components": "Composants : {0}",
    "{0} network": "{0} réseau",
-   "{0} networks": "Réseaux : {0}"
+   "{0} networks": "Réseaux : {0}",
+   "Space": "Espace",
+   "Delete": "Effacer",
+   "Shift": "Maj"
   }
  },
  {
@@ -1788,7 +1815,10 @@ module.exports = [
    "{0} component": "{0} composant",
    "{0} components": "Composants : {0}",
    "{0} network": "{0} réseau",
-   "{0} networks": "Réseaux : {0}"
+   "{0} networks": "Réseaux : {0}",
+   "Space": "Espace",
+   "Delete": "Effacer",
+   "Shift": "Maj"
   }
  },
  {
@@ -1967,7 +1997,10 @@ module.exports = [
    "{0} component": "{0} רכיב",
    "{0} components": "{0} רכיבים",
    "{0} network": "{0} רשת",
-   "{0} networks": "{0} רשתות"
+   "{0} networks": "{0} רשתות",
+   "Space": "רווח",
+   "Delete": "מחיקה",
+   "Shift": "Shift"
   }
  },
  {
@@ -2146,7 +2179,10 @@ module.exports = [
    "{0} component": "{0} összetevő",
    "{0} components": "{0} összetevő",
    "{0} network": "{0} hálózat",
-   "{0} networks": "{0} hálózat"
+   "{0} networks": "{0} hálózat",
+   "Space": "Szóköz",
+   "Delete": "Törlés",
+   "Shift": "Shift"
   }
  },
  {
@@ -2325,7 +2361,10 @@ module.exports = [
    "{0} component": "{0} komponen",
    "{0} components": "{0} komponen",
    "{0} network": "{0} jaringan",
-   "{0} networks": "{0} jaringan"
+   "{0} networks": "{0} jaringan",
+   "Space": "Spasi",
+   "Delete": "Hapus",
+   "Shift": "Shift"
   }
  },
  {
@@ -2504,7 +2543,10 @@ module.exports = [
    "{0} component": "{0} componente",
    "{0} components": "{0} componenti",
    "{0} network": "{0} rete",
-   "{0} networks": "{0} reti"
+   "{0} networks": "{0} reti",
+   "Space": "Spazio",
+   "Delete": "Elimina",
+   "Shift": "Maiusc"
   }
  },
  {
@@ -2683,7 +2725,10 @@ module.exports = [
    "{0} component": "{0} 個のコンポーネント",
    "{0} components": "{0} 個のコンポーネント",
    "{0} network": "{0} 個のネットワーク",
-   "{0} networks": "{0} 個のネットワーク"
+   "{0} networks": "{0} 個のネットワーク",
+   "Space": "スペース",
+   "Delete": "削除",
+   "Shift": "Shift"
   }
  },
  {
@@ -2862,7 +2907,10 @@ module.exports = [
    "{0} component": "구성 요소 {0}개",
    "{0} components": "구성 요소 {0}개",
    "{0} network": "네트워크 {0}개",
-   "{0} networks": "네트워크 {0}개"
+   "{0} networks": "네트워크 {0}개",
+   "Space": "스페이스",
+   "Delete": "삭제",
+   "Shift": "Shift"
   }
  },
  {
@@ -3041,7 +3089,10 @@ module.exports = [
    "{0} component": "{0} komponent",
    "{0} components": "{0} komponenter",
    "{0} network": "{0} nettverk",
-   "{0} networks": "{0} nettverk"
+   "{0} networks": "{0} nettverk",
+   "Space": "Mellomrom",
+   "Delete": "Slett",
+   "Shift": "Skift"
   }
  },
  {
@@ -3222,7 +3273,10 @@ module.exports = [
    "{0} component": "{0} component",
    "{0} components": "{0} componenten",
    "{0} network": "{0} netwerk",
-   "{0} networks": "{0} netwerken"
+   "{0} networks": "{0} netwerken",
+   "Space": "Spatie",
+   "Delete": "Wissen",
+   "Shift": "Shift"
   }
  },
  {
@@ -3401,7 +3455,10 @@ module.exports = [
    "{0} component": "{0} komponent",
    "{0} components": "Komponenty: {0}",
    "{0} network": "{0} sieć",
-   "{0} networks": "Sieci: {0}"
+   "{0} networks": "Sieci: {0}",
+   "Space": "Spacja",
+   "Delete": "Usuń",
+   "Shift": "Shift"
   }
  },
  {
@@ -3580,7 +3637,10 @@ module.exports = [
    "{0} component": "{0} componente",
    "{0} components": "{0} componentes",
    "{0} network": "{0} rede",
-   "{0} networks": "{0} redes"
+   "{0} networks": "{0} redes",
+   "Space": "Espaço",
+   "Delete": "Apagar",
+   "Shift": "Shift"
   }
  },
  {
@@ -3759,7 +3819,10 @@ module.exports = [
    "{0} component": "{0} componente",
    "{0} components": "{0} componentes",
    "{0} network": "{0} rede",
-   "{0} networks": "{0} redes"
+   "{0} networks": "{0} redes",
+   "Space": "Espaço",
+   "Delete": "Apagar",
+   "Shift": "Shift"
   }
  },
  {
@@ -3938,7 +4001,10 @@ module.exports = [
    "{0} component": "{0} componentă",
    "{0} components": "Componente: {0}",
    "{0} network": "{0} rețea",
-   "{0} networks": "Rețele: {0}"
+   "{0} networks": "Rețele: {0}",
+   "Space": "Spațiu",
+   "Delete": "Șterge",
+   "Shift": "Shift"
   }
  },
  {
@@ -4117,7 +4183,10 @@ module.exports = [
    "{0} component": "{0} компонент",
    "{0} components": "Компоненты: {0}",
    "{0} network": "{0} сеть",
-   "{0} networks": "Сети: {0}"
+   "{0} networks": "Сети: {0}",
+   "Space": "Пробел",
+   "Delete": "Удалить",
+   "Shift": "Shift"
   }
  },
  {
@@ -4296,7 +4365,10 @@ module.exports = [
    "{0} component": "{0} komponent",
    "{0} components": "Komponenty: {0}",
    "{0} network": "{0} sieť",
-   "{0} networks": "Siete: {0}"
+   "{0} networks": "Siete: {0}",
+   "Space": "Medzera",
+   "Delete": "Vymazať",
+   "Shift": "Shift"
   }
  },
  {
@@ -4475,7 +4547,10 @@ module.exports = [
    "{0} component": "{0} komponenta",
    "{0} components": "Komponente: {0}",
    "{0} network": "{0} omrežje",
-   "{0} networks": "Omrežja: {0}"
+   "{0} networks": "Omrežja: {0}",
+   "Space": "Presledek",
+   "Delete": "Izbriši",
+   "Shift": "Shift"
   }
  },
  {
@@ -4654,7 +4729,10 @@ module.exports = [
    "{0} component": "{0} komponent",
    "{0} components": "{0} komponenter",
    "{0} network": "{0} nätverk",
-   "{0} networks": "{0} nätverk"
+   "{0} networks": "{0} nätverk",
+   "Space": "Mellanslag",
+   "Delete": "Radera",
+   "Shift": "Skift"
   }
  },
  {
@@ -4833,7 +4911,10 @@ module.exports = [
    "{0} component": "{0} ส่วนประกอบ",
    "{0} components": "{0} ส่วนประกอบ",
    "{0} network": "{0} เครือข่าย",
-   "{0} networks": "{0} เครือข่าย"
+   "{0} networks": "{0} เครือข่าย",
+   "Space": "เว้นวรรค",
+   "Delete": "ลบ",
+   "Shift": "Shift"
   }
  },
  {
@@ -5012,7 +5093,10 @@ module.exports = [
    "{0} component": "{0} bileşen",
    "{0} components": "{0} bileşen",
    "{0} network": "{0} ağ",
-   "{0} networks": "{0} ağ"
+   "{0} networks": "{0} ağ",
+   "Space": "Boşluk",
+   "Delete": "Sil",
+   "Shift": "Shift"
   }
  },
  {
@@ -5191,7 +5275,10 @@ module.exports = [
    "{0} component": "{0} компонент",
    "{0} components": "Компоненти: {0}",
    "{0} network": "{0} мережа",
-   "{0} networks": "Мережі: {0}"
+   "{0} networks": "Мережі: {0}",
+   "Space": "Пробіл",
+   "Delete": "Видалити",
+   "Shift": "Shift"
   }
  },
  {
@@ -5370,7 +5457,10 @@ module.exports = [
    "{0} component": "{0} thành phần",
    "{0} components": "{0} thành phần",
    "{0} network": "{0} mạng",
-   "{0} networks": "{0} mạng"
+   "{0} networks": "{0} mạng",
+   "Space": "Dấu cách",
+   "Delete": "Xóa",
+   "Shift": "Shift"
   }
  },
  {
@@ -5551,7 +5641,10 @@ module.exports = [
    "{0} component": "{0} 个组件",
    "{0} components": "{0} 个组件",
    "{0} network": "{0} 个网络",
-   "{0} networks": "{0} 个网络"
+   "{0} networks": "{0} 个网络",
+   "Space": "空格",
+   "Delete": "删除",
+   "Shift": "Shift"
   }
  },
  {
@@ -5732,7 +5825,10 @@ module.exports = [
    "{0} component": "{0} 個元件",
    "{0} components": "{0} 個元件",
    "{0} network": "{0} 個網路",
-   "{0} networks": "{0} 個網路"
+   "{0} networks": "{0} 個網路",
+   "Space": "空格",
+   "Delete": "刪除",
+   "Shift": "Shift"
   }
  }
 ];

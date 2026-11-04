@@ -173,6 +173,9 @@
     "{0} component": "{0} komponent",
     "{0} components": "{0} komponenter",
     "{0} network": "{0} netværk",
-    "{0} networks": "{0} netværk"
+    "{0} networks": "{0} netværk",
+    "Space": "Mellemrum",
+    "Delete": "Slet",
+    "Shift": "Skift"
   }
 }

@@ -173,6 +173,9 @@
     "{0} component": "{0} bileşen",
     "{0} components": "{0} bileşen",
     "{0} network": "{0} ağ",
-    "{0} networks": "{0} ağ"
+    "{0} networks": "{0} ağ",
+    "Space": "Boşluk",
+    "Delete": "Sil",
+    "Shift": "Shift"
   }
 }

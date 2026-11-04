@@ -175,6 +175,9 @@
     "{0} component": "{0} component",
     "{0} components": "{0} componenten",
     "{0} network": "{0} netwerk",
-    "{0} networks": "{0} netwerken"
+    "{0} networks": "{0} netwerken",
+    "Space": "Spatie",
+    "Delete": "Wissen",
+    "Shift": "Shift"
   }
 }

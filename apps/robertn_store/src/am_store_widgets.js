@@ -10,6 +10,7 @@
 const { withAlpha, mix } = require('./kit_canvas.js');
 const { vicon } = require('./kit_vicons.js');
 const W = require('./am_widgets.js');
+const { t: tr } = require('./i18n.js');
 
 const GREEN = '#35d07f', BLUE = '#3d9bff', AMBER = '#ffb020';
 const C = (t, c, d) => (c ? t[c] || c : d);
@@ -199,7 +200,8 @@ function sideNav(cv, t, b, o) {
             cv.roundRect(b.x + 8, y + ih * 0.22, 6, ih * 0.56, 3, t.text);
         }
         vicon(cv, it.vicon, b.x + b.w / 2 - is / 2, iy, is, c);
-        cv.text(String(it.label), b.x + b.w / 2, iy + is + ls * 1.47, ls, c, { align: 'center' });
+        const ts = W.shrink(cv, String(it.label), b.w - 24, ls, 'label', 0.6);
+        cv.text(W.fit(cv, String(it.label), b.w - 24, ts), b.x + b.w / 2, iy + is + ls * 1.47, ts, c, { align: 'center' });
         if (it.badge && String(it.badge) !== '0') {
             const bx = b.x + b.w / 2 + is * 0.97, by = iy + 6;
             cv.circle(bx, by, 30, t.bg); cv.circle(bx, by, 26, BLUE);
@@ -221,9 +223,11 @@ function vbutton(cv, t, b, o) {
     if (o.style === 'primary') cv.card(b.x, b.y, b.w, b.h, r, off ? [[0, '#2a3341'], [1, '#232a35']] : [[0, c], [1, withAlpha(c, 0.78)]]);
     else cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 3, off ? t.panelEdge : o.style === 'outline' ? withAlpha(t.text, 0.6) : withAlpha(c, 0.6));
     const fg = off ? t.dim : o.style === 'primary' ? '#ffffff' : o.style === 'outline' ? t.text : c;
-    const hasIcon = !!o.vicon, tw = cv.textWidth(String(o.text || ''), s, { font: 'bold' }) + (hasIcon ? is + 18 : 0), x1 = b.x + (b.w - tw) / 2;
+    const hasIcon = !!o.vicon, room = b.w - 2 * r - (hasIcon ? is + 18 : 0);
+    const ts = W.shrink(cv, String(o.text || ''), room, s, 'bold'), text = W.fit(cv, String(o.text || ''), room, ts, 'bold');
+    const tw = cv.textWidth(text, ts, { font: 'bold' }) + (hasIcon ? is + 18 : 0), x1 = b.x + (b.w - tw) / 2;
     if (hasIcon) vicon(cv, o.vicon, x1, b.y + (b.h - is) / 2, is, fg);
-    cv.text(String(o.text || ''), x1 + (hasIcon ? is + 18 : 0), b.y + b.h / 2 + s * 0.36, s, fg, { font: 'bold' });
+    cv.text(text, x1 + (hasIcon ? is + 18 : 0), b.y + b.h / 2 + ts * 0.36, ts, fg, { font: 'bold' });
 }
 
 // ---- on-screen keyboard: URLs and tokens (layout 'url'), or words (layout 'text': a space bar) ----------------
@@ -258,8 +262,10 @@ function keyBoxes(b, o) {
     });
     return out;
 }
-// the Enter key says o.go (e.g. 'Search') and types that; default 'Next'
-const shown = (k, o) => (k.kind === 'go' ? o.go || k.text : o.shift && !k.kind && /^[a-z]$/.test(k.text) ? k.text.toUpperCase() : k.text);
+// the Enter key says o.go (e.g. 'Search') and types that; default 'Next'; Space, Delete and Shift in the display language
+const modLabel = (s) => ({ Space: tr("Space"), Delete: tr("Delete"), Shift: tr("Shift") })[s] || s;
+const shown = (k, o) => (k.kind === 'go' ? o.go || k.text : k.kind === 'mod' ? modLabel(k.text)
+    : o.shift && !k.kind && /^[a-z]$/.test(k.text) ? k.text.toUpperCase() : k.text);
 function keyboard(cv, t, b, o) {
     keyBoxes(b, o).forEach((k, i) => {
         const press = i === o.pressed;
@@ -267,7 +273,8 @@ function keyboard(cv, t, b, o) {
             : k.kind === 'mod' ? (k.text === 'Shift' && o.shift ? [[0, '#3d4a5e'], [1, '#2e3949']] : [[0, '#232b38'], [1, '#18202b']]) : [[0, '#2a3341'], [1, '#1d2430']];
         cv.card(k.x, k.y, k.w, k.h, 18, fill);
         const label = shown(k, o);
-        cv.text(label, k.x + k.w / 2, k.y + k.h / 2 + 17, label.length > 2 ? 38 : 48, '#ffffff', { align: 'center', font: k.kind ? 'bold' : 'label' });
+        const font = k.kind ? 'bold' : 'label', size = W.shrink(cv, label, k.w - 16, label.length > 2 ? 38 : 48, font);
+        cv.text(W.fit(cv, label, k.w - 16, size, font), k.x + k.w / 2, k.y + k.h / 2 + 17, size, '#ffffff', { align: 'center', font });
     });
 }
 

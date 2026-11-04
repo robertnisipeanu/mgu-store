@@ -173,6 +173,9 @@
     "{0} component": "{0} komponen",
     "{0} components": "{0} komponen",
     "{0} network": "{0} jaringan",
-    "{0} networks": "{0} jaringan"
+    "{0} networks": "{0} jaringan",
+    "Space": "Spasi",
+    "Delete": "Hapus",
+    "Shift": "Shift"
   }
 }
