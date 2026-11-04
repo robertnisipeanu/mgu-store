@@ -138,7 +138,7 @@ var ID8 = { hookAnchor: 'this.isMainapp&&section===this.mainappSection&&(newProv
 var HOOK_21 = 'try{if(__mguDeployGuard.on&&this.isMainapp&&section!==this.mainappSection&&' +
     '(!newProvisioning||typeof newProvisioning!=="object"||!Object.keys(newProvisioning).length)){' +
     'const __own=__mguDeployFallbackList()[section];' +
-    '__own&&typeof __own==="object"&&(newProvisioning=Object.assign({},__own))}}catch(__e){}' + MARK + ';';
+    '__own&&typeof __own==="object"&&(newProvisioning=Object.assign({},__own),__mguDeployFilled(section))}}catch(__e){}' + MARK + ';';
 /* MainApp-21's crash handling (oapcontroller) wipes every app's ACLs and
  * data on the third crash in a row (a MainApp-21 up 30 s ends the row), so
  * a MainApp-21 that restarted on the copy in a way the copy may have caused
@@ -167,8 +167,17 @@ function guardSource(guardPath, statusPath) {
         'catch(e){return{on:!1,why:"its guard failed ("+e+")",ready:()=>{}}}})();' +
         'global.__mguDeployGuard=__mguDeployGuard;';
 }
+/* The sections the fallback filled in this MainApp-21, each once, in
+ * mgu-deploy-listed.json beside custom_apps.json ({pid, apps}): status
+ * reads from it whether an app the provisioning has no section for has
+ * its tile. */
+function filledSource(recordPath) {
+    return 'const __mguDeployFilledApps=[],__mguDeployFilled=s=>{try{if(__mguDeployFilledApps.indexOf(s)>=0)return;' +
+        '__mguDeployFilledApps.push(s);const fs=require("fs"),F=' + JSON.stringify(recordPath) + ';' +
+        'fs.writeFileSync(F+".tmp",JSON.stringify({pid:process.pid,apps:__mguDeployFilledApps})+"\\n"),fs.renameSync(F+".tmp",F)}catch(e){}};';
+}
 function helperSource21(listPath, guardPath, statusPath) {
-    return MARK + guardSource(guardPath, statusPath) +
+    return MARK + guardSource(guardPath, statusPath) + filledSource(path.join(path.dirname(listPath), 'mgu-deploy-listed.json')) +
         'const __mguDeployFallbackList=()=>{try{' +
         'const c=JSON.parse(require("fs").readFileSync(' + JSON.stringify(listPath) + ',"utf8"));' +
         'return c&&typeof c==="object"?Object.keys(c).reduce((o,id)=>(c[id]&&typeof c[id]==="object"&&' +

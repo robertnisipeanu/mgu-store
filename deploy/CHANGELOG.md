@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.7.16
+
+- iDrive 8: once the car has synced with BMW's backend (System settings, Update apps and services), Telematics serves the backend's provisioning instead of the das files, and it has no section for our apps, so MainApp-21 shows no tile for them. Every app of ours the das files list (registered, or with its package in place) keeps a `custom_apps.json` entry with the flags of its das line, which the provisioning fallback gives the app as its section. `apply-pending`, every `install` (an app already current included), `status` run as root, which the updater runs, and the new `relist` command, which the fallback's boot unit runs before MainApp-21, put a missing entry back; an app with a queued removal is left out. An entry put back counts from MainApp-21's next start.
+- iDrive 8: `status` reports an app's tile as shown only when the provisioning Telematics serves (the backend's once there is one, else the das files) has the app's section (`provisioned`), or the running MainApp-21's fallback copy gave it one (`fallback`), recorded by the copy in `oap_12201/data/mgu-deploy-listed.json`. `status --json` lists those apps as `fallback.listed_by_manager`, and gives the listing step's result as `listing`.
+
 ## 0.7.15
 
 - After a firmware update, which puts the root file system back and keeps `/var/opt`, an install sets up again what the update took. Each tool install records the firmware it was installed under (`state.json` `tools`) and keeps the tool's units, drop-ins and `component.json` under `/var/opt/mgu-deploy/kept/<id>/<version>/`.

@@ -6434,6 +6434,89 @@ function testId8LiveOn() {
     check('id8 live on: not on iDrive 7', !('live_installs' in fakeRoot().status()));
 }
 
+/* iDrive 8 under backend provisioning: every app of ours the das files
+ * list keeps its custom_apps.json entry (the fallback's flags for an app
+ * the provisioning has no section for), put back by apply-pending, an
+ * install, status and the boot unit's relist; the tile shows only where a
+ * section reaches MainApp-21. */
+function testId8Listing() {
+    const root = id8Root();
+    const custom = () => readJsonOrNull(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`)) || {};
+    const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097 });
+    root.run(['install', '--artifact', art, '--yes']);
+    root.noManager();
+    const a = root.run(['apply-pending']);
+    check('id8 listing: a queued install applied at boot is listed with its das line\'s flags', a.status === 0 &&
+        a.out.includes('listed for the provisioning fallback: oap-cardash') &&
+        JSON.stringify(custom()['oap-cardash']) === JSON.stringify({ '-enabled': 'true', '-allowed': 'true', '-appStartType': 'autostart',
+            '-userLoginRequired': 'false', '-updateMechanism': 'PLATFORM' }), a.out);
+    // MainApp-21 installs it at its start
+    fs.writeFileSync(`${root.R}.mgr.pid`, '4000');
+    write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED',
+        provisioningCache: { '-enabled': 'true', '-allowed': 'true', '-appStartType': 'autostart' } }));
+    write(root.p('var/opt/public/oap/oap_13001/source/package.json'), JSON.stringify({ name: 'oap-cardash', version: '1.1.4' }));
+    let st = root.status();
+    let c = st.components.find((x) => x.id === 'oap-cardash');
+    check('id8 listing: with the das files served its tile is provisioned', c.tile_provisioned && c.tile_visible &&
+        st.listing.state === 'ok' && JSON.stringify(st.fallback.listed_by_manager) === '[]', JSON.stringify(c));
+    // the backend's provisioning arrives, without our app
+    const signed = root.p('var/opt/public/tm/tm_12000/data/prov/ProvSigned.xml');
+    write(signed, '<bmwprovsigned><bmwprov><set><data><x_call enabled="true" allowed="true"/><main_app/></data></set></bmwprov></bmwprovsigned>\n');
+    c = root.status().components.find((x) => x.id === 'oap-cardash');
+    check('id8 listing: under backend provisioning without its section the tile is hidden until the running MainApp-21 fills it',
+        !c.tile_visible && !c.tile_provisioned && !c.tile_fallback, JSON.stringify(c));
+    const record = root.p(`var/opt/public/oap/oap_${MGR}/data/mgu-deploy-listed.json`);
+    write(record, JSON.stringify({ pid: 4000, apps: ['oap-cardash'] }));
+    c = root.status().components.find((x) => x.id === 'oap-cardash');
+    check('id8 listing: a section the running MainApp-21 filled shows the tile via the fallback',
+        c.tile_visible && c.tile_fallback && !c.tile_provisioned, JSON.stringify(c));
+    write(record, JSON.stringify({ pid: 3999, apps: ['oap-cardash'] }));
+    c = root.status().components.find((x) => x.id === 'oap-cardash');
+    check('id8 listing: a record of another MainApp-21 counts for nothing', !c.tile_visible, JSON.stringify(c));
+    write(signed, '<bmwprov><oap-cardash enabled="true" allowed="true"/></bmwprov>\n');
+    c = root.status().components.find((x) => x.id === 'oap-cardash');
+    check('id8 listing: a section of its own in the backend\'s provisioning is provisioned', c.tile_provisioned && c.tile_visible, JSON.stringify(c));
+    fs.unlinkSync(signed);
+    // the entry lost
+    fs.unlinkSync(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`));
+    const sr = root.run(['status', '--json']);
+    st = JSON.parse(sr.stdout);
+    check('id8 listing: status puts a lost entry back, from the next start', st.listing.state === 'changed' &&
+        st.listing.reason === 'listed oap-cardash' && custom()['oap-cardash']['-appStartType'] === 'autostart' &&
+        sr.stderr.includes('listed for the provisioning fallback, from the next start: oap-cardash'), sr.out);
+    check('id8 listing: and the next status has nothing to do', root.status().listing.state === 'ok');
+    fs.unlinkSync(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`));
+    const rl = root.run(['relist']);
+    check('id8 listing: relist (the boot unit) puts it back', rl.status === 0 && rl.out.includes('listed for the provisioning fallback: oap-cardash') &&
+        !!custom()['oap-cardash'], rl.out);
+    check('id8 listing: relist again lists nothing', root.run(['relist']).out.includes('every app of ours is listed'));
+    fs.unlinkSync(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`));
+    const again = root.run(['install', '--artifact', art, '--yes']);
+    check('id8 listing: an install with the app current puts it back', again.status === 0 &&
+        again.out.includes('already installed; nothing to change') &&
+        again.out.includes('listed for the provisioning fallback, from the next start of the head unit: oap-cardash') && !!custom()['oap-cardash'], again.out);
+    const unit = fs.readFileSync(path.join(HERE, '..', 'unit', 'mgu-app-fallback-id8.service'), 'utf8');
+    check('id8 listing: the fallback\'s boot unit relists before it builds the copy',
+        /\nExecStartPre=-\/bin\/sh \/var\/opt\/mgu-deploy\/mgu-deploy\.sh relist\n/.test(unit));
+    const unitPath = root.p('etc/systemd/system/mgu-app-fallback.service');
+    write(unitPath, '[Unit]\nDescription=an older boot unit\n');
+    const ur = root.status();
+    check('id8 listing: status brings an older fallback boot unit up to date, and only the unit file',
+        fs.readFileSync(unitPath, 'utf8') === unit && ur.listing.reason === 'boot unit brought up to date' && !root.kills().length &&
+        root.status().listing.state === 'ok', JSON.stringify(ur.listing));
+    fs.unlinkSync(unitPath);
+    // a queued removal is not listed again
+    root.run(['uninstall', 'oap-cardash', '--yes']);
+    const rs = root.status();
+    check('id8 listing: an app with a queued removal is not listed again', !custom()['oap-cardash'] &&
+        rs.pending_reboot.some((x) => x.id === 'oap-cardash' && x.reason === 'removed at the next start') && rs.listing.state === 'ok', JSON.stringify(rs.listing));
+    root.noManager();
+    root.run(['apply-pending']);
+    check('id8 listing: once removed it stays out', !custom()['oap-cardash'] && root.status().listing.state === 'ok');
+    const seven = fakeRoot().run(['relist']);
+    check('id8 listing: relist does nothing on iDrive 7', seven.status === 0 && seven.out.includes('not iDrive 8'), seven.out);
+}
+
 /* The guard in a copy of the MainApp-21 fixture, loaded as MainApp-21
  * loads it, one process per start. */
 function testId8Guard() {
@@ -7262,6 +7345,7 @@ const SUITES = [
     testId8RejectedUpdate,
     testId8Inplace,
     testId8Guard,
+    testId8Listing,
     testId8LiveOn,
     testAppManager,
     testId8Complete

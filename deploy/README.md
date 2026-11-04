@@ -426,6 +426,7 @@ mgu-deploy.sh updater-token --list [--json] | --remove <id>
 mgu-deploy.sh updater-sources                 # sources.json on stdin
 mgu-deploy.sh sdk-donor [--json]
 mgu-deploy.sh apply-pending                   # iDrive 8, at boot
+mgu-deploy.sh relist                          # iDrive 8, at boot: our apps in custom_apps.json
 mgu-deploy.sh verify                          # at boot: the tools updated for this start
 mgu-deploy.sh remove-unused                   # at boot: files hooks handed over
 mgu-deploy.sh appmanager [--json] | appmanager adopt [--yes]
@@ -507,6 +508,24 @@ artifact is skipped, saying why, and the others install.
 
 ### iDrive 8 apps
 
+**Backend provisioning.** Telematics serves the das files until the car's
+first sync with BMW's backend (**Update apps and services**). From then on
+it serves the backend's provisioning
+(`/var/opt/public/tm/tm_12000/data/prov/ProvSigned.xml`), which has no
+section for our apps, and MainApp-21 gives an app with no section no
+tile. So every app of ours the das files list, registered or with its
+package in place, keeps a `custom_apps.json` entry with its das line's
+flags, which the fallback copy gives it as its section. `apply-pending`,
+every `install`, `status` run as root (the updater runs it) and `relist`
+(run by the fallback's boot unit before MainApp-21) put a missing entry
+back; an app with a queued removal is left out. An entry put back counts
+from MainApp-21's next start. The copy records the sections it filled in
+`oap_12201/data/mgu-deploy-listed.json` (`{pid, apps}`), and `status`
+reports an app's tile as shown only when the provisioning Telematics
+serves has its section (`tile=provisioned`) or the running MainApp-21's
+copy filled it (`tile=fallback`); `status --json` lists those apps as
+`fallback.listed_by_manager`.
+
 MainApp-21 installs an app it finds in its `preinstalled_apps` when
 provisioning, the six das files under `/usr/share/tm/prov`, lists it, at
 its start. Provisioning reads the das files only at its own start, so a
@@ -520,8 +539,8 @@ uninstall of that one app, as on iDrive 7, and its tile appears or goes at
 once. The package (`preinstalled_apps/<id>@<version>.tgz`) and the app's
 das lines go in first, as `apply-pending` puts them (below), so every later
 start has the app; its `custom_apps.json` entry gives it its provisioning
-section until then (the copy fills only a listed app's empty section and
-never adds to `installable_apps`). `status`, run as root (the updater
+section whenever provisioning has none for it (the copy fills only a
+listed app's empty section and never adds to `installable_apps`). `status`, run as root (the updater
 runs it right after it installs the deploy tool), turns the fallback on
 once, when a copy of this MainApp-21's `main.js` builds, with the crash
 list's rules for remounting `/`; it reports `live_installs` in `status
@@ -1596,7 +1615,9 @@ effect. `fallback off` unmounts it and removes the unit, its link, its recmgr
 entry and the copy; apps installed already stay installed, and a new app
 install turns it on again. `status` shows per app whether its tile comes from
 provisioning (`tile_provisioned`) or the fallback (`tile_fallback`), from the
-flags the manager persisted in its `provisioningCache`. On iDrive 7 an app
+flags the manager persisted in its `provisioningCache`; on iDrive 8 only
+where the provisioning served has the app's section or the running
+MainApp-21's copy filled it (iDrive 8 apps, Backend provisioning). On iDrive 7 an app
 listed in `custom_apps.json` shows only while the running manager runs the
 fallback copy (`fallback.manager_runs_copy`); otherwise, or with no manager
 running, its tile is reported hidden (with the retired installer's leftovers,
