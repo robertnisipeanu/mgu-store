@@ -37,6 +37,7 @@ const fs = require('fs');
 const path = require('path');
 
 const MAX_APP_JSON = 65536;
+const RETRY_MS = 5000;     // a proxy that failed (the HMI still starting) is tried again
 const MAX_INTERFACE_JSON = 4 << 20;
 
 const ID7_INTERFACE = 'de_bmw_infotainment_hmi_remote_RemoteHmiApplication.json';
@@ -186,40 +187,51 @@ function startGate(opts) {
 
     /* The stack is subscribed once per instance, whether offered yet or not;
      * the uuid is read each time the instance comes to the front, as an
-     * instance number is reused once its app is gone. */
-    const watch = (name) => someip.buildProxy(interfaceConfig, name).then((proxy) => proxy.init().then(() => {
+     * instance number is reused once its app is gone. An instance that becomes
+     * available is read again (a stack set before then is not always sent), and
+     * one whose proxy fails, as while the HMI still starts, is tried again. */
+    const watch = (name, tries) => someip.buildProxy(interfaceConfig, name).then((proxy) => proxy.init().then(() => {
         const leave = () => {
             front.set(name, false);
             if (shown.delete(name)) {
                 report();
             }
         };
+        const onStack = (stack) => {
+            if (!hasRootApp(stack)) {
+                leave();
+                return;
+            }
+            front.set(name, true);
+            proxy.getValue('uuid').then((uuid) => {
+                if (front.get(name)) {
+                    apps = readApps(appsDir, log);
+                    shown.set(name, uuid);
+                    report();
+                }
+            }).catch(fail(name));
+        };
         proxy.subscribeToAvailability((available) => {
             if (!available) {
                 leave();
+            } else {
+                proxy.getValue('applicationStack').then(onStack).catch(fail(name));
             }
         });
-        return proxy.subscribe({
-            name: 'applicationStack',
-            onReceive: (stack) => {
-                if (!hasRootApp(stack)) {
-                    leave();
-                    return;
-                }
-                front.set(name, true);
-                proxy.getValue('uuid').then((uuid) => {
-                    if (front.get(name)) {
-                        apps = readApps(appsDir, log);
-                        shown.set(name, uuid);
-                        report();
-                    }
-                }).catch(fail(name));
-            }
-        });
-    })).catch(fail(name));
+        return proxy.subscribe({ name: 'applicationStack', onReceive: onStack });
+    })).then(() => {
+        if (tries) {
+            log(`${name}: watched after ${tries} retries`);
+        }
+    }, (e) => {
+        if (!tries) {
+            fail(name)(e);
+        }
+        setTimeout(() => watch(name, (tries || 0) + 1), opts.retryMs || RETRY_MS);
+    });
 
     report();
-    Object.keys(interfaceConfig.instances).forEach(watch);
+    Object.keys(interfaceConfig.instances).forEach((name) => watch(name, 0));
 }
 
 if (require.main === module) {

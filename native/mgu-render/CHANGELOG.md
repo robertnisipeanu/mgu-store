@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The foreground gate tries again every 5 s a `RemoteHmiApplication` instance whose proxy failed (as while the HMI still starts), and reads an instance's stack again when it becomes available. Before, such an instance was never watched until the renderer restarted: an app the HMI then showed there was never in front, so the kit drew it in the HMI's own page with the HMI's button bar, not full screen. Seen after an iDrive start (Redline stayed so for the whole drive).
+
 ## 0.6.13
 
 - The car-test kit refuses a branch that requires the next release of a component the kit does not install, and builds a changed mgu-render at the version its release gives it.
