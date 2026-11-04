@@ -2377,6 +2377,15 @@ function installTool(a, state, tx) {
     var i7 = i7Takeover(a);
     tx.root = root; tx.before = before; tx.rootExisted = fs.existsSync(root);
     tx.versionExisted = fs.existsSync(dest); tx.socketsActive = {};
+    /* an older version, or one from another source (a.otherSource): the
+     * version it replaces runs its deactivate first, with all of it in
+     * place, as at its removal; a failed one keeps that version current */
+    if (prev && prev.deactivate && before !== c.version && (a.otherSource || semverCmp(c.version, before) < 0)) {
+        tx.deactivated = true;
+        var dr = runHook(c.id, path.join(versions, before), prev, 'deactivate', state);
+        if (!dr.ok) throw refuse(c.id + ' ' + before + ': deactivate ' + dr.why + '; ' + before + ' stays current');
+        if (dr.reboot) addPending(state, c.id, dr.reboot);
+    }
     /* A current that is no link (a folder an earlier installer left, e.g.
      * app-privacy 1.5.0's) cannot be replaced by rename: it goes aside, and
      * a rollback puts it back. It goes once the install is through. */
@@ -2415,13 +2424,22 @@ function installTool(a, state, tx) {
         rmrf(aside);
     }
     if (before !== c.version) switchCurrent(root, c.version);
+    /* what the versions it replaces installed and this one does not list
+     * goes, its running units stopped first */
+    var gone = prev && before !== c.version ? declaredOnly(toolDeclared(root, prev), c) : null;
+    tx.stopped = gone ? stopUnits(gone, state) : [];
     /* systemd units, enablement and the boot lists change in one window,
      * and only when the desired bytes differ: the payload and the lists'
      * entries on disk first, so no power cut leaves a unit enabled without
-     * them. */
+     * them; the units going are out before their entries. */
     var rec = recmgrOp(recmgrNamesOf(c), []);
     var crash = crashListPlan(installedTools()), remounts = rootMountMode() === 'ro';
-    var ops = [rec, crash && crash.op].filter(Boolean), unitChanged = !!rec, changed = [];
+    var crashAdd = crash && crash.op && crash.add.length ? crash.op : null, crashRemove = crash && crash.op && !crashAdd ? crash.op : null;
+    if (crashAdd && crash.remove.length) {
+        crashAdd = Object.assign({}, crash.op, { data: crashListWith(fs.readFileSync(CFG.crashList, 'utf8'), crash.add, []) });
+        crashRemove = crash.op;
+    }
+    var ops = [rec, crashAdd].filter(Boolean), unitChanged = !!rec, changed = [];
     (c.units || []).forEach(function (u) {
         var src = path.join(a.dir, 'units', u.name), destUnit = path.join(CFG.systemd, u.name);
         if (!bytesEqualFile(fs.readFileSync(src), destUnit)) {
@@ -2445,16 +2463,24 @@ function installTool(a, state, tx) {
             ops.push({ type: 'copy', src: src, path: dest, mode: 0o644 }); unitChanged = true;
         }
     });
-    /* a drop-in the version it replaces had and this one has not */
-    ((prev && prev.dropins) || []).filter(function (d) {
-        return !(c.dropins || []).some(function (x) { return x.unit === d.unit && x.name === d.name; }) && lstatOrNull(dropinPath(d));
-    }).forEach(function (d) { ops.push({ type: 'delete', path: dropinPath(d) }); unitChanged = true; });
     i7.units.forEach(function (u) { ops.push({ type: 'delete', path: path.join(CFG.systemd, u) }); unitChanged = true; });
-    var limits = limitsPlan(installedTools(), limitedUnits(c));
+    var del = gone ? deleteOps(gone) : [];
+    if (del.length) { ops = ops.concat(del); unitChanged = true; }
+    var limits = limitsPlan(installedTools(), limitedUnits(c).concat(gone ? limitedUnits(gone) : []));
     if (limits.ops.length) { ops = ops.concat(limits.ops); unitChanged = true; }
+    var recGone = gone && recmgrPresent() ? recmgrNamesGone(gone, installedTools()) : [];
+    if (recGone.length) {
+        var recWas = rec ? rec.data : recmgrText(), recNext = recmgrWith(recWas, [], recGone);
+        if (recNext !== recWas) {
+            checkListEdit(CFG.recmgr, RECMGR_LIST, recWas, recNext, [], recGone);
+            ops.push({ type: 'copy', data: recNext, path: CFG.recmgr, mode: 0o644 });
+        }
+    }
+    if (crashRemove) ops.push(crashRemove);
     if (ops.length) { syncDisks(); rootfsWindow(ops); }
     crashListDone(crash, remounts);
     if (unitChanged) runOk(CFG.systemctl, ['daemon-reload']);
+    if (del.length) pruneCreatedDirs(state);
     if (i7.paths.length) {
         i7.files.forEach(function (f) { rmrf(path.join(I7_DIR, f)); });
         try { fs.rmdirSync(I7_DIR); } catch (e) { /* not empty, or gone */ }
@@ -2553,6 +2579,40 @@ function keepToolCopy(a) {
             if (semverParts(n) && !fs.existsSync(path.join(CFG.varOpt, c.id, 'versions', n))) rmrf(path.join(keptDir(c.id), n));
         });
     } catch (e) { warn(c.id + ' ' + c.version + "'s units are not kept: " + e.message); }
+}
+/* Lays again from tool t's kept copy the units, enablement links and
+ * drop-ins its version lists that are missing (ones a change to another
+ * version took out), as an install lays them: its recmgr names first, then
+ * those, then their limits, in one rootfs window. Nothing without a copy.
+ * Returns the units laid. */
+function layMissing(t, state) {
+    var kept = keptToolArtifact(t), c = t.component, ops = [];
+    if (!kept) return [];
+    (c.units || []).forEach(function (u) {
+        var dest = path.join(CFG.systemd, u.name);
+        if (!lstatOrNull(dest)) ops.push({ type: 'copy', src: path.join(kept.dir, 'units', u.name), path: dest, mode: 0o644 });
+    });
+    (c.enable || []).forEach(function (en) {
+        var link = path.join(CFG.systemd, en.target + '.wants', en.unit);
+        if (lstatOrNull(link)) return;
+        if (!fs.existsSync(path.dirname(link))) noteCreatedDir(state, path.dirname(link));
+        ops.push({ type: 'mkdir', path: path.dirname(link) }, { type: 'symlink', path: link, target: '../' + en.unit });
+    });
+    (c.dropins || []).forEach(function (d) {
+        var dest = dropinPath(d);
+        if (lstatOrNull(dest)) return;
+        if (!fs.existsSync(path.dirname(dest))) noteCreatedDir(state, path.dirname(dest));
+        ops.push({ type: 'mkdir', path: path.dirname(dest) },
+            { type: 'copy', src: path.join(kept.dir, 'dropins', d.unit + '.d', d.name), path: dest, mode: 0o644 });
+    });
+    if (!ops.length) return [];
+    var rec = recmgrOp(recmgrNamesOf(c), []);
+    rootfsWindow((rec ? [rec] : []).concat(ops, limitsPlan(installedTools(), limitedUnits(c)).ops));
+    runOk(CFG.systemctl, ['daemon-reload']);
+    say(t.id + ' ' + t.version + ': laid again from the copy kept here: ' +
+        ops.filter(function (op) { return op.type !== 'mkdir'; }).map(function (op) { return path.relative(CFG.systemd, op.path); }).join(', '));
+    return ops.filter(function (op) { return op.type === 'copy' && path.dirname(op.path) === CFG.systemd; })
+        .map(function (op) { return path.basename(op.path); });
 }
 /* Tool id's version and the firmware it was installed under, in state.json. */
 function recordTool(state, id, version) {
@@ -2731,7 +2791,12 @@ function rollbackTool(a, tx, backup, e, state) {
      * failed one keeps it current */
     if (tx.activated && c.deactivate && tx.before !== c.version) {
         var dr = runHook(c.id, path.join(tx.root, 'versions', c.version), c, 'deactivate', state);
-        if (!dr.ok) { say(c.id + ' ' + c.version + ' stays current: deactivate ' + dr.why); return; }
+        if (!dr.ok) {
+            say(c.id + ' ' + c.version + ' stays current: deactivate ' + dr.why);
+            keepToolCopy(a);
+            recordTool(state, c.id, c.version);
+            return;
+        }
         if (dr.reboot) addPending(state, was ? c.id : 'mgu-deploy', (was ? '' : c.id + ' removed: ') + dr.reboot);
     }
     say('rolling back ' + c.id + ' ' + c.version + (tx.before ? ' to ' + tx.before : tx.legacy ? ' to its earlier install' : '') + ' from ' + backup);
@@ -2763,6 +2828,7 @@ function rollbackTool(a, tx, backup, e, state) {
         }
     });
     runOk(CFG.systemctl, ['daemon-reload']);
+    (tx.stopped || []).forEach(function (u) { runOk(CFG.systemctl, ['start', u]); say('started ' + u); });
     pruneCreatedDirs(state);
     if (e.health) restartAgain(e.health, was);
     if (e.privacy) {
@@ -2774,7 +2840,7 @@ function rollbackTool(a, tx, backup, e, state) {
         e.activate.forEach(function (u) { if (again.indexOf(u) < 0) { systemctl(['stop', u]); say('stopped ' + u); } });
         restartAgain(again, was || c.id);
     }
-    if (tx.activated) reactivate(c.id, tx.before && tx.before !== c.version ? path.join(tx.root, 'versions', tx.before) : null, state);
+    if (tx.activated || tx.deactivated) reactivate(c.id, tx.before && tx.before !== c.version ? path.join(tx.root, 'versions', tx.before) : null, state);
 }
 /* Runs the activate of the version in dir again, after a change that ran
  * another version's activate or the tool's deactivate did not go through. */
@@ -3782,28 +3848,37 @@ function declaredOnly(c, keep) {
         enable: none('enable', function (x, y) { return x.unit === y.unit && x.target === y.target; }),
         dropins: none('dropins', function (x, y) { return x.unit === y.unit && x.name === y.name; }) };
 }
-/* Takes out c's units (stopping each running one recmgr has loaded; any
- * other keeps running until a reboot), enablement links, drop-ins and their
- * limits, then the recmgr names in c that no tool in rest (the tools that
- * stay) has and the crash handler's names rest no longer wants: units
- * before list entries. Returns the units stopped. */
-function removeToolPieces(c, rest, state) {
+/* Stops c's running units recmgr has loaded, before they are taken out;
+ * any other keeps running until a reboot (pending). Returns those stopped. */
+function stopUnits(c, state) {
     var stopped = [];
     (c.units || []).forEach(function (u) {
         if (unitState(u.name, 'is-active') !== 'active') return;
         if (recmgrLoaded(recmgrBase(u.name))) { runOk(CFG.systemctl, ['stop', u.name]); say('stopped ' + u.name); stopped.push(u.name); }
         else { addPending(state, c.id, PENDING_RECMGR); warn(u.name + ' left running until a reboot'); }
     });
-    var ops = [], removeRec = recmgrNamesOf(c).filter(function (n) {
+    return stopped;
+}
+/* The rootfs ops that take out c's units, enablement links and drop-ins on disk. */
+function deleteOps(c) {
+    return (c.units || []).map(function (u) { return path.join(CFG.systemd, u.name); })
+        .concat((c.enable || []).map(function (en) { return path.join(CFG.systemd, en.target + '.wants', en.unit); }))
+        .concat((c.dropins || []).map(dropinPath))
+        .filter(lstatOrNull).map(function (p) { return { type: 'delete', path: p }; });
+}
+/* The recmgr names in c that no tool in rest has. */
+function recmgrNamesGone(c, rest) {
+    return recmgrNamesOf(c).filter(function (n) {
         return !rest.some(function (t) { return recmgrNamesOf(t.component).indexOf(n) >= 0; });
     });
-    (c.units || []).forEach(function (u) { ops.push({ type: 'delete', path: path.join(CFG.systemd, u.name) }); });
-    (c.enable || []).forEach(function (en) {
-        ops.push({ type: 'delete', path: path.join(CFG.systemd, en.target + '.wants', en.unit) });
-    });
-    (c.dropins || []).forEach(function (d) { ops.push({ type: 'delete', path: dropinPath(d) }); });
-    ops = ops.concat(limitsPlan(rest, limitedUnits(c)).ops);
-    var rec = recmgrOp([], removeRec);
+}
+/* Takes out c's units (stopUnits first), enablement links, drop-ins and
+ * their limits, then the recmgr names in c that no tool in rest (the tools
+ * that stay) has and the crash handler's names rest no longer wants, in one
+ * rootfs window: units before list entries. */
+function removeToolPieces(c, rest, state) {
+    var ops = deleteOps(c).concat(limitsPlan(rest, limitedUnits(c)).ops);
+    var rec = recmgrOp([], recmgrNamesGone(c, rest));
     if (rec) ops.push(rec);
     var unitOps = ops.length;
     var crash = crashListPlan(rest), remounts = rootMountMode() === 'ro';
@@ -3812,7 +3887,6 @@ function removeToolPieces(c, rest, state) {
     crashListDone(crash, remounts);
     if (unitOps) runOk(CFG.systemctl, ['daemon-reload']);
     pruneCreatedDirs(state);
-    return stopped;
 }
 /* The version folder whose deactivate ran (or started) in this removal, for
  * cmdUninstall to activate again when the removal does not go through. */
@@ -3824,16 +3898,27 @@ function uninstallTool(id, state) {
     say('uninstalling tool ' + id + ' ' + c.version);
     /* the stock bundles go back first; a failed revert keeps the tool */
     if (id === 'app-privacy' && privacyRevert()) privacyReverted();
-    /* the tool's deactivate runs with all of it still in place; a failed one
-     * keeps the tool. A restart it asks for is pending under the deploy tool,
-     * since the tool's own entries go with it. */
-    if (c.deactivate) {
-        deactivated = path.join(root, 'versions', currentTarget(root));
-        var hr = runHook(id, deactivated, c, 'deactivate', state);
-        if (!hr.ok) throw refuse(id + ' ' + c.version + ': deactivate ' + hr.why + '; ' + id + ' stays installed');
+    /* the tool's deactivate runs with all of it still in place, then that of
+     * each newer version kept (one a rollback left), which reverts what only
+     * it set up; a failed one keeps the tool. A restart one asks for is
+     * pending under the deploy tool, since the tool's own entries go with it. */
+    var newer = [];
+    try {
+        newer = fs.readdirSync(path.join(root, 'versions')).filter(function (v) { return semverParts(v) && semverCmp(v, c.version) > 0; })
+            .sort(semverCmp);
+    } catch (e) { /* no versions folder */ }
+    [currentTarget(root)].concat(newer).forEach(function (v, i) {
+        var vc = i ? readJsonOrNull(path.join(root, 'versions', v, 'component.json')) : c;
+        if (!vc || vc.id !== id || !vc.deactivate) return;
+        var dir = path.join(root, 'versions', v);
+        if (!i) deactivated = dir;
+        var hr = runHook(id, dir, vc, 'deactivate', state);
+        if (!hr.ok) throw refuse(id + ' ' + vc.version + ': deactivate ' + hr.why + '; ' + id + ' stays installed');
         if (hr.reboot) addPending(state, 'mgu-deploy', id + ' removed: ' + hr.reboot);
-    }
-    removeToolPieces(toolDeclared(root, c), installedTools().filter(function (t) { return t.id !== id; }), state);
+    });
+    var declared = toolDeclared(root, c);
+    stopUnits(declared, state);
+    removeToolPieces(declared, installedTools().filter(function (t) { return t.id !== id; }), state);
     var own = fs.readdirSync(root).filter(function (n) { return ['versions', 'current', 'current.new'].indexOf(n) < 0; });
     if (own.length) say('removing ' + id + "'s own files beside its versions: " + own.sort().join(', '));
     rmrf(root);
@@ -5603,9 +5688,9 @@ function cmdStatus(args, crashList, live, limits, listing) {
 }
 function artifactTouched(a) {
     if (a.kind === 'tool') {
-        /* the installed version's drop-ins too: an update that drops one removes it */
+        /* the installed version's too: what it has and this one has not goes */
         var installed = installedTools().filter(function (t) { return t.id === a.id; })[0];
-        var gone = ((installed && installed.component.dropins) || []).map(dropinPath);
+        var gone = installed ? toolTouched(toolDeclared(installed.root, installed.component)) : [];
         return toolTouched(a.component).concat(gone).concat(i7Takeover(a).paths)
             .concat([path.join(CFG.varOpt, a.id, 'versions', a.version)]).concat(uplinkDropIns(a.id));
     }
@@ -5915,6 +6000,7 @@ function installRun(args, afresh) {
     var stage = stageDir(), state = loadState(), done = [], attempted = false, id8 = isId8(), elsewhere = {};
     try {
         var validated = files.map(function (f) { return validateArtifact(f, stage); });
+        if (args.otherSource) validated.forEach(function (a) { a.otherSource = a.kind === 'tool'; });
         validated = orderArtifacts(validated);
         /* a kit (--skip-older) installs what is for this unit and leaves the rest */
         validated = validated.filter(function (a) {
@@ -6269,7 +6355,7 @@ function cmdRollback(args) {
     var target = args.to || others[0], tc = readJsonOrNull(path.join(root, 'versions', target, 'component.json'));
     if (!tc || tc.id !== id) throw refuse(id + ': versions/' + target + ' has no readable component.json');
     var state = loadState(), cc = tool.component;
-    var backup = takeSnapshot('rollback', toolTouched(cc));
+    var backup = takeSnapshot('rollback', toolTouched(cc).concat(toolTouched(tc)));
     say('rolling back ' + id + ' ' + cur + ' -> ' + target);
     if (id === 'mgu-deploy') {
         dropVerify(id);
@@ -6279,7 +6365,7 @@ function cmdRollback(args) {
         say('mgu-deploy ' + target + ' is current; the shim runs it from the next call');
         return 0;
     }
-    var deactivated = false, switched = false, stopped = [], touched = [], step = null;
+    var deactivated = false, switched = false, stopped = [], laid = [], started = [], touched = [], step = null;
     try {
         /* the version going runs its deactivate first, with all of it in
          * place, as at its removal; a failed one keeps it current */
@@ -6293,10 +6379,23 @@ function cmdRollback(args) {
         switchCurrent(root, target);
         switched = true;
         /* what the version going installed and target does not list goes */
-        stopped = removeToolPieces(declaredOnly(cc, tc), installedTools(), state);
-        /* a running service started by a keepRunning version stays running either way */
+        var gone = declaredOnly(cc, tc);
+        stopped = stopUnits(gone, state);
+        removeToolPieces(gone, installedTools(), state);
+        laid = layMissing({ id: id, version: target, root: root, component: tc }, state);
+        /* a running service started by a keepRunning version stays running
+         * either way; one laid again starts as at a first install */
         var keep = Object.assign({}, tc, { keepRunning: !args.restartRunning && (tc.keepRunning || cc.keepRunning) });
-        touched = applyRestarts(keep, state, false);
+        var isLaid = function (u) { return laid.indexOf(u) >= 0; };
+        touched = applyRestarts(Object.assign({}, keep, { restart: (tc.restart || []).filter(function (u) { return !isLaid(u); }) }), state, false)
+            .concat(applyRestarts(Object.assign({}, keep, { restart: (tc.restart || []).filter(isLaid) }), state, true));
+        started = touched.filter(isLaid);
+        (tc.enable || []).forEach(function (en) {
+            if (!/\.socket$/.test(en.unit) || !isLaid(en.unit)) return;
+            if (!recmgrLoaded(recmgrBase(en.unit))) { addPending(state, id, PENDING_BOOT); say(en.unit + ' ' + PENDING_BOOT); return; }
+            if (systemctl(['start', en.unit]).status === 0) { say('started ' + en.unit); started.push(en.unit); }
+            else warn('could not start ' + en.unit);
+        });
         var bad = healthCheck(touched);
         if (bad) { step = 'restart'; throw fail(id + ' ' + target + ': ' + bad); }
         if (id === 'app-privacy') {
@@ -6314,10 +6413,14 @@ function cmdRollback(args) {
                 restoreSnapshot(backup);
                 runOk(CFG.systemctl, ['daemon-reload']);
                 stopped.forEach(function (u) { runOk(CFG.systemctl, ['start', u]); say('started ' + u); });
+                started.filter(function (u) { return !lstatOrNull(path.join(CFG.systemd, u)); })
+                    .forEach(function (u) { systemctl(['stop', u]); say('stopped ' + u); });
                 say(cur + ' is current again');
             } catch (e2) { process.stderr.write('putting ' + cur + ' back failed: ' + e2.message + '\n'); }
         }
-        if (step === 'restart' || step === 'activate') restartAgain(touched, id + ' ' + cur);
+        if (step === 'restart' || step === 'activate') {
+            restartAgain(touched.filter(function (u) { return started.indexOf(u) < 0; }), id + ' ' + cur);
+        }
         if (step === 'privacy') {
             var again = privacyApplyAndBounce(state);
             if (!again.ok) say('app-privacy ' + cur + ' apply failed too: ' + again.why);
@@ -6325,7 +6428,7 @@ function cmdRollback(args) {
         if (deactivated || step === 'activate') reactivate(id, path.join(root, 'versions', cur), state);
         throw e;
     } finally { saveState(state); }
-    /* a version whose own pieces an earlier rollback took out (rolled back to from an older one) */
+    /* pieces of its own no copy kept here could lay again */
     var gap = toolStale({ id: id, version: target, component: tc }, state);
     if (gap) warn(id + ' ' + target + ': ' + gap + '; an install of its artifact lays them again');
     say(id + ' rolled back to ' + target);
@@ -6600,6 +6703,7 @@ function parseArgs(argv) {
         if (argv[i] === '--artifact') { out.artifacts.push(argv[++i]); }
         else if (argv[i] === '--json') out.json = true;
         else if (argv[i] === '--skip-older') out.skipOlder = true;
+        else if (argv[i] === '--other-source') out.otherSource = true;
         else if (argv[i] === '--yes') out.yes = true;
         else if (argv[i] === '--remove') out.remove = argv[++i] || '';
         else if (argv[i] === '--list') out.list = true;
