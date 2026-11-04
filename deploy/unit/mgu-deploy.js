@@ -6124,6 +6124,8 @@ function installRun(args, afresh) {
     var files = args.artifacts.length ? args.artifacts.map(function (f) { return path.resolve(f); })
         : kitArtifacts();
     var stage = stageDir(), state = loadState(), done = [], attempted = false, id8 = isId8(), elsewhere = {};
+    /* an install after a remove-all keeps the deploy tool */
+    rmrf(REMOVE_ALL_FILE);
     try {
         var validated = files.map(function (f) { return validateArtifact(f, stage); });
         if (args.otherSource) validated.forEach(function (a) { a.otherSource = a.kind === 'tool'; });
@@ -6414,8 +6416,8 @@ function cmdUninstall(args) {
     var id = args.positional[0];
     if (!id) throw refuse('uninstall needs a component id');
     if (id === 'mgu-deploy') {
-        throw refuse('mgu-deploy: the deploy tool does not uninstall itself; restore puts back what it changed, ' +
-            'and ' + DEPLOY_DIR + ' (its state and backups) is removed by hand when wanted');
+        throw refuse('mgu-deploy: the deploy tool goes with remove-all, which removes the Store setup ' +
+            '(the installer\'s uninstall)');
     }
     if (id === AM.app && amPresent()) return amCommand('uninstall', amRemove);
     var state = loadState();
@@ -6484,9 +6486,12 @@ function cmdUninstall(args) {
  * App Manager stay, as `uninstall oap-appmanager` leaves them. */
 var REMOVE_ALL_FILE = path.join(DEPLOY_DIR, 'remove-all.json');
 var GUARD_FILE_NAME = 'mgu-deploy-guard.json';
+/* What IterioDev's App Manager installed: the apps its record names (adopted)
+ * and, while it is on the unit, the ones it lists itself. */
 function amAdopted() {
     var rec = readJsonOrNull(AM_RECORD) || {};
-    return { apps: (Array.isArray(rec.apps) ? rec.apps : []).map(function (x) { return x && x.id; })
+    var apps = (Array.isArray(rec.apps) ? rec.apps : []).concat(amPresent() ? amApps() : []);
+    return { apps: apps.map(function (x) { return x && x.id; })
         .filter(function (x) { return typeof x === 'string'; }), renderer: !!rec.renderer };
 }
 /* The apps this tool installed: recorded, listed by the fallback or marked
@@ -6576,7 +6581,16 @@ function removeAll(plan) {
             return false;
         }
     }
-    function uninstall(id) { if (step(id, function () { cmdUninstall({ positional: [id], yes: true }); })) removed.push(id); }
+    function uninstall(id) {
+        var running = leftRunning.length;
+        if (step(id, function () { cmdUninstall({ positional: [id], yes: true }); })) removed.push(id);
+        /* a service left running needs the next start, also when a later run finishes the job */
+        if (leftRunning.length > running) {
+            var s = loadState();
+            addPending(s, 'mgu-deploy', id + ' removed; its services run until the next start');
+            saveState(s);
+        }
+    }
     bounceDeferred = true;
     bounceOwed = false;
     leftRunning = [];
@@ -6605,20 +6619,23 @@ function removeAll(plan) {
         bounceDeferred = false;
     }
     /* the one bounce, while this tool still keeps its record (state.json) */
-    if (bounceOwed && !isId8() && managerPid()) step('the app manager restart', bounceManager);
+    var bounced = true;
+    if (bounceOwed && !isId8() && managerPid()) {
+        try { bounceManager(); }
+        catch (e) { bounced = false; process.stderr.write('mgu-deploy: the app manager was not restarted: ' + e.message + '\n'); }
+    }
     var queued = isId8() && readPending().some(function (c) { return c.action === 'remove'; });
     state = loadState();
-    var restart = leftRunning.length > 0 || state.pending_reboot.some(function (p) { return p.id !== FALLBACK_NAME; }) ||
+    var restart = !bounced || leftRunning.length > 0 || state.pending_reboot.some(function (p) { return p.id !== FALLBACK_NAME; }) ||
         (isId8() && (plan.apps.length > 0 || privacy || plan.fallback));
     var self = 'kept';
     if (!left.length) {
         if (step('the deploy tool', function () { removeSelf(state, queued); })) self = queued ? 'next-start' : 'removed';
     }
     return { removed: removed, left: left, restart: restart || self === 'next-start',
-        next_start: readPendingSafe().filter(function (c) { return c.action === 'remove'; }).map(function (c) { return c.id; }),
+        next_start: readPending().filter(function (c) { return c.action === 'remove'; }).map(function (c) { return c.id; }),
         self: self };
 }
-function readPendingSafe() { try { return readPending(); } catch (e) { return []; } }
 /* The last step: this tool's own pieces outside its folder, then the
  * folder. queued: iDrive 8 removals wait for the next start; the queue's
  * boot unit, its entry and this tool stay for it (REMOVE_ALL_FILE). */
@@ -6663,6 +6680,11 @@ function removeDeployDir() {
 /* At the next start on iDrive 8, after a remove-all's queued removals went
  * through: the queue's boot unit and its entry, then this tool. */
 function removeSelfAtStart() {
+    if (installedTools().some(function (t) { return t.id !== 'mgu-deploy'; })) {
+        rmrf(REMOVE_ALL_FILE);
+        say('a tool is installed again: the deploy tool stays');
+        return;
+    }
     var ops = [path.join(CFG.systemd, APPLY_WANTS, APPLY_UNIT), path.join(CFG.systemd, APPLY_UNIT)]
         .filter(function (p) { return !!lstatOrNull(p); }).map(function (p) { return { type: 'delete', path: p }; });
     var rec = recmgrOp([], [APPLY_NAME]);

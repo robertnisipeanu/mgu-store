@@ -373,13 +373,14 @@ first lists what is installed (the apps and tools the deploy tool
 installed, from any source, the updater's sources and tokens, the deploy
 tool) and asks `Remove all of it? [y/N]`; `--yes` skips the question, and
 without a terminal it removes nothing unless given `--yes` (exit 2). A
-deploy tool on the unit without `remove-all` is replaced for the run by
-the published one, read like first-install's (or from `--from <folder>`).
+deploy tool on the unit without `remove-all` hands the job to the
+published one, read like first-install's (or from `--from <folder>`),
+which stays installed should the run not finish.
 It ends with one line:
 `Removed: nothing of the Store setup is left on the head unit.`;
 `Removed. Restart the head unit to finish.` or, on iDrive 8 with apps
-removed at the next start, `Restart the head unit to finish: <apps>, the
-deploy tool go at its next start.`, either followed by the restart
+removed at the next start, `Restart the head unit to finish: <apps> and
+the deploy tool go at its next start.`, either followed by the restart
 question as first-install asks it; or `Not finished: <what> is still on
 the head unit. Run uninstall again to finish.` (exit 1).
 
@@ -799,9 +800,9 @@ the new version, so `status --json` answers from the new `current` at once.
 The updater probes `status --json` after its self-update and, when it gets
 no answer, renames `current` back itself.
 
-`uninstall mgu-deploy` is refused (exit 2): a running tool does not remove
-itself. `restore` puts back what the tool changed and keeps the tool;
-`/var/opt/mgu-deploy` is removed by hand when wanted.
+`uninstall mgu-deploy` is refused (exit 2): the deploy tool goes last in
+`remove-all`, with everything it installed ("Removing the Store setup").
+`restore` puts back what the tool changed and keeps the tool.
 
 **Version rule.** Bump `deploy/component.json`'s version, and `VERSION` with
 it (`node release/release.js bump mgu-deploy <x.y.z>` sets both), whenever a

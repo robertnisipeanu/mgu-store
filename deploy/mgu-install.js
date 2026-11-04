@@ -782,7 +782,7 @@ function promptLine(question, input) {
 
 /* Asks whether to restart the head unit now, at a terminal only; on yes
  * restarts it. Its exit status. */
-async function offerRestart(o) {
+async function offerRestart(o, later = 'Restart it from the Store') {
     const term = o.noRestartPrompt || process.env.CI ? null : terminal();
     if (!term || !/^y(es)?$/i.test((await promptLine('Restart the head unit now? [y/N] ', term)).trim())) {
         return 0;
@@ -790,11 +790,11 @@ async function offerRestart(o) {
     const r = ssh(o, RESTART, { input: Buffer.alloc(0), capture: true });
     const refused = /\[Error\.\s*([^\]]*)\]/.exec(r.stdout);
     if (r.status === 3) {
-        say('An install is running on the head unit: restart it from the Store once it is done.');
+        say(`An install is running on the head unit. ${later} once it is done.`);
         return 1;
     }
     if (r.status !== 0 || refused) {
-        say(`The head unit did not take the restart${refused ? `: ${refused[1].trim()}` : ''}. Restart it from the Store.`);
+        say(`The head unit did not take the restart${refused ? `: ${refused[1].trim()}` : ''}. ${later}.`);
         return 1;
     }
     say('Restarting the head unit.');
@@ -1067,6 +1067,9 @@ function showPlan(plan) {
     }
 }
 
+/* Without the Store, a restart is the car's own. */
+const AFTER_UNINSTALL = 'Restart it by switching the car off and on again';
+
 async function uninstall(o) {
     const from = o.from ? fromFolder(o.from) : null;
     await reach(o);
@@ -1088,7 +1091,7 @@ async function uninstall(o) {
     }
     const plan = lastJson(removeAllRun(o, kit, '--json').stdout);
     if (!plan || !Array.isArray(plan.apps) || !Array.isArray(plan.tools)) {
-        say(kit ? 'The published deploy tool cannot uninstall yet. Update the Store\'s deploy tool, then run uninstall again.' :
+        say(kit ? 'The published deploy tool has no uninstall yet; nothing was removed.' :
             'The deploy tool on the head unit did not say what is installed; nothing was removed.');
         return 1;
     }
@@ -1116,12 +1119,13 @@ async function uninstall(o) {
         return 1;
     }
     if (result.self === 'next-start') {
-        say(`Restart the head unit to finish: ${(result.next_start || []).concat(['the deploy tool']).join(', ')} go at its next start.`);
-        return offerRestart(o);
+        const going = (result.next_start || []).concat(['the deploy tool']);
+        say(`Restart the head unit to finish: ${going.slice(0, -1).join(', ')} and ${going[going.length - 1]} go at its next start.`);
+        return offerRestart(o, AFTER_UNINSTALL);
     }
     if (result.restart) {
         say('Removed. Restart the head unit to finish.');
-        return offerRestart(o);
+        return offerRestart(o, AFTER_UNINSTALL);
     }
     say('Removed: nothing of the Store setup is left on the head unit.');
     return 0;

@@ -6261,6 +6261,40 @@ function testRemoveAllId8() {
         JSON.stringify(fs.readdirSync(root.p('var/opt'))) === '["public"]', `${a.out}\n${fs.readdirSync(root.p('var/opt'))}`);
 }
 
+/* iDrive 8: an install after a remove-all keeps the deploy tool at the next
+ * start; the App Manager's own apps are not ours to remove. */
+function testRemoveAllId8Kept() {
+    let root = id8Root();
+    const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097, marked: true });
+    root.run(['install', '--artifact', art, '--yes']);
+    root.noManager();
+    root.run(['apply-pending']);
+    write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED' }));
+    write(root.p('var/opt/public/oap/oap_13001/source/package.json'), JSON.stringify({ name: 'oap-cardash', version: '1.1.4', mguLocalOnly: true }));
+    fs.writeFileSync(`${root.R}.mgr.pid`, '4000');
+    root.run(['remove-all', '--yes']);
+    root.run(['install', '--artifact', namedTool('mgu-updater', '0.2.0'), '--yes']);
+    root.noManager();
+    const a = root.run(['apply-pending']);
+    check('id8 remove-all, then an install before the next start: the queued removal goes, the deploy tool and the tool stay',
+        a.status === 0 && !fs.existsSync(root.entry('oap-cardash')) && fs.existsSync(root.p('var/opt/mgu-deploy/current')) &&
+        fs.existsSync(root.tool('mgu-updater')) && !fs.existsSync(root.p('var/opt/mgu-deploy/remove-all.json')), a.out);
+    root = amRoot();
+    const plan = JSON.parse(root.run(['remove-all', '--json']).stdout);
+    check('id8 remove-all --json: the apps IterioDev\'s App Manager installed are not listed for removal',
+        !plan.apps.some((x) => ['oap-cardash', 'oap-draggy'].includes(x.id)), JSON.stringify(plan));
+}
+
+/* A service the removal leaves running asks for a restart. */
+function testRemoveAllRunning() {
+    const root = fakeRoot({ active: 'fixture-tool.service' });
+    root.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    const r = root.run(['remove-all', '--yes']);
+    const res = JSON.parse(r.stdout.trim().split('\n').pop());
+    check('remove-all: a service recmgr has not loaded stays running; the result asks for a restart',
+        r.status === 0 && res.restart === true && res.self === 'removed' && r.out.includes('left running until a reboot'), r.out);
+}
+
 /* mgu-install uninstall: lists, asks, removes with the unit's deploy tool,
  * or the published one when the unit's has no remove-all. */
 function testMguInstallUninstall() {
@@ -8047,6 +8081,8 @@ const SUITES = [
     testRemoveAllFirmware,
     testRestoreFirmwareGuard,
     testRemoveAllId8,
+    testRemoveAllId8Kept,
+    testRemoveAllRunning,
     testMguInstallUninstall
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
