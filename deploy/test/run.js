@@ -3124,8 +3124,10 @@ function testRollbackRemoves() {
  * Auto patch): its activate writes them, its deactivate puts them back; a
  * hook named in $FAKE_PATCH_FAIL (<command>@<version>) exits 3; with
  * $FAKE_STATE_PROBE its activate appends the "deactivated" of
- * $FAKE_STATE_FILE (state.json) as it finds it. edit changes its
- * component.json. */
+ * $FAKE_STATE_FILE (state.json) as it finds it. 1.1.0's deactivate puts a
+ * folder where the deploy tool writes $FAKE_BLOCK_TMP next (its .tmp-<pid>),
+ * which an activate takes away, and hands over $FAKE_PATCH_UNUSED
+ * (removeWhenUnused). edit changes its component.json. */
 function patchArtifact(version, edit) {
     const dir = fixtureCopy(version, (c) => {
         c.files.push({ path: 'patch.js', from: 'patch.js', mode: '0644' });
@@ -3140,10 +3142,15 @@ function patchArtifact(version, edit) {
         `if (process.env.FAKE_PATCH_FAIL === process.argv[2] + '@' + ${JSON.stringify(version)}) process.exit(3);`,
         "if (process.argv[2] === 'activate' && process.env.FAKE_STATE_PROBE) fs.appendFileSync(process.env.FAKE_STATE_PROBE, " +
             "JSON.stringify(JSON.parse(fs.readFileSync(process.env.FAKE_STATE_FILE, 'utf8')).deactivated || {}) + '\\n');",
+        "const block = process.env.FAKE_BLOCK_TMP ? process.env.FAKE_BLOCK_TMP + '.tmp-' + process.ppid : null;",
+        "if (block && process.argv[2] === 'activate' && fs.existsSync(block)) fs.rmdirSync(block);",
         `if (${JSON.stringify(version)} !== '1.1.0') process.exit(0);`,
         "const on = process.argv[2] === 'activate';",
         "fs.writeFileSync(process.env.FAKE_AAPD, on ? 'patched aapd\\n' : 'stock aapd\\n');",
-        "fs.writeFileSync(process.env.FAKE_AAPD_CONF, on ? 'patched conf\\n' : 'stock conf\\n');", ''].join('\n'));
+        "fs.writeFileSync(process.env.FAKE_AAPD_CONF, on ? 'patched conf\\n' : 'stock conf\\n');",
+        "if (block && !on) fs.mkdirSync(block);",
+        "if (!on && process.env.FAKE_PATCH_UNUSED) console.log(JSON.stringify({ removeWhenUnused: JSON.parse(process.env.FAKE_PATCH_UNUSED) }));",
+        ''].join('\n'));
     const out = fs.mkdtempSync(path.join(T, 'art-'));
     const r = hu(['artifact', dir, '--out', out]);
     if (r.status !== 0) {
@@ -3177,8 +3184,11 @@ function testUninstallAfterOldRollback() {
         fs.readFileSync(files.FAKE_AAPD_CONF, 'utf8') === 'stock conf\n', r.out);
 
     const stock = () => fs.readFileSync(files.FAKE_AAPD, 'utf8') === 'stock aapd\n' && fs.readFileSync(files.FAKE_AAPD_CONF, 'utf8') === 'stock conf\n';
-    const oldStyle = () => {
+    const oldStyle = (firmware) => {
         const rr = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+        if (firmware) {
+            write(rr.p('etc/os-release-id-dlt'), `${firmware}\n`);
+        }
         const ff = { FAKE_AAPD: rr.p('usr/bin/aapd'), FAKE_AAPD_CONF: rr.p('etc/aapd.conf') };
         write(ff.FAKE_AAPD, 'stock aapd\n');
         write(ff.FAKE_AAPD_CONF, 'stock conf\n');
@@ -3208,14 +3218,43 @@ function testUninstallAfterOldRollback() {
     r = rr.run(['uninstall', 'fixture-tool', '--yes'], files);
     check('old rollback: and the removal runs it again; the files are stock', r.status === 0 && stock() && !fs.existsSync(rr.tool('fixture-tool')), r.out);
 
-    // laying the current version again (a unit missing) leaves the version due kept and its deactivate for later
+    // laying the current version again for a unit missing runs the due deactivate first
+    rr = oldStyle();
+    fs.unlinkSync(rr.p('etc/systemd/system/fixture-tool.service'));
+    r = rr.run(['install', '--artifact', namedTool('other-tool', '1.0.0'), '--yes'], files);
+    check('old rollback: laying the current version again for a unit missing runs the due deactivate first; the files are stock',
+        r.status === 0 && fs.existsSync(rr.p('etc/systemd/system/fixture-tool.service')) && stock() &&
+        !fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')), r.out);
     rr = oldStyle();
     fs.unlinkSync(rr.p('etc/systemd/system/fixture-tool.service'));
     r = rr.run(['install', '--artifact', namedTool('other-tool', '1.0.0'), '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
-    check('old rollback: laying the current version again runs no due deactivate and keeps that version',
+    check('old rollback: one whose deactivate fails stays kept and owed, said, and the current version is laid again',
         r.status === 0 && fs.existsSync(rr.p('etc/systemd/system/fixture-tool.service')) &&
-        fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')) && fs.readFileSync(files.FAKE_AAPD, 'utf8') === 'patched aapd\n' &&
-        !r.out.includes('is not laid again'), r.out);
+        fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')) &&
+        r.out.includes('warning: fixture-tool 1.1.0: deactivate exited 3; it stays kept and owed, and fixture-tool 1.0.0 is laid again') &&
+        JSON.stringify(readJson(rr.p('var/opt/mgu-deploy/state.json')).deactivate_owed) === '{"fixture-tool":["1.1.0"]}', r.out);
+    // after a firmware update (another build string than the one recorded), no due deactivate runs
+    rr = oldStyle('BMW MGU P18_23w44.2-1-3 mgu-high');
+    write(rr.p('etc/os-release-id-dlt'), 'BMW MGU P18_24w07 mgu-high\n');
+    fs.unlinkSync(rr.p('etc/systemd/system/fixture-tool.service'));
+    write(files.FAKE_AAPD, 'stock aapd\n');
+    write(files.FAKE_AAPD_CONF, 'stock conf\n');
+    r = rr.run(['install', '--artifact', namedTool('other-tool', '1.0.0'), '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
+    check('old rollback: laying the current version again after a firmware update runs no due deactivate and keeps that version',
+        r.status === 0 && fs.existsSync(rr.p('etc/systemd/system/fixture-tool.service')) &&
+        fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')) && !r.out.includes('patch.js deactivate'), r.out);
+
+    // a due deactivate that ran and then failed to hand a file over: the version it replaces is activated again
+    rr = oldStyle();
+    const held = rr.p('usr/bin/held.old');
+    write(held, 'old binary\n', 0o755);
+    fs.mkdirSync(rr.p('proc/779'), { recursive: true });
+    fs.symlinkSync(held, rr.p('proc/779/exe'));
+    r = rr.run(['install', '--artifact', patchArtifact('1.2.0'), '--yes'], Object.assign({ FAKE_PATCH_UNUSED: JSON.stringify([held]),
+        FAKE_BLOCK_TMP: rr.p('var/opt/mgu-deploy/remove-when-unused.json') }, files));
+    check('old rollback: a due deactivate that fails after it ran still has the version it replaces activated again',
+        r.status === 1 && fs.readlinkSync(path.join(rr.tool('fixture-tool'), 'current')) === 'versions/1.0.0' &&
+        r.out.includes('fixture-tool 1.0.0 activated again'), r.out);
 
     // an uninstall that fails after the newer version's deactivate ran keeps that recorded: the next one does not run it again
     rr = oldStyle();
@@ -3265,6 +3304,21 @@ function testUninstallAfterOldRollback() {
     check('rollback: a snapshot put back keeps the record of the deactivate that ran, until the activate after it',
         fail.status === 1 && fs.existsSync(frProbe) && fs.readFileSync(frProbe, 'utf8') === '{"fixture-tool":["1.1.0"]}\n',
         `${fs.existsSync(frProbe) ? fs.readFileSync(frProbe, 'utf8') : 'no probe'}\n${fail.out}`);
+    // a record the disk refuses right after the hook is kept for the command's own save
+    const br = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+    const bf = { FAKE_AAPD: br.p('usr/bin/aapd'), FAKE_AAPD_CONF: br.p('etc/aapd.conf') };
+    write(bf.FAKE_AAPD, 'stock aapd\n');
+    write(bf.FAKE_AAPD_CONF, 'stock conf\n');
+    br.run(['install', '--artifact', patchArtifact('1.0.0'), '--yes'], bf);
+    br.run(['install', '--artifact', patchArtifact('1.1.0'), '--yes'], bf);
+    const blocked = br.run(['rollback', 'fixture-tool', '--yes'], Object.assign({ FAKE_BLOCK_TMP: br.p('var/opt/mgu-deploy/state.json') }, bf));
+    check('rollback: a record the disk refuses after the hook is said and kept, and is on disk once the disk takes it',
+        blocked.status === 0 && blocked.out.includes('warning: fixture-tool: the record of its hooks is not on disk yet') &&
+        JSON.stringify(readJson(br.p('var/opt/mgu-deploy/state.json')).deactivated) === '{"fixture-tool":["1.1.0"]}', blocked.out);
+    const pruned = br.run(['install', '--artifact', patchArtifact('1.2.0'), '--yes'], bf);
+    check('rollback: an install that removes the version deactivated drops its record',
+        pruned.status === 0 && !fs.existsSync(path.join(br.tool('fixture-tool'), 'versions/1.1.0')) &&
+        (readJson(br.p('var/opt/mgu-deploy/state.json')).deactivated || {})['fixture-tool'] === undefined, pruned.out);
     check('rollback: the version it leaves is recorded as deactivated', r.status === 0 && stock() &&
         JSON.stringify(readJson(rr.p('var/opt/mgu-deploy/state.json')).deactivated) === '{"fixture-tool":["1.1.0"]}', r.out);
     r = rr.run(['uninstall', 'fixture-tool', '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));

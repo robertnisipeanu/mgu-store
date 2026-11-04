@@ -2319,7 +2319,8 @@ function noteHook(state, id, version, which) {
         if (list.length) all[id] = list;
         else delete all[id];
     });
-    persistMarks(state);
+    /* kept in memory for the command's own save when the disk refuses it */
+    try { persistMarks(state); } catch (e) { warn(id + ': the record of its hooks is not on disk yet: ' + e.message); }
 }
 /* The marks of state (noteHook) written into state.json at once, whatever
  * else the command changes and saves later. */
@@ -2443,19 +2444,27 @@ function installTool(a, state, tx) {
      * the version goes, as at its removal; one that fails refuses the
      * install, the version kept and owed for the tool's next install or
      * removal. A failed install activates the version it replaces again.
-     * Laying the current version again (a.repair) leaves them, kept. */
+     * Laying the current version again after a firmware update
+     * (a.firmwareMoved: the firmware put the patched files back) leaves them,
+     * kept; laying it again for another reason runs them, and one that fails
+     * stays kept and owed while the current version is laid again. */
     var due = before ? deactivateDue(state, c.id, root, before).filter(function (v) { return v !== c.version; }) : [];
-    tx.keep = a.repair ? due : [];
-    (a.repair ? [] : due).forEach(function (v) {
+    tx.keep = a.firmwareMoved ? due : [];
+    (a.firmwareMoved ? [] : due).forEach(function (v) {
         var vc = readJsonOrNull(path.join(versions, v, 'component.json'));
         if (!vc || vc.id !== c.id || !vc.deactivate) return;
+        tx.deactivated = true;
         var hr = runHook(c.id, path.join(versions, v), vc, 'deactivate', state);
         if (!hr.ok) {
             noteHook(state, c.id, v, 'owed');
+            if (a.repair) {
+                tx.keep.push(v);
+                warn(c.id + ' ' + v + ': deactivate ' + hr.why + '; it stays kept and owed, and ' + c.id + ' ' + c.version + ' is laid again');
+                return;
+            }
             throw refuse(c.id + ' ' + c.version + ': the kept ' + c.id + ' ' + v + ' must be deactivated first, and its deactivate ' +
                 hr.why + '; ' + before + ' stays current');
         }
-        tx.deactivated = true;
         if (hr.reboot) addPending(state, c.id, hr.reboot);
     });
     /* A current that is no link (a folder an earlier installer left, e.g.
@@ -2693,9 +2702,16 @@ function recordTool(state, id, version) {
     state.tools[id] = { version: version };
     if (unitInfo().firmware) state.tools[id].firmware = unitInfo().firmware;
 }
+/* Whether tool t was installed under another firmware than the one running
+ * (state.json tools[id].firmware, recordTool, against the unit's build
+ * string). */
+function firmwareMoved(t, state) {
+    var rec = state.tools && state.tools[t.id], fw = unitInfo().firmware;
+    return !!(rec && rec.firmware && fw && rec.firmware !== fw);
+}
 /* Why installed tool t needs laying again, or null. */
 function toolStale(t, state) {
-    var c = t.component, rec = state.tools && state.tools[t.id], fw = unitInfo().firmware;
+    var c = t.component, rec = state.tools && state.tools[t.id];
     var missing = (c.units || []).filter(function (u) { return !lstatOrNull(path.join(CFG.systemd, u.name)); })
         .map(function (u) { return u.name; });
     (c.enable || []).forEach(function (en) {
@@ -2705,7 +2721,7 @@ function toolStale(t, state) {
     });
     (c.dropins || []).forEach(function (d) { if (!lstatOrNull(dropinPath(d))) missing.push(d2s(d)); });
     if (missing.length) return missing.join(', ') + ' missing';
-    return rec && rec.version === t.version && rec.firmware && fw && rec.firmware !== fw ? 'installed under firmware ' + rec.firmware : null;
+    return rec && rec.version === t.version && firmwareMoved(t, state) ? 'installed under firmware ' + rec.firmware : null;
 }
 /* Tool t laid again from its kept copy: the artifact installTool takes, or
  * null without a copy of its installed version. */
@@ -6131,6 +6147,7 @@ function installRun(args, afresh) {
             }
             say(t.id + ' ' + t.version + ': ' + why + '; laid again from the copy kept here');
             kept.repair = why;
+            kept.firmwareMoved = firmwareMoved(t, state);
             validated.push(kept);
         });
         validated = orderArtifacts(validated);

@@ -927,25 +927,34 @@ them (below).
   version current, recorded and its copy kept as an install does, and the
   install fails), then the previous version's `activate` runs again.
 - `deactivate` runs before a removal changes anything, with the tool's units
-  and files in place. A non-zero exit refuses the removal (exit 2) and the
-  tool stays; a removal that fails after it is rolled back. Either way the
-  tool's `activate` runs again. A restart it asks for stays pending under
-  `mgu-deploy` (`<id> removed: <reason>`), since the tool's own entries go
-  with it. A rollback runs the `deactivate` of the version it leaves the
-  same way, before it switches (Rollback, below). `state.json` records
-  the kept versions whose `deactivate` ran last (`deactivated`), which are
-  not deactivated again, and those an install could not deactivate
-  (`deactivate_owed`), which the next install or removal deactivates; a
-  version made current again, or no longer kept, has neither. Each record
-  is on disk (written by rename, file and folder synced) as soon as its
-  hook has run, and a snapshot put back keeps them. An install deactivates
-  a kept version newer than the one it replaces and never deactivated (or
-  one owed) before removing it: one that fails refuses the install (exit
-  2), naming it, and stays kept and owed; a failure after it activates
-  the version it replaces again. Laying the current version again after a
-  firmware update leaves such versions kept, for a later install or the
-  removal. A unit, link or drop-in another installed tool lists is never
-  stopped or taken out.
+  and files in place. It must succeed, doing nothing, when what it reverts
+  is already stock (after a firmware update put the original files back,
+  or when another version's `deactivate` reverted them first): it may run
+  for a version whose changes are gone. A non-zero exit refuses the
+  removal (exit 2) and the tool stays; a removal that fails after it is
+  rolled back. Either way the tool's `activate` runs again. A restart it
+  asks for stays pending under `mgu-deploy` (`<id> removed: <reason>`),
+  since the tool's own entries go with it. A rollback runs the
+  `deactivate` of the version it leaves the same way, before it switches
+  (Rollback, below). `state.json` records the kept versions whose
+  `deactivate` ran last (`deactivated`), which are not deactivated again,
+  and those an install could not deactivate (`deactivate_owed`), which the
+  next install or removal deactivates; a version made current again, or no
+  longer kept, has neither. Each record is on disk (written by rename, file
+  and folder synced) as soon as its hook has run, or, when the disk
+  refuses it then, kept for the command's own save and said in the output;
+  a snapshot put back keeps them. An install deactivates a kept version
+  newer than the one it replaces and never deactivated (or one owed)
+  before removing it: one that fails refuses the install (exit 2), naming
+  it, and stays kept and owed, and the current version's `activate` runs
+  again; a failure after it activates the version it replaces again too.
+  Laying the current version again after a firmware update (the firmware
+  recorded with the tool, `state.json` `tools`, differs from the unit's)
+  leaves such versions kept, for a later install or the removal; laying it
+  again for another reason (a unit missing) runs them first, and one that
+  fails stays kept and owed while the current version is laid again. A
+  unit, link or drop-in another installed tool lists is never stopped or
+  taken out.
 
 **Files removed once unused.** A hook that replaced a binary a process still
 runs keeps the old file linked (an unlinked file a process holds keeps `/`
