@@ -7022,7 +7022,8 @@ function preflightFirmware(name, data) {
     if (!writes.length) return;
     throw refuse('restoring ' + name + ': ' + (recorded ? 'it was taken on firmware ' + (data.firmware || '(unknown)') :
         'it does not record the firmware it was taken on') + ' and this head unit runs ' + (now || '(unknown)') +
-        '; it would write system files of that firmware (' + writes.join(', ') + '). ' +
+        '; it would write system files of that firmware (' + writes.slice(0, 3).join(', ') +
+        (writes.length > 3 ? ' and ' + (writes.length - 3) + ' more' : '') + '). ' +
         'To remove the Store setup, run the installer\'s uninstall');
 }
 function removeAppSources(id) {
