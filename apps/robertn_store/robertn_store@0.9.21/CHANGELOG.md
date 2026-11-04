@@ -4,7 +4,8 @@
 
 Removing an app lists, in its confirm step, the tools only that app uses
 (mgu-updater 0.8.25 names them), with **Remove all**, which removes the app
-and then those tools. **Remove** removes the app alone.
+and then those tools. **Remove** removes the app alone. The list wraps
+over two lines on the drawn screens and four on iDrive 7's widget screens.
 
 ## 0.9.20
 

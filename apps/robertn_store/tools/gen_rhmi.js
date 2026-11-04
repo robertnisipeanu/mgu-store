@@ -211,7 +211,7 @@ const WIDGET_STATES = [
     ]),
     state(9, 'ST_OnlineApps_StoreRemove', 18, 'Remove?', MAIN.id, [
         label(97, 'storeRemoveName'),
-        label(148, 'storeRemoveTools'),
+        text(148, 'storeRemoveTools'),
         button(98, 'storeRemoveCancel', 'Cancel'),
         button(99, 'storeRemoveConfirm', 'Remove'),
         button(149, 'storeRemoveAll', 'Remove all')

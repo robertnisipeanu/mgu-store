@@ -485,7 +485,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1150,
-     "y": 325,
+     "y": 290,
      "w": 1200,
      "h": 70,
      "opts": {
@@ -501,15 +501,16 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1150,
-     "y": 401,
+     "y": 362,
      "w": 1200,
-     "h": 45,
+     "h": 90,
      "opts": {
       "text": "",
       "size": 36,
       "font": "label",
       "align": "left",
-      "color": "dim"
+      "color": "dim",
+      "wrap": true
      }
     },
     {
@@ -517,9 +518,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 1150,
-     "y": 456,
+     "y": 466,
      "w": 1190,
-     "h": 84,
+     "h": 80,
      "opts": {
       "text": "Remove all",
       "vicon": "trash",

@@ -317,7 +317,7 @@
                 <property id="2" value="1"/>
                 <property id="3" value="0"/>
             </component>
-            <component id="148" type="label" widget="LT_Label_1Row">
+            <component id="148" type="label" widget="LT_Label_4Row_1TextDyn">
                 <property id="2" value="1"/>
                 <property id="3" value="0"/>
             </component>

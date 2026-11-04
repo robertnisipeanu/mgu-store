@@ -95,7 +95,7 @@ function screens() {
         ['confirm-remove', { stack: main.concat([{ name: 'app', id: 'gauges' }, { name: 'confirm', kind: 'remove', id: 'gauges' }]),
             focus: 0 }],
         ['confirm-remove-tools', { stack: main.concat([{ name: 'app', id: 'gauges' }, { name: 'confirm', kind: 'remove', id: 'gauges' }]),
-            focus: 0 }, { components: st.components.map((c) => (c.id === 'gauges' ? Object.assign({}, c, { requiredAlone: ['display-bridge', 'mgu-render'] }) : c)) }],
+            focus: 0 }, { components: st.components.map((c) => (c.id === 'gauges' ? Object.assign({}, c, { requiredAlone: ['display-bridge', 'mgu-renderd', 'mgu-uplink', 'mgu-render'] }) : c)) }],
         ['tool-undo', { tab: 'installed', stack: main.concat([{ name: 'app', id: 'mgu-uplink' }]) }],
         ['confirm-undo', { tab: 'installed', stack: main.concat([{ name: 'app', id: 'mgu-uplink' }, { name: 'confirm', kind: 'undo', id: 'mgu-uplink' }]),
             focus: 0 }],
