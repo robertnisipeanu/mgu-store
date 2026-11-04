@@ -13,7 +13,7 @@
  *   bin/python3                          the interpreter, its loader set to
  *                                        the unit's /lib/ld-linux-x86-64.so.2
  *                                        (the unit has no /lib64)
- *   lib/python312.zip                    the standard library's .py files,
+ *   lib/python312.zip                    the standard library's .py and .pyc files,
  *                                        without the GUI, test, packaging and
  *                                        IDE parts (Python imports from it)
  *   lib/python3.12/lib-dynload/.empty    the folder Python looks for its
@@ -26,8 +26,8 @@
  *                                        python/licenses/ the install_only one
  *                                        lacks) and of certifi
  * The downloads are kept in build/download/ and reused while their sha256
- * matches. Node 10 or newer, the system's tar (with zstd); no other
- * dependency.
+ * matches. Node 10 or newer, the system's tar (with zstd) and a Python 3.12
+ * (PY312, uv or PATH) to precompile the .pyc.
  */
 const fs = require('fs');
 const path = require('path');
@@ -240,6 +240,19 @@ function stdlibFiles(dir) {
     return out;
 }
 
+/* A Python 3.12 on the build machine for compileall: $PY312, else uv's, else python3.12 on PATH. */
+function hostPython() {
+    const cands = [process.env.PY312];
+    try { cands.push(cp.execFileSync('uv', ['python', 'find', '3.12'], { encoding: 'utf8' }).trim()); } catch (e) { /* no uv */ }
+    cands.push('python3.12');
+    for (const c of cands.filter(Boolean)) {
+        try {
+            if (cp.execFileSync(c, ['-c', 'import sys; print(sys.version_info[:2] == (3, 12))'], { encoding: 'utf8' }).trim() === 'True') return c;
+        } catch (e) { /* next */ }
+    }
+    throw new Error('a host Python 3.12 is needed to precompile the standard library (set PY312)');
+}
+
 function main() {
     return Promise.all([download(NAME, SHA256), download(FULL, FULL_SHA256)]).then(([tgz, full]) => {
         const stage = path.join(BUILD, 'stage');
@@ -257,8 +270,19 @@ function main() {
         mkdirp(path.join(OUT, 'bin'));
         fs.writeFileSync(path.join(OUT, 'bin', 'python3'), setLoader(fs.readFileSync(path.join(py, 'bin', STDLIB)), LOADER), { mode: 0o755 });
         const files = stdlibFiles(lib);
+        // .pyc beside each .py (legacy layout, the one zipimport reads; unchecked hash: no mtime to match), so
+        // the unit doesn't compile ~250 stdlib modules at every start (~4 s on its Atom). Needs a host 3.12.
+        const host = hostPython();
+        cp.execFileSync(host, ['-I', '-m', 'compileall', '-q', '-b', '--invalidation-mode', 'unchecked-hash', '-d', '',
+            ...files.map((f) => path.join(lib, f))], { stdio: ['ignore', 'ignore', 'inherit'] });
+        const entries = [];
+        files.forEach((name) => {
+            entries.push({ name, data: fs.readFileSync(path.join(lib, name)) });
+            const pyc = path.join(lib, name + 'c');
+            if (fs.existsSync(pyc)) entries.push({ name: name + 'c', data: fs.readFileSync(pyc) });
+        });
         mkdirp(path.join(OUT, 'lib'));
-        fs.writeFileSync(path.join(OUT, 'lib', ZIP), zip(files.map((name) => ({ name, data: fs.readFileSync(path.join(lib, name)) }))));
+        fs.writeFileSync(path.join(OUT, 'lib', ZIP), zip(entries));
         mkdirp(path.join(OUT, 'lib', STDLIB, 'lib-dynload'));
         fs.writeFileSync(path.join(OUT, 'lib', STDLIB, 'lib-dynload', '.empty'), '');
         const certifi = `lib/${STDLIB}/site-packages/pip/_vendor/certifi`;

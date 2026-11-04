@@ -1,7 +1,7 @@
 {
   "id": "mgu-python",
   "kind": "tool",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "title": "Python",
   "description": "Python 3.12 for apps that build on the head unit with Python",
   "mguHmi": ["ID7", "ID8"],
