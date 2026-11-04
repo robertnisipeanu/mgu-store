@@ -2874,7 +2874,7 @@ function testHooks() {
     check('hooks: a rollback whose activate fails returns to the current version and activates it again, exit 1',
         r.status === 1 && current() === 'versions/1.0.4' &&
         JSON.stringify(hooks().slice(n).map((l) => l.split(' ').slice(0, 2).join(' '))) ===
-            JSON.stringify(['deactivate 1.0.4', 'activate 1.0.1', 'activate 1.0.4']), `${r.out}\n${hooks().slice(n).join('\n')}`);
+            JSON.stringify(['deactivate 1.0.4', 'activate 1.0.1', 'deactivate 1.0.1', 'activate 1.0.4']), `${r.out}\n${hooks().slice(n).join('\n')}`);
 
     // a check that fails after the new version's activate ran
     const checked = (v) => hookArtifact(v, (c) => { c.check = ['hook.js', 'check']; });
@@ -3022,7 +3022,12 @@ function testRollbackRemoves() {
     check('rollback removal: an activate that fails after the removal puts 1.1.0 back whole, starts what was stopped and activates it again, exit 1',
         r.status === 1 && t.current() === 'versions/1.1.0' && t.pieces().length === 4 && t.recmgr() === recBefore && t.crash() === crashBefore &&
         t.root.systemctlCalls().slice(before).includes(`start ${extra}`) &&
-        JSON.stringify(t.short().slice(-3)) === JSON.stringify(['deactivate 1.1.0', 'activate 1.0.0', 'activate 1.1.0']),
+        JSON.stringify(t.short().slice(-4)) === JSON.stringify(['deactivate 1.1.0', 'activate 1.0.0', 'deactivate 1.0.0', 'activate 1.1.0']),
+        `${r.out}\n${t.hooks().join('\n')}`);
+    r = t.root.run(['rollback', 'fixture-tool', '--yes'], { FAKE_HOOK_LOG: t.log, FAKE_HOOK_FAIL: 'activate@1.0.0,deactivate@1.0.0' });
+    check('rollback removal: when the activate and then the deactivate of the version gone to fail, it stays current, exit 1',
+        r.status === 1 && t.current() === 'versions/1.0.0' && r.out.includes('fixture-tool 1.0.0 stays current: deactivate exited 3') &&
+        JSON.stringify(t.short().slice(-3)) === JSON.stringify(['deactivate 1.1.0', 'activate 1.0.0', 'deactivate 1.0.0']),
         `${r.out}\n${t.hooks().join('\n')}`);
 
     // a rollback that left 1.1.0's pieces in place (as an earlier deploy tool's did): the uninstall takes them out
@@ -3069,6 +3074,18 @@ function testRollbackRemoves() {
         r.status === 0 && t.current() === 'versions/1.2.0' && t.pieces().length === 0 && t.kept() && t.crash() === CRASH_LIST &&
         !fs.existsSync(t.root.p('etc/systemd/system/hmi.service.d')), `${r.out}\n${t.pieces().join()}`);
 
+    // a unit another installed tool lists stays when the version that listed it goes
+    t = setup(withDeactivate);
+    r = t.root.run(['install', '--artifact', namedTool('other-tool', '1.0.0', (c) => {
+        c.units = [{ name: extra, from: 'systemd/fixture-tool.service' }];
+    }), '--yes'], { FAKE_HOOK_LOG: t.log });
+    before = t.root.systemctlCalls().length;
+    r = t.root.run(['install', '--artifact', plain, '--yes'], { FAKE_HOOK_LOG: t.log });
+    check('version change: a unit another installed tool lists is neither stopped nor taken out',
+        r.status === 0 && fs.existsSync(t.root.p(`etc/systemd/system/${extra}`)) && fs.existsSync(t.root.p(`etc/systemd/system/${extra}.d/zz-mgu-deploy-limits.conf`)) &&
+        !t.root.systemctlCalls().slice(before).includes(`stop ${extra}`) && !fs.existsSync(t.root.p(`etc/systemd/system/multi-user.target.wants/${extra}`)),
+        `${r.out}\n${t.pieces().join()}`);
+
     t = setup(withDeactivate);
     before = t.root.systemctlCalls().length;
     r = t.root.run(['install', '--artifact', older, '--yes'], { FAKE_HOOK_LOG: t.log });
@@ -3105,12 +3122,16 @@ function testRollbackRemoves() {
 
 /* A tool whose 1.1.0 patches files 1.0.0 knows nothing of (as the Android
  * Auto patch): its activate writes them, its deactivate puts them back; a
- * hook named in $FAKE_PATCH_FAIL (<command>@<version>) exits 3. */
-function patchArtifact(version) {
+ * hook named in $FAKE_PATCH_FAIL (<command>@<version>) exits 3. edit
+ * changes its component.json. */
+function patchArtifact(version, edit) {
     const dir = fixtureCopy(version, (c) => {
         c.files.push({ path: 'patch.js', from: 'patch.js', mode: '0644' });
         c.activate = ['node', 'patch.js', 'activate'];
         c.deactivate = ['node', 'patch.js', 'deactivate'];
+        if (edit) {
+            edit(c);
+        }
     });
     fs.writeFileSync(path.join(dir, 'patch.js'), [
         "const fs = require('fs');",
@@ -3150,6 +3171,87 @@ function testUninstallAfterOldRollback() {
     check('old rollback: the uninstall leaves the patched files stock',
         r.status === 0 && !fs.existsSync(root.tool('fixture-tool')) && fs.readFileSync(files.FAKE_AAPD, 'utf8') === 'stock aapd\n' &&
         fs.readFileSync(files.FAKE_AAPD_CONF, 'utf8') === 'stock conf\n', r.out);
+
+    const stock = () => fs.readFileSync(files.FAKE_AAPD, 'utf8') === 'stock aapd\n' && fs.readFileSync(files.FAKE_AAPD_CONF, 'utf8') === 'stock conf\n';
+    const oldStyle = () => {
+        const rr = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+        const ff = { FAKE_AAPD: rr.p('usr/bin/aapd'), FAKE_AAPD_CONF: rr.p('etc/aapd.conf') };
+        write(ff.FAKE_AAPD, 'stock aapd\n');
+        write(ff.FAKE_AAPD_CONF, 'stock conf\n');
+        rr.run(['install', '--artifact', patchArtifact('1.0.0'), '--yes'], ff);
+        rr.run(['install', '--artifact', patchArtifact('1.1.0'), '--yes'], ff);
+        const c = path.join(rr.tool('fixture-tool'), 'current');
+        fs.unlinkSync(c);
+        fs.symlinkSync('versions/1.0.0', c);
+        Object.assign(files, ff);
+        return rr;
+    };
+
+    // an update after it: the newer version kept runs its deactivate before it goes
+    let rr = oldStyle();
+    r = rr.run(['install', '--artifact', patchArtifact('1.2.0'), '--yes'], files);
+    check('old rollback: an update runs the deactivate of the newer version kept before it goes; the files are stock',
+        r.status === 0 && stock() && !fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')), r.out);
+    rr = oldStyle();
+    r = rr.run(['install', '--artifact', patchArtifact('1.2.0'), '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
+    check('old rollback: one whose deactivate fails stays kept, said, and the update goes on',
+        r.status === 0 && fs.readlinkSync(path.join(rr.tool('fixture-tool'), 'current')) === 'versions/1.2.0' &&
+        fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')) &&
+        r.out.includes('warning: fixture-tool 1.1.0: deactivate exited 3; versions/1.1.0 stays, for the next install or removal of fixture-tool') &&
+        JSON.stringify(readJson(rr.p('var/opt/mgu-deploy/state.json')).deactivate_owed) === '{"fixture-tool":["1.1.0"]}', r.out);
+    r = rr.run(['uninstall', 'fixture-tool', '--yes'], files);
+    check('old rollback: and the removal runs it again; the files are stock', r.status === 0 && stock() && !fs.existsSync(rr.tool('fixture-tool')), r.out);
+
+    // an uninstall that fails after the newer version's deactivate ran keeps that recorded: the next one does not run it again
+    rr = oldStyle();
+    r = rr.run(['uninstall', 'fixture-tool', '--yes'], Object.assign({ FAKE_FAIL: 'stop fixture-tool.service' }, files));
+    check('old rollback: a removal failing after the deactivates keeps them recorded', r.status === 1 && stock() &&
+        fs.existsSync(rr.tool('fixture-tool')) &&
+        JSON.stringify(readJson(rr.p('var/opt/mgu-deploy/state.json')).deactivated) === '{"fixture-tool":["1.1.0"]}', r.out);
+    r = rr.run(['uninstall', 'fixture-tool', '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
+    check('old rollback: so the next removal does not run that deactivate again', r.status === 0 && !fs.existsSync(rr.tool('fixture-tool')), r.out);
+
+    // an update whose due deactivate ran, then failed: the version it replaces is activated again
+    rr = oldStyle();
+    const hookLog = `${rr.R}.hooks.log`;
+    r = rr.run(['install', '--artifact', hookArtifact('1.2.0', (c) => { delete c.activate; c.check = ['hook.js', 'check']; }), '--yes'],
+        Object.assign({ FAKE_HOOK_LOG: hookLog, FAKE_HOOK_FAIL: 'check@1.2.0' }, files));
+    check('old rollback: an update that fails after the due deactivate ran activates the version it replaces again',
+        r.status === 1 && fs.readlinkSync(path.join(rr.tool('fixture-tool'), 'current')) === 'versions/1.0.0' &&
+        r.out.includes('fixture-tool 1.0.0 activated again'), r.out);
+    rr = oldStyle();
+    const changed = patchArtifact('1.0.0', (c) => { c.units.push({ name: 'fixture-tool-extra.service', from: 'systemd/fixture-tool.service' }); });
+    r = rr.run(['install', '--artifact', changed, '--yes'], Object.assign({ FAKE_FAIL: 'restart fixture-tool.service' }, files));
+    check('old rollback: so does a reinstall of the current version that fails after it',
+        r.status === 1 && r.out.includes('fixture-tool 1.0.0 activated again'), r.out);
+
+    // a rollback by this tool: the version it left ran its deactivate, and the uninstall does not run it again
+    rr = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+    files.FAKE_AAPD = rr.p('usr/bin/aapd');
+    files.FAKE_AAPD_CONF = rr.p('etc/aapd.conf');
+    write(files.FAKE_AAPD, 'stock aapd\n');
+    write(files.FAKE_AAPD_CONF, 'stock conf\n');
+    rr.run(['install', '--artifact', patchArtifact('1.0.0'), '--yes'], files);
+    rr.run(['install', '--artifact', patchArtifact('1.1.0'), '--yes'], files);
+    r = rr.run(['rollback', 'fixture-tool', '--yes'], files);
+    check('rollback: the version it leaves is recorded as deactivated', r.status === 0 && stock() &&
+        JSON.stringify(readJson(rr.p('var/opt/mgu-deploy/state.json')).deactivated) === '{"fixture-tool":["1.1.0"]}', r.out);
+    r = rr.run(['uninstall', 'fixture-tool', '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
+    check('rollback: the uninstall after it does not run that deactivate again, and the record goes with the tool',
+        r.status === 0 && !fs.existsSync(rr.tool('fixture-tool')) && readJson(rr.p('var/opt/mgu-deploy/state.json')).deactivated['fixture-tool'] === undefined,
+        r.out);
+
+    // a version made current again loses its record, whether or not it has an activate
+    rr = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+    const noActivate = (v) => hookArtifact(v, (c) => { delete c.activate; });
+    rr.run(['install', '--artifact', noActivate('1.0.0'), '--yes'], { FAKE_HOOK_LOG: `${rr.R}.hooks.log` });
+    rr.run(['install', '--artifact', noActivate('1.1.0'), '--yes'], { FAKE_HOOK_LOG: `${rr.R}.hooks.log` });
+    rr.run(['rollback', 'fixture-tool', '--yes'], { FAKE_HOOK_LOG: `${rr.R}.hooks.log` });
+    const marked = () => (readJson(rr.p('var/opt/mgu-deploy/state.json')).deactivated || {})['fixture-tool'];
+    const wasMarked = JSON.stringify(marked());
+    r = rr.run(['install', '--artifact', noActivate('1.1.0'), '--yes'], { FAKE_HOOK_LOG: `${rr.R}.hooks.log` });
+    check('rollback: a version installed again loses its deactivated record, with no activate to clear it',
+        wasMarked === '["1.1.0"]' && r.status === 0 && marked() === undefined, `${wasMarked} ${JSON.stringify(marked())}\n${r.out}`);
 }
 
 /* A hook's "removeWhenUnused": a file no process runs goes at once; one a

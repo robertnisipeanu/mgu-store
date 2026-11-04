@@ -2289,7 +2289,37 @@ function runHook(id, dir, c, which, state) {
     if (result && result.reboot !== undefined && !reboot) warn(prefix + '"reboot" is not a reason; ignored');
     if (reboot) say(prefix + 'a head-unit restart is pending: ' + reboot);
     if (result && result.removeWhenUnused !== undefined) handOver(id, result.removeWhenUnused, state);
+    noteHook(state, id, c.version, which);
     return { ok: true, reboot: reboot };
+}
+/* Per tool, in state.json: the kept versions whose last hook to run was
+ * their deactivate ("deactivated": { <id>: [<version>...] }), which are not
+ * deactivated again, and those whose deactivate failed when an install
+ * would have removed them ("deactivate_owed"), kept for the tool's next
+ * install or removal to run it again; a version made current has neither.
+ * which: the hook that ran, "owed", or "gone" for a version no longer kept
+ * or made current. */
+function noteHook(state, id, version, which) {
+    ['deactivated', 'deactivate_owed'].forEach(function (key) {
+        var all = state[key] && typeof state[key] === 'object' ? state[key] : (state[key] = {});
+        var list = (Array.isArray(all[id]) ? all[id] : []).filter(function (v) { return v !== version; });
+        if (which === (key === 'deactivated' ? 'deactivate' : 'owed')) list.push(version);
+        if (list.length) all[id] = list;
+        else delete all[id];
+    });
+}
+function noted(state, key, id, version) {
+    return !!(state[key] && Array.isArray(state[key][id]) && state[key][id].indexOf(version) >= 0);
+}
+/* The kept versions of tool id besides current whose deactivate is still to
+ * run, oldest first: one newer than current never deactivated (an earlier
+ * deploy tool's rollback left it), or one it is owed. */
+function deactivateDue(state, id, root, current) {
+    var all = [];
+    try { all = fs.readdirSync(path.join(root, 'versions')).filter(semverParts); } catch (e) { /* none kept */ }
+    return all.filter(function (v) {
+        return v !== current && (noted(state, 'deactivate_owed', id, v) || semverCmp(v, current) > 0 && !noted(state, 'deactivated', id, v));
+    }).sort(semverCmp);
 }
 
 /* ---- files removed once unused ---------------------------------------------- */
@@ -2386,6 +2416,24 @@ function installTool(a, state, tx) {
         if (!dr.ok) throw refuse(c.id + ' ' + before + ': deactivate ' + dr.why + '; ' + before + ' stays current');
         if (dr.reboot) addPending(state, c.id, dr.reboot);
     }
+    /* a kept version whose deactivate is due (deactivateDue) runs it before
+     * the version goes, as at its removal; one that fails stays kept and
+     * owed, for the tool's next install or removal, and the install goes on.
+     * A failed install activates the version it replaces again. */
+    tx.keep = [];
+    (before ? deactivateDue(state, c.id, root, before) : []).filter(function (v) { return v !== c.version; }).forEach(function (v) {
+        var vc = readJsonOrNull(path.join(versions, v, 'component.json'));
+        if (!vc || vc.id !== c.id || !vc.deactivate) return;
+        var hr = runHook(c.id, path.join(versions, v), vc, 'deactivate', state);
+        if (!hr.ok) {
+            tx.keep.push(v);
+            noteHook(state, c.id, v, 'owed');
+            warn(c.id + ' ' + v + ': deactivate ' + hr.why + '; versions/' + v + ' stays, for the next install or removal of ' + c.id);
+        } else {
+            tx.deactivated = true;
+            if (hr.reboot) addPending(state, c.id, hr.reboot);
+        }
+    });
     /* A current that is no link (a folder an earlier installer left, e.g.
      * app-privacy 1.5.0's) cannot be replaced by rename: it goes aside, and
      * a rollback puts it back. It goes once the install is through. */
@@ -2540,10 +2588,11 @@ function installTool(a, state, tx) {
         }
     }
     fs.readdirSync(versions).forEach(function (v) {
-        if (v !== c.version && v !== before) rmrf(path.join(versions, v));
+        if (v !== c.version && v !== before && tx.keep.indexOf(v) < 0) { rmrf(path.join(versions, v)); noteHook(state, c.id, v, 'gone'); }
     });
     keepToolCopy(a);
     recordTool(state, c.id, c.version);
+    noteHook(state, c.id, c.version, 'gone');
     say(c.id + ' ' + c.version + ' installed');
 }
 
@@ -2840,7 +2889,10 @@ function rollbackTool(a, tx, backup, e, state) {
         e.activate.forEach(function (u) { if (again.indexOf(u) < 0) { systemctl(['stop', u]); say('stopped ' + u); } });
         restartAgain(again, was || c.id);
     }
-    if (tx.activated || tx.deactivated) reactivate(c.id, tx.before && tx.before !== c.version ? path.join(tx.root, 'versions', tx.before) : null, state);
+    /* the version it replaces again; the same version again only when its activate did not run */
+    if (tx.activated || tx.deactivated) {
+        reactivate(c.id, tx.before && (tx.before !== c.version || !tx.activated) ? path.join(tx.root, 'versions', tx.before) : null, state);
+    }
 }
 /* Runs the activate of the version in dir again, after a change that ran
  * another version's activate or the tool's deactivate did not go through. */
@@ -3848,23 +3900,32 @@ function declaredOnly(c, keep) {
         enable: none('enable', function (x, y) { return x.unit === y.unit && x.target === y.target; }),
         dropins: none('dropins', function (x, y) { return x.unit === y.unit && x.name === y.name; }) };
 }
+/* The unit, enablement link and drop-in paths the installed tools other
+ * than id list: never stopped or taken out for id. */
+function listedElsewhere(id) {
+    var out = {};
+    installedTools().forEach(function (t) { if (t.id !== id) toolTouched(t.component).forEach(function (p) { out[p] = true; }); });
+    return out;
+}
 /* Stops c's running units recmgr has loaded, before they are taken out;
  * any other keeps running until a reboot (pending). Returns those stopped. */
 function stopUnits(c, state) {
-    var stopped = [];
+    var stopped = [], others = listedElsewhere(c.id);
     (c.units || []).forEach(function (u) {
-        if (unitState(u.name, 'is-active') !== 'active') return;
+        if (others[path.join(CFG.systemd, u.name)] || unitState(u.name, 'is-active') !== 'active') return;
         if (recmgrLoaded(recmgrBase(u.name))) { runOk(CFG.systemctl, ['stop', u.name]); say('stopped ' + u.name); stopped.push(u.name); }
         else { addPending(state, c.id, PENDING_RECMGR); warn(u.name + ' left running until a reboot'); }
     });
     return stopped;
 }
-/* The rootfs ops that take out c's units, enablement links and drop-ins on disk. */
+/* The rootfs ops that take out c's units, enablement links and drop-ins
+ * on disk that no other installed tool lists. */
 function deleteOps(c) {
+    var others = listedElsewhere(c.id);
     return (c.units || []).map(function (u) { return path.join(CFG.systemd, u.name); })
         .concat((c.enable || []).map(function (en) { return path.join(CFG.systemd, en.target + '.wants', en.unit); }))
         .concat((c.dropins || []).map(dropinPath))
-        .filter(lstatOrNull).map(function (p) { return { type: 'delete', path: p }; });
+        .filter(function (p) { return !others[p] && lstatOrNull(p); }).map(function (p) { return { type: 'delete', path: p }; });
 }
 /* The recmgr names in c that no tool in rest has. */
 function recmgrNamesGone(c, rest) {
@@ -3899,15 +3960,10 @@ function uninstallTool(id, state) {
     /* the stock bundles go back first; a failed revert keeps the tool */
     if (id === 'app-privacy' && privacyRevert()) privacyReverted();
     /* the tool's deactivate runs with all of it still in place, then that of
-     * each newer version kept (one a rollback left), which reverts what only
-     * it set up; a failed one keeps the tool. A restart one asks for is
+     * each kept version whose deactivate is due (deactivateDue), which
+     * reverts what only it set up; a failed one keeps the tool. A restart one asks for is
      * pending under the deploy tool, since the tool's own entries go with it. */
-    var newer = [];
-    try {
-        newer = fs.readdirSync(path.join(root, 'versions')).filter(function (v) { return semverParts(v) && semverCmp(v, c.version) > 0; })
-            .sort(semverCmp);
-    } catch (e) { /* no versions folder */ }
-    [currentTarget(root)].concat(newer).forEach(function (v, i) {
+    [currentTarget(root)].concat(deactivateDue(state, id, root, c.version)).forEach(function (v, i) {
         var vc = i ? readJsonOrNull(path.join(root, 'versions', v, 'component.json')) : c;
         if (!vc || vc.id !== id || !vc.deactivate) return;
         var dir = path.join(root, 'versions', v);
@@ -6307,6 +6363,8 @@ function cmdUninstall(args) {
         if (isTool) { uninstallTool(id, state); dropVerify(id); } else uninstallApp(id, state);
         if (!args.keepPackages) rmrf(keptDir(id));
         if (isTool && state.tools) delete state.tools[id];
+        if (isTool && state.deactivated) delete state.deactivated[id];
+        if (isTool && state.deactivate_owed) delete state.deactivate_owed[id];
         syncDropIns();
         state.pending_reboot = state.pending_reboot.filter(function (p) { return p.id !== id; });
         saveState(state); selfInstall();
@@ -6315,13 +6373,14 @@ function cmdUninstall(args) {
             process.stderr.write('uninstall failed, rolling back from ' + backup + '\n');
             try { restoreSnapshot(backup); settleFallback(); } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
         }
-        if (deactivated) {
-            try {
-                var back = loadState();
-                reactivate(id, deactivated, back);
-                saveState(back);
-            } catch (e3) { process.stderr.write(id + ': activating it again failed: ' + e3.message + '\n'); }
-        }
+        /* the deactivates that ran stay recorded, so none runs twice */
+        try {
+            var back = loadState();
+            back.deactivated = state.deactivated;
+            back.deactivate_owed = state.deactivate_owed;
+            if (deactivated) reactivate(id, deactivated, back);
+            saveState(back);
+        } catch (e3) { process.stderr.write(id + ': activating it again failed: ' + e3.message + '\n'); }
         throw e;
     }
     return 0;
@@ -6407,8 +6466,18 @@ function cmdRollback(args) {
             if (!hr.ok) { step = 'activate'; throw fail(id + ' ' + target + ': activate ' + hr.why); }
             if (hr.reboot) addPending(state, id, hr.reboot);
         }
+        noteHook(state, id, target, 'gone');
     } catch (e) {
-        if (switched) {
+        /* a failed activate: the version gone to runs its deactivate before
+         * anything goes back, as after a failed install; a failed one keeps
+         * it current */
+        var stays = false;
+        if (step === 'activate' && tc.deactivate) {
+            var td = runHook(id, path.join(root, 'versions', target), tc, 'deactivate', state);
+            if (!td.ok) { stays = true; say(id + ' ' + target + ' stays current: deactivate ' + td.why); }
+            else if (td.reboot) addPending(state, id, td.reboot);
+        }
+        if (switched && !stays) {
             try {
                 restoreSnapshot(backup);
                 runOk(CFG.systemctl, ['daemon-reload']);
@@ -6418,14 +6487,14 @@ function cmdRollback(args) {
                 say(cur + ' is current again');
             } catch (e2) { process.stderr.write('putting ' + cur + ' back failed: ' + e2.message + '\n'); }
         }
-        if (step === 'restart' || step === 'activate') {
+        if (!stays && (step === 'restart' || step === 'activate')) {
             restartAgain(touched.filter(function (u) { return started.indexOf(u) < 0; }), id + ' ' + cur);
         }
         if (step === 'privacy') {
             var again = privacyApplyAndBounce(state);
             if (!again.ok) say('app-privacy ' + cur + ' apply failed too: ' + again.why);
         }
-        if (deactivated || step === 'activate') reactivate(id, path.join(root, 'versions', cur), state);
+        if (!stays && (deactivated || step === 'activate')) reactivate(id, path.join(root, 'versions', cur), state);
         throw e;
     } finally { saveState(state); }
     /* pieces of its own no copy kept here could lay again */

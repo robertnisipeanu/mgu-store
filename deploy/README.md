@@ -932,7 +932,17 @@ them (below).
   tool's `activate` runs again. A restart it asks for stays pending under
   `mgu-deploy` (`<id> removed: <reason>`), since the tool's own entries go
   with it. A rollback runs the `deactivate` of the version it leaves the
-  same way, before it switches (Rollback, below).
+  same way, before it switches (Rollback, below). `state.json` records
+  the kept versions whose `deactivate` ran last (`deactivated`; an
+  `activate` clears it), which are not deactivated again, and those an
+  install could not deactivate (`deactivate_owed`), which the next install
+  or removal deactivates; a version made current again has neither, and a
+  removal that fails keeps them. An install deactivates a kept version
+  newer than the one it replaces and never deactivated before removing it;
+  one that fails stays kept and owed (with two versions kept, `rollback`
+  needs `--to`), and the install goes on; a failure after it activates the
+  version it replaces again. A unit, link or
+  drop-in another installed tool lists is never stopped or taken out.
 
 **Files removed once unused.** A hook that replaced a binary a process still
 runs keeps the old file linked (an unlinked file a process holds keeps `/`
@@ -953,8 +963,10 @@ failed install or removal puts them back with the recmgr list.
 `uninstall <id>` stops the tool's running units (when recmgr has loaded
 them), removes its units, links, drop-ins and the recmgr names no other tool
 lists, those of every version kept under `versions/` as well as the current one's
-(after the current version's `deactivate`, that of each newer version kept,
-oldest first: one an earlier rollback left reverts what only it set up; a
+(after the current version's `deactivate`, that of each kept version whose
+`deactivate` is due, oldest first: one newer than the current version and
+never deactivated, which an earlier deploy tool's rollback left and which
+reverts what only it set up, or one an install could not deactivate; a
 refusal by any of them refuses the removal),
 and the whole `/var/opt/<id>`: besides `versions/` and `current`, a tool's
 own config there goes too, named in the output (the updater's
@@ -976,8 +988,9 @@ recmgr has loaded them), enablement links, drop-ins and their limits, its
 recmgr names no installed tool has and the crash handler's names no
 installed tool wants, units before list entries. Then it restarts that
 version's `restart` units under the same recmgr rules and health check, and
-runs its `activate`. A failed check, apply or `activate` puts the snapshot
-back (`current`, the units and lists), starts again the units it stopped,
+runs its `activate` (a failed one runs that version's `deactivate` first;
+one that fails too keeps it current). A failed check, apply or `activate`
+puts the snapshot back (`current`, the units and lists), starts again the units it stopped,
 restarts again, runs the left version's `activate` again and exits 1. When
 recmgr has not loaded the entry the switch still happens and the tool is
 reported pending. Units both versions list are not rolled back: they run
