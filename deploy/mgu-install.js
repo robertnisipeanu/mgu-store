@@ -1027,11 +1027,11 @@ const DEPLOY_HAS = `if [ ! -e ${DEPLOY} ]; then echo absent; elif sh ${DEPLOY} h
  * published deploy tool's files) sent like first-install's and removed
  * after. The steps' lines show on stderr; stdout is returned. */
 function removeAllRun(o, kit, args) {
-    // the listing's own stderr stays out of sight: a deploy tool without remove-all answers with its whole usage
-    const quiet = args === '--json' ? ' 2>/dev/null' : '';
     if (!kit) {
-        return ssh(o, `sh ${DEPLOY} remove-all ${args}${quiet}`, { input: Buffer.alloc(0), capture: true });
+        return ssh(o, `sh ${DEPLOY} remove-all ${args}`, { input: Buffer.alloc(0), capture: true });
     }
+    // a published deploy tool without remove-all answers the listing with its whole usage
+    const quiet = args === '--json' ? ' 2>/dev/null' : '';
     const q = shQuote(`/var/opt/mgu-deploy-kit-${process.pid}`);
     return ssh(o, `rm -rf ${q} && umask 077 && mkdir -p ${q} && tar -xzf - -C ${q} && ` +
         `{ sh ${q}/mgu-deploy.sh remove-all ${args}${quiet}; st=$?; rm -rf ${q}; exit $st; }`,
