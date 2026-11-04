@@ -4469,8 +4469,9 @@ function testProxyLease() {
     const tunnel = (target) => new Promise((resolve) => {
         const t0 = Date.now();
         const req = require('http').request({ host: '127.0.0.1', port, method: 'CONNECT', path: target, headers: auth });
-        req.on('connect', (res, socket) => {
-            let body = '';
+        req.on('connect', (res, socket, head) => {
+            // what came with the proxy's answer is the tunnel's first bytes
+            let body = String(head);
             socket.on('data', (d) => { body += d; });
             socket.on('error', () => {});
             socket.on('close', () => resolve({ code: res.statusCode, text: res.statusMessage, body, ms: Date.now() - t0 }));
