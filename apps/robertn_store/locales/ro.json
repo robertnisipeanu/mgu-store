@@ -176,6 +176,8 @@
     "{0} networks": "Rețele: {0}",
     "Space": "Spațiu",
     "Delete": "Șterge",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Eliminați tot",
+    "Tools only it uses: {0}": "Instrumente folosite doar de ea: {0}"
   }
 }

@@ -176,6 +176,8 @@
     "{0} networks": "{0} nätverk",
     "Space": "Mellanslag",
     "Delete": "Radera",
-    "Shift": "Skift"
+    "Shift": "Skift",
+    "Remove all": "Ta bort alla",
+    "Tools only it uses: {0}": "Verktyg som bara den använder: {0}"
   }
 }

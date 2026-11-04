@@ -286,6 +286,17 @@ Object.keys(UNITS).forEach((unit) => {
 f = screen('confirm-remove');
 eq(f.labels, ['Cancel', 'Remove']);
 eq(text(f, 'title'), 'Remove Gauges 1.2.0?');
+// an app with tools only it requires: they are listed, and Remove all takes the installed ones along
+f = screen('confirm-remove-tools');
+eq(f.labels, ['Cancel', 'Remove', 'Remove all']);
+eq(text(f, 'text'), 'Tools only it uses: Display bridge 0.2.3, GPU renderer 1.1.0, Network driver 0.4.0');
+eq([f.items[1].act, f.items[2].act], [{ do: 'remove', id: 'gauges' }, { do: 'remove', id: 'gauges', tools: ['display-bridge', 'mgu-renderd', 'mgu-uplink'] }]);
+[['iDrive 7', ID7.layout], ['iDrive 8', SCREENS]].forEach(([unit, lay]) => {
+    const cs = lay.screens.find((x) => x.name === 'confirm').components;
+    const line = cs.find((c) => c.name === 'text');
+    const also = cs.find((c) => c.name === 'also');
+    ok(line.opts.wrap && line.h >= 2 * line.opts.size * 1.25 && also.y >= line.y + line.h, `${unit}: the confirm step's line wraps over two lines above Remove all`);
+});
 eq(screen('confirm-restart').items[1].act, { do: 'restart' });
 f = screen('confirm-account');
 eq(f.items[1].act, { do: 'account-remove', id: '3f9a01c2' });

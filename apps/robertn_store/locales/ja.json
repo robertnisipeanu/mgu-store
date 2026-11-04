@@ -176,6 +176,8 @@
     "{0} networks": "{0} 個のネットワーク",
     "Space": "スペース",
     "Delete": "削除",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "すべて削除",
+    "Tools only it uses: {0}": "このアプリだけが使うツール：{0}"
   }
 }

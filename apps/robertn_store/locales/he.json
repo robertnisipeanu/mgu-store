@@ -176,6 +176,8 @@
     "{0} networks": "{0} רשתות",
     "Space": "רווח",
     "Delete": "מחיקה",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "הסרת הכול",
+    "Tools only it uses: {0}": "כלים שרק היא משתמשת בהם: {0}"
   }
 }

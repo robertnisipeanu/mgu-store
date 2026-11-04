@@ -150,6 +150,12 @@ function removable(row, busy) {
         row.nextStart !== 'remove' && !row.queued && !(busy && busy.id === row.id);
 }
 
+/* The installed tools only this app requires (the updater's
+ * requiredAlone), which its removal may take along. */
+function requiredAlone(rows, row) {
+    return (Array.isArray(row.requiredAlone) ? row.requiredAlone : []).map((id) => rows.find((r) => r.id === id)).filter((r) => r && r.installed);
+}
+
 /* Whether the component can go back to its version before now (after a
  * confirm step): the updater offers it (previous), and nothing is running,
  * queued or waiting for a restart for it. */
@@ -417,6 +423,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

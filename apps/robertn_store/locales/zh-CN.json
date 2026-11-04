@@ -107,6 +107,8 @@
     "Undo update": "撤销更新",
     "Back to {0} {1}?": "恢复到 {0} {1}？",
     "Remove?": "移除？",
+    "Remove all": "全部移除",
+    "Tools only it uses: {0}": "仅它使用的工具：{0}",
     "Removing": "移除中",
     "Renderer {0}": "渲染器 {0}",
     "Restart": "重启",

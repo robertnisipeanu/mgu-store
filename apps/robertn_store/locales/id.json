@@ -176,6 +176,8 @@
     "{0} networks": "{0} jaringan",
     "Space": "Spasi",
     "Delete": "Hapus",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Hapus semua",
+    "Tools only it uses: {0}": "Alat yang hanya dipakai aplikasi ini: {0}"
   }
 }

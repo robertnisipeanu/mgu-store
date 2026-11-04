@@ -176,6 +176,8 @@
     "{0} networks": "{0} ağ",
     "Space": "Boşluk",
     "Delete": "Sil",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Tümünü kaldır",
+    "Tools only it uses: {0}": "Yalnızca onun kullandığı araçlar: {0}"
   }
 }

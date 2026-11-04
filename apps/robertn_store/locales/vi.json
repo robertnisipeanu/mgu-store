@@ -176,6 +176,8 @@
     "{0} networks": "{0} mạng",
     "Space": "Dấu cách",
     "Delete": "Xóa",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Xóa tất cả",
+    "Tools only it uses: {0}": "Công cụ chỉ ứng dụng này dùng: {0}"
   }
 }

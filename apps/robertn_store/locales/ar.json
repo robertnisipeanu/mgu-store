@@ -176,6 +176,8 @@
     "{0} networks": "الشبكات: {0}",
     "Space": "مسافة",
     "Delete": "حذف",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "إزالة الكل",
+    "Tools only it uses: {0}": "أدوات لا يستخدمها غيره: {0}"
   }
 }

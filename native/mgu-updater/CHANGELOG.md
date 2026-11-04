@@ -1,5 +1,12 @@
 # Updater changelog
 
+## 0.8.25
+
+- An install that fails with the new version left current (its activate and deactivate both failed) says `<version> stays current`, one that leaves none installed `nothing is installed`, otherwise `the previous version was kept`.
+- Installing a tool another source installed (its origin in `origins.json` is another source) passes `--other-source` to the deploy tool, which runs the deactivate of the version it replaces first. The updater requires mgu-deploy 0.7.17.
+- An installed app's row has `requiredAlone`: the installed tools only it requires, itself or through one another, that its removal may take along (each one its row may remove, and nothing else installed requires or needs as the last provider of a capability).
+- `{"op":"uninstall","id","tools":[...]}` removes the app, then each of those tools (a subset of `requiredAlone`), each through the deploy tool's uninstall, a tool before the tools it requires. Anything else in `tools` refuses the request, and nothing is queued. A tool whose turn comes while something installed still requires it, as when the app's removal failed, stays; an app whose removal waits for the next start (iDrive 8) requires none.
+
 ## 0.8.24
 
 - A component installed without a recorded origin (by an installer, a stick, the deploy tool), or whose origin lists it no more, that more than one source lists under its title is updated by the built-in source, so the Store shows one row for it, installed, with its update. For one without a recorded origin the other sources' listings are beside it, blocked: `<id> is already installed; its updates come from <source>`. Of two such sources neither built in, it has no update.

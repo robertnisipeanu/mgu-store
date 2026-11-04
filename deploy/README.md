@@ -414,7 +414,7 @@ and the stick's other files stay. A root-service package of another
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--yes]
 mgu-deploy.sh status [--json]
 mgu-deploy.sh uninstall <id> [--yes]
 mgu-deploy.sh rollback <id> [--yes]
@@ -505,6 +505,23 @@ refused before anything changes (exit 2: `oap-cardash 1.1.4 is for iDrive 8
 installs. On a unit not known the install says mguHmi is not checked.
 With `--skip-older` (a kit, `mgu-install.js first-install`) such an
 artifact is skipped, saying why, and the others install.
+
+**Another version of an installed tool.** An install of an older version,
+or of any version with `--other-source` (the updater's install of a tool
+another source installed), runs the `deactivate` of the version it
+replaces first, with all of that version in place, as its removal does:
+one that fails refuses the install (exit 2), and that version stays
+current and runs its `activate` again. An update runs only the new
+version's `activate`. Whichever it is, what the versions kept under
+`versions/` installed and the new one does not list goes, as in a
+rollback, in the install's own rootfs window: their running units are
+stopped first (when recmgr has loaded them), the new version's list
+entries go in, then its units, links and drop-ins, then the old units,
+links, drop-ins and their limits go, and last their recmgr names no
+installed tool has and the crash handler's names no installed tool wants.
+An install that fails after that puts them back with the snapshot, starts
+the units it stopped again, and runs the replaced version's `activate`
+again.
 
 ### iDrive 8 apps
 
@@ -906,13 +923,38 @@ them (below).
   restarted are restarted on the previous version (or stopped when their
   unit went with it) and a first install is removed. Whenever an install
   that ran `activate` is rolled back (a failed `activate` or `check`), the
-  previous version's `activate` runs again.
+  new version's `deactivate` runs first (one that fails keeps the new
+  version current, recorded and its copy kept as an install does, and the
+  install fails), then the previous version's `activate` runs again.
 - `deactivate` runs before a removal changes anything, with the tool's units
-  and files in place. A non-zero exit refuses the removal (exit 2) and the
-  tool stays; a removal that fails after it is rolled back. Either way the
-  tool's `activate` runs again. A restart it asks for stays pending under
-  `mgu-deploy` (`<id> removed: <reason>`), since the tool's own entries go
-  with it.
+  and files in place. It must succeed, doing nothing, when what it reverts
+  is already stock (after a firmware update put the original files back,
+  or when another version's `deactivate` reverted them first): it may run
+  for a version whose changes are gone. A non-zero exit refuses the
+  removal (exit 2) and the tool stays; a removal that fails after it is
+  rolled back. Either way the tool's `activate` runs again. A restart it
+  asks for stays pending under `mgu-deploy` (`<id> removed: <reason>`),
+  since the tool's own entries go with it. A rollback runs the
+  `deactivate` of the version it leaves the same way, before it switches
+  (Rollback, below). `state.json` records the kept versions whose
+  `deactivate` ran last (`deactivated`), which are not deactivated again,
+  and those an install could not deactivate (`deactivate_owed`), which the
+  next install or removal deactivates; a version made current again, or no
+  longer kept, has neither. Each record is on disk (written by rename, file
+  and folder synced) as soon as its hook has run, or, when the disk
+  refuses it then, kept for the command's own save and said in the output;
+  a snapshot put back keeps them. An install deactivates a kept version
+  newer than the one it replaces and never deactivated (or one owed)
+  before removing it: one that fails refuses the install (exit 2), naming
+  it, and stays kept and owed, and the current version's `activate` runs
+  again; a failure after it activates the version it replaces again too.
+  Laying the current version again after a firmware update (the firmware
+  recorded with the tool, `state.json` `tools`, differs from the unit's)
+  leaves such versions kept, for a later install or the removal; laying it
+  again for another reason (a unit missing) runs them first, and one that
+  fails stays kept and owed while the current version is laid again. A
+  unit, link or drop-in another installed tool lists is never stopped or
+  taken out.
 
 **Files removed once unused.** A hook that replaced a binary a process still
 runs keeps the old file linked (an unlinked file a process holds keeps `/`
@@ -931,7 +973,13 @@ the output. Every snapshot holds the unit, its link and the list, so a
 failed install or removal puts them back with the recmgr list.
 
 `uninstall <id>` stops the tool's running units (when recmgr has loaded
-them), removes its units, links and the recmgr names no other tool lists,
+them), removes its units, links, drop-ins and the recmgr names no other tool
+lists, those of every version kept under `versions/` as well as the current one's
+(after the current version's `deactivate`, that of each kept version whose
+`deactivate` is due, oldest first: one newer than the current version and
+never deactivated, which an earlier deploy tool's rollback left and which
+reverts what only it set up, or one an install could not deactivate; a
+refusal by any of them refuses the removal),
 and the whole `/var/opt/<id>`: besides `versions/` and `current`, a tool's
 own config there goes too, named in the output (the updater's
 `sources.json` and `credentials/`, the uplink's `local.conf`, `uids.d/` and
@@ -943,13 +991,30 @@ created is removed once it is empty; folders that were there before stay.
 `rollback <id>` switches a tool's `current` to its one other kept version
 (`status --json` names it as the tool's `previous` when it is older).
 With no other version, or more than one, it is refused (exit 2, listing
-them). It snapshots first, then restarts that version's `restart` units under
-the same recmgr rules and health check; a failed check switches back,
-restarts again and exits 1. When recmgr has not loaded the entry the switch
-still happens and the tool is reported pending. Unit files are not rolled
-back: they run from `current/`, so they stay as the newer version installed
-them; when the two versions list different units, `rollback` says so, and an
-install of the wanted artifact changes them. `rollback app-privacy` also runs
+them). It snapshots first, then runs the `deactivate` of the version it
+leaves, with all of it in place, as a removal does: one that fails refuses
+the rollback (exit 2), that version stays current and its `activate` runs
+again. It switches `current`, and takes out what the version it leaves
+installed and the one it goes to does not list: units (stopped first when
+recmgr has loaded them), enablement links, drop-ins and their limits, its
+recmgr names no installed tool has and the crash handler's names no
+installed tool wants, units before list entries. Then it restarts that
+version's `restart` units under the same recmgr rules and health check, and
+runs its `activate` (a failed one runs that version's `deactivate` first;
+one that fails too keeps it current). A failed check, apply or `activate`
+puts the snapshot back (`current`, the units and lists), starts again the units it stopped,
+restarts again, runs the left version's `activate` again and exits 1. When
+recmgr has not loaded the entry the switch still happens and the tool is
+reported pending. Units both versions list are not rolled back: they run
+from `current/`, so they stay as the newer version installed them, and an
+install of the wanted artifact changes them. The units, links and drop-ins
+the version it goes to lists that are missing (a change to another version
+took them out) are laid again from the copy kept with it
+(`kept/<id>/<version>/`), its recmgr names first, in one rootfs window, and
+its `restart` units and enabled sockets among them start as at a first
+install; one without a copy says which are missing, and an install of its
+artifact lays them again.
+`rollback app-privacy` also runs
 its `apply` (below). `rollback mgu-deploy` switches `current` and exits; the
 shim and the updater run that version from the next call.
 

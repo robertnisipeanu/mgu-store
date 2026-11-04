@@ -65,7 +65,7 @@ function placement(w, h) {
 function ordered(st, page) {
     const cs = st.components;
     if (st.name === 'confirm') {
-        return ['later', 'now'].map((n) => cs.find((c) => c.name === n)).filter(Boolean);
+        return ['later', 'now', 'also'].map((n) => cs.find((c) => c.name === n)).filter(Boolean);
     }
     if (!page) {
         return cs;

@@ -176,6 +176,8 @@
     "{0} networks": "{0} δίκτυα",
     "Space": "Διάστημα",
     "Delete": "Διαγραφή",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Κατάργηση όλων",
+    "Tools only it uses: {0}": "Εργαλεία που χρησιμοποιεί μόνο αυτή: {0}"
   }
 }

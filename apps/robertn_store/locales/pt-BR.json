@@ -176,6 +176,8 @@
     "{0} networks": "{0} redes",
     "Space": "Espaço",
     "Delete": "Apagar",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Remove all": "Remover tudo",
+    "Tools only it uses: {0}": "Ferramentas que só ele usa: {0}"
   }
 }
