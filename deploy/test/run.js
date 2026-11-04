@@ -7964,6 +7964,21 @@ function testMguInstallTiles() {
         mi.tilesShow(st(Object.assign({}, fb, { active: false, apps: [] }))).shown &&
         mi.tilesShow(st(Object.assign({}, fb, { active: false }), { retired_leftovers: ['x'] })).shown &&
         mi.tilesShow('').shown && mi.tilesShow(undefined).shown);
+    const st8 = (comps, fb8) => JSON.stringify({ unit: { hmi: 'ID8' }, components: comps,
+        fallback: Object.assign({ active: true, apps: ['robertn_store', 'oap-cardash'], manager_runs_copy: null, listed_by_manager: [] }, fb8 || {}) });
+    const app = (id, visible) => ({ id, kind: 'app', tile_visible: visible });
+    check('mgu-install tiles: iDrive 8 shows once the Store and every listed app report their tiles visible',
+        mi.tilesShow(st8([app('robertn_store', true), app('oap-cardash', true)])).shown === true &&
+        mi.tilesShow(st8([app('robertn_store', true)])).shown === true);
+    check('mgu-install tiles: on iDrive 8 a hidden tile or a Store not yet registered needs a restart',
+        mi.tilesShow(st8([app('robertn_store', true), app('oap-cardash', false)])).shown === false &&
+        mi.tilesShow(st8([app('robertn_store', false)])).shown === false && mi.tilesShow(st8([])).shown === false &&
+        !mi.tilesShow(st8([])).why);
+    check('mgu-install tiles: on iDrive 8 a fallback that cannot go on gives its reason',
+        mi.tilesShow(JSON.stringify(Object.assign(JSON.parse(st8([app('robertn_store', false)], { active: false })),
+            { live_installs: { state: 'ok', reason: 'off: fallback build refused: x' } }))).why === 'fallback build refused: x' &&
+        !mi.tilesShow(JSON.stringify(Object.assign(JSON.parse(st8([app('robertn_store', true)], { active: false })),
+            { live_installs: { state: 'ok', reason: 'off: fallback build refused: x' } }))).why);
 
     const gh = fakeGithub({ files: [], repos: {} });
     try {

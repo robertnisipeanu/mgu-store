@@ -336,8 +336,10 @@ printed. Its last line
 is `Restart the head unit to finish setup.` while any of
 `mgu-updater.service`, `mgu-render.socket` and `mgu-uplink.service` is
 installed but not active, or, on iDrive 7, while the running app manager
-does not yet run the provisioning fallback that shows our apps' tiles;
-else `Setup is done`. When the fallback could not be turned on, it says
+does not yet run the provisioning fallback that shows our apps' tiles,
+or, on iDrive 8, while the deploy tool's `status` does not report the
+Store's tile and those of the other apps listed in `custom_apps.json`
+as shown (a Store not yet registered included); else `Setup is done`. When the fallback could not be turned on, it says
 `The Store's tile cannot show:` and the reason (exit 1 when the services
 run). After the restart line, at a
 terminal (not under CI, nor with `--no-restart-prompt`), it asks
