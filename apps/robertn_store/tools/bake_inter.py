@@ -6,11 +6,14 @@ and Vietnamese with while a locale with that "font" is in use
 
     python3 tools/bake_inter.py <folder with Inter-Regular.ttf and Inter-SemiBold.ttf>
 
-    font         writes                   letters
-    latin        src/font_latin.js        Latin-1, Latin Extended-A, Romanian's comma-below
-    greek        src/font_greek.js        Greek
-    cyrillic     src/font_cyrillic.js     Cyrillic, Ukrainian's Ґ
-    vietnamese   src/font_vietnamese.js   Latin-1's letters and Vietnamese's
+    font         letters
+    latin        Latin-1, Latin Extended-A, Romanian's comma-below
+    greek        Greek
+    cyrillic     Cyrillic, Ukrainian's Ґ
+    vietnamese   Latin-1's letters and Vietnamese's
+
+into the staged tree's fonts/<font>.json, which the Store reads when the
+language is in use.
 
 Each is the faces of tools/bake_fonts.py with its letters and the
 characters of its locales' words and catalog texts (release/texts), at
@@ -27,6 +30,8 @@ import bake_fonts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, '..')
+# the staged tree's fonts folder: what the Store reads a language's font from
+FONT_DIR = os.path.join(APP, [n for n in os.listdir(APP) if n.startswith('robertn_store@') and os.path.isdir(os.path.join(APP, n))][0], 'fonts')
 FACES = {'regular': ('Inter-Regular.ttf', [23, 41]),
          'semibold': ('Inter-SemiBold.ttf', [25, 44, 77])}
 
@@ -79,13 +84,11 @@ def main():
             for s in sizes:
                 faces[name]['sizes'].append(atlas(os.path.join(sys.argv[1], file), name, font, s, chars))
                 bake_fonts.TEXT = base
-        out = os.path.join(APP, 'src', 'font_%s.js' % font)
+        out = os.path.join(FONT_DIR, '%s.json' % font)
         with open(out, 'w', encoding='utf-8', newline='\n') as o:
-            o.write('/* Inter glyph atlases with %s letters, baked by tools/bake_inter.py\n'
-                    ' * from Inter-Regular.ttf and Inter-SemiBold.ttf (Inter 4.1).\n'
-                    ' * Copyright 2016 The Inter Project Authors. SIL Open Font License 1.1: src/LICENSE-Inter.txt */\n'
-                    "'use strict';\nmodule.exports = %s;\n" % (font, json.dumps({'family': 'Inter ' + font, 'faces': faces},
-                                                                            separators=(',', ':'))))
+            json.dump({'family': 'Inter ' + font, 'source': 'Inter-Regular.ttf, Inter-SemiBold.ttf (Inter 4.1), tools/bake_inter.py',
+                       'copyright': 'Copyright 2016 The Inter Project Authors', 'license': 'SIL Open Font License 1.1 (LICENSES.txt)',
+                       'faces': faces}, o, separators=(',', ':'))
         rows = sum(a['atlasH'] + 1 for f in faces.values() for a in f['sizes'])
         print('%s: %d glyphs, %d rows, %d bytes' % (os.path.relpath(out), len(faces['regular']['sizes'][0]['glyphs']),
                                                    rows, os.path.getsize(out)))

@@ -226,8 +226,7 @@ const shelves = (heights) => heights.reduce((col, h) => {
 }, [0, 0]);
 const interRows = rows(require(path.join(SRC, 'font_regular.js'))).concat(rows(require(path.join(SRC, 'font_semibold.js'))));
 Array.from(new Set(all.map((l) => l.font).filter(Boolean))).forEach((name) => {
-    const file = { 'chinese-tc': 'font_chinese_tc.js' }[name] || `font_${name}.js`;
-    const col = shelves(interRows.concat(rows(require(path.join(SRC, file)))));
+    const col = shelves(interRows.concat(rows(JSON.parse(fs.readFileSync(path.join(TREE, 'fonts', `${name}.json`), 'utf8')))));
     ok(Math.max(...col) <= 4096 && col[0] + col[1] <= 8192 * 0.75, `${name}: Inter's and its atlases in the glyph texture (${col})`);
 });
 i18n.setHmiLanguage('CHINESISCH_SIMPLE');
@@ -251,7 +250,7 @@ const deBold = fonts.get('bold', 44, 'Löschen');
 const deLabel = fonts.get('label', 41, 'Löschen');
 ok(/^Inter semibold latin@44@/.test(deBold.key) && /^Inter regular latin@41@/.test(deLabel.key), 'German: the semibold and regular faces with ö');
 eq(fonts.get('bold', 44, 'Store'), fonts.get('bold', 44), 'German ASCII: Inter');
-ok(ui48._pixels === null, 'another language: the Chinese pixels let go');
+ok(fonts.get('bold', 44, 'Löschen') === deBold, 'German: its atlases kept while in use');
 [['RUMAENISCH', 'ŐőȘșȚțİıĞğŁłŽžÅåØøÆæßÑñ'], ['TUERKISCH', 'İıĞğŞşÇçÖöÜü'], ['GRIECHISCH', 'ΆάΰΐΩωΣσς'],
     ['RUSSISCH', 'ЁёЙйЪъ'], ['UKRAINISCH', 'ЇїҐґЄєІі'], ['VIETNAMESISCH', 'ẠạỹƯưƠơĐđĂăỆệ']].forEach(([h, w]) => {
     i18n.setHmiLanguage(h);
@@ -264,8 +263,10 @@ ok(ui48._pixels === null, 'another language: the Chinese pixels let go');
     eq(Array.from(common).filter((ch) => !f.glyphs[ch.codePointAt(0)]), [], `${h}: a name drawn whole`);
     ok(fonts.get('bold', 50, ui).size === 48, `${h}: its words from the sharp set`);
 });
+i18n.setHmiLanguage('DEUTSCH');
+ok(fonts.get('bold', 44, 'Löschen') !== deBold, 'a language font let go when another is in use, read again when needed');
 i18n.setHmiLanguage('ENGLISCH__UK');
-ok(fonts.get('label', 28, '应用商店') === inter && ui48._pixels === null, 'English: Inter, the Chinese pixels let go');
+ok(fonts.get('label', 28, '应用商店') === inter, 'English: Inter');
 ok(fonts.get('label', 28, 'Store') === inter, 'English: Inter');
 
 console.log(`i18n: ${all.length} locale(s), ${used.size} words, ${checks} checks pass`);

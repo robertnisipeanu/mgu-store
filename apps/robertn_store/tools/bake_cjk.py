@@ -6,11 +6,14 @@ Noto Sans CJK faces of google/fonts, SIL Open Font License 1.1
 
     python3 tools/bake_cjk.py <font> <Noto Sans ttf>
 
-    font          ttf                    writes                 common set
-    chinese       NotoSansSC[wght].ttf   src/font_chinese.js    GB2312 level 1 (3,755 characters), 24 px
-    chinese-tc    NotoSansTC[wght].ttf   src/font_chinese_tc.js Big5 level 1 (5,401 characters), 20 px
-    japanese      NotoSansJP[wght].ttf   src/font_japanese.js   JIS X 0208: kana and level 1 kanji (2,965), 24 px
-    korean        NotoSansKR[wght].ttf   src/font_korean.js     KS X 1001's 2,350 Hangul syllables, 24 px
+    font          ttf                    common set
+    chinese       NotoSansSC[wght].ttf   GB2312 level 1 (3,755 characters), 24 px
+    chinese-tc    NotoSansTC[wght].ttf   Big5 level 1 (5,401 characters), 20 px
+    japanese      NotoSansJP[wght].ttf   JIS X 0208: kana and level 1 kanji (2,965), 24 px
+    korean        NotoSansKR[wght].ttf   KS X 1001's 2,350 Hangul syllables, 24 px
+
+into the staged tree's fonts/<font>.json, which the Store reads when the
+language is in use.
 
 Each font is google/fonts ofl/<dir>/<ttf> at commit
 2894aab31764f10f29c421bdfd2340d3b382d384 (its SHA-256 below), drawn at
@@ -30,6 +33,8 @@ import bake_fonts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, '..')
+# the staged tree's fonts folder: what the Store reads a language's font from
+FONT_DIR = os.path.join(APP, [n for n in os.listdir(APP) if n.startswith('robertn_store@') and os.path.isdir(os.path.join(APP, n))][0], 'fonts')
 WEIGHT = 500
 PUNCTUATION = '，。：；？！（）、“”‘’《》【】—…·'
 
@@ -64,15 +69,15 @@ def ksx1001_hangul():
     return decoded('euc_kr', range(0xB0, 0xC9), range(0xA1, 0xFF))
 
 
-FONTS = {
+FONTS_OF = {
     'chinese': ('Noto Sans SC', 'NotoSansSC[wght].ttf', 'a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da',
-                'font_chinese.js', 'NotoSansSC', gb2312_level1, 24),
+                gb2312_level1, 24),
     'chinese-tc': ('Noto Sans TC', 'NotoSansTC[wght].ttf', 'fccb6ba05e6e46e464ddd5adaa2e1ac9badcbb88c762a243f600a0b51659a4c9',
-                   'font_chinese_tc.js', 'NotoSansTC', big5_level1, 20),
+                   big5_level1, 20),
     'japanese': ('Noto Sans JP', 'NotoSansJP[wght].ttf', 'c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f',
-                 'font_japanese.js', 'NotoSansJP', jis_level1, 24),
+                 jis_level1, 24),
     'korean': ('Noto Sans KR', 'NotoSansKR[wght].ttf', '194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252',
-               'font_korean.js', 'NotoSansKR', ksx1001_hangul, 24),
+               ksx1001_hangul, 24),
 }
 
 
@@ -100,9 +105,9 @@ def atlas(family, path, name, size, chars):
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in FONTS:
+    if len(sys.argv) != 3 or sys.argv[1] not in FONTS_OF:
         sys.exit(__doc__)
-    family, ttf, sha256, module, license_name, common, common_size = FONTS[sys.argv[1]]
+    family, ttf, sha256, common, common_size = FONTS_OF[sys.argv[1]]
     with open(sys.argv[2], 'rb') as f:
         if hashlib.sha256(f.read()).hexdigest() != sha256:
             sys.exit('not the pinned %s (SHA-256 %s)' % (ttf, sha256))
@@ -112,12 +117,11 @@ def main():
     bake_fonts.TEXT = base
     sizes.append(atlas(family, sys.argv[2], 'common', common_size, common() + ui))
     face = {'family': family, 'sizes': sizes}
-    out = os.path.join(APP, 'src', module)
+    out = os.path.join(FONT_DIR, '%s.json' % sys.argv[1])
     with open(out, 'w', encoding='utf-8', newline='\n') as o:
-        o.write('/* %s glyph atlases, baked by tools/bake_cjk.py from %s.\n'
-                ' * Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name \'Source\'.\n'
-                ' * SIL Open Font License 1.1: src/LICENSE-%s.txt */\n'
-                "'use strict';\nmodule.exports = %s;\n" % (family, ttf, license_name, json.dumps(face, separators=(',', ':'))))
+        json.dump({'family': family, 'source': '%s, tools/bake_cjk.py' % ttf,
+                   'copyright': "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'",
+                   'license': 'SIL Open Font License 1.1 (LICENSES.txt)', 'sizes': sizes}, o, separators=(',', ':'))
     for a in face['sizes']:
         print('%s: %d glyphs, %d x %d' % (a['key'], len(a['glyphs']), a['atlasW'], a['atlasH']))
     print('%s: %d bytes' % (os.path.relpath(out), os.path.getsize(out)))

@@ -370,8 +370,7 @@ src/locales.js             the languages, written by tools/gen_locales.js
 src/kit_*.js               the kit: record, canvas, vicons, png, themes (MIT, src/LICENSE-kit.txt);
                            kit_fonts.js maps its families onto Inter, and a language's font onto its own atlases
 src/font_regular.js, src/font_semibold.js   Inter glyph atlases (tools/bake_fonts.py)
-src/font_latin.js, font_greek.js, font_cyrillic.js, font_vietnamese.js   Inter with those letters (tools/bake_inter.py)
-src/font_chinese.js, font_chinese_tc.js, font_japanese.js, font_korean.js   Noto Sans SC, TC, JP, KR atlases (tools/bake_cjk.py)
+robertn_store@<version>/fonts/<font>.json   a language's glyph atlases (tools/bake_inter.py, tools/bake_cjk.py)
 lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
 tools/gen_locales.js       src/locales.js from locales/*.json
 tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table, and the RHMI texts
