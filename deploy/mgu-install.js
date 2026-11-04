@@ -1053,8 +1053,10 @@ function versioned(list) {
 
 function showPlan(plan) {
     const rest = [];
-    if (plan.sources || plan.tokens) {
-        rest.push(`the updater's ${plan.sources} source${plan.sources === 1 ? '' : 's'} and ${plan.tokens} token${plan.tokens === 1 ? '' : 's'}`);
+    const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
+    const updater = [plan.sources && count(plan.sources, 'source'), plan.tokens && count(plan.tokens, 'token')].filter(Boolean);
+    if (updater.length) {
+        rest.push(`the updater's ${updater.join(' and ')}`);
     }
     if (plan.fallback) {
         rest.push('the provisioning fallback');
