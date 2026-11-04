@@ -1724,7 +1724,11 @@ function runLanguage() {
         displayLanguage('DEUTSCH');
         return tick();
     }).then(() => {
-        eq([check(), nav()], ['Check for updates', '1 update'], 'a language without a translation: English');
+        eq([check(), nav()], ['Nach Updates suchen', '1 Update'], 'German');
+        displayLanguage('KEINE_SPRACHE');
+        return tick();
+    }).then(() => {
+        eq([check(), nav()], ['Check for updates', '1 update'], 'no language: English');
         displayLanguage('CHINESISCH_SIMPLE');
         displayLanguage(255);
         return tick();

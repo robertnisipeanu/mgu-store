@@ -493,6 +493,7 @@ function repoCatalog(readFile, commit, revision, listDir) {
                         : rhmi ? `${rhmi}application.json` : null;
                     return list.concat([Object.assign(catalogLib.checkExtras({
                         id: rc.id, kind: rc.kind, version: c.version, title: pick('title'), description: pick('description'),
+                        texts: pick('texts'),
                         build: rc.kind === 'app' ? 'unit' : null, requires: Object.keys(requires).length ? requires : undefined,
                         optional: pick('optional') !== undefined ? pick('optional') : service || undefined,
                         uninstallable: pick('uninstallable') !== undefined ? pick('uninstallable') : service || undefined,
@@ -1460,6 +1461,7 @@ function githubReader(s, ctx) {
                     id: n.id, kind: 'app', version: n.version,
                     title: typeof t.title === 'string' ? t.title : undefined,
                     description: typeof t.description === 'string' ? t.description : undefined,
+                    texts: t.texts,
                     author: t.author, icon: t.icon, iconSha256: t.iconSha256,
                     artifact: { name: n.asset.name, size: n.asset.size, sha256: null, url: n.asset.url },
                     // nothing in this layout can say so: the owner removes what it installed

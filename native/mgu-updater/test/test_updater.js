@@ -2,7 +2,8 @@
 /**
  * Offline tests of mgu-updater on the head unit's Node 8.16.2, as root
  * (test/run.sh runs them in Docker):
- *  - catalog: parsing (schema 1 and 2), rejection of malformed entries, the plan;
+ *  - catalog: parsing (schema 1 and 2), rejection of malformed entries, the plan
+ *    (texts in other languages kept, bounded);
  *  - a version 1 App Manager index read again and again: only the newest
  *    package of each id kept, what each one is remembered, the cap;
  *  - build folders removed as the uid that owns each part (root's too, after
@@ -674,6 +675,15 @@ function testCatalog() {
     const rows = catalogLib.plan(good.components.map(r), [{ id: 'doom', kind: 'app', version: '1.0.0' }]);
     const described = catalogLib.plan([r(Object.assign({}, good.components[0], { description: 'Plays DOOM' }))], [])[0];
     ok('plan: a row carries the catalog\'s description', described.description === 'Plays DOOM' && rows[0].description === '');
+    const texted = catalogLib.plan([r(Object.assign({}, good.components[0], { texts: {
+        de: { title: '  DOOM\n(de) ', description: 'Spielt DOOM' }, 'pt-BR': { title: 'DOOM' }, 'zh-TW': { description: 'x'.repeat(1200) },
+        fr: { title: '' }, it: 'no', EN: { title: 'x' }, 'de-DE-x-y-z': { title: 'x' }, es: { title: 7 } } }))], [])[0];
+    ok('plan: a row carries the catalog\'s texts, each a title (one line) and a description of a language code',
+        JSON.stringify(texted.texts) === JSON.stringify({ de: { title: 'DOOM (de)', description: 'Spielt DOOM' }, 'pt-BR': { title: 'DOOM' },
+            'zh-TW': { description: 'x'.repeat(1000) } }));
+    ok('plan: no texts, or none usable: null', rows[0].texts === null &&
+        catalogLib.plan([r(Object.assign({}, good.components[0], { texts: ['de'] }))], [])[0].texts === null &&
+        catalogLib.plan([r(Object.assign({}, good.components[0], { texts: { de: {} } }))], [])[0].texts === null);
     ok('plan: an older installed version is an update', rows[0].status === 'update' && rows[0].installed === '1.0.0');
     ok('plan: a missing component is available', rows[1].status === 'available' && rows[1].installed === null);
     ok('plan: a row names its source', rows[0].source === 's' && rows[0].build === null && rows[0].optional === false);

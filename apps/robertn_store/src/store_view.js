@@ -1,5 +1,7 @@
 'use strict';
-const { t: tr } = require('./i18n.js');
+const i18n = require('./i18n.js');
+
+const tr = i18n.t;
 /**
  * The Store's texts, from mgu-updater's state (native/mgu-updater/js/updater.js
  * state()): the status line, each row's second column, what a press on a
@@ -59,6 +61,16 @@ function sourceNames(sources) {
         names[s.id] = (sources || []).some((o) => o.id !== s.id && label(o) !== label(s) && last(o) === last(s)) ? label(s) : last(s);
     });
     return names;
+}
+
+/* The updater's state with each component's title and description in the
+ * display language (its catalog "texts", src/i18n.js text). */
+function localized(st) {
+    if (!st || !Array.isArray(st.components) || !st.components.some((c) => c && c.texts)) {
+        return st;
+    }
+    return Object.assign({}, st, { components: st.components.map((c) => (c && c.texts
+        ? Object.assign({}, c, { title: i18n.text(c, 'title'), description: i18n.text(c, 'description') }) : c)) });
 }
 
 /* The components, each titled with its source's name where another
@@ -390,6 +402,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { listed, startPending, sourceNames, withSources, removable, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { localized, listed, startPending, sourceNames, withSources, removable, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Aplikasi dan alat head unit dari setiap sumber beserta statusnya, serta sumbernya; menginstal, memperbarui, dan menghapusnya melalui mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Updater",
+    "description": "Menginstal, memperbarui, dan menghapus aplikasi serta alat head unit dari sumbernya"
+  },
+  "mgu-deploy": {
+    "title": "Alat deploy",
+    "description": "Menginstal, memperbarui, mengembalikan, dan menghapus alat serta aplikasi kami di head unit, dengan snapshot sebelum setiap perubahan"
+  },
+  "mgu-render": {
+    "title": "Renderer",
+    "description": "Menggambar layar aplikasi di GPU, di atas HMI atau di dalam halaman aplikasi"
+  },
+  "mgu-uplink": {
+    "title": "Koneksi internet",
+    "description": "Internet untuk aplikasi terpilih melalui adaptor jaringan USB, modem LTE, ponsel dengan tethering USB, atau Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "Privasi aplikasi",
+    "description": "Menjauhkan aplikasi kami dari pelaporan aplikasi head unit ke backend dan memulai ulang aplikasi setelah crash"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 untuk aplikasi yang dibangun di head unit dengan Python"
+  }
+}

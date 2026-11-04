@@ -30,7 +30,14 @@
     "src/kit_themes.js",
     "src/font_regular.js",
     "src/font_semibold.js",
+    "src/font_latin.js",
+    "src/font_greek.js",
+    "src/font_cyrillic.js",
+    "src/font_vietnamese.js",
     "src/font_chinese.js",
+    "src/font_chinese_tc.js",
+    "src/font_japanese.js",
+    "src/font_korean.js",
     "lib/mgu_render_client.js"
   ],
   "sdk": [

@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Aplikacije in orodja glavne enote iz vseh virov z njihovim stanjem ter viri; namešča, posodablja in odstranjuje jih prek mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Posodobilnik",
+    "description": "Iz svojih virov namešča, posodablja in odstranjuje aplikacije in orodja glavne enote"
+  },
+  "mgu-deploy": {
+    "title": "Orodje za namestitev",
+    "description": "Namešča, posodablja, povrača in odstranjuje naša orodja in aplikacije na glavni enoti, pred vsako spremembo s posnetkom stanja"
+  },
+  "mgu-render": {
+    "title": "Renderer",
+    "description": "Riše zaslone aplikacij na GPU, nad HMI ali znotraj strani aplikacije"
+  },
+  "mgu-uplink": {
+    "title": "Internetna povezava",
+    "description": "Internet za izbrane aplikacije prek omrežnega adapterja USB, ključka LTE, telefona, povezanega prek USB, ali Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "Zasebnost aplikacij",
+    "description": "Naše aplikacije izključi iz poročanja o aplikacijah v zaledje glavne enote in jih po zrušitvi znova zažene"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 za aplikacije, ki se na glavni enoti gradijo s Pythonom"
+  }
+}

@@ -1,8 +1,12 @@
 {
   "hmiLanguages": [
-    "CHINESISCH_SIMPLE"
+    "CHINESISCH_SIMPLE",
+    "KANTONESISCH_SIMPLE"
   ],
-  "rhmiTexts": "zh_CN",
+  "rhmiTexts": [
+    "zh_CN",
+    "zh_yue_Hans_CN"
+  ],
   "font": "chinese",
   "words": {
     "Store": "应用商店",
@@ -94,7 +98,7 @@
     "Preferred connection": "首选连接",
     "Preferred": "首选",
     "Preferred: {0}": "首选：{0}",
-    "Rejected": "已拒绝",
+    "Rejected": "已被拒绝",
     "Releases": "发布版本",
     "Remove": "移除",
     "Remove account?": "移除此账户？",
@@ -125,7 +129,7 @@
     "Sign-in failed: {0}": "登录失败：{0}",
     "Signed in": "已登录",
     "Starting": "启动中",
-    "Store {0}": "商店 {0}",
+    "Store {0}": "应用商店 {0}",
     "Strong": "强",
     "Tags": "标签",
     "Text entry failed: {0}": "文字输入失败：{0}",

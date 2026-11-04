@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "应用商店",
+    "description": "列出每个来源的应用和主机工具及其状态，以及各来源；通过 mgu-updater 安装、更新和移除它们"
+  },
+  "mgu-updater": {
+    "title": "更新服务",
+    "description": "从其来源安装、更新和移除应用及主机工具"
+  },
+  "mgu-deploy": {
+    "title": "部署工具",
+    "description": "在主机上安装、更新、回滚和移除我们的工具和应用，每次更改前都会创建快照"
+  },
+  "mgu-render": {
+    "title": "渲染器",
+    "description": "在 GPU 上绘制应用画面，叠加在 HMI 之上或显示在应用页面内"
+  },
+  "mgu-uplink": {
+    "title": "互联网连接",
+    "description": "通过 USB 网卡、LTE 上网卡、USB 共享网络的手机或 Wi-Fi，为选定的应用提供互联网连接"
+  },
+  "app-privacy": {
+    "title": "应用隐私",
+    "description": "让我们的应用不被主机上报给后台，并在崩溃后重新启动它们"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "为在主机上用 Python 构建的应用提供 Python 3.12"
+  }
+}

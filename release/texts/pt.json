@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "As apps e ferramentas da unidade principal de cada fonte com o seu estado, e as fontes; instala-as, atualiza-as e remove-as através do mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Atualizador",
+    "description": "Instala, atualiza e remove apps e ferramentas da unidade principal a partir das suas fontes"
+  },
+  "mgu-deploy": {
+    "title": "Ferramenta de implementação",
+    "description": "Instala, atualiza, reverte e remove as nossas ferramentas e apps na unidade principal, com um instantâneo antes de cada alteração"
+  },
+  "mgu-render": {
+    "title": "Renderizador",
+    "description": "Desenha os ecrãs das apps na GPU, sobre o HMI ou dentro da página da app"
+  },
+  "mgu-uplink": {
+    "title": "Ligação à Internet",
+    "description": "Internet para as apps selecionadas através de um adaptador de rede USB, uma pen LTE, um telemóvel com partilha de Internet por USB ou uma rede Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "Privacidade de apps",
+    "description": "Mantém as nossas apps fora dos relatórios de apps do backend da unidade principal e reinicia-as após uma falha"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 para apps que são compiladas na unidade principal com Python"
+  }
+}

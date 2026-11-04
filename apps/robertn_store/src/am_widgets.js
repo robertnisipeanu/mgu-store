@@ -47,6 +47,12 @@ function fit(cv, s, w, size, font) {
     return s.slice(0, lo).replace(/\s+$/, '') + '…';
 }
 
+/** The size s takes to fit w, down to three quarters of size. */
+function shrink(cv, s, w, size, font) {
+    const tw = cv.textWidth(String(s), size, { font });
+    return tw > w ? Math.max(Math.round(size * 0.75), Math.floor(size * w / tw)) : size;
+}
+
 /** Words wrapped into w, from top y; at most max lines (the last one cut with …). Returns the lines drawn. */
 function wrap(cv, s, x, y, w, size, c, max, font) {
     let line = '', n = 0;
@@ -150,7 +156,9 @@ function tabs(cv, t, b, o) {
         if (on && style === 'underline') cv.roundRect(x + cw * 0.15, b.y + b.h - 5, cw * 0.7, 5, 2.5, acc);
         else if (on) { cv.card(x, b.y, cw, b.h, r, [[0, withAlpha(acc, 0.32)], [1, withAlpha(acc, 0.12)]]); cv.strokeRoundRect(x, b.y, cw, b.h, r, 2, acc); }
         else if (style === 'joined' && i) cv.fillRect(x, b.y + b.h * 0.22, 1.5, b.h * 0.56, t.panelEdge);
-        mid(cv, s, x + cw / 2, b.y + b.h / 2, sz, on ? t.text : t.dim, { align: 'center', font: on ? 'bold' : 'label' });
+        const font = on ? 'bold' : 'label';
+        const ts = shrink(cv, s, cw - 16, sz, font);
+        mid(cv, fit(cv, s, cw - 16, ts, font), x + cw / 2, b.y + b.h / 2, ts, on ? t.text : t.dim, { align: 'center', font });
     });
 }
 
@@ -262,7 +270,8 @@ function navRail(cv, t, b, o) {
         const sz = o.size || Math.round(Math.min(c.h * 0.15, c.w * 0.13)), is = Math.round(Math.min(c.h * 0.36, c.w * 0.4));
         const top = c.y + (c.h - is - sz * 1.5) / 2;
         icon(cv, ic, c.x + (c.w - is) / 2, top, is, on ? acc : t.dim);
-        cv.text(label, c.x + c.w / 2, top + is + sz * 1.3, sz, on ? acc : t.dim, { align: 'center' });
+        const ls = shrink(cv, label, c.w - 2 * m, sz);
+        cv.text(fit(cv, label, c.w - 2 * m, ls), c.x + c.w / 2, top + is + sz * 1.3, ls, on ? acc : t.dim, { align: 'center' });
     });
 }
 

@@ -63,8 +63,9 @@
  *
  * The widget screens' own words are string ids (SID_STORE_<WORDS>), so the
  * HMI shows them in its display language: the RHMI text files
- * (rhmiData/variantGroups/Common/texts) are written from them, en_GB.json in
- * English and one per language (locales/<code>.json "rhmiTexts") in its words,
+ * (rhmiData/variantGroups/Common/texts) are written from them, en_GB.json and
+ * en_US.json in English and those each language names (locales/<code>.json
+ * "rhmiTexts") in its words,
  * English where it has none. What the app writes at runtime is text.
  *
  * A list is one button component; the app sets its row count at runtime.
@@ -341,14 +342,18 @@ function english() {
     return out;
 }
 
-/* The RHMI text files: en_GB.json, and one per locale. */
+/* The HMI's English text files (the oap-sdk's names for ENGLISCH__UK and ENGLISCH__US). */
+const ENGLISH = ['en_GB', 'en_US'];
+
+/* The RHMI text files: English, and each locale's (its rhmiTexts). */
 function texts() {
     const en = english();
-    const out = { 'en_GB.json': en };
+    const out = {};
+    ENGLISH.forEach((n) => { out[`${n}.json`] = en; });
     require('./gen_locales.js').read().forEach((l) => {
         const file = {};
         Object.keys(en).forEach((id) => { file[id] = Object.prototype.hasOwnProperty.call(l.words, en[id]) ? l.words[en[id]] : en[id]; });
-        out[`${l.rhmiTexts}.json`] = file;
+        l.rhmiTexts.forEach((n) => { out[`${n}.json`] = file; });
     });
     return out;
 }
