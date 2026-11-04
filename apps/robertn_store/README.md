@@ -149,11 +149,13 @@ loaded the first time it is:
 | `font` | Glyphs | Baked by |
 |---|---|---|
 | `latin`, `greek`, `cyrillic`, `vietnamese` | Inter with those letters, regular and semibold | `tools/bake_inter.py` |
-| `chinese`, `chinese-tc`, `japanese`, `korean` | Noto Sans SC, TC, JP, KR (SIL OFL, `src/LICENSE-NotoSans*.txt`): the Store's words at 48 px, and the language's common characters for names and descriptions | `tools/bake_cjk.py` |
+| `chinese`, `chinese-tc`, `japanese`, `korean` | Noto Sans SC, TC, JP, KR (SIL OFL, `src/LICENSE-NotoSans*.txt`): the Store's words at 40 px, and the language's common characters for names and descriptions at 18 or 20 px | `tools/bake_cjk.py` |
 
 The renderer's glyph texture (two columns of 1024 x 4096) is shared by
-every app and never emptied until the renderer restarts; Inter and any one
-language's font leave at least a quarter of it free.
+every app and keeps every atlas until the renderer restarts. Inter's and
+any one language's atlases fit, and so do those of a change between two of
+Chinese, Japanese and Korean; after more language changes the head unit's
+next start brings the newest language's text back if it went missing.
 
 ## The widget screens
 

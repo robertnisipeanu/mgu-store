@@ -107,14 +107,16 @@ function has(f, s) {
 
 /** The atlas for text at size: Inter's; for text Inter can't draw, while
  * the language has a font of its own, that font's atlases with all of its
- * characters (else its largest set). */
+ * characters (else the sizes of its largest set). */
 function get(name, size, text) {
     const fam = family(name);
     const s = text === undefined || text === null ? '' : String(text);
     const sizes = ownSizes(s !== '' && !has(fam[0], s), name);
     if (sizes) {
+        const count = (f) => Object.keys(f.glyphs).length;
+        const most = Math.max(...sizes.map(count));
         const whole = sizes.filter((f) => has(f, s));
-        return pick(whole.length ? whole : [sizes.reduce((a, b) => (Object.keys(b.glyphs).length > Object.keys(a.glyphs).length ? b : a))], size);
+        return pick(whole.length ? whole : sizes.filter((f) => count(f) === most), size);
     }
     return pick(fam, size);
 }

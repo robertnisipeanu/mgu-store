@@ -7,7 +7,7 @@ and Vietnamese with while a locale with that "font" is in use
     python3 tools/bake_inter.py <folder with Inter-Regular.ttf and Inter-SemiBold.ttf>
 
     font         letters
-    latin        Latin-1, Latin Extended-A, Romanian's comma-below
+    latin        Latin-1, the HMI's Latin languages' other letters
     greek        Greek
     cyrillic     Cyrillic, Ukrainian's Ґ
     vietnamese   Latin-1's letters and Vietnamese's
@@ -33,7 +33,7 @@ APP = os.path.join(HERE, '..')
 # the staged tree's fonts folder: what the Store reads a language's font from
 FONT_DIR = os.path.join(APP, [n for n in os.listdir(APP) if n.startswith('robertn_store@') and os.path.isdir(os.path.join(APP, n))][0], 'fonts')
 FACES = {'regular': ('Inter-Regular.ttf', [23, 41]),
-         'semibold': ('Inter-SemiBold.ttf', [25, 44, 77])}
+         'semibold': ('Inter-SemiBold.ttf', [25, 44, 58])}
 
 
 def ranges(*spans):
@@ -42,7 +42,9 @@ def ranges(*spans):
 
 PUNCTUATION = '¡¿«»‘’‚“”„‹›€−'
 FONTS = {
-    'latin': ranges((0xC0, 0xFF), (0x100, 0x148), (0x14A, 0x17F), (0x218, 0x21B)) + PUNCTUATION,
+    # Latin-1, and Latin Extended-A's letters of the HMI's languages: Polish, Czech, Slovak, Slovenian,
+    # Hungarian, Romanian (with its comma-below), Turkish, French
+    'latin': ranges((0xC0, 0xFF), (0x218, 0x21B)) + 'ĄąĆćĘęŁłŃńŚśŹźŻżČčĎďĚěŇňŘřŠšŤťŮůŽžĹĺĽľŔŕŐőŰűĂăĞğİıŞşŒœ' + PUNCTUATION,
     'greek': ranges((0x386, 0x386), (0x388, 0x38A), (0x38C, 0x38C), (0x38E, 0x3A1), (0x3A3, 0x3CE)) + PUNCTUATION,
     'cyrillic': ranges((0x400, 0x45F), (0x490, 0x491)) + PUNCTUATION + '₴₽№',
     'vietnamese': ranges((0xC0, 0xFF), (0x1EA0, 0x1EF9)) + 'ĂăĐđĨĩŨũƠơƯư' + PUNCTUATION + '₫',

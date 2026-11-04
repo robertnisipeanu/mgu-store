@@ -262,17 +262,17 @@ function keyBoxes(b, o) {
     });
     return out;
 }
-// the Enter key says o.go (e.g. 'Search') and types that; default 'Next'; Space, Delete and Shift in the display language
-const modLabel = (s) => ({ Space: tr("Space"), Delete: tr("Delete"), Shift: tr("Shift") })[s] || s;
-const shown = (k, o) => (k.kind === 'go' ? o.go || k.text : k.kind === 'mod' ? modLabel(k.text)
-    : o.shift && !k.kind && /^[a-z]$/.test(k.text) ? k.text.toUpperCase() : k.text);
+// the Enter key says o.go (e.g. 'Search') and types that; default 'Next'
+const shown = (k, o) => (k.kind === 'go' ? o.go || k.text : o.shift && !k.kind && /^[a-z]$/.test(k.text) ? k.text.toUpperCase() : k.text);
+// what a key says: Space, Delete and Shift in the display language (the key itself stays the English name)
+const keyLabel = (s) => ({ Space: tr("Space"), Delete: tr("Delete"), Shift: tr("Shift") })[s] || s;
 function keyboard(cv, t, b, o) {
     keyBoxes(b, o).forEach((k, i) => {
         const press = i === o.pressed;
         const fill = k.kind === 'go' ? [[0, '#5fb4ff'], [1, '#1f5fd0']] : press ? [[0, '#4a5568'], [1, '#3a4352']]
             : k.kind === 'mod' ? (k.text === 'Shift' && o.shift ? [[0, '#3d4a5e'], [1, '#2e3949']] : [[0, '#232b38'], [1, '#18202b']]) : [[0, '#2a3341'], [1, '#1d2430']];
         cv.card(k.x, k.y, k.w, k.h, 18, fill);
-        const label = shown(k, o);
+        const label = keyLabel(shown(k, o));
         const font = k.kind ? 'bold' : 'label', size = W.shrink(cv, label, k.w - 16, label.length > 2 ? 38 : 48, font);
         cv.text(W.fit(cv, label, k.w - 16, size, font), k.x + k.w / 2, k.y + k.h / 2 + 17, size, '#ffffff', { align: 'center', font });
     });

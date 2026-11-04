@@ -174,6 +174,27 @@ ok(!i18n.useDrawn(false), 'German: the same words on either set of screens');
 i18n.setHmiLanguage('ARABISCH');
 eq(i18n.t('Cancel'), 'إلغاء', 'Arabic on the widget screens again');
 
+/* ---- the drawn keyboard: its keys say their words, and press what they are ---- */
+{
+    const { Recorder } = require(path.join(SRC, 'kit_record.js'));
+    const { frame, placement } = require(path.join(SRC, 'store_frame.js'));
+    const fixture = require('./fixture.js');
+    const [, over] = fixture.screens().find((x) => x[0] === 'type-text');
+    const p = placement(1796, 632);
+    i18n.setHmiLanguage('DEUTSCH');
+    i18n.useDrawn(true);
+    const drawnTexts = [];
+    const text = Recorder.prototype.text;
+    Recorder.prototype.text = function (str, ...rest) { drawnTexts.push(String(str)); return text.call(this, str, ...rest); };
+    const m = fixture.model(over);
+    const f = frame(m, { textScale: p.scale, focus: m.focus, scroll: {}, layout: p.layout });
+    Recorder.prototype.text = text;
+    const keys = f.items.filter((it) => it.act && it.act.do === 'key').map((it) => it.act.key);
+    ok(['Space', 'Delete', 'Shift'].every((k) => keys.indexOf(k) >= 0), 'German keyboard: Space, Delete and Shift press themselves');
+    ok(['Leerzeichen', 'Löschen', 'Umschalt'].every((w) => drawnTexts.indexOf(w) >= 0), 'German keyboard: their German words drawn');
+    i18n.useDrawn(false);
+}
+
 /* ---- a component's title and description ---- */
 const c = { id: 'x', title: 'Renderer', description: 'Draws', texts: { de: { title: 'Renderer-de', description: 'Zeichnet' },
     pt: { title: 'Renderizador' }, 'pt-BR': { description: 'Desenha' }, fr: { title: '' }, it: 'no', es: { title: 7 } } };
@@ -217,7 +238,8 @@ all.filter((l) => l.drawn !== false).forEach((l) => {
     })));
 });
 // mgu-render's glyph texture (src/gfx.c gfx_atlas): two 1024-px columns of 4096 rows, shared by every app
-// and never emptied; Inter's atlases and any one language's leave a quarter for other apps
+// and never emptied while it runs: Inter's atlases and any language's fit, and a change between two of the
+// largest (Chinese, Japanese, Korean)
 const rows = (m) => (m.sizes || [].concat(...Object.keys(m.faces).map((k) => m.faces[k].sizes))).map((a) => a.atlasH);
 const shelves = (heights) => heights.reduce((col, h) => {
     const c = col[0] <= col[1] ? 0 : 1;
@@ -225,10 +247,13 @@ const shelves = (heights) => heights.reduce((col, h) => {
     return col;
 }, [0, 0]);
 const interRows = rows(require(path.join(SRC, 'font_regular.js'))).concat(rows(require(path.join(SRC, 'font_semibold.js'))));
-Array.from(new Set(all.map((l) => l.font).filter(Boolean))).forEach((name) => {
-    const col = shelves(interRows.concat(rows(JSON.parse(fs.readFileSync(path.join(TREE, 'fonts', `${name}.json`), 'utf8')))));
-    ok(Math.max(...col) <= 4096 && col[0] + col[1] <= 8192 * 0.75, `${name}: Inter's and its atlases in the glyph texture (${col})`);
-});
+const ownRows = (name) => rows(JSON.parse(fs.readFileSync(path.join(TREE, 'fonts', `${name}.json`), 'utf8')));
+const langFonts = Array.from(new Set(all.map((l) => l.font).filter(Boolean)));
+const CJK = ['chinese', 'chinese-tc', 'japanese', 'korean'];
+langFonts.forEach((a) => langFonts.filter((b) => b === a || (CJK.indexOf(a) >= 0 && CJK.indexOf(b) >= 0)).forEach((b) => {
+    const col = shelves(interRows.concat(ownRows(a), a === b ? [] : ownRows(b)));
+    ok(Math.max(...col) <= 4096, `${a} then ${b}: Inter's and their atlases in the glyph texture (${col})`);
+}));
 i18n.setHmiLanguage('CHINESISCH_SIMPLE');
 const ui48 = fonts.get('bold', 50, '应用商店');
 const common = fonts.get('label', 22, '这是一个应用的说明');
@@ -261,7 +286,7 @@ ok(fonts.get('bold', 44, 'Löschen') === deBold, 'German: its atlases kept while
     i18n.setHmiLanguage(h);
     const f = fonts.get('label', 22, common);
     eq(Array.from(common).filter((ch) => !f.glyphs[ch.codePointAt(0)]), [], `${h}: a name drawn whole`);
-    ok(fonts.get('bold', 50, ui).size === 48, `${h}: its words from the sharp set`);
+    ok(fonts.get('bold', 50, ui).size === 40, `${h}: its words from the sharp set`);
 });
 i18n.setHmiLanguage('DEUTSCH');
 ok(fonts.get('bold', 44, 'Löschen') !== deBold, 'a language font let go when another is in use, read again when needed');

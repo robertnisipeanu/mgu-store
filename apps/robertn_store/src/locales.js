@@ -5564,7 +5564,7 @@ module.exports = [
    "Preferred connection": "首选连接",
    "Preferred": "首选",
    "Preferred: {0}": "首选：{0}",
-   "Rejected": "已被拒绝",
+   "Rejected": "已拒绝",
    "Releases": "发布版本",
    "Remove": "移除",
    "Remove account?": "移除此账户？",
