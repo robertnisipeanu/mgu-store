@@ -50,12 +50,19 @@ function compact(W, H) {
     const list = (name, x, y, w, h, extra) => el(name, 'appList', x, y, w, h, Object.assign({ items: '' }, LIST, extra || {}));
     const label = (name, x, y, t) => text(name, x, y, 400, 26, t, 20, 'bold', DIM);
 
+    // Update all's button, and Restart now beside it while a restart waits (store_ui.js restartNow); shown, it moves shift
+    const HB_W = 360;
+    const HB_H = 66;
+    const restartNow = (x, shift) => button('restartNow', x, M, HB_W, HB_H, 'Restart now', 'primary', 25,
+        { vicon: 'refresh', color: BLUE, hidden: true, shift });
+
     const FILTER_W = 420;
     const ONLINE_W = 190;
     const filterX = R - ONLINE_W - 20 - FILTER_W;
     const store = screen('store', 0, [
         title('Store'),
         after('subtitle', X + 160, filterX - X - 180),
+        restartNow(filterX - 16 - HB_W, { subtitle: [0, -HB_W - 16] }),
         el('filter', 'tabs', filterX, M + 2, FILTER_W, 60, { items: 'All,Apps,Tools', sel: 0, style: 'joined', size: 24 }),
         el('online', 'chips', R - ONLINE_W, M + 8, ONLINE_W, 48, { items: '', align: 'right' }),
         grid()
@@ -67,7 +74,8 @@ function compact(W, H) {
     const installed = screen('installed', 1, [
         title('Installed'),
         after('subtitle', X + 240, CW - 240 - 380),
-        button('updateAll', R - 360, M, 360, 66, '', 'primary', 25, { vicon: 'arrowDown', color: BLUE }),
+        button('updateAll', R - HB_W, M, HB_W, HB_H, '', 'primary', 25, { vicon: 'arrowDown', color: BLUE }),
+        restartNow(R - HB_W, { updateAll: [-HB_W - 16, 0], subtitle: [0, -HB_W - 16] }),
         label('appsLabel', X, HEAD + 8, 'APPS'),
         list('apps', X, LIST_Y, colW, B - LIST_Y, { empty: 'No apps installed' }),
         label('svcLabel', X + colW + 24, HEAD + 8, 'HEAD-UNIT TOOLS'),

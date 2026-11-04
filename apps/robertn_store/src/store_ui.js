@@ -17,7 +17,8 @@ const { t: tr } = require('./i18n.js');
  * updater's answer, null while it looks), tokenNote (Add token's status
  * belongs on its page) }, or null), uplinkNote (the uplink's refusal of the
  * last Wi-Fi or preferred-connection request), held (the Installed lists'
- * rows to keep in this order: { apps, services } ids, or null) }.
+ * rows to keep in this order: { apps, services } ids, and restart: whether
+ * its Restart now shows; or null) }.
  *
  * What a press does rides on the values as `act`: on a button's opts, on
  * each nav, grid and list item, on each filter cell (acts). The acts:
@@ -107,6 +108,18 @@ const busyOf = (m) => (m.connected && m.st ? m.st.busy : null);
 function canRestart(m) {
     const st = m.st;
     return !!(m.connected && st && !st.busy && st.rebooting === false && !comps(m).some((c) => c.queued));
+}
+
+/* Restart now on Store and Installed while a listed component waits for a
+ * restart (an installed tool, or an iDrive 8 app change queued for the next
+ * start) and the updater can restart the unit: it opens Restart head unit's
+ * confirm step. It stays while an install runs, so the rows after it keep
+ * their place (the focus is their index). keep: shown or not as drawn
+ * (Installed's held rows). */
+function restartNow(m, keep) {
+    return m.connected && m.st && m.st.rebooting === false && (typeof keep === 'boolean' ? keep : comps(m).some((c) => c.pendingReboot))
+        ? button(tr("Restart now"), { do: 'open', page: { name: 'confirm', kind: 'restart' } }, { vicon: 'refresh', style: 'primary', color: BLUE })
+        : hidden;
 }
 
 /* Why the last restart failed or was refused, beside Restart head unit. */
@@ -203,6 +216,7 @@ function storeView(m) {
         filter: { sel: Math.max(0, FILTERS.indexOf(m.filter)), acts: FILTERS.map((f) => ({ do: 'filter', filter: f })) },
         online: { items: !m.connected ? [] : checking ? [{ text: tr("Checking"), color: BLUE, dot: true }]
             : online ? [{ text: tr("Online"), color: GREEN, dot: true }] : [{ text: tr("Offline"), color: AMBER, dot: true }] },
+        restartNow: restartNow(m),
         grid: { items: list.map((c) => tile(m, c, busy)), empty: m.connected ? tr("Nothing here") : '' }
     };
 }
@@ -231,6 +245,7 @@ function installedView(m) {
         subtitle: { text: `${plural(apps.length, 'app')} · ${plural(tools.length, 'tool')}` },
         updateAll: updates.length ? button(tr("Update all ({0})", updates.length), { do: 'update-all' }, { vicon: 'arrowDown', style: 'primary', color: BLUE }) : hidden,
         apps: { items: apps.map(item), empty: tr("None") },
+        restartNow: restartNow(m, m.held ? m.held.restart : undefined),
         services: { items: tools.map(item), empty: tr("None"), rowH: 120 }
     };
 }
@@ -390,7 +405,8 @@ function confirmView(m, page) {
         now = button(tr("Undo update"), { do: 'undo', id: page.id }, { vicon: 'back', style: 'primary', color: BLUE });
     } else if (page.kind === 'restart') {
         title = tr("Restart head unit?");
-        now = button(tr("Restart"), { do: 'restart' }, { vicon: 'refresh', style: 'primary', color: BLUE });
+        // as Restart head unit, while the updater takes a restart
+        now = button(tr("Restart"), { do: 'restart' }, { vicon: 'refresh', style: 'primary', color: BLUE, disabled: !canRestart(m) });
     } else if (page.kind === 'source-remove') {
         const s = find(sources(m), page.id);
         title = tr("Remove source?");

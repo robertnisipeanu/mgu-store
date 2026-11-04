@@ -145,7 +145,7 @@ class Drawn extends EventEmitter {
         this.scroll = {};
         this.items = [];
         this.regions = [];
-        this.lists = null;                  // the Installed lists' rows as drawn: { apps, services } (ids), kept under its pages
+        this.lists = null;                  // the Installed lists' rows as drawn: { apps, services } (ids) and restart (Restart now shown), kept under its pages
         this.listsItems = [];               // and the Installed screen's items then
         this.dragHeld = null;               // the rows held as a drag took the focus off them
         this.visibleHosts = new Set();      // depths whose host state is visible
@@ -467,7 +467,8 @@ class Drawn extends EventEmitter {
         this.items = r.items;
         this.regions = r.regions;
         if (r.screen === 'installed') {
-            this.lists = { apps: r.values.apps.items.map((i) => i.id), services: r.values.services.items.map((i) => i.id) };
+            this.lists = { apps: r.values.apps.items.map((i) => i.id), services: r.values.services.items.map((i) => i.id),
+                restart: !r.values.restartNow.hidden };
             this.listsItems = r.items;
         } else if (this.stack.length === 1) {
             this.lists = null;
@@ -565,9 +566,9 @@ class Drawn extends EventEmitter {
         return Object.assign(this.host.model(), { stack: this.stack, tab: this.tab, filter: this.filter, held: this._held() });
     }
 
-    /* The Installed lists' rows as drawn while the focus is on one of them
-     * (the HMI's focus stays on its proxy: the rows under it stay where they
-     * are; a page opened from one comes back to it), and after a drag took
+    /* The Installed lists' rows and its Restart now as drawn while the focus
+     * is on one of the rows (the HMI's focus stays on its proxy: the rows
+     * under it stay where they are; a page opened from one comes back to it), and after a drag took
      * the focus off them until the focus moves; else null. */
     _held() {
         if (!this.lists || this.tab !== 'installed' || this.stack.length > 1) {

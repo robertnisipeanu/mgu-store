@@ -64,10 +64,10 @@ Object.keys(UNITS).forEach((unit) => fixture.screens().forEach(([name, over, stO
 
 // the Store tab: side menu, filters, a tile per component with its state
 let f = screen('store');
-eq(f.labels.slice(0, 7), ['Store', 'Installed', 'USB', 'Settings', 'All', 'Apps', 'Tools']);
-eq(f.labels.length, 7 + fixture.state().components.length - 1, 'a tile per component but the one for another head unit only');
+eq(f.labels.slice(0, 8), ['Store', 'Installed', 'USB', 'Settings', 'Restart now', 'All', 'Apps', 'Tools']);
+eq(f.labels.length, 8 + fixture.state().components.length - 1, 'a tile per component but the one for another head unit only');
 ok(f.labels.indexOf('Car Data') < 0, 'Car Data (iDrive 8 only, not installed) is not listed');
-eq(f.items[7].act, { do: 'open', page: { name: 'app', id: 'robertn_store', source: 'mgu-store', listed: 'robertn_store' } });
+eq(f.items[8].act, { do: 'open', page: { name: 'app', id: 'robertn_store', source: 'mgu-store', listed: 'robertn_store' } });
 const subs = f.values.grid.items.map((t) => t.sub);
 ['Downloading 42 %', 'Update a1b2c3d', 'Waiting', 'Restart pending', 'Failed', 'Installed', '2.1.0 · 402 KB']
     .forEach((s) => ok(subs.indexOf(s) >= 0, `a tile says ${s}`));
@@ -81,22 +81,23 @@ const many = fixture.state();
 for (let i = 0; i < 30; i++) {
     many.components.push(Object.assign({}, many.components[3], { id: `x${i}`, title: `Extra ${i}` }));
 }
+const T = 8;                    // the first tile: after the side menu, Restart now and the filters
 const scroll = {};
-f = frame(fixture.model({}, many), { textScale: 1, focus: 7 + 40, scroll, layout: ID7.layout });
-ok(scroll['store.grid'] > 0 && !f.items[47].reveal, 'the focused tile scrolled into view');
-eq(hit(f.items, f.items[47].x + 5, f.items[47].y + 5), 47);
-ok(f.items[7].reveal, 'the first tiles out of view now');
-eq(hit(f.items, f.items[7].x + 5, f.items[7].y + 5), -1, 'and not hit');
+f = frame(fixture.model({}, many), { textScale: 1, focus: T + 40, scroll, layout: ID7.layout });
+ok(scroll['store.grid'] > 0 && !f.items[T + 40].reveal, 'the focused tile scrolled into view');
+eq(hit(f.items, f.items[T + 40].x + 5, f.items[T + 40].y + 5), T + 40);
+ok(f.items[T].reveal, 'the first tiles out of view now');
+eq(hit(f.items, f.items[T].x + 5, f.items[T].y + 5), -1, 'and not hit');
 
 // a drag scrolls by the pixel: a grid stops part way through a row, both part-shown rows draw and take a tap
 const half = { 'store.grid': 0.5 };
 f = frame(fixture.model({}, many), { textScale: 1, focus: -1, scroll: half, layout: ID7.layout });
 const g = f.regions.find((r) => r.key === 'store.grid');
-eq(f.items[7].y, g.y - g.step / 2, 'the first row half scrolled out');
-eq(hit(f.items, f.items[7].x + 5, g.y + 5), 7, 'its shown half takes a tap');
-eq(hit(f.items, f.items[7].x + 5, f.items[7].y + 5), -1, 'its hidden half does not');
+eq(f.items[T].y, g.y - g.step / 2, 'the first row half scrolled out');
+eq(hit(f.items, f.items[T].x + 5, g.y + 5), T, 'its shown half takes a tap');
+eq(hit(f.items, f.items[T].x + 5, f.items[T].y + 5), -1, 'its hidden half does not');
 const low = f.items.findIndex((it) => it.y < g.y + g.h && it.y + it.h > g.y + g.h);
-ok(low > 7 && f.items[low].reveal && hit(f.items, f.items[low].x + 5, g.y + g.h - 2) === low, 'the part-shown last row takes a tap');
+ok(low > T && f.items[low].reveal && hit(f.items, f.items[low].x + 5, g.y + g.h - 2) === low, 'the part-shown last row takes a tap');
 ok(g.max % 1 !== 0, 'the grid scrolls to its last row flush with the bottom');
 
 // a component's page: its install, update, or nothing; Remove
@@ -350,6 +351,62 @@ const idle = { busy: null, components: fixture.state().components.map((c) => Obj
 ok(screen('settings', {}, idle).labels.indexOf('Restart head unit') >= 0, 'Restart head unit with nothing installing');
 const refused = Object.assign({}, idle, { rebootError: 'too soon after start-up, possible in 3 min' });
 eq(text(screen('settings', {}, refused), 'note'), 'Restart failed: too soon after start-up, possible in 3 min', 'a refused restart beside Restart head unit');
+
+// Restart now on Store and Installed: while a restart is pending and Restart head unit is offered, it opens that one's
+// confirm step; on Installed it sits right of Update all, as wide and as high
+const restartAct = { do: 'open', page: { name: 'confirm', kind: 'restart' } };
+const shown = (g) => !g.values.restartNow.hidden;
+f = screen('store-restart');
+eq(f.labels.slice(4, 8), ['Restart now', 'All', 'Apps', 'Tools'], 'Store: Restart now before the filters and the tiles');
+eq([f.items[4].act, screen('settings', {}, idle).items.find((it) => it.label === 'Restart head unit').act], [restartAct, restartAct],
+    'Restart now opens the confirm step Restart head unit opens');
+f = screen('installed-restart');
+eq(f.labels.slice(4, 6), ['Update all (3)', 'Restart now'], 'Installed: Restart now after Update all, before the rows');
+eq(f.items[5].act, restartAct);
+eq(f.values.services.items.map((i) => i.right).filter((r) => /^chip:/.test(r)), ['chip:Restart pending', 'chip:Not working'],
+    'Installed: a row restarting and one not working');
+eq([shown(screen('installed')), shown(screen('store'))], [true, true], 'kept while an install runs');
+const confirmRestart = (st) => frame(fixture.model({ stack: [{ name: 'main' }, { name: 'confirm', kind: 'restart' }] }, st),
+    { textScale: 1, focus: 0, scroll: {} }).values.now.disabled;
+eq([confirmRestart(idle), confirmRestart({})], [false, true], 'its confirm step\'s Restart: off while an install runs');
+const restarted = Object.assign({}, idle, { components: idle.components.map((c) => Object.assign({}, c, { pendingReboot: false })) });
+eq([shown(screen('store-restart', {}, restarted)), shown(screen('installed-restart', {}, restarted))], [false, false],
+    'hidden with no restart pending');
+eq(shown(screen('installed-restart', {}, { rebooting: true })), false, 'hidden while the unit restarts');
+eq(shown(screen('installed-restart', {}, { rebooting: undefined })), false, 'hidden with an updater that cannot restart');
+const otherUnit = Object.assign({}, restarted, { components: restarted.components.concat([Object.assign({}, idle.components[0],
+    { id: 'gone', compat: 'no', installed: null, status: 'available', pendingReboot: true })]) });
+eq(shown(screen('store-restart', {}, otherUnit)), false, 'a row the Store does not list counts for nothing');
+// Installed's held rows keep Restart now as drawn
+eq([shown(screen('installed-restart', { held: { apps: [], services: [], restart: false } })),
+    shown(screen('installed-restart', { held: { apps: [], services: [], restart: true } }, restarted)),
+    shown(screen('installed', { held: { apps: [], services: [], restart: true } }, { rebooting: true }))], [false, true, false],
+'Installed\'s held rows: Restart now as drawn, while the unit is not restarting');
+const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+Object.keys(UNITS).forEach((unit) => {
+    const p = UNITS[unit];
+    const at = (name, stOver) => {
+        const s = fixture.screens().find((x) => x[0] === name);
+        const m = fixture.model(s[1], Object.assign(fixture.state(), s[2], stOver || {}));
+        return frame(m, { textScale: p.scale, focus: -1, scroll: {}, layout: p.layout });
+    };
+    const item = (g, label) => g.items.find((it) => it.label === label);
+    const both = at('installed-restart');
+    const [all, now] = [item(both, 'Update all (3)'), item(both, 'Restart now')];
+    eq([now.w, now.h, now.y], [all.w, all.h, all.y], `${unit} Installed: Restart now as wide, high and placed as Update all`);
+    ok(all.x + all.w < now.x, `${unit} Installed: Update all, then Restart now, side by side`);
+    eq(item(at('installed-restart', { components: idle.components.map((c) => Object.assign({}, c, { status: 'installed' })) }), 'Restart now').x,
+        now.x, `${unit} Installed: Restart now alone where it is beside Update all`);
+    eq(item(at('installed-restart', restarted), 'Update all (3)').x + all.w, now.x + now.w,
+        `${unit} Installed: Update all alone at the right edge`);
+    const st = at('store-restart');
+    const filters = item(st, 'All');
+    ok(item(st, 'Restart now').x + item(st, 'Restart now').w < filters.x, `${unit} Store: Restart now left of the filters`);
+    [[both, 'Installed'], [st, 'Store']].forEach(([g, name]) => {
+        const it = item(g, 'Restart now');
+        eq(g.items.filter((o) => o !== it && !o.box && overlap(it, o)).map((o) => o.label), [], `${unit} ${name}: Restart now overlaps no other button`);
+    });
+});
 
 // a source: Remove; the GitHub App's install page while a sign-in does not reach it
 f = screen('source');

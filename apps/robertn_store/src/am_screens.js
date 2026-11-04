@@ -69,6 +69,25 @@ module.exports = {
      }
     },
     {
+     "name": "restartNow",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 936,
+     "y": 134,
+     "w": 540,
+     "h": 84,
+     "opts": {
+      "text": "Restart now",
+      "vicon": "refresh",
+      "style": "primary",
+      "size": 34,
+      "color": "#3d9bff",
+      "hidden": true,
+      "shift": {}
+     },
+     "onTap": "event:restartNow"
+    },
+    {
      "name": "filter",
      "rtype": "gpu",
      "gpu": "tabs",
@@ -610,6 +629,34 @@ module.exports = {
       "color": "#3d9bff"
      },
      "onTap": "event:updateAll"
+    },
+    {
+     "name": "restartNow",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 2300,
+     "y": 140,
+     "w": 540,
+     "h": 100,
+     "opts": {
+      "text": "Restart now",
+      "vicon": "refresh",
+      "style": "primary",
+      "size": 34,
+      "color": "#3d9bff",
+      "hidden": true,
+      "shift": {
+       "updateAll": [
+        -564,
+        0
+       ],
+       "subtitle": [
+        0,
+        -70
+       ]
+      }
+     },
+     "onTap": "event:restartNow"
     },
     {
      "name": "appsLabel",

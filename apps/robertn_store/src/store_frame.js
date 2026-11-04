@@ -149,7 +149,8 @@ function translated(opts) {
 /* The screen object am_gpu.js draws: the layout's components with the
  * values over their own options (a layout's own SIZES kept) and the kept
  * scroll. A text with opts.after starts at least AFTER_GAP right of the
- * end of that one's text. */
+ * end of that one's text. A shown component with opts.shift ({ name: [dx,
+ * dw] }) moves those components right by dx and widens them by dw. */
 function screenOf(v, scroll, layout) {
     const def = (layout || SCREENS).screens.find((s) => s.name === v.screen);
     const components = def.components.map((c) => {
@@ -162,9 +163,12 @@ function screenOf(v, scroll, layout) {
         }
         return Object.assign({}, c, { opts });
     });
+    const shift = Object.assign({}, ...components.filter((c) => c.opts.shift && !c.opts.hidden).map((c) => c.opts.shift));
+    const placed = components.map((c) => (!shift[c.name] ? c
+        : Object.assign({}, c, { x: c.x + shift[c.name][0], w: c.w + shift[c.name][1] })));
     return { kind: 'gpu', name: def.name, theme: def.theme, bg: 'theme',
-        components: components.map((c) => {
-            const a = c.opts.after && components.find((o) => o.name === c.opts.after);
+        components: placed.map((c) => {
+            const a = c.opts.after && placed.find((o) => o.name === c.opts.after);
             const end = a && a.opts.text ? a.x + measure.textWidth(a.opts.text, a.opts.size, { font: a.opts.font }) + AFTER_GAP : 0;
             return end > c.x ? Object.assign({}, c, { x: Math.round(end), w: Math.max(0, c.w - Math.round(end - c.x)) }) : c;
         }) };
