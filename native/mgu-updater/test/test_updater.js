@@ -4460,6 +4460,7 @@ function testProxyLease() {
     let upstream;
     let quiet;
     let web;
+    let webOpen = 0;
     let child;
     let port;
     const token = 'secret';
@@ -4479,7 +4480,7 @@ function testProxyLease() {
     });
     const get = (url) => new Promise((resolve) => {
         const t0 = Date.now();
-        const req = require('http').request({ host: '127.0.0.1', port, path: url, headers: auth }, (res) => {
+        const req = require('http').request({ host: '127.0.0.1', port, path: url, headers: Object.assign({ Connection: 'keep-alive' }, auth) }, (res) => {
             let body = '';
             res.on('data', (d) => { body += d; });
             res.on('end', () => resolve({ code: res.statusCode, body, ms: Date.now() - t0 }));
@@ -4496,6 +4497,10 @@ function testProxyLease() {
         upstream = net.createServer((c) => c.end('through\n'));
         quiet = net.createServer((c) => c.on('error', () => {}));
         web = require('http').createServer((req, res) => res.end(`got ${req.headers.host}${req.url}\n`));
+        web.on('connection', (c) => {
+            webOpen += 1;
+            c.on('close', () => { webOpen -= 1; });
+        });
         return Promise.all([listen(upstream), listen(quiet), listen(web)]);
     }).then(() => new Promise((resolve, reject) => {
         child = cp.spawn(process.execPath, [path.join(ROOT, 'js', 'proxy.js')], { stdio: ['pipe', 'pipe', 'inherit'], env: {} });
@@ -4518,6 +4523,9 @@ function testProxyLease() {
     }).then((r) => {
         ok('proxy: an http GET resolves through the lease', r.code === 200 && r.body === `got up.test:${web.address().port}/x?y\n`,
             JSON.stringify(r));
+        return new Promise((resolve) => setTimeout(resolve, 300));
+    }).then(() => {
+        ok('proxy: an http GET from a keep-alive client leaves no upstream connection open', webOpen === 0, `${webOpen} open`);
         // the uplink on a network whose name server is gone
         fs.writeFileSync(lease, JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${silentDns.address().port}`] }));
         return Promise.all([tunnel(`up.test:${upstream.address().port}`), get(`http://up.test:${web.address().port}/x`)]);

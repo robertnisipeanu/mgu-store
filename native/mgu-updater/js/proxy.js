@@ -207,6 +207,8 @@ function main(job) {
             delete headers['proxy-authorization'];
             delete headers['proxy-connection'];
             headers.host = target.host;
+            // one request a connection: nothing reuses the upstream socket, so it closes with the answer
+            headers.connection = 'close';
             const sock = net.connect(Number(target.port) || 80, ip);
             const up = http.request({ method: req.method, path: target.pathname + target.search, headers, createConnection: () => sock }, (r) => {
                 res.writeHead(r.statusCode, r.headers);
