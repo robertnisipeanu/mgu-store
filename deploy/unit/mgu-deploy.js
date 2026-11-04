@@ -17,6 +17,7 @@
  *   mgu-deploy.sh updater-sources            (sources.json on stdin)
  *   mgu-deploy.sh sdk-donor [--json]
  *   mgu-deploy.sh apply-pending              (iDrive 8, at boot: queued app changes)
+ *   mgu-deploy.sh relist                     (iDrive 8, at boot: our apps in custom_apps.json)
  *   mgu-deploy.sh remove-unused              (at boot: files a tool handed over)
  *   mgu-deploy.sh appmanager [--json] | appmanager adopt [--yes]   (IterioDev's App Manager)
  *   mgu-deploy.sh help
@@ -45,7 +46,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.15';
+var VERSION = '0.7.16';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -1986,6 +1987,11 @@ function tileFlags(entry) {
  * apps from its das files at the manager's start, and its cache is that. */
 function tileState(app, fb) {
     var visible = tileFlags(app.entry).visible, listed = fb.apps.indexOf(app.id) >= 0;
+    var named = isId8() ? provisioningNames(app.id) : null;
+    if (named !== null) {
+        visible = visible && (named || (fb.listed_by_manager || []).indexOf(app.id) >= 0);
+        return { provisioned: visible && named, fallback: visible && !named, visible: visible };
+    }
     if (isId8()) listed = listed && fb.active;
     else if (listed && !retiredBackups().length) visible = visible && fb.manager_runs_copy === true;
     return { provisioned: visible && !listed, fallback: visible && listed, visible: visible };
@@ -4118,6 +4124,114 @@ function uninstallAppId8(id, state, queueOnly) {
     queueId8({ action: 'remove', id: id });
     say(id + ' is ' + ID8_REMOVES + ' of the head unit');
 }
+/* ---- iDrive 8: our apps' listing under backend provisioning -------------------------- */
+/* Telematics serves the das files until the car's first sync with BMW's
+ * backend (Update apps and services); from then on it serves the
+ * backend's provisioning (ProvSigned.xml), which has no section for our
+ * apps, and MainApp-21 gives an app with no section no tile. The fallback
+ * copy gives such an app the flags custom_apps.json lists for it, so every
+ * app of ours the das files list (registered, or with its package in
+ * place) keeps an entry there with its das line's flags: an install,
+ * apply-pending, status (run as root, as the updater does) and the boot
+ * unit put a missing one back. An app with a queued removal is left out.
+ * The copy records the sections it filled for the running MainApp-21 in
+ * mgu-deploy-listed.json beside custom_apps.json. */
+function provSignedFile() { return path.join(CFG.varOpt, 'public', 'tm', 'tm_12000', 'data', 'prov', 'ProvSigned.xml'); }
+function listedRecordFile() { return path.join(mgrHome(), 'data', 'mgu-deploy-listed.json'); }
+function reEscape(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+/* The flags of the app's enable line in the first das file that has one,
+ * or null. */
+function dasFlags(id) {
+    var re = new RegExp('<' + reEscape(id) + '((?:\\s+[\\w-]+="[^"]*")*)\\s*/>'), flags = null;
+    DAS.some(function (d) {
+        var x = '', m;
+        try { x = fs.readFileSync(dasFile(d), 'utf8'); } catch (e) { return false; }
+        if (!(m = re.exec(x))) return false;
+        flags = {};
+        m[1].replace(/([\w-]+)="([^"]*)"/g, function (all, k, v) { flags['-' + k] = v; });
+        return true;
+    });
+    return flags;
+}
+function id8Unlisted() {
+    var listed = readCustomApps(), removing = readPending().filter(function (c) { return c.action === 'remove'; })
+        .map(function (c) { return c.id; });
+    return dasApps().filter(function (id) {
+        return !Object.prototype.hasOwnProperty.call(listed, id) && removing.indexOf(id) < 0 &&
+            (!!lstatOrNull(appEntryFile(id)) || preinstalledFor(id).length > 0) && !!dasFlags(id);
+    });
+}
+/* The missing entries put in; the ids listed. */
+function relistId8() {
+    var ids = id8Unlisted();
+    ids.forEach(function (id) { customAppsPut(id, dasFlags(id)); });
+    return ids;
+}
+/* Whether the provisioning Telematics serves has the app's section: the
+ * backend's once the car has it, else the das files'. Null when the
+ * backend's cannot be read (not root). */
+var provSignedText;
+function provisioningNames(id) {
+    if (provSignedText === undefined) {
+        try { provSignedText = fs.readFileSync(provSignedFile(), 'utf8'); }
+        catch (e) { provSignedText = e.code === 'ENOENT' ? null : false; }
+    }
+    if (provSignedText === false) return null;
+    if (provSignedText === null) return !!dasFlags(id);
+    return new RegExp('<' + reEscape(id) + '[\\s/>]').test(provSignedText);
+}
+/* The apps whose missing section the running MainApp-21's copy filled. */
+function filledByManager() {
+    var r = readJsonOrNull(listedRecordFile()), pid = managerPid();
+    return r && pid && r.pid === pid && Array.isArray(r.apps) ? r.apps : [];
+}
+function fallbackUnitOld() {
+    return fallbackPresent() && !bytesEqualFile(fs.readFileSync(fallbackUnitSource()), path.join(CFG.systemd, FALLBACK_UNIT));
+}
+/* status, run as root: relistId8, and the fallback's boot unit brought up
+ * to date; both count from MainApp-21's next start. */
+function syncListingId8() {
+    if (!isId8()) return null;
+    var out = process.stdout.write, locked = false;
+    process.stdout.write = function () { return true; };
+    try {
+        if (!id8Unlisted().length && !fallbackUnitOld()) return { state: 'ok', reason: 'every app of ours is listed' };
+        if (!FAKE && process.getuid() !== 0) return { state: 'pending', reason: 'status not run as root' };
+        if (!runningInstalled() && !FAKE) return { state: 'pending', reason: 'this deploy tool is not the installed one' };
+        locked = statusLock();
+        if (!locked) return { state: 'pending', reason: 'another mgu-deploy run holds the lock' };
+        var ids = relistId8(), done = ids.length ? ['listed ' + ids.join(', ')] : [];
+        if (ids.length) process.stderr.write('listed for the provisioning fallback, from the next start: ' + ids.join(', ') + '\n');
+        if (fallbackUnitOld()) {
+            var busy = rootBusy();
+            if (busy) return { state: ids.length ? 'changed' : 'pending', reason: done.concat(['boot unit: ' + busy]).join('; ') };
+            var state = loadState();
+            takeSnapshot('listing', fallbackTouched());
+            ensureFallback(state, true);
+            saveState(state);
+            pruneBackups();
+            done.push('boot unit brought up to date');
+        }
+        return { state: 'changed', reason: done.join('; ') };
+    } catch (e) {
+        process.stderr.write('mgu-deploy: our apps not listed again: ' + e.message + '\n');
+        return { state: 'error', reason: e.message };
+    } finally {
+        if (locked) releaseLock();
+        process.stdout.write = out;
+    }
+}
+/* relist (the fallback's boot unit, before MainApp-21): relistId8 when
+ * the lock is free. */
+function cmdRelist() {
+    if (!isId8()) { say('nothing to list: not iDrive 8'); return 0; }
+    if (!statusLock()) { say('another mgu-deploy run holds the lock; status lists them'); return 0; }
+    try {
+        var ids = relistId8();
+        say(ids.length ? 'listed for the provisioning fallback: ' + ids.join(', ') : 'every app of ours is listed');
+        return 0;
+    } finally { releaseLock(); }
+}
 /* ---- iDrive 8: app changes in place ------------------------------------------------- */
 /* While the fallback copy (fallback_build.js, MainApp-21's variant) is
  * bound over MainApp-21's main.js and the running MainApp-21 started on it,
@@ -4455,6 +4569,10 @@ function cmdApplyPending() {
         }
         results.push(res);
     });
+    try {
+        var listedNow = relistId8();
+        if (listedNow.length) say('listed for the provisioning fallback: ' + listedNow.join(', '));
+    } catch (e) { process.stderr.write('listing for the provisioning fallback failed: ' + e.message + '\n'); }
     if (results.length) writeAtomic(ID8_LAST, JSON.stringify({ at: new Date().toISOString(), results: results }, null, 2) + '\n', 0o644);
     changes.forEach(function (c) { if (c.file) rmrf(c.file); });
     writePending([], kept);
@@ -5330,6 +5448,7 @@ function journalTail(unit) {
 function collectStatus(state) {
     var fb = fallbackState(), components = [], pending = [], seen = {};
     fb.manager_runs_copy = isId8() ? null : managerRunsCopy();
+    if (isId8()) fb.listed_by_manager = filledByManager();
     fb.refused = state.fallback_refused || null;
     function pend(id, reason) {
         var k = id + ':' + reason;
@@ -5373,16 +5492,18 @@ function collectStatus(state) {
         idrive7: { apps: i7Apps(state) },
         stock_backup: fs.existsSync(path.join(BACKUPS_DIR, 'stock')) };
 }
-function cmdStatus(args, crashList, live, limits) {
+function cmdStatus(args, crashList, live, limits, listing) {
     var s = collectStatus(loadState());
     s.crash_list = crashList;
     s.service_limits = limits;
     if (live) s.live_installs = live;
+    if (listing) s.listing = listing;
     s.app_privacy_record = privacyRecord();
     if (args.json) { say(JSON.stringify(s)); return 0; }
     say('crash handler whitelist: ' + crashList.state + ' (' + crashList.reason + ')');
     say('service limits: ' + limits.state + ' (' + limits.reason + ')');
     if (live) say('live app installs: ' + live.state + ' (' + live.reason + ')');
+    if (listing) say('our apps listed for the fallback: ' + listing.state + ' (' + listing.reason + ')');
     say('mgu-deploy ' + VERSION);
     say('head unit: ' + (s.unit.hmi ? hmiName(s.unit.hmi) : 'unknown') + ' (' + unitInfo().basis + '), firmware ' +
         (s.unit.firmware || 'unknown'));
@@ -5506,6 +5627,7 @@ function cmdCheck(args) {
     bridgeTodoLines().forEach(function (l) { say('  ' + l); });
     var fb = fallbackState();
     fb.manager_runs_copy = isId8() ? null : managerRunsCopy();
+    if (isId8()) fb.listed_by_manager = filledByManager();
     say('fallback: ' + (fb.active ? 'active' : 'inactive'));
     installedApps().forEach(function (app) {
         var tile = tileState(app, fb);
@@ -5898,6 +6020,10 @@ function installRun(args, afresh) {
             }
         });
         if (relist) { attempted = true; relistApps(state); }
+        if (id8 && !noOap) {
+            var listedNow = relistId8();
+            if (listedNow.length) say('listed for the provisioning fallback, from the next start of the head unit: ' + listedNow.join(', '));
+        }
         settlePrivacyBounce();
         /* out of the staging folder, which goes before they install */
         Object.keys(elsewhere).forEach(function (id) {
@@ -6395,6 +6521,7 @@ var HELP = [
     '  updater-sources                  seed the updater\'s sources.json from stdin (kept when present)',
     '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle, and its oap-sdk module',
     '  apply-pending                    iDrive 8: apply the queued app changes (at boot, before MainApp)',
+    '  relist                           iDrive 8: list our das-listed apps in custom_apps.json (at boot, before MainApp)',
     '  verify                           check the tools updated for this start; roll back one that does not work (at boot)',
     '  remove-unused                    remove the files tools handed over that no process runs (at boot)',
     '  appmanager [--json]              IterioDev\'s App Manager on this unit: its service and what was adopted',
@@ -6442,7 +6569,11 @@ function runCommand() {
         if (args.command === 'help' || args.command === '--help') { say(HELP); return 0; }
         if (args.command === 'check') return cmdCheck(args);
         if (args.command === 'install') return cmdInstall(args);
-        if (args.command === 'status') return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits());
+        if (args.command === 'status') return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits(), syncListingId8());
+        if (args.command === 'relist') {
+            if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0) throw refuse('run as root');
+            return cmdRelist();
+        }
         if (args.command === 'uninstall') return cmdUninstall(args);
         if (args.command === 'rollback') return cmdRollback(args);
         if (args.command === 'restore') return cmdRestore(args);
