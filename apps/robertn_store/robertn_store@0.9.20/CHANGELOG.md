@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.20
+
+Tiles, Installed rows and the widget screens' rows show who an app or
+tool comes from: its repo's owner (`IterioDev`), a catalog's host, or a USB
+stick's label. Where two of them with the same name come from one owner's
+two repos, those show `owner/repo`. A component's page shows the full
+`owner/repo`.
+
 ## 0.9.19
 
 The Store, its tile name and the titles and descriptions of the catalog's

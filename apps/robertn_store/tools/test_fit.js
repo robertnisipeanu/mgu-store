@@ -17,6 +17,7 @@ const LOCALES = require(path.join(SRC, 'locales.js'));
 const { Recorder } = require(path.join(SRC, 'kit_record.js'));
 const { frame, placement } = require(path.join(SRC, 'store_frame.js'));
 const fixture = require('./fixture.js');
+const { sourceAuthor } = require(path.join(SRC, 'store_view.js'));
 
 const UNITS = { 'iDrive 7': placement(1796, 632), 'iDrive 8': placement(2880, 764) };
 
@@ -59,6 +60,7 @@ const english = drawn();
 const enWords = {};
 LOCALES[0] && Object.keys(LOCALES[0].words).forEach((k) => { enWords[k] = k; });
 const problems = [];
+const authors = fixture.state().sources.map(sourceAuthor);
 LOCALES.filter((l) => l.drawn !== false && (!only.length || only.indexOf(l.code) >= 0)).forEach((l) => {
     i18n.setHmiLanguage(l.hmiLanguages[0]);
     i18n.useDrawn(true);
@@ -68,9 +70,11 @@ LOCALES.filter((l) => l.drawn !== false && (!only.length || only.indexOf(l.code)
         cutWords(shown[screen], l.words).filter((k) => !enCut.has(k))
             .forEach((k) => problems.push(`${l.code} ${screen}: "${l.words[k]}" (${k})`));
         // texts with values in them: no more cut than in English, but for a network's name after its state
+        // or a row's source author at its end
         const tails = ['Online{0}', 'Connected{0}', 'Connecting{0}'].map((k) => l.words[k].replace('{0}', ' · '));
+        const author = (s) => { const a = / · ([^·]+)…$/.exec(s); return !!a && authors.some((n) => n.indexOf(a[1]) === 0); };
         const cut = (texts) => texts.filter((s) => /…$/.test(s) && !Object.keys(l.words).some((k) => l.words[k] === s) &&
-            !tails.some((tl) => s.indexOf(tl) === 0));
+            !tails.some((tl) => s.indexOf(tl) === 0) && !author(s));
         if (cut(shown[screen]).length > cut(english[screen]).length) {
             problems.push(`${l.code} ${screen}: ${cut(shown[screen]).join(' | ')}`);
         }

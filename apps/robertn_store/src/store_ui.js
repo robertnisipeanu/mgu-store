@@ -75,9 +75,11 @@ const rawComps = (m) => (m.connected && m.st && Array.isArray(m.st.components) ?
 function comps(m) {
     return rawComps(m).filter(listed);
 }
-const srcName = (m, c) => (c.source && sourceNames(sources(m))[c.source]) || '';
-/* Its title, with its source's short name where another listed row has the same title (two sources' DOOM). */
-const named = (m, c) => (srcName(m, c) && comps(m).some((o) => o !== c && o.title === c.title) ? `${c.title} (${srcName(m, c)})` : c.title);
+/* Its title, with its source's name where another listed row has the same title (two sources' DOOM). */
+function named(m, c) {
+    const name = sourceNames(comps(m), sources(m))(c);
+    return name && comps(m).some((o) => o !== c && o.title === c.title) ? `${c.title} (${name})` : c.title;
+}
 /* A component's page: its row, else (its row's id changed with an install)
  * the row of the same source and listed id, else (its source turned to a
  * stick copying it, or back) the row of its id. */
@@ -183,8 +185,9 @@ function pending(c, busy) {
     return !notForUnit(c) && !c.blocked && !!(c.error || startPending(c) || c.status === 'update' || c.pendingReboot);
 }
 
-function tile(m, c, busy) {
-    return Object.assign(iconOf(c), { id: c.id, title: c.title, src: srcName(m, c), act: { do: 'open', page: pageOf(c) } }, tileState(c, busy));
+/* A tile; name: its screen's sourceNames. */
+function tile(m, c, busy, name) {
+    return Object.assign(iconOf(c), { id: c.id, title: c.title, src: name(c), act: { do: 'open', page: pageOf(c) } }, tileState(c, busy));
 }
 
 function nav(m, sel) {
@@ -207,6 +210,7 @@ function storeView(m) {
     // the status line names a row as the tiles tell it apart
     const st = m.st && Object.assign({}, m.st, { components: m.st.components.map((c) => (listed(c) ? Object.assign({}, c, { title: named(m, c) }) : c)) });
     const list = comps(m).filter((c) => m.filter === 'all' || (m.filter === 'app' ? !isTool(c) : isTool(c)));
+    const name = sourceNames(list, sources(m));
     const checking = !!(m.connected && m.st && m.st.catalog && m.st.catalog.checking);
     const online = m.connected && m.st && m.st.online;
     return {
@@ -217,7 +221,7 @@ function storeView(m) {
         online: { items: !m.connected ? [] : checking ? [{ text: tr("Checking"), color: BLUE, dot: true }]
             : online ? [{ text: tr("Online"), color: GREEN, dot: true }] : [{ text: tr("Offline"), color: AMBER, dot: true }] },
         restartNow: restartNow(m),
-        grid: { items: list.map((c) => tile(m, c, busy)), empty: m.connected ? tr("Nothing here") : '' }
+        grid: { items: list.map((c) => tile(m, c, busy, name)), empty: m.connected ? tr("Nothing here") : '' }
     };
 }
 
@@ -231,12 +235,13 @@ function installedView(m) {
     const apps = keep(all.filter((c) => !isTool(c)), m.held && m.held.apps);
     const tools = keep(all.filter(isTool), m.held && m.held.services);
     const updates = all.filter((c) => c.status === 'update' && rowAction(c, busy) === 'install');
+    const name = sourceNames(all, sources(m));
     const item = (c) => {
         const s = tileState(c, busy);
         const up = c.status === 'update' && s.badge === 'update';
         const open = { do: 'open', page: pageOf(c) };
         return Object.assign(iconOf(c), { id: c.id, title: c.title, act: open,
-            sub: [up ? `${c.installed} → ${target(c)}` : `${c.installed}${isTool(c) ? tr(' · tool') : ''}`, srcName(m, c)].filter(Boolean).join(' · '), subColor: up ? BLUE : DIM,
+            sub: [up ? `${c.installed} → ${target(c)}` : `${c.installed}${isTool(c) ? tr(' · tool') : ''}`, name(c)].filter(Boolean).join(' · '), subColor: up ? BLUE : DIM,
             right: up ? 'chip:' + tr('Update') : s.sub !== tr("Installed") ? `chip:${s.sub}` : 'chevron', chipColor: up ? BLUE : s.subColor,
             chipAct: up ? { do: 'install', id: c.id } : null });
     };
@@ -255,10 +260,11 @@ function usbView(m) {
     const usb = (sources(m) || []).filter((s) => s.usb);
     const ids = usb.map((s) => s.id);
     const list = comps(m).filter((c) => ids.indexOf(c.source) >= 0);
+    const name = sourceNames(list, sources(m));
     return {
         title: { text: 'USB' },
         subtitle: { text: usb.length ? `${usb.map(sourceLabel).join(', ')} · ${plural(list.length, 'package')}` : '' },
-        grid: { items: list.map((c) => tile(m, c, busy)), empty: usb.length ? tr("Nothing here") : tr("No USB stick") }
+        grid: { items: list.map((c) => tile(m, c, busy, name)), empty: usb.length ? tr("Nothing here") : tr("No USB stick") }
     };
 }
 

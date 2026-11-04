@@ -1,4 +1,4 @@
-# robertn_store 0.9.19
+# robertn_store 0.9.20
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -26,10 +26,11 @@ USB, Settings) beside:
 
 - **Store**: All / Apps / Tools, Online / Offline / Checking, the status line
   (or the running install; an app whose title another listed app has is
-  named with its source, `DOOM (idrive7-apps)`), a grid of tiles: the package's picture when the
+  named with its source, `DOOM (cauliflowermossgrape)`), a grid of tiles: the package's picture when the
   updater names one (`components[].icon`, a PNG file), else a letter tile
-  (round for a tool), its name, its source under it (the repo's name,
-  `owner/repo` where two sources share a repo name, a catalog's host), its state (`Installed`, `Update 1.0.1`, `Downloading
+  (round for a tool), its name, its author under it (the repo's owner,
+  a catalog's host, a USB stick's label; `owner/repo` where another tile of the
+  same name comes from the same author), its state (`Installed`, `Update 1.0.1`, `Downloading
   42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`, `Not working`,
   version and size) and a badge or progress ring. While a listed app or tool waits
   for a restart, **Restart now** sits left of the filters: Settings' confirm
@@ -49,7 +50,7 @@ USB, Settings) beside:
   queued for the next start: its row shows `Restart pending`, as a tool
   pending a restart does.
 - **Installed**: apps and head-unit tools, each with its version and
-  source, its update (a press on Update installs it) or state, Update all,
+  author (as on Store), its update (a press on Update installs it) or state, Update all,
   and Restart now beside it (as on Store). The ones with something running or
   waiting (an install, update or removal, a queued one, an update, a failure,
   a restart pending) come first; while the focus is on a row, the rows and
@@ -174,6 +175,8 @@ after the head unit's next start.
 | `Car Data` · `Not for this head unit` | nothing (installed; the updater marks the new version `compat: "no"`); *Remove?* when `uninstallable` |
 | `DOOM` · `Failed, retry` | try again (the status line names the error); a removal the last start failed to apply is removed again (*Remove?*); an install it failed to apply is installed again, and its page also has *Remove* (when `uninstallable`), which clears it |
 | `Renderer` · `Install 0.2.0` | install it (beside another installed renderer) |
+
+Each row's name ends with its author, as on the Store's tiles: `DOOM (cauliflowermossgrape)`.
 
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,
 `Checking for updates`, `Restarting`, the last error; `Restart the head
@@ -393,15 +396,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.19/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.20/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.19.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.19.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.20.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.20.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

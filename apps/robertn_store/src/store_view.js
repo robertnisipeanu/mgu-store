@@ -50,17 +50,34 @@ function startPending(row) {
         : !!row.pendingReboot && row.kind === 'app' && (row.status === 'update' || row.status === 'available');
 }
 
-/* Each source's short name, by id: an https URL's host, else the last part
- * of its owner/repo or folder path, or the whole label where another
- * source's last part is the same (two people's `apps`). */
-function sourceNames(sources) {
-    const label = (s) => String(s.label || s.id).replace(/^https:\/\/([^/]+).*$/, '$1');
-    const last = (s) => label(s).split('/').pop();
-    const names = {};
-    (sources || []).forEach((s) => {
-        names[s.id] = (sources || []).some((o) => o.id !== s.id && label(o) !== label(s) && last(o) === last(s)) ? label(s) : last(s);
-    });
-    return names;
+/* Where a source's components come from, as their rows show it: a GitHub
+ * repo's owner, an https source's host, a USB stick's label. */
+function sourceAuthor(src) {
+    const label = String(src.label || src.id);
+    if (src.usb || src.type === 'usb') {
+        return label;
+    }
+    if (/^https:\/\//.test(label)) {
+        return label.replace(/^https:\/\/([^/]+).*$/, '$1');
+    }
+    return label.indexOf('/') > 0 ? label.slice(0, label.indexOf('/')) : label;
+}
+
+/* The source name of each of a screen's rows (row -> text): its source's
+ * author, or its whole owner/repo where another of the rows has the same
+ * title and the same author from another source (one owner's two repos'
+ * DOOM). '' for a row of no known source. */
+function sourceNames(rows, sources) {
+    const of = (r) => (r && r.source && (sources || []).find((s) => s.id === r.source)) || null;
+    const author = (r) => (of(r) ? sourceAuthor(of(r)) : '');
+    return (r) => {
+        const s = of(r);
+        if (!s) {
+            return '';
+        }
+        const twin = (rows || []).some((o) => o !== r && o.title === r.title && o.source !== r.source && author(o) === author(r));
+        return twin && !(s.usb || s.type === 'usb') ? String(s.label || s.id).replace(/^https:\/\//, '') : author(r);
+    };
 }
 
 /* The updater's state with each component's title and description in the
@@ -73,12 +90,10 @@ function localized(st) {
         ? Object.assign({}, c, { title: i18n.text(c, 'title'), description: i18n.text(c, 'description') }) : c)) });
 }
 
-/* The components, each titled with its source's name where another
- * source lists one of the same id (two repositories' Doom). */
+/* The components, each titled with its source's name (sourceNames). */
 function withSources(rows, sources) {
-    const names = sourceNames(sources);
-    const twin = (r) => r.source && (rows || []).some((o) => (o.listedId || o.id) === (r.listedId || r.id) && o.source && o.source !== r.source);
-    return (rows || []).map((r) => (twin(r) && names[r.source] ? Object.assign({}, r, { title: `${r.title} (${names[r.source]})` }) : r));
+    const name = sourceNames(rows, sources);
+    return (rows || []).map((r) => (name(r) ? Object.assign({}, r, { title: `${r.title} (${name(r)})` }) : r));
 }
 
 /* The second column of a component's row. */
@@ -402,6 +417,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { localized, listed, startPending, sourceNames, withSources, removable, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };
