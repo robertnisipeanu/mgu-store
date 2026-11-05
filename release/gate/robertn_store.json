@@ -1,47 +1,47 @@
 {
   "id": "robertn_store",
-  "version": "0.9.21",
-  "source": "b02b4dd973111a86aa89a7a19f6f20355333b23f",
+  "version": "0.9.22",
+  "source": "c812468eee5a4c43aa4dc516c6538914e71c211f",
   "result": "pass",
   "unit": "id7",
   "emulator": "deb756780bddf43178501ea43b40b952e04d7df2",
-  "artifactSha256": "33ae760bd0dad6924dadfacf6e5889e75c10d1479aa4e53137832ac4774989c9",
-  "minutes": 6.3,
+  "artifactSha256": "071b8b2363985c273e46576bea3cf87570dbc8daae6e5797ab4b425598b7590e",
+  "minutes": 6.2,
   "cases": [
     {
       "name": "installed on its own over the published release",
       "ok": true,
-      "detail": "robertn_store 0.9.21 updated in place by the app manager (pid 880) as uid 12204 (source PREINSTALLED)"
+      "detail": "robertn_store 0.9.22 updated in place by the app manager (pid 864) as uid 12204 (source PREINSTALLED)"
     },
     {
       "name": "after the head-unit restart, the Store in its page (embed)",
       "ok": true,
-      "detail": "in front, 636 colours"
+      "detail": "in front, 686 colours"
     },
     {
       "name": "renderer restarted, the Store on its own layer",
       "ok": true,
-      "detail": "in front, 649 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 132 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "another program sets the screen's layers without ours while shown",
       "ok": true,
-      "detail": "in front, 649 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 132 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "the Store opened again",
       "ok": true,
-      "detail": "in front, 649 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 674 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "a client open since before adds its layer while shown; ours back, its layer kept",
       "ok": true,
-      "detail": "in front, 649 colours, layers 0x64 0x4d47fff0 0x4d520000"
+      "detail": "in front, 668 colours, layers 0x64 0x4d47fff0 0x4d520000"
     },
     {
       "name": "renderer restarted while the Store shows",
       "ok": true,
-      "detail": "in front, 649 colours, layers 0x64 0x4d47fff0 0x4d520000"
+      "detail": "in front, 668 colours, layers 0x64 0x4d47fff0 0x4d520000"
     }
   ]
 }
