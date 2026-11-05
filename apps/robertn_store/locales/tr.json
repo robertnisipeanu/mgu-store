@@ -184,6 +184,9 @@
     "Use http://host:port or socks5://host:port": "http://host:port veya socks5://host:port kullanın",
     "Paused for wireless {0}": "Duraklatıldı: kablosuz {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "5 GHz'e izin ver",
+    "On the iPhone, turn on Maximize Compatibility": "iPhone'da Uyumluluğu Artır'ı açın",
+    "This network is 5 GHz only: CarPlay audio may drop": "Bu ağ yalnızca 5 GHz: CarPlay sesi kesilebilir"
   }
 }

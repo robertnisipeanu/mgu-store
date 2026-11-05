@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Writes robertn_store@0.9.24's application.xml and uiDescription.json for
+ * Writes robertn_store@0.9.25's application.xml and uiDescription.json for
  * iDrive 7 (uiDescriptions/ID7) and iDrive 8 (uiDescriptions/ID8) from the
  * tables below, so container and component ids, names, widgets and cells
  * stay in lockstep.
@@ -81,7 +81,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PKG = path.join(__dirname, '..', 'robertn_store@0.9.24');
+const PKG = path.join(__dirname, '..', 'robertn_store@0.9.25');
 const DIR = (hmi) => path.join(PKG, 'rhmiData', 'uiDescriptions', hmi);
 const TEXTS = path.join(PKG, 'rhmiData', 'variantGroups', 'Common', 'texts');
 const ID7 = DIR('ID7');

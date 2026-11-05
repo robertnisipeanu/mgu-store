@@ -1,4 +1,4 @@
-# robertn_store 0.9.24
+# robertn_store 0.9.25
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -7,7 +7,7 @@ It is the screen of [mgu-updater](../../native/mgu-updater/README.md),
 which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
 privileged ones (uninstall, source-add, source-probe, source-remove, token-add, token-remove,
-login-start, login-cancel, web, proxy-set, and uplink-prefer, wifi-enable, wifi-scan, wifi-connect,
+login-start, login-cancel, web, proxy-set, and uplink-prefer, wifi-enable, wifi-5ghz, wifi-scan, wifi-connect,
 wifi-forget, which the updater relays to [mgu-uplink](../../native/mgu-uplink/README.md)),
 which carry the secret the updater leaves in the app's data folder
 (`data/updater-secret`, read again for every request). It is for iDrive 7
@@ -335,7 +335,14 @@ wireless CarPlay or Android Auto keeps the uplink from searching by itself
 `Paused for wireless CarPlay` (or Android Auto). While Wi-Fi is joined and
 the uplink reads the access point's frequency (`wifi.freq`, mgu-uplink
 0.7.5), the row and the joined network's row on the page add its band
-(`Online · <network> · 5 GHz`, `· 2.4 GHz`). Its page (from IterioDev App Manager 2.0.6's Wi-Fi page) lists,
+(`Online · <network> · 5 GHz`, `· 2.4 GHz`). Above the networks, while Wi-Fi is on
+and the uplink has it (mgu-uplink 0.7.6, `wifi.allow5ghz`), **Allow 5
+GHz** is a switch (`wifi-5ghz`, through mgu-updater 0.8.28): off, the
+uplink joins a network seen on 2.4 GHz there only. Joined on 5 GHz to a
+network without 2.4 GHz with it off (`wifi.fiveOnly`), the panel says
+`This network is 5 GHz only: CarPlay audio may drop`, or, for a network
+named like an iPhone's hotspot, `On the iPhone, turn on Maximize
+Compatibility`. Its page (from IterioDev App Manager 2.0.6's Wi-Fi page) lists,
 while Wi-Fi is on, the network joined first, then the latest scan's,
 strongest first, then saved ones out of range, each with `Online` /
 `Connected` / `Connecting`, `Saved`, `Secured` or `Open` and its signal
@@ -405,15 +412,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.24/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.25/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.24.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.24.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.25.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.25.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

@@ -184,6 +184,9 @@
     "Use http://host:port or socks5://host:port": "Käytä muotoa http://host:port tai socks5://host:port",
     "Paused for wireless {0}": "Tauolla: langaton {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Salli 5 GHz",
+    "On the iPhone, turn on Maximize Compatibility": "Laita iPhonessa päälle Maksimoi yhteensopivuus",
+    "This network is 5 GHz only: CarPlay audio may drop": "Tämä verkko on vain 5 GHz: CarPlayn ääni voi katkeilla"
   }
 }

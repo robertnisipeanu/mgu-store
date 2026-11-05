@@ -184,6 +184,9 @@
     "Use http://host:port or socks5://host:port": "Použite http://host:port alebo socks5://host:port",
     "Paused for wireless {0}": "Pozastavené: bezdrôtové {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Povoliť 5 GHz",
+    "On the iPhone, turn on Maximize Compatibility": "Na iPhone zapnite Maximalizovať kompatibilitu",
+    "This network is 5 GHz only: CarPlay audio may drop": "Táto sieť je len 5 GHz: zvuk CarPlay môže vypadávať"
   }
 }

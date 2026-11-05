@@ -1827,13 +1827,26 @@ module.exports = {
      }
     },
     {
-     "name": "networks",
+     "name": "allow5",
      "rtype": "gpu",
      "gpu": "appList",
      "x": 480,
      "y": 292,
      "w": 1560,
-     "h": 540,
+     "h": 108,
+     "opts": {
+      "items": [],
+      "rowH": 108
+     }
+    },
+    {
+     "name": "networks",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 480,
+     "y": 412,
+     "w": 1560,
+     "h": 420,
      "opts": {
       "items": [],
       "rowH": 108,

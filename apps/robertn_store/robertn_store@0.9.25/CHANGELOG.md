@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.25
+
+The Wi-Fi page has **Allow 5 GHz** (mgu-uplink 0.7.6), off by default:
+the uplink then joins a network seen on 2.4 GHz there only, which keeps
+5 GHz to wireless CarPlay and Android Auto. Joined on 5 GHz to a network
+without 2.4 GHz, the page says `This network is 5 GHz only: CarPlay
+audio may drop`, or for an iPhone's hotspot `On the iPhone, turn on
+Maximize Compatibility`. Requires mgu-updater 0.8.28, which relays the
+setting.
+
 ## 0.9.24
 
 While wireless CarPlay or Android Auto keeps the uplink from searching for

@@ -184,6 +184,9 @@
     "Use http://host:port or socks5://host:port": "Brug http://host:port eller socks5://host:port",
     "Paused for wireless {0}": "På pause: trådløs {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Tillad 5 GHz",
+    "On the iPhone, turn on Maximize Compatibility": "Slå Maksimer kompatibilitet til på iPhone",
+    "This network is 5 GHz only: CarPlay audio may drop": "Dette netværk er kun 5 GHz: CarPlay-lyd kan falde ud"
   }
 }
