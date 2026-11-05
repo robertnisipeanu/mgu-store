@@ -2397,10 +2397,10 @@ class Updater {
     }
 
     /* Takes the next request: the first that does not need a newer updater
-     * than this one, the Store's own install after the others, since it
-     * closes the Store; the updater's own update when only those are left
-     * (the rest of the queue is kept for the new version, queue.json), else
-     * last, since it restarts the daemon. */
+     * than this one; when only requests that need one are left, the
+     * updater's own update (the rest of the queue is kept for the new
+     * version, queue.json), else last, since it restarts the daemon; the
+     * Store's own install after all of them, since it closes the Store. */
     next() {
         const needsSelf = (q) => {
             const rt = q.op === 'install' && q.id !== SELF && this.src.get(q.source);
@@ -2411,10 +2411,10 @@ class Updater {
         const store = (q) => q.op === 'install' && (q.unit || q.id) === this.conf.store_app;
         let i = this.queue.findIndex((q) => q.id !== SELF && !needsSelf(q) && !store(q));
         if (i < 0) {
-            i = this.queue.findIndex((q) => q.id !== SELF && !needsSelf(q));
+            i = this.queue.findIndex((q) => q.id === SELF);
         }
         if (i < 0) {
-            i = Math.max(0, this.queue.findIndex((q) => q.id === SELF));
+            i = Math.max(0, this.queue.findIndex((q) => !needsSelf(q)));
         }
         const item = this.queue.splice(i, 1)[0];
         if (!item) {

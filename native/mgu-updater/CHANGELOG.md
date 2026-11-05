@@ -2,7 +2,7 @@
 
 ## 0.8.26
 
-- The Store's own install runs after the other queued installs and removals, and before the updater's own update: it closes the Store, which shows the rest of the queue until then.
+- The Store's own install runs after every other queued request, the updater's own update and what waits for it included: it closes the Store, which shows the rest of the queue until then.
 - The service runs at `Nice=10` (from the next start of the head unit), so downloads, builds and installs give way to the HMI.
 
 ## 0.8.25
