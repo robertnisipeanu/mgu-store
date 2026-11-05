@@ -1056,7 +1056,7 @@ func (p *wifiProvider) openLink(ssid string) *wifiLink {
 	l := &wifiLink{p: p, iface: p.iface, ssid: ssid, done: make(chan struct{}), stop: make(chan struct{})}
 	p.link = l
 	p.mu.Unlock()
-	go l.watch()
+	go l.watch(wifiEvery, wifiDropAfter)
 	return l
 }
 
@@ -1067,8 +1067,10 @@ func (l *wifiLink) end(err error) {
 	})
 }
 
-func (l *wifiLink) watch() {
-	t := time.NewTicker(wifiEvery)
+// watch looks at the link at the interval openLink read (wifiEvery,
+// wifiDropAfter), so that it never reads them itself.
+func (l *wifiLink) watch(every, dropAfter time.Duration) {
+	t := time.NewTicker(every)
 	defer t.Stop()
 	var lost time.Time
 	for {
@@ -1089,7 +1091,7 @@ func (l *wifiLink) watch() {
 			l.end(fmt.Errorf("joined %s instead", ssid))
 		case lost.IsZero():
 			lost = time.Now()
-		case time.Since(lost) >= wifiDropAfter:
+		case time.Since(lost) >= dropAfter:
 			l.end(fmt.Errorf("%s is gone", l.ssid))
 		}
 	}
