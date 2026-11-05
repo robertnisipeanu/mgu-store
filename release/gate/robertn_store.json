@@ -1,17 +1,17 @@
 {
   "id": "robertn_store",
-  "version": "0.9.22",
-  "source": "c812468eee5a4c43aa4dc516c6538914e71c211f",
+  "version": "0.9.23",
+  "source": "ad7e488c082ba23c95cc9fd69ee7ac97f507fe69",
   "result": "pass",
   "unit": "id7",
   "emulator": "deb756780bddf43178501ea43b40b952e04d7df2",
-  "artifactSha256": "071b8b2363985c273e46576bea3cf87570dbc8daae6e5797ab4b425598b7590e",
-  "minutes": 6.2,
+  "artifactSha256": "ab880a29d5541367953e4a06b21a19a211295e349e91e00dd1ac6c6f9d21aa5e",
+  "minutes": 6.4,
   "cases": [
     {
       "name": "installed on its own over the published release",
       "ok": true,
-      "detail": "robertn_store 0.9.22 updated in place by the app manager (pid 864) as uid 12204 (source PREINSTALLED)"
+      "detail": "robertn_store 0.9.23 updated in place by the app manager (pid 871) as uid 12204 (source PREINSTALLED)"
     },
     {
       "name": "after the head-unit restart, the Store in its page (embed)",
@@ -31,7 +31,7 @@
     {
       "name": "the Store opened again",
       "ok": true,
-      "detail": "in front, 674 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 668 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "a client open since before adds its layer while shown; ours back, its layer kept",
