@@ -182,6 +182,8 @@
     "Proxy": "Välityspalvelin",
     "Address": "Osoite",
     "Use http://host:port or socks5://host:port": "Käytä muotoa http://host:port tai socks5://host:port",
-    "Paused for wireless {0}": "Tauolla: langaton {0}"
+    "Paused for wireless {0}": "Tauolla: langaton {0}",
+    "2.4 GHz": "2,4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

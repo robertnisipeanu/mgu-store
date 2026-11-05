@@ -343,22 +343,22 @@ func fakeWPA(scanFile string, args []string) int {
 	}
 	// disconnected: as wpa_supplicant's after DISCONNECT, until RECONNECT or
 	// SELECT_NETWORK; RECONFIGURE keeps it
-	state, cur, disconnected := "INACTIVE", -1, false
+	state, cur, curFreq, disconnected := "INACTIVE", -1, "", false
 	try := func() {
 		if disconnected {
 			state, cur = "DISCONNECTED", -1
 			return
 		}
-		best := -1
+		best, freq := -1, ""
 		for id, n := range nets {
 			for _, r := range scanRows() {
 				if !n.off && r[4] == n.ssid && (r[5] == "" && n.keyMgmt == "NONE" || r[5] != "" && r[5] == n.psk) &&
 					(best < 0 || n.prio > nets[best].prio) {
-					best = id
+					best, freq = id, r[1]
 				}
 			}
 		}
-		state, cur = "INACTIVE", best
+		state, cur, curFreq = "INACTIVE", best, freq
 		for _, n := range nets {
 			if !n.off {
 				state = "SCANNING"
@@ -418,6 +418,9 @@ func fakeWPA(scanFile string, args []string) int {
 			reply = "wpa_state=" + state + "\n"
 			if state == "COMPLETED" {
 				reply += "ssid=" + printfEncode(nets[cur].ssid) + "\n"
+				if curFreq != "0" {
+					reply += "freq=" + curFreq + "\n"
+				}
 			}
 		case "SIGNAL_POLL":
 			reply = "FAIL\n"

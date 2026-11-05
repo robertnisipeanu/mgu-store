@@ -182,6 +182,8 @@
     "Proxy": "Проксі",
     "Address": "Адреса",
     "Use http://host:port or socks5://host:port": "Використовуйте http://host:port або socks5://host:port",
-    "Paused for wireless {0}": "Пауза: бездротовий {0}"
+    "Paused for wireless {0}": "Пауза: бездротовий {0}",
+    "2.4 GHz": "2,4 ГГц",
+    "5 GHz": "5 ГГц"
   }
 }

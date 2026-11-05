@@ -268,7 +268,11 @@ strongest first), `saved` the saved names, `scanning` true for 8 s after a
 scan request, `signal` dBm, `backend` what joins (`mgu-wpa` or
 `car-supplicant`) while Wi-Fi is on and there is a radio, `paused`
 (`carplay`, `android-auto`) while the supplicant makes no scans of its own
-during that wireless session. `error` keeps a failed join ("could not join
+during that wireless session, `freq` the frequency (MHz) of the access
+point joined while it can be read (the car's supplicant: `CurrentBSS`,
+then its `Frequency`; `wlan1`: `STATUS`'s `freq=`), left out otherwise.
+The log says `wifi: joined "<network>" on <interface> at <MHz> MHz
+(<band>)` when Wi-Fi joins and whenever that frequency changes. `error` keeps a failed join ("could not join
 … (wrong password, or out of range)", after 40 s) until the next request.
 
 | `state` | |

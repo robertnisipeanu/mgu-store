@@ -36,6 +36,7 @@ type fakeCar struct {
 	groups       map[string]fakeGroup // the P2P group interfaces, by name
 	refuse       string               // a network property Set refuses
 	autoStart    []string             // calls sent without NO_AUTO_START
+	slowGet      time.Duration        // a BSS's Frequency answers this late
 }
 
 // fakeGroup is a P2P group interface of the car's supplicant.
@@ -48,6 +49,7 @@ type fakeBSS struct {
 	ssid   string
 	signal int16
 	psk    string // "" open
+	freq   uint16 // MHz; 0: not reported
 }
 
 func (f *fakeCar) bssPath(i int) objPath { return objPath(fmt.Sprintf("%s/BSSs/%d", f.path, i)) }
@@ -223,6 +225,21 @@ func (f *fakeCar) reply(m dbusMsg) (string, string, []any) {
 		}
 		return "", "", nil
 	case "Get":
+		if m.path == f.path && f.has && m.body[1] == "CurrentBSS" {
+			f.associate()
+			if f.current == "" {
+				return "", "v", []any{dbusVariant{"o", objPath("/")}}
+			}
+			return "", "v", []any{dbusVariant{"o", f.bssPath(f.inRange(f.nets[f.current]))}}
+		}
+		for i, b := range f.bss {
+			if m.path == f.bssPath(i) && m.body[1] == "Frequency" {
+				if b.freq == 0 {
+					return "org.freedesktop.DBus.Error.InvalidArgs", "", nil
+				}
+				return "", "v", []any{dbusVariant{"q", b.freq}}
+			}
+		}
 		for _, g := range f.groups {
 			switch {
 			case m.path == g.path && m.body[0] == wpaDBusP2P && m.body[1] == "Group":
@@ -305,6 +322,13 @@ func (f *fakeCar) conn(c net.Conn) {
 			continue
 		}
 		errName, sig, vals := f.reply(m)
+		f.mu.Lock()
+		var slow time.Duration
+		if m.member == "Get" && len(m.body) > 1 && m.body[1] == "Frequency" {
+			slow = f.slowGet
+		}
+		f.mu.Unlock()
+		time.Sleep(slow)
 		if errName != "" {
 			c.Write(fakeReply(serial, m.serial, errName, "s", "failed"))
 		} else {
@@ -412,7 +436,7 @@ func carProvider(t *testing.T) (*wifiProvider, config, *fakeCar) {
 	p.iftype = func(string) (uint32, error) { return nl80211Station, nil }
 	p.dbusHas = func(string) (bool, error) { t.Error("asked about the D-Bus supplicant as a user"); return false, nil }
 	f := &fakeCar{iface: "wlanc0", path: "/fi/w1/wpa_supplicant1/Interfaces/13", has: true, nets: map[objPath]map[string]string{},
-		bss: []fakeBSS{{"Robert’s iPhone", -44, "rightpass1"}, {"Cafe", -60, ""}, {"DIGI-m8Yj", -84, "x"}}}
+		bss: []fakeBSS{{"Robert’s iPhone", -44, "rightpass1", 0}, {"Cafe", -60, "", 0}, {"DIGI-m8Yj", -84, "x", 0}}}
 	f.serve(t)
 	return p, c, f
 }
@@ -660,7 +684,7 @@ func TestCarWiFiQuiet(t *testing.T) {
 	waitWiFi(t, p, "paused under the iPhone", func(st wifiStatus) bool { return st.Link == "idle" && enabled(0)(st) })
 
 	// a connect request while paused joins, then out of range: paused again
-	f.do(func() { f.bss = append(f.bss, fakeBSS{"Home", -50, "homepass1"}) })
+	f.do(func() { f.bss = append(f.bss, fakeBSS{"Home", -50, "homepass1", 0}) })
 	if err := p.connect("Home", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -688,7 +712,7 @@ func TestCarWiFiQuiet(t *testing.T) {
 	waitWiFi(t, p, "scanning again", func(st wifiStatus) bool { return st.Link == "scanning" && enabled(1)(st) })
 
 	// joined Home, then the iPhone online: the association stays
-	f.do(func() { f.bss = append(f.bss, fakeBSS{"Home", -50, "homepass1"}) })
+	f.do(func() { f.bss = append(f.bss, fakeBSS{"Home", -50, "homepass1", 0}) })
 	waitWiFi(t, p, "joined Home", func(st wifiStatus) bool { return st.Link == "connected" && st.SSID == "Home" })
 	p.setOnline("", kindIPhone)
 	time.Sleep(10 * wifiEvery)

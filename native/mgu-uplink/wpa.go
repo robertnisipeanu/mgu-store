@@ -272,6 +272,13 @@ func (s *supplicant) status() map[string]string {
 	return parseKV(r)
 }
 
+// freq is the frequency (MHz) of the access point it is on (STATUS freq=),
+// 0 none.
+func (s *supplicant) freq() int {
+	f, _ := strconv.Atoi(s.status()["freq"])
+	return f
+}
+
 func (s *supplicant) signal() (int, bool) {
 	r, err := s.request("SIGNAL_POLL")
 	if err != nil {

@@ -299,7 +299,7 @@ func TestCarWiFiSession(t *testing.T) {
 		t.Fatalf("scan: %v", err)
 	}
 	// a join keeps every channel until joined, then the limit is back on it too
-	f.do(func() { f.bss = append(f.bss, fakeBSS{"Home", -50, "homepass1"}) })
+	f.do(func() { f.bss = append(f.bss, fakeBSS{"Home", -50, "homepass1", 0}) })
 	if err := p.connect("Home", ""); err != nil {
 		t.Fatal(err)
 	}

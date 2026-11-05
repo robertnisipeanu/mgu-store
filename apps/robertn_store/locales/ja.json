@@ -182,6 +182,8 @@
     "Proxy": "プロキシ",
     "Address": "アドレス",
     "Use http://host:port or socks5://host:port": "http://host:port または socks5://host:port を使用",
-    "Paused for wireless {0}": "ワイヤレス{0}中は一時停止"
+    "Paused for wireless {0}": "ワイヤレス{0}中は一時停止",
+    "2.4 GHz": "2.4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

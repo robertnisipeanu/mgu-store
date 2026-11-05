@@ -293,7 +293,8 @@ function settingsView(m) {
     if (w) {
         const s = wifiState(w);
         const paused = pausedLine(w);
-        access.push({ id: 'wifi', title: 'Wi-Fi', sub: paused || s[0], subColor: paused ? DIM : s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
+        const sub = paused || [s[0], bandOf(w)].filter(Boolean).join(' · ');
+        access.push({ id: 'wifi', title: 'Wi-Fi', sub, subColor: paused ? DIM : s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
             right: 'chevron', act: { do: 'open', page: { name: 'wifi' } } });
     }
     if (toks) {
@@ -621,6 +622,15 @@ function pausedLine(w) {
     const name = w.enabled && PROJECTION[w.paused];
     return name && ['online', 'connected', 'connecting'].indexOf(w.link) < 0 ? tr("Paused for wireless {0}", name) : '';
 }
+/* The band of the access point joined (mgu-uplink 0.7.5's wifi.freq, MHz)
+ * while Wi-Fi is joined; '' without it. */
+function bandOf(w) {
+    const f = w.freq;
+    if (['online', 'connected'].indexOf(w.link) < 0 || typeof f !== 'number') {
+        return '';
+    }
+    return f >= 2400 && f < 2500 ? tr("2.4 GHz") : f >= 4900 && f < 5900 ? tr("5 GHz") : '';
+}
 const strength = (dbm) => (typeof dbm !== 'number' ? null : dbm >= -60 ? [tr("Strong"), GREEN] : dbm >= -72 ? [tr("Good"), BLUE] : [tr("Weak"), AMBER]);
 const scanningOf = (w) => !!(w.scanning || w.link === 'scanning');
 
@@ -643,7 +653,7 @@ function netRow(w, n) {
     const status = n.away ? tr("Saved · not in range") : n.current ? { online: tr("Online"), connected: tr("Connected"), connecting: tr("Connecting") }[w.link] || tr("Saved")
         : n.saved ? tr("Saved") : n.secure ? tr("Secured") : tr("Open");
     const act = n.away || joined ? null : n.saved || !n.secure ? { do: 'wifi-join', ssid: n.ssid } : { do: 'wifi-password', ssid: n.ssid };
-    return { id: n.ssid, title: n.ssid, sub: [status, q && q[0]].filter(Boolean).join(' · '), subColor: n.current ? GREEN : DIM, plain: true,
+    return { id: n.ssid, title: n.ssid, sub: [status, q && q[0], joined && bandOf(w)].filter(Boolean).join(' · '), subColor: n.current ? GREEN : DIM, plain: true,
         vicon: n.secure && !n.saved ? 'lock' : 'wifi', iconColor: q ? q[1] : DIM, act,
         right: n.saved ? 'chip:' + tr('Forget') : act ? 'chevron' : '', chipColor: DIM,
         chipAct: n.saved ? { do: 'open', page: { name: 'confirm', kind: 'wifi-forget', ssid: n.ssid } } : null };

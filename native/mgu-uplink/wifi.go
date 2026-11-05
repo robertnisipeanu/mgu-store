@@ -90,6 +90,7 @@ type wifiStatus struct {
 	Error    *string       `json:"error"`
 	Backend  string        `json:"backend,omitempty"` // mgu-wpa, car-supplicant: what joins
 	Paused   string        `json:"paused,omitempty"`  // carplay, android-auto: no automatic scans during that wireless session
+	Freq     int           `json:"freq,omitempty"`    // MHz of the access point joined, while it can be read
 }
 
 // wifiRecord is what the provider changed on the interface, kept in the
@@ -119,6 +120,7 @@ type wifiBackend interface {
 	reload() error
 	forget(ssid string) error
 	hold(h scanHold) bool // limits the supplicant's own scans; true: none
+	freq() int            // MHz of the access point joined, 0 not known
 }
 
 // scanHold is what the provider tells the supplicant's own (automatic)
@@ -162,6 +164,7 @@ type wifiProvider struct {
 	groupFreq   func(ifname string) (int, error)
 	freqs       map[string]int // the session's P2P interfaces' frequencies, read once a session (reqMu)
 	sessKind    string         // the session the last tick found (reqMu)
+	joinedOn    string         // the network and frequency last logged (reqMu)
 
 	wake  chan struct{}
 	stopc chan struct{}
@@ -460,7 +463,25 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		if sig, ok := p.wpa.signal(); ok {
 			st.Signal = &sig
 		}
+		st.Freq = p.wpa.freq()
 	}
+	p.logBand(st)
+}
+
+// logBand logs the frequency and band of the access point joined, when
+// the network or its frequency changes. With reqMu held.
+func (p *wifiProvider) logBand(st *wifiStatus) {
+	on := ""
+	if st.Link == "connected" && st.Freq > 0 {
+		on = fmt.Sprintf("%q on %s at %d MHz", st.SSID, p.iface, st.Freq)
+		if b := band(st.Freq); b != 0 {
+			on += " (" + bandName(b) + ")"
+		}
+	}
+	if on != p.joinedOn && on != "" {
+		logf("wifi: joined %s", on)
+	}
+	p.joinedOn = on
 }
 
 // session is the wireless CarPlay or Android Auto session now, logged as

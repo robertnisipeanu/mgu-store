@@ -182,6 +182,8 @@
     "Proxy": "الوكيل",
     "Address": "العنوان",
     "Use http://host:port or socks5://host:port": "استخدم http://host:port أو socks5://host:port",
-    "Paused for wireless {0}": "متوقف مؤقتًا لأجل {0} اللاسلكي"
+    "Paused for wireless {0}": "متوقف مؤقتًا لأجل {0} اللاسلكي",
+    "2.4 GHz": "2.4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

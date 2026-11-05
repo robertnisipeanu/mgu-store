@@ -141,6 +141,8 @@ function screens() {
         ['wifi-paused', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
             wifiSt(st, { link: 'idle', ssid: '', ip: '', signal: null, paused: 'android-auto',
                 networks: st.uplink.wifi.networks.map((n) => Object.assign({}, n, { current: false })) })],
+        ['settings-wifi-band', { tab: 'settings', stack: main }, wifiSt(st, { freq: 5745 })],
+        ['wifi-band', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) }, wifiSt(st, { freq: 2437 })],
         ['settings-wifi-paused', { tab: 'settings', stack: main }, wifiSt(st, { link: 'idle', ssid: '', ip: '', signal: null, paused: 'carplay' })],
         ['wifi-password', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'type', title: 'FRITZ!Box 7590 XY', text: 'sec',
             label: 'Password', layout: 'text', symbols: true, go: 'Connect', min: 8, max: 63, secret: 'password' }]) }],

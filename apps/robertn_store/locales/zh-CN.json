@@ -184,6 +184,8 @@
     "Proxy": "代理",
     "Address": "地址",
     "Use http://host:port or socks5://host:port": "请使用 http://host:port 或 socks5://host:port",
-    "Paused for wireless {0}": "因无线{0}已暂停"
+    "Paused for wireless {0}": "因无线{0}已暂停",
+    "2.4 GHz": "2.4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

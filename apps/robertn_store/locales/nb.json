@@ -182,6 +182,8 @@
     "Proxy": "Proxy",
     "Address": "Adresse",
     "Use http://host:port or socks5://host:port": "Bruk http://host:port eller socks5://host:port",
-    "Paused for wireless {0}": "På pause: trådløs {0}"
+    "Paused for wireless {0}": "På pause: trådløs {0}",
+    "2.4 GHz": "2,4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

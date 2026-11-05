@@ -332,7 +332,10 @@ uplink uses another device or waits for DHCP), `Connecting · <network>`,
 `Failed`, `Error`; the page shows the reason. While Wi-Fi is not joined and
 wireless CarPlay or Android Auto keeps the uplink from searching by itself
 (`wifi.paused`, mgu-uplink 0.7.5), the row and the page's status line say
-`Paused for wireless CarPlay` (or Android Auto). Its page (from IterioDev App Manager 2.0.6's Wi-Fi page) lists,
+`Paused for wireless CarPlay` (or Android Auto). While Wi-Fi is joined and
+the uplink reads the access point's frequency (`wifi.freq`, mgu-uplink
+0.7.5), the row and the joined network's row on the page add its band
+(`Online · <network> · 5 GHz`, `· 2.4 GHz`). Its page (from IterioDev App Manager 2.0.6's Wi-Fi page) lists,
 while Wi-Fi is on, the network joined first, then the latest scan's,
 strongest first, then saved ones out of range, each with `Online` /
 `Connected` / `Connecting`, `Saved`, `Secured` or `Open` and its signal

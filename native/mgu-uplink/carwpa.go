@@ -407,6 +407,28 @@ func (s *carSupplicant) signal() (int, bool) {
 	return int(sig), ok
 }
 
+// freq is the frequency (MHz) of the access point the interface is on, 0
+// none or not known: CurrentBSS, then that BSS's Frequency, each one
+// property read with the call's timeout.
+func (s *carSupplicant) freq() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.path == "" {
+		return 0
+	}
+	v, err := s.getProp(s.path, wpaDBusIface, "CurrentBSS")
+	bss, _ := v.(objPath)
+	if err != nil || bss == "" || bss == "/" {
+		return 0
+	}
+	v, err = s.getProp(bss, wpaDBusBSS, "Frequency")
+	f, _ := v.(uint16)
+	if err != nil {
+		return 0
+	}
+	return int(f)
+}
+
 func (s *carSupplicant) scan() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -182,6 +182,8 @@
     "Proxy": "Proxy",
     "Address": "Địa chỉ",
     "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port",
-    "Paused for wireless {0}": "Tạm dừng vì {0} không dây"
+    "Paused for wireless {0}": "Tạm dừng vì {0} không dây",
+    "2.4 GHz": "2,4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

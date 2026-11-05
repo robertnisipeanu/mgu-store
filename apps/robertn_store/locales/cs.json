@@ -182,6 +182,8 @@
     "Proxy": "Proxy",
     "Address": "Adresa",
     "Use http://host:port or socks5://host:port": "Použijte http://host:port nebo socks5://host:port",
-    "Paused for wireless {0}": "Pozastaveno: bezdrátový {0}"
+    "Paused for wireless {0}": "Pozastaveno: bezdrátový {0}",
+    "2.4 GHz": "2,4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

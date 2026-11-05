@@ -5640,6 +5640,15 @@ function testUplink() {
     ok('uplink: status.json read again when it changed', u.readUplink() === true && u.readUplink() === false);
     ok('uplink: its device, preferred kind and Wi-Fi in the state', JSON.stringify(u.state().uplink) === JSON.stringify({
         device: { kind: 'wifi', name: 'Car "Hotspot"' }, state: 'online', error: null, preferred: 'wifi', wifi }), JSON.stringify(u.state().uplink));
+    // a newer uplink's fields (the frequency joined) pass through as they are; without them the state is as before
+    const withFreq = Object.assign({}, wifi, { freq: 5745 });
+    fs.writeFileSync(status, JSON.stringify({ device: { kind: 'wifi', name: 'Car "Hotspot"' }, state: 'online', error: null, preferred: 'wifi', wifi: withFreq }));
+    ok('uplink: wifi.freq in the state', u.readUplink() === true && u.state().uplink.wifi.freq === 5745, JSON.stringify(u.state().uplink));
+    fs.writeFileSync(status, JSON.stringify({ device: { kind: 'usbecm', name: 'HUAWEI' }, state: 'online', error: null, preferred: '', wifi }));
+    ok('uplink: no freq without one (a USB uplink, an older uplink)', u.readUplink() === true && !('freq' in u.state().uplink.wifi),
+        JSON.stringify(u.state().uplink));
+    fs.writeFileSync(status, JSON.stringify({ device: { kind: 'wifi', name: 'Car "Hotspot"' }, state: 'online', error: null, preferred: 'wifi', wifi }));
+    u.readUplink();
     const got = [];
     let answer = { ok: true };
     const server = net.createServer((s) => {

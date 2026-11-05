@@ -182,6 +182,8 @@
     "Proxy": "프록시",
     "Address": "주소",
     "Use http://host:port or socks5://host:port": "http://host:port 또는 socks5://host:port 사용",
-    "Paused for wireless {0}": "무선 {0} 사용 중 일시 중지"
+    "Paused for wireless {0}": "무선 {0} 사용 중 일시 중지",
+    "2.4 GHz": "2.4 GHz",
+    "5 GHz": "5 GHz"
   }
 }
