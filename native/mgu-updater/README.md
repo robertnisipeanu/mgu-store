@@ -592,8 +592,8 @@ proxy = socks5://192.168.8.1:7891
   never a token.
 - The proxy looks up the names of what is downloaded itself, so a name
   server that answers wrongly on the car's network does not matter. A
-  build's names are first looked up on the car, and one there that is not
-  public is refused.
+  build's names are first looked up on the car, and a name whose address
+  there is not public is refused.
 - When the proxy is down or refuses, the error says so, e.g. `proxy
   192.168.8.1:7890: connection refused`.
 - The log and the Store show only the proxy's host and port. The file is
