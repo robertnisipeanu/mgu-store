@@ -517,9 +517,9 @@ first change to the sources, writes it.
   update included, since it closes the Store). The service runs at
   `Nice=10`, below the HMI. Nothing is installed on its own: an app
   install restarts every running OAP app, which must not happen unasked.
-  The artifact is downloaded (or packed, or built), copied root-only and checked, then handed to the
-  deploy tool's `install --artifact`, the one install path every app and
-  tool takes on the unit. Exit 0 is done (a tool whose service cannot
+  The artifact is downloaded (or packed, or built), copied root-only
+  and checked, then handed to the deploy tool's `install --artifact`,
+  the one install path every app and tool takes on the unit. Exit 0 is done (a tool whose service cannot
   restart yet reports "takes effect after reboot", shown as *Restart
   pending*), 1 failed and rolled back, 2 refused by preflight.
 
