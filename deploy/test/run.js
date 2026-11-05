@@ -2999,7 +2999,7 @@ function testStockFiles() {
             root.p('var/opt/mgu-deploy/state.json'), root.p('var/opt/mgu-deploy/kept/fixture-tool/3.0.0/units/fixture-tool.service')]
             .map((p) => `${p} ${fs.existsSync(p) ? mode(p).toString(8) : 'absent'}`).join('\n'));
     check('stock files: a hook writing carplay as its patcher does (a temp file with mode 0755, renamed over it) leaves it 0755 under umask 077, no warning',
-        mode(carplay) === 0o755 && !r.out.includes('lost its group or other'), `${mode(carplay).toString(8)}\n${r.out}`);
+        mode(carplay) === 0o755 && !r.out.includes('its service\'s user'), `${mode(carplay).toString(8)}\n${r.out}`);
     check('stock files: the deploy tool\'s backups stay root\'s alone under umask 077',
         mode(root.p('var/opt/mgu-deploy/backups')) === 0o700 &&
         fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).every((d) => {
@@ -3019,48 +3019,93 @@ function testStockFiles() {
         r.status === 0 && r.out.includes('laid again from the copy kept here') && r.out.includes('fixture-tool activate:') && mode(carplay) === 0o755,
         `${mode(carplay).toString(8)}\n${r.out}`);
 
-    // a hook that leaves carplay and aapd root's alone (and carplay another user's): both put back right after it
+    // a hook that leaves carplay 0700 (another user's) and aapd 0711, and tightens files of its own
     root = fakeRoot({ recmgr: ['fixture-tool'] });
     stock(root);
     const p = (rel) => root.p(rel);
+    write(p('etc/aapd.conf'), 'conf\n', 0o644);
+    write(p('usr/bin/locked'), 'tool\n', 0o755);
     const chmods = [['activate', p('usr/bin/carplay'), '700'].concat(asRoot ? [1234, 1234] : []), ['activate', p('usr/bin/aapd'), '711'],
-        ['activate', p('etc/private.conf'), '400'], ['activate', p('usr/bin'), '700']];
+        ['activate', p('etc/aapd.conf'), '600'], ['activate', p('etc/private.conf'), '400'], ['activate', p('usr/bin/locked'), '750']];
     r = root.run(['install', '--artifact', art('3.0.0'), '--yes'], { FAKE_HOOK_LOG: `${root.R}.hooks.log`,
         FAKE_HOOK_CHMOD: JSON.stringify(chmods), FAKE_HOOK_CREATE: JSON.stringify([['activate', p('usr/bin/carplay.woc-orig')]]) });
-    check('stock files: an activate leaving carplay 0700 (another user\'s), aapd 0711 and /usr/bin 0700 gets them back to 0755, their owner\'s, the install through',
-        r.status === 0 && mode(p('usr/bin/carplay')) === 0o755 && mode(p('usr/bin/aapd')) === 0o755 && mode(p('usr/bin')) === 0o755 &&
+    check('stock files: an activate leaving carplay 0700 (another user\'s), aapd 0711 and aapd.conf 0600: 0755 root:root, 0755 and 0644 after it, the install through',
+        r.status === 0 && mode(p('usr/bin/carplay')) === 0o755 && mode(p('usr/bin/aapd')) === 0o755 && mode(p('etc/aapd.conf')) === 0o644 &&
         (!asRoot || owner(p('usr/bin/carplay')) === '0:0'), `${r.out}\n${mode(p('usr/bin/carplay')).toString(8)} ${owner(p('usr/bin/carplay'))}`);
-    check('stock files: each one put back is a warning naming it, its mode and owner, then the mode it has again',
-        r.out.includes(`warning: fixture-tool activate: ${p('usr/bin/carplay')} lost its group or other read/execute bits (0700 ${asRoot ? '1234:1234' : owner(p('usr/bin/carplay'))}); it gets its mode and owner back (0755 ${owner(p('usr/bin/carplay'))})`) &&
-        r.out.includes(`fixture-tool activate: ${p('usr/bin/carplay')} is 0755 ${owner(p('usr/bin/carplay'))} again`) &&
-        r.out.includes(`${p('usr/bin/aapd')} lost its group or other read/execute bits (0711 `), r.out);
-    check('stock files: a file root\'s alone stays as the hook left it, and a new file the hook wrote keeps its mode',
-        mode(p('etc/private.conf')) === 0o400 && mode(p('usr/bin/carplay.woc-orig')) === 0o600 && !r.out.includes('private.conf'), r.out);
+    check('stock files: each one fixed is a warning naming it, its mode and owner, and what it becomes',
+        r.out.includes(`warning: fixture-tool activate: ${p('usr/bin/carplay')} is 0700 ${asRoot ? '1234:1234' : owner(p('usr/bin/carplay'))}, which its service's user cannot run: it becomes 0755 0:0`) &&
+        r.out.includes(`warning: fixture-tool activate: ${p('usr/bin/aapd')} is 0711 `) &&
+        r.out.includes(`warning: fixture-tool activate: ${p('etc/aapd.conf')} is 0600 `) && r.out.includes('cannot read: it becomes 0644 0:0'), r.out);
+    check('stock files: files off the list a hook tightened stay so, and a new file the hook wrote keeps its mode',
+        mode(p('etc/private.conf')) === 0o400 && mode(p('usr/bin/locked')) === 0o750 && mode(p('usr/bin/carplay.woc-orig')) === 0o600 &&
+        !r.out.includes('private.conf') && !r.out.includes('locked'), r.out);
 
     r = root.run(['uninstall', 'fixture-tool', '--yes'], { FAKE_HOOK_LOG: `${root.R}.hooks.log`,
         FAKE_HOOK_CHMOD: JSON.stringify([['deactivate', p('usr/bin/carplay'), '700']]) });
-    check('stock files: a deactivate leaving carplay 0700 gets it back to 0755 too, the removal through',
-        r.status === 0 && mode(p('usr/bin/carplay')) === 0o755 && r.out.includes(`warning: fixture-tool deactivate: ${p('usr/bin/carplay')} lost`) &&
+    check('stock files: a deactivate leaving carplay 0700 gets it 0755 too, the removal through',
+        r.status === 0 && mode(p('usr/bin/carplay')) === 0o755 && r.out.includes(`warning: fixture-tool deactivate: ${p('usr/bin/carplay')} is 0700`) &&
         !fs.existsSync(root.tool('fixture-tool')), r.out);
 
-    // through the rootfs window's sh script, as on the unit: / read-write for it and read-only after
-    const sh = (refuse) => {
+    // through the rootfs window's sh script, as on the unit
+    const shRoot = () => {
         const x = fakeRoot({ recmgr: ['fixture-tool'] });
         stock(x);
-        Object.assign(x.env, { MGU_DEPLOY_FAKE_SH_WINDOW: '1', MGU_DEPLOY_MOUNT: path.join(HERE, 'fake_mount.sh') },
-            refuse ? { FAKE_MOUNT_REFUSE: `${x.R}.busy` } : {});
-        const res = x.run(['install', '--artifact', art('3.0.0'), '--yes'], Object.assign({ FAKE_HOOK_LOG: `${x.R}.hooks.log`,
-            FAKE_HOOK_CHMOD: JSON.stringify([['activate', x.p('usr/bin/carplay'), '700']]) }, refuse ? { FAKE_HOOK_MARK: `${x.R}.busy` } : {}));
-        return { x, res };
+        Object.assign(x.env, { MGU_DEPLOY_FAKE_SH_WINDOW: '1', MGU_DEPLOY_MOUNT: path.join(HERE, 'fake_mount.sh'), FAKE_MOUNT_LOG: `${x.R}.mount.log` });
+        return x;
     };
-    let w = sh(false);
-    check('stock files: put back through the rootfs window, / read-only after',
-        w.res.status === 0 && mode(w.x.p('usr/bin/carplay')) === 0o755 && fs.readFileSync(w.x.p('proc/mounts'), 'utf8').includes(' ro,'),
-        w.res.out);
-    w = sh(true);
-    check('stock files: an activate whose files cannot be put back fails the install, saying which',
-        w.res.status === 1 && w.res.out.includes(`fixture-tool 3.0.0: activate left ${w.x.p('usr/bin/carplay')} without the read/execute bits its users need, and the mode and owner could not be put back`),
-        w.res.out);
+    const remounts = (x) => (fs.existsSync(`${x.R}.mount.log`) ? fs.readFileSync(`${x.R}.mount.log`, 'utf8').split('\n').filter(Boolean) : []);
+    let x = shRoot();
+    r = x.run(['install', '--artifact', art('3.0.0'), '--yes'], { FAKE_HOOK_LOG: `${x.R}.hooks.log` });
+    fs.writeFileSync(`${x.R}.mount.log`, '');
+    r = x.run(['install', '--artifact', art('3.0.0'), '--yes'], { FAKE_HOOK_LOG: `${x.R}.hooks.log` });
+    check('stock files: a hook that leaves carplay 0755 root\'s changes nothing, with no remount',
+        r.status === 0 && r.out.includes('fixture-tool activate: hook activate@3.0.0 says hello') && remounts(x).length === 0 &&
+        mode(x.p('usr/bin/carplay')) === 0o755 && !r.out.includes('its service\'s user'), `${remounts(x).join(' ')}\n${r.out}`);
+    r = x.run(['install', '--artifact', art('3.0.0'), '--yes'], { FAKE_HOOK_LOG: `${x.R}.hooks.log`,
+        FAKE_HOOK_CHMOD: JSON.stringify([['activate', x.p('usr/bin/carplay'), '700']]) });
+    check('stock files: carplay left 0700 is 0755 again through the rootfs window, / read-only after',
+        r.status === 0 && mode(x.p('usr/bin/carplay')) === 0o755 && JSON.stringify(remounts(x)) === '["remount,rw","remount,ro"]' &&
+        fs.readFileSync(x.p('proc/mounts'), 'utf8').includes(' ro,'), `${remounts(x).join(' ')}\n${r.out}`);
+
+    // a symlink, in the path or the file itself, and a mount: never followed or touched
+    x = fakeRoot({ recmgr: ['fixture-tool'] });
+    stock(x);
+    write(x.p('var/opt/private/aapd'), 'private\n', 0o700);
+    fs.rmSync(x.p('usr/bin/aapd'));
+    fs.symlinkSync(x.p('var/opt/private/aapd'), x.p('usr/bin/aapd'));
+    write(x.p('var/opt/private/etc/aapd.conf'), 'private\n', 0o600);
+    fs.mkdirSync(x.p('var/opt/private/etc'), { recursive: true });
+    fs.renameSync(x.p('etc'), x.p('etc.real'));
+    fs.symlinkSync(x.p('var/opt/private/etc'), x.p('etc'));
+    // the fake root's own files under etc/ stay reachable through the symlink
+    cp.execFileSync('cp', ['-a', `${x.p('etc.real')}/.`, x.p('var/opt/private/etc')]);
+    fs.chmodSync(x.p('usr/bin/carplay'), 0o700);
+    fs.appendFileSync(x.p('proc/mounts'), `/dev/vdb ${x.p('usr/bin/carplay')} ext4 rw 0 0\nrootfs / ext4 ro,relatime 0 0\n`);
+    r = x.run(['install', '--artifact', art('3.0.0'), '--yes'], { FAKE_HOOK_LOG: `${x.R}.hooks.log` });
+    check('stock files: a symlinked file, a file under a symlinked folder, and a mounted path are never touched',
+        r.status === 0 && mode(x.p('var/opt/private/aapd')) === 0o700 && mode(x.p('var/opt/private/etc/aapd.conf')) === 0o600 &&
+        mode(x.p('usr/bin/carplay')) === 0o700 && !r.out.includes('its service\'s user'), r.out);
+
+    // / not read-only after the fix's window: the hook fails, what it asked for kept
+    x = shRoot();
+    x.run(['install', '--artifact', art('3.0.0'), '--yes'], { FAKE_HOOK_LOG: `${x.R}.hooks.log` });
+    const unused = x.p('usr/lib/old-patched');
+    write(unused, 'old\n', 0o755);
+    r = x.run(['uninstall', 'fixture-tool', '--yes'], { FAKE_HOOK_LOG: `${x.R}.hooks.log`, FAKE_MOUNT_STUCK: `${x.R}.stuck`,
+        FAKE_HOOK_MARK: `${x.R}.stuck`, FAKE_HOOK_CHMOD: JSON.stringify([['deactivate', x.p('usr/bin/carplay'), '700']]),
+        FAKE_HOOK_REBOOT: 'patch removed; the original runs from the next start', FAKE_HOOK_REBOOT_ON: 'deactivate@3.0.0',
+        FAKE_HOOK_UNUSED: JSON.stringify([unused]) });
+    check('stock files: / not read-only after the fix fails the hook, saying so (a refused removal, exit 2)',
+        r.status === 2 && r.out.includes('fixture-tool 3.0.0: deactivate left a stock file its service cannot use, and fixing it failed: ') && r.out.includes('mount: / is busy') &&
+        fs.existsSync(x.tool('fixture-tool')), r.out);
+    check('stock files: the failed hook\'s restart reason and files removed once unused are kept',
+        !fs.existsSync(unused) && x.state().pending_reboot.some((q) => q.id === 'fixture-tool' && q.reason === 'patch removed; the original runs from the next start'),
+        `${JSON.stringify(x.state().pending_reboot)}\n${r.out}`);
+    x = shRoot();
+    r = x.run(['install', '--artifact', art('3.0.0'), '--yes'], { FAKE_HOOK_LOG: `${x.R}.hooks.log`, FAKE_MOUNT_STUCK: `${x.R}.stuck`,
+        FAKE_HOOK_MARK: `${x.R}.stuck`, FAKE_HOOK_CHMOD: JSON.stringify([['activate', x.p('usr/bin/carplay'), '700']]) });
+    check('stock files: an activate whose fix leaves / read-write fails the install',
+        r.status === 1 && r.out.includes('fixture-tool 3.0.0: activate left a stock file its service cannot use, and fixing it failed: ') && r.out.includes('mount: / is busy'), r.out);
 
     // the updater's token and sources: root's alone whatever the caller's umask
     [0o077, 0o022].forEach((mask) => {

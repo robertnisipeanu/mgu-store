@@ -7,7 +7,8 @@
 // on stderr. "<command>@<version>" listed in $FAKE_HOOK_SLOW sleeps 5 s
 // first; listed in $FAKE_HOOK_FAIL, it exits 3. Its last stdout line is
 // {"status", "reboot", "removeWhenUnused"}, "reboot" being $FAKE_HOOK_REBOOT
-// and a deactivate's "removeWhenUnused" the JSON in $FAKE_HOOK_UNUSED when set.
+// (for the "<command>@<version>" $FAKE_HOOK_REBOOT_ON lists, when set) and a
+// deactivate's "removeWhenUnused" the JSON in $FAKE_HOOK_UNUSED when set.
 // Files on the root, each a JSON list of [<command>, <path>, ...] for the
 // command that runs: $FAKE_HOOK_REPLACE [<command>, <path>] writes <path>
 // again as carplay's patcher does (a temp file written with mode 0755,
@@ -65,7 +66,7 @@ if (listed(env.FAKE_HOOK_FAIL)) {
     process.exit(3);
 }
 const result = { status: me + ' done' };
-if (env.FAKE_HOOK_REBOOT) {
+if (env.FAKE_HOOK_REBOOT && (!env.FAKE_HOOK_REBOOT_ON || listed(env.FAKE_HOOK_REBOOT_ON))) {
     result.reboot = env.FAKE_HOOK_REBOOT;
 }
 if (env.FAKE_HOOK_UNUSED && which === 'deactivate') {
