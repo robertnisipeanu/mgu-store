@@ -1525,7 +1525,7 @@ class Updater {
             // the uplink's device, preferred group and Wi-Fi (its status.json), null while it does not run
             uplink: this.uplink,
             privacy: this.privacy,
-            // the proxy downloads go through (README.md, "A proxy"): its host:port, never its user name or password
+            // the proxy downloads go through (README.md, "Through a proxy"): its host:port, never its user name or password
             proxy: proxyState(this.conf.proxy, this.fetcher.proxyError),
             // one line for clients that know a single catalog (the Store 0.3)
             catalog: {

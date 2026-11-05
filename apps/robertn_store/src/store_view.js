@@ -405,8 +405,10 @@ function probeStatus(probe) {
  * http:// or socks5://, a host, an optional port and user name and
  * password, nothing after them); null when it is one. */
 function proxyUrlError(text) {
-    const m = /^(http|socks5h?):\/\/(?:[^\s@/?#]*@)?(\[[0-9a-fA-F:.]+\]|[^\s:@/?#[\]]+)(?::(\d{1,5}))?\/?$/.exec(String(text || '').trim());
-    return m && (!m[3] || (Number(m[3]) > 0 && Number(m[3]) < 65536)) ? null : tr("Use http://host:port or socks5://host:port");
+    const m = /^(?:http|socks5h?):\/\/(?:([^\s@/?#]*)@)?(\[[0-9a-f:.]+\]|[^\s:@/?#[\]]+)(?::(\d{1,5}))?\/?$/i.exec(String(text || '').trim());
+    // a % in a user name or password starts an escape (%40 for @)
+    const escapes = !m || !m[1] || /^(?:[^%]|%[0-9a-f]{2})*$/i.test(m[1]);
+    return m && escapes && (!m[3] || (Number(m[3]) > 0 && Number(m[3]) < 65536)) ? null : tr("Use http://host:port or socks5://host:port");
 }
 
 /* The Accounts page's status line: Add token's progress or refusal. */

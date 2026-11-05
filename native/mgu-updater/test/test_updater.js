@@ -5492,7 +5492,7 @@ function testRequests(certs) {
         });
 }
 
-/* The proxy setting (README.md, "A proxy"): proxy-set needs the secret,
+/* The proxy setting (README.md, "Through a proxy"): proxy-set needs the secret,
  * refuses what is not a proxy address, keeps it in updater.local.conf
  * (root's alone, other keys kept), shows only its host:port; a source is
  * read through it, the token inside the tunnel only; a refusal at the proxy

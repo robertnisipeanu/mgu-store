@@ -28,8 +28,9 @@
  *
  * Served: CONNECT to port 443, and plain http GET/HEAD to port 80, to host
  * names that resolve to public IPv4 addresses (no address literal, nothing
- * private, loopback, link-local or shared); through a proxy, to host names,
- * which the proxy resolves. It runs until the updater stops it.
+ * private, loopback, link-local or shared); through a proxy, also to
+ * names the lease's servers cannot look up. It runs until the updater stops
+ * it.
  */
 const fs = require('fs');
 const net = require('net');
@@ -60,16 +61,19 @@ function isPublic(ip) {
 
 /* lookup(host, cb) -> cancel(): host's first public IPv4 address, through
  * the servers of the uplink's lease as it is then (job.lease), else job.dns:
- * a network joined since the build started has its own. */
+ * a network joined since the build started has its own. cb(err, ip,
+ * servers); err.refused: host is not to be reached at all (not a host
+ * name, no uplink, only addresses that are not public). */
 function resolver(job) {
+    const refused = (why) => Object.assign(new Error(why), { refused: true });
     return (host, cb) => {
         if (!HOST.test(host)) {
-            cb(new Error(`${host}: not a host name`));
+            cb(refused(`${host}: not a host name`));
             return () => {};
         }
         const servers = job.lease ? leaseDns(job.lease) : job.dns;
         if (!servers) {
-            cb(new Error('no internet (the uplink is down)'));
+            cb(refused('no internet (the uplink is down)'));
             return () => {};
         }
         const r = new dns.Resolver();
@@ -78,11 +82,13 @@ function resolver(job) {
         }
         r.resolve4(host, (err, addrs) => {
             const ok = !err && addrs.filter((a) => job.open || isPublic(a));
-            if (!ok || !ok.length) {
-                cb(err || new Error(`${host}: no public address`));
-                return;
+            if (err) {
+                cb(err, null, servers);
+            } else if (!ok.length) {
+                cb(refused(`${host}: no public address`));
+            } else {
+                cb(null, ok[0], servers);
             }
-            cb(null, ok[0]);
         });
         return () => r.cancel();
     };
@@ -92,9 +98,11 @@ function resolver(job) {
  * left answers neither the lookup nor the connection. A timer of its own:
  * Node 8's socket timeout can fire at up to twice its time on a socket that
  * has not connected yet. Through job.proxy (the updater's proxy setting,
- * tunnel.js) when there is one, which looks host up itself; else to host's
+ * tunnel.js) when there is one, which looks host up itself: a name the
+ * lease's servers give only addresses that are not public is refused all
+ * the same, one they cannot look up is left to the proxy. Else to host's
  * address from lookup. cb(err, sock) once; the function returned stops
- * waiting. */
+ * waiting and closes a connection still opening. */
 function connectTo(job, lookup, connectMs, host, port, cb) {
     let done = false;
     let sock = null;
@@ -114,41 +122,35 @@ function connectTo(job, lookup, connectMs, host, port, cb) {
             sock.destroy();
         }
     }, connectMs);
-    let cancel = () => {};
-    if (job.proxy) {
-        const servers = job.lease ? leaseDns(job.lease) : job.dns;
-        if (!HOST.test(host)) {
-            finish(new Error(`${host}: not a host name`));
-        } else if (!servers) {
-            finish(new Error('no internet (the uplink is down)'));
+    const cancel = lookup(host, (err, ip, servers) => {
+        if (done) {
+            return;
+        }
+        if (err && (err.refused || !job.proxy)) {
+            finish(err);
+        } else if (!job.proxy) {
+            sock = net.connect(port, ip);
+            sock.once('connect', () => finish(null, sock));
+            sock.once('error', finish);
         } else {
             try {
                 proxy = tunnel.parse(job.proxy);
             } catch (e) {
                 finish(new Error(`proxy setting: ${e.message}`));
-                return () => {};
+                return;
             }
             // the tunnel leaves the socket paused; its reader here is the caller's, attached at once
-            sock = tunnel.open(proxy, host, port, lookupVia(servers), (err, s) => finish(err, s && s.resume()));
+            sock = tunnel.open(proxy, host, port, lookupVia(servers), (e, s) => finish(e, s && s.resume()));
         }
-    } else {
-        cancel = lookup(host, (err, ip) => {
-            if (done) {
-                return;
-            }
-            if (err) {
-                finish(err);
-                return;
-            }
-            sock = net.connect(port, ip);
-            sock.once('connect', () => finish(null, sock));
-            sock.once('error', finish);
-        });
-    }
+    });
     return () => {
+        const opening = !done;
         done = true;
         clearTimeout(timer);
         cancel();
+        if (opening && sock) {
+            sock.destroy();
+        }
     };
 }
 

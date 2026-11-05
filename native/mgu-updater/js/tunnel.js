@@ -1,7 +1,7 @@
 'use strict';
 /**
  * A connection to host:port through the proxy the updater's `proxy` setting
- * names (README.md, "A proxy"): http://[user:pass@]host[:port] asks it with
+ * names (README.md, "Through a proxy"): http://[user:pass@]host[:port] asks it with
  * HTTP CONNECT, socks5://[user:pass@]host[:port] (or socks5h://) with SOCKS5.
  * The target's name goes to the proxy as it is, so the proxy looks it up
  * (socks5h): a name server that answers wrongly on the head unit's network
@@ -49,8 +49,14 @@ function parse(text) {
     if (!(port > 0 && port < 65536)) {
         throw new Error('a proxy port is 1 to 65535');
     }
-    const user = decodeURIComponent(u.username);
-    const pass = decodeURIComponent(u.password);
+    let user;
+    let pass;
+    try {
+        user = decodeURIComponent(u.username);
+        pass = decodeURIComponent(u.password);
+    } catch (e) {
+        throw new Error('a % in a user name or password is written %25');
+    }
     if (kind === 'socks5' && (Buffer.byteLength(user) > 255 || Buffer.byteLength(pass) > 255)) {
         throw new Error('a SOCKS5 user name or password is at most 255 bytes');
     }

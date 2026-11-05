@@ -1487,7 +1487,8 @@ function runDrawn() {
             if (HMI !== 'ID7') {
                 // the keyboard opens on the address there is, unless it has a password, which is not shown
                 app._act({ do: 'proxy-edit' });
-                eq([drawn.top().name, drawn.top().text], ['type', 'socks5://192.168.8.1:7891']);
+                eq([drawn.top().name, drawn.top().text, drawn.top().layout, drawn.top().symbols], ['type', 'socks5://192.168.8.1:7891', 'text', true],
+                    'the keyboard with every symbol, for a user name and password');
                 app._back();
             }
         });

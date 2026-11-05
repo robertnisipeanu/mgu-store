@@ -786,7 +786,7 @@ class Store extends OnlineApp {
         // a user name and password are not shown, so an address with them is typed again in full
         const text = p && p.on && p.address && !p.auth ? `${p.kind}://${p.address}` : '';
         this._spell(tr("Proxy"), (m) => { this._proxyNote = sourcesMessage(m); this._render(); },
-            { label: tr("Address"), text, max: 300 }).then((url) => {
+            { label: tr("Address"), text, layout: 'text', symbols: true, max: 300 }).then((url) => {
             const typed = (url || '').trim();
             if (!typed) {
                 return;

@@ -248,7 +248,8 @@ together: `http_proxy`,
 `https_proxy` (and upper case) name it with a random password, and it
 serves only connections of the build uid (`/proc/net/tcp`) that carry it;
 CONNECT to port 443 and http GET/HEAD to port 80, to host names with a
-public IPv4 address; at most `build_max_bytes` in all; each host it is
+public IPv4 address (with a proxy set, also names the car's DNS cannot look
+up, which the proxy then looks up); at most `build_max_bytes` in all; each host it is
 asked for is logged (`build <id>: internet: CONNECT host:443`). Without the
 uplink's lease, such a build fails: *needs internet to build*. It is
 stopped past `build_timeout_s` (600) or once its folder holds more than

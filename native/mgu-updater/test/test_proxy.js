@@ -22,6 +22,7 @@ const os = require('os');
 const net = require('net');
 const path = require('path');
 const http = require('http');
+const dgram = require('dgram');
 const https = require('https');
 const crypto = require('crypto');
 const cp = require('child_process');
@@ -208,6 +209,7 @@ function testParse() {
     ok('parse: socks5h is socks5, default ports', p('socks5h://10.0.0.1').port === 1080 && p('socks5h://10.0.0.1').kind === 'socks5' &&
         p('http://10.0.0.1').port === 80);
     ok('parse: an IPv6 address', p('http://[fd00::1]:3128').label === '[fd00::1]:3128', JSON.stringify(p('http://[fd00::1]:3128')));
+    ok('parse: a bare % in a password is said as such', p('socks5://u:p%zz@h:1') === 'a % in a user name or password is written %25');
     const bad = ['', 'ftp://h:1', 'https://h:1', 'socks4://h:1', 'http://h:1/path', 'http://h:1?x', 'http://h:99999', 'h:1', 'http://h :1', 'http://h:1\nx = y'];
     const refused = bad.map((t) => [t, p(t)]).filter((x) => typeof x[1] !== 'string');
     ok('parse: anything else is refused with a reason', refused.length === 0, JSON.stringify(refused));
@@ -325,7 +327,7 @@ function testBuildProxy() {
     fs.writeFileSync(lease, JSON.stringify({ dns: ['127.0.0.1:9'] }));
     const token = 'build-secret';
     const auth = { 'Proxy-Authorization': `Basic ${Buffer.from(`mgu:${token}`).toString('base64')}` };
-    const start = (proxy) => new Promise((resolve, reject) => {
+    const start = (proxy, extra) => new Promise((resolve, reject) => {
         const child = cp.spawn(process.execPath, [path.join(ROOT, 'js', 'proxy.js')], { stdio: ['pipe', 'pipe', 'inherit'], env: {} });
         let buf = '';
         child.stdout.on('data', (d) => {
@@ -337,7 +339,8 @@ function testBuildProxy() {
             }
         });
         child.on('exit', () => reject(new Error('the build proxy did not start')));
-        child.stdin.end(JSON.stringify({ token, uid: process.getuid(), lease, maxBytes: 1 << 20, connectMs: 1000, idleMs: 1000, open: true, proxy }));
+        child.stdin.end(JSON.stringify(Object.assign({ token, uid: process.getuid(), lease, maxBytes: 1 << 20, connectMs: 1000, idleMs: 1000,
+            open: true, proxy }, extra)));
     });
     const connect = (child, target) => new Promise((resolve) => {
         const req = http.request({ host: '127.0.0.1', port: child.port, method: 'CONNECT', path: target, headers: auth });
@@ -392,6 +395,33 @@ function testBuildProxy() {
         .then((r) => {
             ok('build proxy: without the uplink a connection is refused as having no internet, proxy or not', r.code === 502 &&
                 r.text === 'no internet (the uplink is down)', JSON.stringify(r));
+            // a name server that gives every name 127.0.0.1: what the lease's servers place on no public address stays refused
+            return new Promise((resolve) => {
+                const dns = dgram.createSocket('udp4');
+                dns.on('message', (q, rinfo) => {
+                    let i = 12;
+                    while (q[i]) {
+                        i += q[i] + 1;
+                    }
+                    const header = Buffer.from([q[0], q[1], 0x81, 0x80, 0, 1, 0, 1, 0, 0, 0, 0]);
+                    const answer = Buffer.from([0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 127, 0, 0, 1]);
+                    dns.send(Buffer.concat([header, q.slice(12, i + 5), answer]), rinfo.port, rinfo.address);
+                });
+                dns.bind(0, '127.0.0.1', () => resolve(dns));
+            });
+        })
+        .then((dns) => {
+            fs.writeFileSync(lease, JSON.stringify({ dns: [`127.0.0.1:${dns.address().port}`] }));
+            socks.log.length = 0;
+            return start(`socks5://u:pw@127.0.0.1:${socks.address().port}`, { open: false })
+                .then((c) => connect(c, 'router.test:443').then((r) => {
+                    ok('build proxy: a name the lease\'s servers place on a private address is refused, the proxy not asked', r.code === 502 &&
+                        r.text === 'router.test: no public address' && socks.log.length === 0, JSON.stringify([r, socks.log.length]));
+                    c.kill('SIGKILL');
+                    dns.close();
+                }));
+        })
+        .then(() => {
             [a, b].forEach((k) => k.kill('SIGKILL'));
             [web, echo, socks].forEach((s) => s.close());
         });

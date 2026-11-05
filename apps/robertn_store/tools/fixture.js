@@ -149,7 +149,7 @@ function screens() {
             proxySt({ on: true, kind: 'http', address: '192.168.8.1:7890', error: 'proxy 192.168.8.1:7890: connection refused (5 tries)' })],
         ['settings-proxy-on', { tab: 'settings', stack: main }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
         ['type-proxy', { tab: 'settings', stack: main.concat([{ name: 'proxy' }, { name: 'type', title: 'Proxy', label: 'Address',
-            text: 'socks5://192.168.8.1:7891', max: 300 }]) }],
+            text: 'socks5://192.168.8.1:7891', layout: 'text', symbols: true, max: 300 }]) }],
         ['offline', { tab: 'store', stack: main, connected: false, st: null, secret: false }],
         // an error of about 200 characters: on a component's page, a source's page
         ['app-failed', { stack: main.concat([{ name: 'app', id: 'vehicle_control' }]) }, failedSt(st, 'vehicle_control', { error: LONG_ERROR })],
