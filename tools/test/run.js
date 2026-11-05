@@ -21,7 +21,7 @@ const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const link = require('../oap_link.js');
-const { tgz } = require('../oap_pack.js');
+const { pack, tgz } = require('../oap_pack.js');
 const donor = require('./synthetic_donor.js');
 
 const REPO = path.join(__dirname, '..', '..');
@@ -102,6 +102,25 @@ function sourceApp(extra) {
     write(path.join(dir, m.tree, 'javascript', 'runner.js'), '// runner\n');
     write(path.join(dir, m.tree, 'javascript', 'app.js'), '// a stale build, never packed\n');
     return dir;
+}
+
+function testPackMetadata() {
+    const dir = tmp('pack');
+    write(path.join(dir, 'package.json'), JSON.stringify({ name: 'robertn_demo', version: '1.2.3',
+        files: ['javascript', 'javascript/nested/app.js', 'package.json'] }));
+    write(path.join(dir, 'javascript', 'nested', 'app.js'), '// app\n');
+    write(path.join(dir, 'javascript', 'runner.js'), '// runner\n');
+    write(path.join(dir, 'javascript', '.DS_Store'), 'Finder metadata');
+    write(path.join(dir, 'javascript', 'nested', '._app.js'), 'AppleDouble metadata');
+    const out = path.join(tmp('out'), 'app.tgz');
+    const files = pack(dir, out);
+    const expected = 'javascript/nested/app.js javascript/runner.js package.json';
+    check('pack: sorted, unique members without nested Finder metadata', files.join(' ') === expected);
+    const archived = link.untar(fs.readFileSync(out));
+    check('pack: the archive contains each listed file once and no Finder metadata',
+        archived.map((m) => m.name).join(' ') === expected);
+    check('pack: application contents survive packing',
+        members(out)['javascript/nested/app.js'].toString() === '// app\n');
 }
 
 function testBundleMode() {
@@ -561,6 +580,7 @@ try {
     testReleaseTexts();
     testReleaseGate();
     testUntar();
+    testPackMetadata();
     testUnitDonors();
     testHostileDonor();
     testBundleMode();
