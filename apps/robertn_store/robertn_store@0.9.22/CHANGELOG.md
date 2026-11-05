@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.22
+
+**Update all** asks for the Store's own update last, so the Store stays
+open and shows the other updates until its own one closes it.
+
 ## 0.9.21
 
 Removing an app lists, in its confirm step, the tools only that app uses

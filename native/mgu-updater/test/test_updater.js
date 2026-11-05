@@ -1158,6 +1158,41 @@ function testUidsDaemon() {
             });
         })
         .then(() => {
+            // queue: the Store's own install after every other request, the updater's own update and what waits for it included
+            const order = [];
+            u.src = new Map([['s', { components: [{ id: 'robertn_store', requires: {} }, { id: 'mgu-updater', requires: {} },
+                { id: 'app_a', requires: {} }, { id: 'app_b', requires: {} }, { id: 'mgu-uplink', requires: { 'mgu-updater': '99.0.0' } }] }]]);
+            u.install = (item) => {
+                order.push(item.id);
+                return Promise.resolve(item.id === 'mgu-updater');
+            };
+            u.rollback = (item) => {
+                order.push(`rollback:${item.id}`);
+                return Promise.resolve(false);
+            };
+            u.queue = [{ op: 'install', id: 'robertn_store', source: 's' }, { op: 'install', id: 'mgu-updater', source: 's' },
+                { op: 'install', id: 'app_a', source: 's' }, { op: 'rollback', id: 'robertn_store' }, { op: 'install', id: 'app_b', source: 's' },
+                { op: 'install', id: 'mgu-uplink', source: 's' }];
+            let handed = null;
+            u.handover = function () {
+                handed = this.queue.slice();
+            };
+            u.next();
+            return new Promise((r) => setTimeout(r, 50)).then(() => {
+                ok('queue: the Store\'s own install after the others and the updater\'s own update',
+                    order.join() === 'app_a,rollback:robertn_store,app_b,mgu-updater' &&
+                    handed && handed.map((q) => q.id).join() === 'robertn_store,mgu-uplink', `${order.join()} / ${handed && handed.map((q) => q.id).join()}`);
+                // the new version: what needed it, then the Store
+                order.length = 0;
+                u.queue = handed;
+                u.src.get('s').components.find((c) => c.id === 'mgu-uplink').requires = {};
+                u.next();
+                return new Promise((r) => setTimeout(r, 50));
+            }).then(() => {
+                ok('queue: after the handover, what needed the new updater, then the Store', order.join() === 'mgu-uplink,robertn_store', order.join());
+            });
+        })
+        .then(() => {
             // the queue across the restart: handover writes it, the kept version takes it up
             const exit = process.exit;
             let code = null;
