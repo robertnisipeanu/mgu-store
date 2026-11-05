@@ -69,10 +69,10 @@ type carSupplicant struct {
 	ours     map[objPath]string // our networks in the car's supplicant: SSID
 	pending  *savedNet          // join's network until joined or reload
 	setAside bool
-	quiet    bool               // our networks are off (hold)
-	scanFreq string             // the scan_freq our saved networks get (hold), "" none
-	freqOn   map[objPath]string // the scan_freq each of ours has
-	noFreq   bool               // the supplicant refused a scan_freq: hold turns ours off instead
+	quiet    bool   // our networks are off (hold)
+	scanFreq string // the scan_freq our saved networks get (hold), "" none
+	freqOn   map[objPath]string
+	noFreq   bool // the supplicant refused a scan_freq: hold turns ours off instead
 }
 
 func newCarSupplicant(iface, conf, ctrl string) *carSupplicant {
@@ -717,7 +717,7 @@ func (s *carSupplicant) groupFreq(ifname string) (int, error) {
 	return 0, fmt.Errorf("%s's group: Frequency is %T", ifname, f)
 }
 
-// getProp is one property's value. With s.mu held.
+// With s.mu held.
 func (s *carSupplicant) getProp(path objPath, iface, name string) (any, error) {
 	r, err := s.call(path, "org.freedesktop.DBus.Properties", "Get", "ss", iface, name)
 	if err != nil {

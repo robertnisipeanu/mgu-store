@@ -228,8 +228,11 @@ phone's.
 
 `wifi.paused` (`carplay`, `android-auto`) says when the supplicant makes
 no scans of its own for that session. When the session ends, everything is
-as before within 2 s. Neither supplicant has background scans (`bgscan`)
-for our networks, so a joined network makes no scans to roam.
+as before within 2 s. A joined network makes no scans to roam: the car's
+wpa_supplicant runs without a configuration file (`-u -s -d`), so it has no
+global `bgscan`, and our networks in it set none; on `wlan1`, our
+`wpa.conf` sets no global `bgscan` and our networks none (and `mgu-wpa` is
+built without bgscan modules).
 
 ### status.json
 

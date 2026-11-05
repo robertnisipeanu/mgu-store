@@ -341,8 +341,14 @@ func fakeWPA(scanFile string, args []string) int {
 		}
 		return rows
 	}
-	state, cur := "INACTIVE", -1
+	// disconnected: as wpa_supplicant's after DISCONNECT, until RECONNECT or
+	// SELECT_NETWORK; RECONFIGURE keeps it
+	state, cur, disconnected := "INACTIVE", -1, false
 	try := func() {
+		if disconnected {
+			state, cur = "DISCONNECTED", -1
+			return
+		}
 		best := -1
 		for id, n := range nets {
 			for _, r := range scanRows() {
@@ -455,6 +461,7 @@ func fakeWPA(scanFile string, args []string) int {
 				nn.prio, _ = strconv.Atoi(f[3])
 			}
 		case "SELECT_NETWORK":
+			disconnected = false
 			for i, nn := range nets {
 				nn.off = i != id
 			}
@@ -462,9 +469,10 @@ func fakeWPA(scanFile string, args []string) int {
 				try()
 			}
 		case "DISCONNECT":
-			state, cur = "DISCONNECTED", -1
+			state, cur, disconnected = "DISCONNECTED", -1, true
 		case "RECONNECT":
-			if state == "DISCONNECTED" {
+			if disconnected {
+				disconnected = false
 				try()
 			}
 		case "ENABLE_NETWORK":

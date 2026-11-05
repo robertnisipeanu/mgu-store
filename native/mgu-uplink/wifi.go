@@ -158,12 +158,10 @@ type wifiProvider struct {
 	iftype      func(iface string) (uint32, error)
 	dbusHas     func(iface string) (bool, error)
 	connmanConf string
-	// proj finds a wireless CarPlay or Android Auto session; groupFreq
-	// reads a P2P group's frequency from the car's supplicant.
-	proj      *projection
-	groupFreq func(ifname string) (int, error)
-	freqs     map[string]int // the session's P2P interfaces' frequencies, read once a session (reqMu)
-	sessKind  string         // the session the last tick found (reqMu)
+	proj        *projection
+	groupFreq   func(ifname string) (int, error)
+	freqs       map[string]int // the session's P2P interfaces' frequencies, read once a session (reqMu)
+	sessKind    string         // the session the last tick found (reqMu)
 
 	wake  chan struct{}
 	stopc chan struct{}

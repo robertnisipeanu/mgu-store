@@ -35,6 +35,7 @@ type fakeCar struct {
 	state        string
 	groups       map[string]fakeGroup // the P2P group interfaces, by name
 	refuse       string               // a network property Set refuses
+	autoStart    []string             // calls sent without NO_AUTO_START
 }
 
 // fakeGroup is a P2P group interface of the car's supplicant.
@@ -152,6 +153,9 @@ func (f *fakeCar) reply(m dbusMsg) (string, string, []any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, m.member)
+	if m.flags&dbusNoAutoStart == 0 {
+		f.autoStart = append(f.autoStart, m.member)
+	}
 	unknown := func() (string, string, []any) { return "org.freedesktop.DBus.Error.UnknownObject", "", nil }
 	switch m.member {
 	case "GetInterface":
@@ -503,6 +507,11 @@ func TestCarWiFi(t *testing.T) {
 	if ours, theirs := f.count(); ours != 0 || theirs != 0 || f.called("Disconnect") != 1 || p.guarding() {
 		t.Fatalf("after stop: %d ours, %d theirs, %d disconnects", ours, theirs, f.called("Disconnect"))
 	}
+	f.do(func() {
+		if len(f.autoStart) > 0 {
+			t.Errorf("calls that could start the car's supplicant: %v", f.autoStart)
+		}
+	})
 }
 
 // Saved networks come back after a restart; a network a killed run left

@@ -44,6 +44,7 @@ type supplicant struct {
 	setAside  bool      // wpa.conf was moved to wpa.conf.bad (takeSetAside)
 	held      bool      // DISCONNECT sent by hold
 	heldRun   time.Time // to the supplicant started then
+	inSession bool      // hold's last call had a session
 }
 
 // What wpa_supplicant 2.10 prints when it can't read wpa.conf at the start.
@@ -324,9 +325,6 @@ func (s *supplicant) networks() ([]wifiNetwork, []string) {
 // the network it is joined to would keep the old association. Nothing is
 // saved yet: joined saves, reload drops it.
 func (s *supplicant) join(ssid, psk string, open bool) error {
-	s.mu.Lock()
-	s.held = false // SELECT_NETWORK ends a DISCONNECT
-	s.mu.Unlock()
 	id, have := s.saved()[ssid]
 	if !have {
 		if psk == "" && !open {
@@ -369,6 +367,9 @@ func (s *supplicant) join(ssid, psk string, open bool) error {
 			return err
 		}
 	}
+	s.mu.Lock()
+	s.held = false // SELECT_NETWORK ended the DISCONNECT
+	s.mu.Unlock()
 	return nil
 }
 
@@ -399,13 +400,17 @@ func (s *supplicant) reload() error {
 // wpa.conf. On these units every interface may share the one radio, so
 // the phone's band does not narrow anything. The uplink online on another
 // device changes nothing here (DISABLE_NETWORK would reach wpa.conf on the
-// next SAVE_CONFIG). Reports whether its scans are off.
+// next SAVE_CONFIG). A session's end always sends RECONNECT, which does
+// nothing to a supplicant that is not disconnected, so a DISCONNECT is
+// never left behind. Reports whether its scans are off.
 func (s *supplicant) hold(h scanHold) bool {
 	off := h.idle && h.session != ""
 	s.mu.Lock()
 	held, started := s.held && s.heldRun == s.startedAt, s.startedAt
+	ended := s.inSession && h.session == ""
+	s.inSession = h.session != ""
 	s.mu.Unlock()
-	if held == off {
+	if held == off && !(ended && !off) {
 		return off
 	}
 	cmd := "RECONNECT"

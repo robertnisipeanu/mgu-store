@@ -36,12 +36,16 @@ const (
 	projAndroidAuto = "android-auto"
 )
 
-// a P2P group that received nothing this long is not the phone's
-var projectionQuiet = 30 * time.Second // replaced by tests
+// Replaced by tests.
+var (
+	projectionQuiet = 30 * time.Second // a P2P group that received nothing this long is not the phone's
+	projectionGap   = 10 * time.Second // a look this long after the last one starts the counts again
+)
 
 type projection struct {
 	rx    map[string]uint64    // each P2P interface's received bytes at the last look
 	heard map[string]time.Time // when each last received
+	last  time.Time            // the last look
 }
 
 // projSession is a wireless projection session: kind carplay or
@@ -62,9 +66,15 @@ func projectionName(kind string) string {
 	return "CarPlay"
 }
 
-// look reads proc (/proc) once: the session now.
+// look reads proc (/proc) once: the session now. The first look after a
+// gap (Wi-Fi off, unavailable or waiting to try again) only takes the
+// counts: what they grew by meanwhile is no sign of a phone now.
 func (p *projection) look(proc string, now time.Time) projSession {
 	rx := p2pReceived(filepath.Join(proc, "net", "dev"))
+	if now.Sub(p.last) > projectionGap {
+		p.rx, p.heard = map[string]uint64{}, map[string]time.Time{}
+	}
+	p.last = now
 	for name, n := range rx {
 		if old, ok := p.rx[name]; ok && n > old {
 			p.heard[name] = now

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -115,6 +116,9 @@ func TestProcParse(t *testing.T) {
 // a P2P group receiving. Wired CarPlay, a loopback connection or a group
 // that stopped receiving is none.
 func TestProjection(t *testing.T) {
+	gap := projectionGap
+	projectionGap = time.Hour // the ticks between the looks below
+	t.Cleanup(func() { projectionGap = gap })
 	proc := t.TempDir()
 	p := newProjection()
 	now := time.Now()
@@ -157,6 +161,24 @@ func TestProjection(t *testing.T) {
 	look(projSession{}, "a group back")
 	os.RemoveAll(filepath.Join(proc, "net"))
 	look(projSession{}, "no /proc/net")
+
+	// after a gap (Wi-Fi off), what the counters grew by meanwhile is no
+	// sign of a phone: the first look only takes them
+	projectionGap = gap
+	p = newProjection()
+	rx = map[string]uint64{"p2p-wlan0-0": 1000}
+	fakeProc(t, proc, rx, phone)
+	look(projSession{}, "a first look")
+	now = now.Add(time.Minute)
+	rx["p2p-wlan0-0"] += 5000
+	fakeProc(t, proc, rx, phone)
+	look(projSession{}, "the first look after a gap")
+	now = now.Add(2 * time.Second)
+	look(projSession{}, "no traffic since")
+	rx["p2p-wlan0-0"] += 100
+	fakeProc(t, proc, rx, phone)
+	now = now.Add(2 * time.Second)
+	look(projSession{kind: projCarPlay, ifaces: []string{"p2p-wlan0-0"}}, "traffic now")
 }
 
 // carSession is the car's provider with its two P2P groups (wireless
@@ -310,6 +332,26 @@ func TestCarWiFiSession(t *testing.T) {
 	waitWiFi(t, p, "scanning as before", func(st wifiStatus) bool {
 		return st.Paused == "" && st.Link == "scanning" && oursAre(f, "scan_freq", "", true)(st)
 	})
+	f.do(func() {
+		if len(f.autoStart) > 0 || len(f.calls) == 0 {
+			t.Errorf("calls that could start the car's supplicant: %v", f.autoStart)
+		}
+	})
+}
+
+// A call to the car's supplicant never starts it (NO_AUTO_START); others
+// go out as they are.
+func TestDBusNoAutoStart(t *testing.T) {
+	for dest, want := range map[string]byte{wpaDBus: dbusNoAutoStart, "org.freedesktop.DBus": 0} {
+		m, err := dbusMessage(7, dest, "/x", "a.b", "C", "s", []any{"y"})
+		if err != nil || m[2] != want {
+			t.Errorf("%s: flags %#x %v", dest, m[2], err)
+		}
+		r, err := dbusRead(bytes.NewReader(m))
+		if err != nil || r.flags != want || r.member != "C" {
+			t.Errorf("%s: read back %+v %v", dest, r, err)
+		}
+	}
 }
 
 // A car supplicant that refuses scan_freq: no scans of its own during the
@@ -382,4 +424,23 @@ func TestWiFiSessionMGU(t *testing.T) {
 	waitWiFi(t, p, "paused again", func(st wifiStatus) bool { return st.Link == "idle" && st.Paused == projAndroidAuto })
 	fakeProc(t, p.proc, rx)
 	waitWiFi(t, p, "scanning again", func(st wifiStatus) bool { return st.Link == "scanning" && st.Paused == "" })
+
+	// a Connect that fails before SELECT_NETWORK under the session, then the
+	// session ends: the supplicant searches again (RECONNECT)
+	rx["p2p-wfd0-0"] += 100
+	fakeProc(t, p.proc, rx, tcpRow{"192.168.50.1", "192.168.50.3", "01", uidAndroidAuto})
+	waitWiFi(t, p, "paused once more", func(st wifiStatus) bool { return st.Link == "idle" && st.Paused == projAndroidAuto })
+	// the provider's ticks wait while the test drives the supplicant as
+	// connect and the next tick would
+	p.reqMu.Lock()
+	err := p.wpa.join("Other", "", false) // secured, not saved: refused before SELECT_NETWORK
+	p.wpa.reload()
+	p.wpa.hold(scanHold{idle: true}) // the session ended
+	state := p.wpa.status()["wpa_state"]
+	p.reqMu.Unlock()
+	if err == nil || !strings.Contains(err.Error(), "needs a password") || state != "SCANNING" {
+		t.Fatalf("join: %v; after the session: %s", err, state)
+	}
+	fakeProc(t, p.proc, rx)
+	waitWiFi(t, p, "searching after the session", func(st wifiStatus) bool { return st.Link == "scanning" && st.Paused == "" })
 }
