@@ -987,6 +987,19 @@ them (below).
   unit, link or drop-in another installed tool lists is never stopped or
   taken out.
 
+**Stock files stay usable.** The deploy tool runs with umask 022, whatever
+its caller's, and so does everything it runs; a file that must be root's
+alone is written with its mode. Around each `activate`, `deactivate` and
+`postInstall`, it reads the mode and owner of every file and folder under
+`/bin`, `/etc`, `/lib`, `/sbin` and `/usr` on `/`'s file system (mounts
+there are skipped). One that comes out without a group or other read or
+execute bit it had (a patched `/usr/bin/carplay` left `0700` root, which its
+service's user cannot run) gets its mode and owner back at once, in a rootfs
+window, before anything restarts, and the output says so for each file
+(`warning: <id> activate: <path> lost its group or other read/execute bits
+…`). A hook whose files cannot be put back fails, as a non-zero exit does; a
+`postInstall` warns.
+
 **Files removed once unused.** A hook that replaced a binary a process still
 runs keeps the old file linked (an unlinked file a process holds keeps `/`
 from going read-only) and hands it over with `"removeWhenUnused": [<absolute

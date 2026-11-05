@@ -45,9 +45,16 @@ var path = require('path');
 var crypto = require('crypto');
 var cp = require('child_process');
 
+/* What this tool, and every hook, script and command it runs, creates
+ * keeps group and others' read and execute bits, whatever umask the caller
+ * had: a hook writing a stock binary run by another user leaves it
+ * runnable by that user. Files that are root's alone are written with
+ * their mode. */
+process.umask(0o022);
+
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.8.0';
+var VERSION = '0.8.1';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -67,6 +74,8 @@ var CFG = {
     vminput: env('MGU_DEPLOY_VMINPUT', '/usr/bin/vminput'),
     oap: env('MGU_DEPLOY_OAP', '/var/opt/public/oap'),
     etc: env('MGU_DEPLOY_ETC', '/etc'),
+    // the root file system whose stock files a hook must leave usable (guardStock)
+    rootfs: env('MGU_DEPLOY_ROOTFS', '/'),
     proc: env('MGU_DEPLOY_PROC', '/proc'),
     procStat: env('MGU_DEPLOY_PROC_STAT', '/proc/stat'),
     procMounts: env('MGU_DEPLOY_PROC_MOUNTS', '/proc/mounts'),
@@ -1483,6 +1492,7 @@ function rootfsWindowRun(ops) {
                 syncDisks(); fs.renameSync(tmp, op.path); syncDisks();
             }
             else if (op.type === 'tree') { rmrf(op.path); copyTree(op.src, op.path); }
+            else if (op.type === 'mode') { fs.chownSync(op.path, op.uid, op.gid); fs.chmodSync(op.path, op.mode); }
         });
         syncDisks();
         return;
@@ -1501,6 +1511,8 @@ function rootfsWindowRun(ops) {
         else if (op.type === 'rmdir') lines.push('rmdir ' + p);
         else if (op.type === 'tree') lines.push('mkdir -p ' + d + '; rm -rf ' + p + '; cp -a ' + shQuote(op.src) + ' ' + p);
         else if (op.type === 'symlink') lines.push('mkdir -p ' + d + '; rm -rf ' + p + '; ln -s ' + shQuote(op.target) + ' ' + p);
+        /* chown first: it clears setuid, which the chmod sets again */
+        else if (op.type === 'mode') lines.push('chown ' + op.uid + ':' + op.gid + ' ' + p + '; chmod ' + op.mode.toString(8) + ' ' + p);
         else if (op.type === 'copy') {
             lines.push('mkdir -p ' + d + '; cat ' + shQuote(op.src) + ' > ' + p + '.tmp-' + process.pid);
             if (op.mode !== undefined) lines.push('chmod ' + (op.mode & 0o7777).toString(8) + ' ' + p + '.tmp-' + process.pid);
@@ -2273,6 +2285,64 @@ function privacyReverted() {
     say('app-privacy: removed; MainApp-21 runs without it from the next start of the head unit');
 }
 
+/* ---- stock files around a tool's own code ------------------------------------ */
+/* A tool's hooks and postInstall run as root and may write to / (a patch of
+ * a stock binary). The stock services run as their own users: a file there
+ * that loses its group or other read or execute bits stops them (a carplay
+ * left 0700 root fails carplay.service with 203/EXEC, and recmgr restarts
+ * the head unit at every start). guardStock reads the mode and owner of
+ * every file and folder under GUARD_DIRS on /'s file system before fn runs,
+ * and gives any that lost such a bit its mode and owner back right after,
+ * before anything restarts, with a warning naming it. It returns null, or
+ * why one could not be put back. */
+var GUARD_DIRS = ['bin', 'etc', 'lib', 'sbin', 'usr'];
+function stockModes() {
+    var top = lstatOrNull(CFG.rootfs), out = Object.create(null);
+    if (!top) return out;
+    (function scan(dir, only) {
+        var names;
+        try { names = fs.readdirSync(dir); } catch (e) { return; }
+        names.forEach(function (n) {
+            if (only && only.indexOf(n) < 0) return;
+            var p = path.join(dir, n), st = lstatOrNull(p);
+            /* a mount (another file system, a file bound over) is not /'s */
+            if (!st || st.isSymbolicLink() || st.dev !== top.dev) return;
+            out[p] = st;
+            if (st.isDirectory()) scan(p, null);
+        });
+    }(CFG.rootfs, GUARD_DIRS));
+    return out;
+}
+function modeOwner(mode, uid, gid) { return ('000' + (mode & 0o7777).toString(8)).slice(-4) + ' ' + uid + ':' + gid; }
+function guardStock(prefix, fn) {
+    var before = stockModes();
+    fn();
+    var lost = Object.keys(before).filter(function (p) {
+        var b = before[p], st = lstatOrNull(p);
+        return st && (st.mode & 0o170000) === (b.mode & 0o170000) && (b.mode & 0o055 & ~st.mode) !== 0;
+    }).map(function (p) {
+        var b = before[p], st = lstatOrNull(p);
+        warn(prefix + p + ' lost its group or other read/execute bits (' + modeOwner(st.mode, st.uid, st.gid) +
+            '); it gets its mode and owner back (' + modeOwner(b.mode, b.uid, b.gid) + ')');
+        return { type: 'mode', path: p, mode: b.mode & 0o7777, uid: b.uid, gid: b.gid };
+    });
+    if (!lost.length) return null;
+    var why = null;
+    try { rootfsWindow(lost); } catch (e) { why = e.message; }
+    var left = lost.filter(function (op) {
+        var st = lstatOrNull(op.path);
+        return st && ((st.mode & 0o7777) !== op.mode || st.uid !== op.uid || st.gid !== op.gid);
+    }).map(function (op) { return op.path; });
+    if (!left.length) {
+        lost.forEach(function (op) { say(prefix + op.path + ' is ' + modeOwner(op.mode, op.uid, op.gid) + ' again'); });
+        return null;
+    }
+    why = 'left ' + left.join(', ') + ' without the read/execute bits its users need, and the mode and owner could not be put back' +
+        (why ? ': ' + why : '');
+    warn(prefix + why);
+    return why;
+}
+
 /* ---- activate and deactivate ------------------------------------------------- */
 /* A tool's "activate" (run once a version is in place) and "deactivate" (run
  * before it is removed), deploy/README.md "Activate and deactivate". The
@@ -2290,8 +2360,10 @@ function runHook(id, dir, c, which, state) {
     var lines = function (s) { return (s || '').split('\n').filter(function (l) { return l.trim(); }); };
     if (!hookOk(c, which)) return { ok: false, why: HOOK_SHAPE };
     say(prefix + argv.join(' '));
-    var r = cp.spawnSync(argv[0] === 'node' ? CFG.node : path.join(dir, argv[0]), argv.slice(1), {
-        cwd: dir, encoding: 'utf8', timeout: CFG.hookTimeoutMs, killSignal: 'SIGKILL', maxBuffer: 16 << 20
+    var r, stuck = guardStock(prefix, function () {
+        r = cp.spawnSync(argv[0] === 'node' ? CFG.node : path.join(dir, argv[0]), argv.slice(1), {
+            cwd: dir, encoding: 'utf8', timeout: CFG.hookTimeoutMs, killSignal: 'SIGKILL', maxBuffer: 16 << 20
+        });
     });
     var out = lines(r.stdout), err = lines(r.stderr), result = null;
     if (!r.error && r.status === 0 && out.length) {
@@ -2300,6 +2372,7 @@ function runHook(id, dir, c, which, state) {
         else result = null;
     }
     out.concat(err).forEach(function (l) { say(prefix + l); });
+    if (stuck) return { ok: false, why: stuck };
     if (r.error || r.status !== 0) {
         var last = (err.length ? err : out).slice(-1)[0];
         var why = r.error && r.error.code === 'ETIMEDOUT' ? 'timed out after ' + Math.round(CFG.hookTimeoutMs / 1000) + ' s'
@@ -2744,12 +2817,16 @@ function keptToolArtifact(t) {
 /* A tool's postInstall: its script (one of its files) with the arguments
  * after it, run by sh as root from current/ once the install is in place,
  * at every install, for at most postInstallMs. Its output is shown; the
- * install stands whatever it does. */
+ * install stands whatever it does, a stock file it leaves without its
+ * read/execute bits given them back (guardStock). */
 function postInstall(c, root) {
     var cur = path.join(root, 'current');
     say(c.id + ': ' + c.postInstall.join(' '));
-    var r = cp.spawnSync(CFG.sh, [path.join(cur, c.postInstall[0])].concat(c.postInstall.slice(1)), {
-        cwd: cur, encoding: 'utf8', timeout: CFG.postInstallMs, killSignal: 'SIGKILL', maxBuffer: 1 << 20
+    var r;
+    guardStock(c.id + ' postInstall: ', function () {
+        r = cp.spawnSync(CFG.sh, [path.join(cur, c.postInstall[0])].concat(c.postInstall.slice(1)), {
+            cwd: cur, encoding: 'utf8', timeout: CFG.postInstallMs, killSignal: 'SIGKILL', maxBuffer: 1 << 20
+        });
     });
     ((r.stdout || '') + (r.stderr || '')).split('\n').forEach(function (l) { if (l.trim()) say('  ' + l); });
     if (r.error || r.status !== 0) {

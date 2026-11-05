@@ -888,6 +888,13 @@ function fromFolder(dir) {
     return d;
 }
 
+/* The start of a remote command that unpacks the kit on stdin into the
+ * fresh folder q, root's alone by its mode. umask 022: the hooks the deploy
+ * tool runs write stock files their own users run. */
+function unpackKit(q) {
+    return `rm -rf ${q} && umask 022 && mkdir -m 700 -p ${q} && tar -xzf - -C ${q} && `;
+}
+
 async function firstInstall(o) {
     // --from: its catalog is read first, so a missing or bad one stops before the token prompt and the unit search
     const from = o.from ? fromFolder(o.from) : null;
@@ -922,7 +929,7 @@ async function firstInstall(o) {
     const stage = `/var/opt/mgu-deploy-kit-${process.pid}`;
     const q = shQuote(stage);
     say(`installing on ${o.host}:${o.port}`);
-    const run = ssh(o, `rm -rf ${q} && umask 077 && mkdir -p ${q} && tar -xzf - -C ${q} && ` +
+    const run = ssh(o, unpackKit(q) +
         `{ sh ${q}/run.sh; st=$?; rm -rf ${q}; exit $st; }`, { input: tgz(entries, Math.floor(Date.now() / 1000)) });
     if (run.status !== 0) {
         say(`first-install: the install on the unit ended with status ${run.status}`);
@@ -1047,7 +1054,7 @@ function removeAllRun(o, kit, args) {
     // a published deploy tool without remove-all answers the listing with its whole usage
     const quiet = args === '--json' ? ' 2>/dev/null' : '';
     const q = shQuote(`/var/opt/mgu-deploy-kit-${process.pid}`);
-    return ssh(o, `rm -rf ${q} && umask 077 && mkdir -p ${q} && tar -xzf - -C ${q} && ` +
+    return ssh(o, unpackKit(q) +
         `{ sh ${q}/mgu-deploy.sh remove-all ${args}${quiet}; st=$?; rm -rf ${q}; exit $st; }`,
     { input: tgz(kit, Math.floor(Date.now() / 1000)), capture: true });
 }

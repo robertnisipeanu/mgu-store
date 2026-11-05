@@ -2,8 +2,12 @@
 # mount for the deploy tests. --bind <source> <target>: appends
 # "<target><TAB><source><TAB><source's inode>" to $MGU_DEPLOY_FAKE_BINDS; a
 # missing source fails as mount does. -o remount,rw|ro /: / as that in
-# $MGU_DEPLOY_PROC_MOUNTS.
+# $MGU_DEPLOY_PROC_MOUNTS; read-write is refused while the file
+# $FAKE_MOUNT_REFUSE names exists.
 if [ "$1" = -o ] && [ "$3" = / ]; then
+    if [ "$2" = remount,rw ] && [ -n "$FAKE_MOUNT_REFUSE" ] && [ -e "$FAKE_MOUNT_REFUSE" ]; then
+        echo 'mount: / is busy' >&2; exit 32
+    fi
     case "$2" in
     remount,rw) echo 'rootfs / ext4 rw,relatime 0 0' > "$MGU_DEPLOY_PROC_MOUNTS"; exit 0 ;;
     remount,ro) echo 'rootfs / ext4 ro,relatime 0 0' > "$MGU_DEPLOY_PROC_MOUNTS"; exit 0 ;;

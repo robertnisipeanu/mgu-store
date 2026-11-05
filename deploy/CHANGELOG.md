@@ -1,5 +1,11 @@
 # Deploy tool changelog
 
+## 0.8.1
+
+- The deploy tool runs with umask 022 whatever its caller's, and so do the hooks, `postInstall` scripts and commands it runs. A hook that writes a stock binary with a mode keeps that mode's group and other bits, as when the updater runs it, under an SSH install's umask 077 too.
+- Around each `activate`, `deactivate` and `postInstall`, a file or folder under `/bin`, `/etc`, `/lib`, `/sbin` and `/usr` on `/`'s file system that lost a group or other read or execute bit it had gets its mode and owner back at once, before anything restarts, with a warning naming it. A `/usr/bin/carplay` left `0700` root stops `carplay.service` (`203/EXEC`) and recmgr restarts the head unit at every start. A hook whose files cannot be put back fails like one that exits non-zero; a `postInstall` warns.
+- `mgu-install.js` unpacks and runs its kit on the unit (`first-install`, and the published deploy tool `uninstall` sends) under umask 022, in a folder root's alone by its mode.
+
 ## 0.8.0
 
 - `mgu-install.js uninstall` removes everything the Store setup put on the head unit, run like `first-install` (`install.sh`, `install.ps1`, the standalone executables, or the script). It lists the apps and tools the deploy tool installed, from any source, and the rest, asks `Remove all of it? [y/N]` (`--yes`: no question; without a terminal and `--yes`, nothing is removed, exit 2), removes it, and ends with one line saying what is left, if anything, and the restart question when a restart finishes the job. A deploy tool on the unit without `remove-all` hands the job to the published one (`--from <folder>`: a folder `usb-repo` wrote), which stays installed should the run not finish.
