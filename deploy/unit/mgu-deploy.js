@@ -6662,7 +6662,7 @@ function removeSelf(state, queued) {
     crashListDone(crash, remounts);
     pruneCreatedDirs(state);
     saveState(state);
-    [customAppsFile(), localOnlyFile(), inplaceStatusFile(), path.join(mgrHome(), 'data', GUARD_FILE_NAME)].forEach(rmrf);
+    [customAppsFile(), localOnlyFile(), inplaceStatusFile(), listedRecordFile(), path.join(mgrHome(), 'data', GUARD_FILE_NAME)].forEach(rmrf);
     if (!installedTools().some(function (t) { return t.id === 'mgu-updater'; })) rmrf(updaterDir());
     if (queued) {
         writeAtomic(REMOVE_ALL_FILE, JSON.stringify({ at: new Date().toISOString() }) + '\n', 0o644);

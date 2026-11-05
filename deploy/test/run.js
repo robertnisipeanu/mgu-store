@@ -6243,6 +6243,8 @@ function testRemoveAllId8() {
     write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED' }));
     write(root.p('var/opt/public/oap/oap_13001/source/package.json'), JSON.stringify({ name: 'oap-cardash', version: '1.1.4', mguLocalOnly: true }));
     write(root.p(`var/opt/public/oap/oap_${MGR}/security/uids.txt`), '13000=stock_app\n13001=oap-cardash\n');
+    const listed = root.p(`var/opt/public/oap/oap_${MGR}/data/mgu-deploy-listed.json`);
+    write(listed, JSON.stringify({ pid: 1, apps: ['oap-cardash'] }));
     const plan = JSON.parse(root.run(['remove-all', '--json']).stdout);
     check('id8 remove-all --json: the app MainApp-21 installed from our das lines', JSON.stringify(plan.apps.map((a) => a.id)) === '["oap-cardash"]',
         JSON.stringify(plan));
@@ -6251,13 +6253,14 @@ function testRemoveAllId8() {
     check('id8 remove-all: the app is removed at the next start; the queue\'s boot unit and the deploy tool stay for it; a restart is asked for',
         r.status === 0 && res.self === 'next-start' && res.restart === true && JSON.stringify(res.next_start) === '["oap-cardash"]' &&
         fs.existsSync(root.p('etc/systemd/system/mgu-deploy-apply.service')) && fs.existsSync(root.p('var/opt/mgu-deploy/remove-all.json')) &&
-        !fs.existsSync(root.p('var/opt/mgu-deploy/backups')), r.out);
+        !fs.existsSync(root.p('var/opt/mgu-deploy/backups')) && !fs.existsSync(listed), r.out);
     const a = root.run(['apply-pending']);
     check('id8 remove-all, next start: the app, its das lines, the boot unit, its recmgr entry and the deploy tool are gone',
         a.status === 0 && !fs.existsSync(root.entry('oap-cardash')) && JSON.stringify(id8Das(root)) === JSON.stringify(dasBefore) &&
         !fs.existsSync(root.p('etc/systemd/system/mgu-deploy-apply.service')) &&
         !fs.existsSync(root.p('etc/systemd/system/late.target.wants/mgu-deploy-apply.service')) &&
-        fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8') === recBefore &&
+        fs.readFileSync(root.p('etc/recmgr-restartlist.conf'), 'utf8') === recBefore && !fs.existsSync(listed) &&
+        !fs.existsSync(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`)) &&
         JSON.stringify(fs.readdirSync(root.p('var/opt'))) === '["public"]', `${a.out}\n${fs.readdirSync(root.p('var/opt'))}`);
 }
 
