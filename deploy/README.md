@@ -227,7 +227,7 @@ from a file or from stdin (`curl -fsSL <raw URL> | node - first-install
 ...`); from stdin a token prompt reads the terminal device (`/dev/tty`),
 and where there is none (Windows) the downloaded file is run instead.
 
-`first-install` and `token` find the head unit by themselves, and print
+`first-install`, `uninstall` and `token` find the head unit by themselves, and print
 which connection they used:
 
 1. the car's hotspot, `172.16.222.97:22`, when it serves an SSH banner;
@@ -266,6 +266,7 @@ which the unit's sshd needs.
 ```sh
 node mgu-install.js first-install [--from <folder>] [--no-renderer] [--no-uplink] [--token] [ssh options]
 node mgu-install.js token [--list [--json] | --remove <id>] [ssh options]
+node mgu-install.js uninstall [--yes] [--from <folder>] [--no-restart-prompt] [ssh options]
 node mgu-install.js usb-repo <stick folder> [<input>...]
 ```
 
@@ -366,6 +367,33 @@ node mgu-install.js first-install --from <folder>/mgu-repo/mgu-store --identity 
 Before installing, the car is parked, on stable power (engine running or a
 charger connected), and stays awake until the command finishes.
 
+**uninstall** removes everything the Store setup put on the head unit,
+with the deploy tool's `remove-all` ("Removing the Store setup" below). It
+first lists what is installed (the apps and tools the deploy tool
+installed, from any source, the updater's sources and tokens, the deploy
+tool) and asks `Remove all of it? [y/N]`; `--yes` skips the question, and
+without a terminal it removes nothing unless given `--yes` (exit 2). A
+deploy tool on the unit without `remove-all` hands the job to the
+published one, read like first-install's (or from `--from <folder>`),
+which stays installed should the run not finish.
+It ends with one line:
+`Removed: nothing of the Store setup is left on the head unit.`;
+`Removed. Restart the head unit to finish.` or, on iDrive 8 with apps
+removed at the next start, `Restart the head unit to finish: <apps> and
+the deploy tool go at its next start.`, either followed by the restart
+question as first-install asks it; or `Not finished: <what> is still on
+the head unit. Run uninstall again to finish.` (exit 1), or, when what
+is left goes only after a restart, `… Restart the head unit, then run
+uninstall again to finish.` and the restart question (exit 1).
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.sh | sh -s -- uninstall --identity ~/.ssh/mgu_root_key
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.ps1))) uninstall --identity $HOME\.ssh\mgu_root_key
+```
+
 **token** adds a GitHub token for the updater: read from a hidden prompt
 (not echoed), or from stdin when stdin is not a terminal and the script
 came from a file, never from an
@@ -417,6 +445,7 @@ mgu-deploy.sh check [--artifact <file>...]
 mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--yes]
 mgu-deploy.sh status [--json]
 mgu-deploy.sh uninstall <id> [--yes]
+mgu-deploy.sh remove-all [--json] | remove-all --yes
 mgu-deploy.sh rollback <id> [--yes]
 mgu-deploy.sh restore [name] [--yes]
 mgu-deploy.sh backups
@@ -773,9 +802,9 @@ the new version, so `status --json` answers from the new `current` at once.
 The updater probes `status --json` after its self-update and, when it gets
 no answer, renames `current` back itself.
 
-`uninstall mgu-deploy` is refused (exit 2): a running tool does not remove
-itself. `restore` puts back what the tool changed and keeps the tool;
-`/var/opt/mgu-deploy` is removed by hand when wanted.
+`uninstall mgu-deploy` is refused (exit 2): the deploy tool goes last in
+`remove-all`, with everything it installed ("Removing the Store setup").
+`restore` puts back what the tool changed and keeps the tool.
 
 **Version rule.** Bump `deploy/component.json`'s version, and `VERSION` with
 it (`node release/release.js bump mgu-deploy <x.y.z>` sets both), whenever a
@@ -1549,6 +1578,35 @@ our boot units) sets every component up again:
 - `status --json` gives each component's `stale` until then, and for a
   tool `kept`.
 
+### Removing the Store setup
+
+`remove-all --yes` removes what the Store setup put on the unit, each step
+with its snapshot and rollback as on its own, in this order: every app the
+deploy tool installed (recorded in `state.json`, listed in
+`custom_apps.json` or marked `mguLocalOnly`; on iDrive 8 also those with
+our das lines and queued installs); every tool but app-privacy, a tool
+another requires after it; the provisioning fallback and `custom_apps.json`;
+app-privacy, its patch reverted; then the deploy tool's boot units and
+recmgr entries, any limits drop-in and crash handler name it still owns,
+`local-only-apps.json` and its other files in the app manager's folder, the
+updater's sources and tokens, and last `/var/opt/mgu-deploy` with its
+state and backups. The restart lists are edited as they are on the unit,
+whatever firmware wrote them; no backup is restored. The app manager is
+restarted once at the end (iDrive 7, the usual bounce rules), where a step
+asked for it. A step that fails is named and what depends on it stays:
+app-privacy and the fallback while one of our apps is left, the deploy
+tool while anything is; running it again finishes. On iDrive 8 the apps
+MainApp-21 does not uninstall in place are queued; `mgu-deploy-apply`
+and the deploy tool stay for the next start, which removes them and then
+both. Apps and the renderer adopted from IterioDev's App Manager stay, as
+`uninstall oap-appmanager` leaves them.
+
+`remove-all` (or `--json`) lists what it would remove and changes nothing.
+With `--yes` the steps' lines go to stderr and the result is one JSON line
+on stdout: `removed`, `left`, `restart` (a restart finishes the job),
+`next_start` and `self` (`removed`, `next-start` or `kept`). Exit 0 when
+nothing is left, 1 otherwise.
+
 ### Backups and restore
 
 Before every change the installer snapshots every file the operation
@@ -1605,6 +1663,13 @@ boundary:
   Explicitly uninstalling the updater removes its whole folder.
 - the deploy tool itself stays installed: no snapshot records or restores
   `/var/opt/mgu-deploy/versions/` or `current`.
+- every snapshot records the firmware it was taken on (`firmware` in its
+  manifest). A restore that would write a file outside `/var/opt` is
+  refused (exit 2, nothing changed) unless that is the firmware the unit
+  runs now. A snapshot without the record counts as another firmware's,
+  since it may predate a firmware update; one that writes no file outside
+  `/var/opt` restores. To take the Store setup off after a firmware
+  update, use `mgu-install.js uninstall`.
 
 app-privacy patches the app manager's bundles in place. A restore that
 removes it first runs its `revert --json` (on the fallback copy and the stock

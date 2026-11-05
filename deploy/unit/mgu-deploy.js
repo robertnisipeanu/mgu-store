@@ -9,6 +9,7 @@
  *   mgu-deploy.sh install [--artifact <file>...] [--yes]
  *   mgu-deploy.sh status [--json]
  *   mgu-deploy.sh uninstall <id> [--yes]
+ *   mgu-deploy.sh remove-all [--json] | remove-all --yes   (everything the Store setup put on the unit)
  *   mgu-deploy.sh rollback <id> [--yes]
  *   mgu-deploy.sh restore [name] [--yes]
  *   mgu-deploy.sh backups
@@ -46,7 +47,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.18';
+var VERSION = '0.8.0';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -507,6 +508,11 @@ function bounceWait() {
  * it has not taken in place it takes at the next start. */
 function bounceManager() {
     if (isId8()) { say('MainApp-21 is not restarted; it takes this at the next start of the head unit'); return false; }
+    if (bounceDeferred) {
+        if (!bounceOwed) say('the app manager is restarted once, when the removal is done');
+        bounceOwed = true;
+        return true;
+    }
     var old = bounceWait(), waited = 0, cur;
     if (!old) { warn('app manager node child not found; nothing to bounce'); return false; }
     say('bouncing the app manager node child (pid ' + old + ')');
@@ -524,6 +530,8 @@ function bounceManager() {
     }
     throw fail('app manager node child did not respawn; check oapcontroller');
 }
+/* remove-all makes the bounces its steps ask for once, at its end. */
+var bounceDeferred = false, bounceOwed = false;
 /* The manager's node child, waited for up to bounceTimeoutMs: oapcontroller
  * respawns a dead one within seconds. */
 function managerSoon() {
@@ -1172,8 +1180,8 @@ function writeSnapshot(dir, command, paths) {
     manifest.push({ path: mainJs(), kind: 'record',
         sha256: rec.kind === 'file' ? rec.sha256 : null,
         bind_mounted: bindMounted(mainJs()) });
-    writeAtomic(path.join(dir, 'manifest.json'),
-        JSON.stringify({ command: command, created: new Date().toISOString(), entries: manifest }, null, 2) + '\n');
+    writeAtomic(path.join(dir, 'manifest.json'), JSON.stringify({ command: command, created: new Date().toISOString(),
+        firmware: unitInfo().firmware, entries: manifest }, null, 2) + '\n');
     return dir;
 }
 /* Every snapshot also records the files any command may leave changed:
@@ -1227,9 +1235,11 @@ function takeSnapshot(command, paths) {
     say('backup: ' + dir);
     return dir;
 }
+/* A file of the firmware's root file system: anything outside /var/opt. */
+function systemPath(p) { return p.indexOf(CFG.varOpt + '/') !== 0 && p !== CFG.varOpt; }
 function isRootfsPath(p) {
     if (FAKE && !FAKE_SH_WINDOW) return false;
-    return p.indexOf(CFG.varOpt + '/') !== 0 && p !== CFG.varOpt;
+    return systemPath(p);
 }
 function putBackEntry(dir, e) {
     if (e.kind === 'record' || e.kind === 'other') return;
@@ -3962,7 +3972,7 @@ function stopUnits(c, state) {
     (c.units || []).forEach(function (u) {
         if (others[path.join(CFG.systemd, u.name)] || unitState(u.name, 'is-active') !== 'active') return;
         if (recmgrLoaded(recmgrBase(u.name))) { runOk(CFG.systemctl, ['stop', u.name]); say('stopped ' + u.name); stopped.push(u.name); }
-        else { addPending(state, c.id, PENDING_RECMGR); warn(u.name + ' left running until a reboot'); }
+        else { addPending(state, c.id, PENDING_RECMGR); leftRunning.push(u.name); warn(u.name + ' left running until a reboot'); }
     });
     return stopped;
 }
@@ -4000,6 +4010,8 @@ function removeToolPieces(c, rest, state) {
 /* The version folder whose deactivate ran (or started) in this removal, for
  * cmdUninstall to activate again when the removal does not go through. */
 var deactivated = null;
+/* The units stopUnits left running until the next start. */
+var leftRunning = [];
 function uninstallTool(id, state) {
     var tools = installedTools().filter(function (t) { return t.id === id; });
     if (!tools.length) throw refuse(id + ': no installed tool with that id');
@@ -4094,6 +4106,9 @@ function dasEnableLine(id) {
 function dasFile(d) { return path.join(CFG.prov, d + '.xml'); }
 function applyTouched() {
     return [path.join(CFG.systemd, APPLY_UNIT), path.join(CFG.systemd, APPLY_WANTS, APPLY_UNIT), CFG.recmgr];
+}
+function queuedRemoval(id) {
+    return isId8() && readPending().some(function (c) { return c.id === id && c.action === 'remove'; });
 }
 function readPending() {
     var p = readJsonOrNull(ID8_PENDING);
@@ -4789,7 +4804,11 @@ function confirmId8(u, bin) {
 function cmdApplyPending() {
     if (!isId8()) throw refuse('apply-pending applies queued iDrive 8 app changes; this head unit is ' + hmiName(unitInfo().hmi || 'unknown'));
     var changes = readPending(), unconfirmed = readUnconfirmed(), results = [], kept = [];
-    if (!changes.length && !unconfirmed.length) { say('nothing queued'); return 0; }
+    if (!changes.length && !unconfirmed.length) {
+        say('nothing queued');
+        if (fs.existsSync(REMOVE_ALL_FILE)) removeSelfAtStart();
+        return 0;
+    }
     if (managerPid()) throw refuse('the app manager is running; queued changes apply before it starts (' + APPLY_UNIT + ')');
     var bin = path.join(ID8_TRASH, timestamp());
     /* each update is looked at once: its record goes before anything moves */
@@ -4808,10 +4827,13 @@ function cmdApplyPending() {
         }
         results.push(res);
     });
-    try {
-        var listedNow = relistId8();
-        if (listedNow.length) say('listed for the provisioning fallback: ' + listedNow.join(', '));
-    } catch (e) { process.stderr.write('listing for the provisioning fallback failed: ' + e.message + '\n'); }
+    /* a remove-all's start lists nothing: no fallback is left to read it */
+    if (!fs.existsSync(REMOVE_ALL_FILE)) {
+        try {
+            var listedNow = relistId8();
+            if (listedNow.length) say('listed for the provisioning fallback: ' + listedNow.join(', '));
+        } catch (e) { process.stderr.write('listing for the provisioning fallback failed: ' + e.message + '\n'); }
+    }
     if (results.length) writeAtomic(ID8_LAST, JSON.stringify({ at: new Date().toISOString(), results: results }, null, 2) + '\n', 0o644);
     changes.forEach(function (c) { if (c.file) rmrf(c.file); });
     writePending([], kept);
@@ -4820,7 +4842,14 @@ function cmdApplyPending() {
         var old = fs.readdirSync(ID8_TRASH).sort().filter(function (n) { return keep.indexOf(n) < 0; });
         old.slice(0, Math.max(0, old.length - 3)).forEach(function (n) { rmrf(path.join(ID8_TRASH, n)); });
     }
-    return results.every(function (r) { return r.ok; }) ? 0 : 1;
+    var ok = results.every(function (r) { return r.ok; });
+    /* a remove-all's last step, once its removals went through; after a
+     * failed one the deploy tool stays for remove-all to run again */
+    if (fs.existsSync(REMOVE_ALL_FILE)) {
+        if (ok && !kept.length) removeSelfAtStart();
+        else { rmrf(REMOVE_ALL_FILE); process.stderr.write('the deploy tool stays: run the uninstall again\n'); }
+    }
+    return ok ? 0 : 1;
 }
 
 /* ---- IterioDev's App Manager: replaced by the Store --------------------------------- */
@@ -5599,7 +5628,10 @@ function migrateRetired(state, plan) {
         var check = privacyCheck();
         if ((loads() !== loadedBefore || (check && check.restartNeeded)) && managerPid()) {
             bounced = true;
-            bounceManager();
+            /* the check needs the restarted manager, also within remove-all */
+            var deferred = bounceDeferred;
+            bounceDeferred = false;
+            try { bounceManager(); } finally { bounceDeferred = deferred; }
             verifyMigration(before);
         } else {
             var problems = migrationProblems(before);
@@ -6102,6 +6134,8 @@ function installRun(args, afresh) {
     var files = args.artifacts.length ? args.artifacts.map(function (f) { return path.resolve(f); })
         : kitArtifacts();
     var stage = stageDir(), state = loadState(), done = [], attempted = false, id8 = isId8(), elsewhere = {};
+    /* an install after a remove-all keeps the deploy tool */
+    rmrf(REMOVE_ALL_FILE);
     try {
         var validated = files.map(function (f) { return validateArtifact(f, stage); });
         if (args.otherSource) validated.forEach(function (a) { a.otherSource = a.kind === 'tool'; });
@@ -6392,16 +6426,18 @@ function cmdUninstall(args) {
     var id = args.positional[0];
     if (!id) throw refuse('uninstall needs a component id');
     if (id === 'mgu-deploy') {
-        throw refuse('mgu-deploy: the deploy tool does not uninstall itself; restore puts back what it changed, ' +
-            'and ' + DEPLOY_DIR + ' (its state and backups) is removed by hand when wanted');
+        throw refuse('mgu-deploy: the deploy tool goes with remove-all, which removes the Store setup ' +
+            '(the installer\'s uninstall)');
     }
     if (id === AM.app && amPresent()) return amCommand('uninstall', amRemove);
     var state = loadState();
     var isTool = installedTools().some(function (t) { return t.id === id; });
     if (!isTool && isId8()) return uninstallQueuedId8(id, state);
     if (!isTool && !readJsonOrNull(appEntryFile(id))) throw refuse(id + ': not installed');
-    if (id === 'app-privacy' && ourApps().length) {
-        throw refuse('app-privacy stays while our apps are installed (' + ourApps().join(', ') + '); uninstall them first');
+    /* an app whose removal is queued for the next start (iDrive 8) is gone before MainApp-21 starts */
+    var staying = ourApps().filter(function (a) { return !queuedRemoval(a); });
+    if (id === 'app-privacy' && staying.length) {
+        throw refuse('app-privacy stays while our apps are installed (' + staying.join(', ') + '); uninstall them first');
     }
     if (!isTool) {
         if (retiredBackups().length) ensureStock('uninstall', touchedForUninstall(id).concat(retiredTouched(null)));
@@ -6433,6 +6469,242 @@ function cmdUninstall(args) {
         throw e;
     }
     return 0;
+}
+/* ---- remove-all: the Store setup off the unit ------------------------------------- */
+/* remove-all takes off everything the Store setup put on the head unit, in
+ * this order, each step with its snapshot and rollback as on its own:
+ *   apps       every app this tool installed (its record, the fallback's
+ *              list, the local-only marker); on iDrive 8 the ones the
+ *              running MainApp-21 does not uninstall in place go at the
+ *              next start, from the queue;
+ *   tools      every installed tool but app-privacy, a tool another one
+ *              requires after it;
+ *   fallback   the provisioning fallback: unit, copy, binds, app list;
+ *   privacy    app-privacy, its patch reverted;
+ *   the rest   this tool's boot units and their recmgr entries, any limits
+ *              drop-in and crash handler name it still owns, the app
+ *              manager's files it wrote, the updater's sources and tokens,
+ *              then this tool, its state and its backups.
+ * The lists are edited as they are on the unit now, whatever firmware wrote
+ * them; no snapshot is restored. The bounces the steps ask for are made
+ * once, at the end, under the usual rules. A step that fails is rolled back
+ * and named; what depends on it stays (app-privacy and the fallback while
+ * an app of ours is left; this tool while anything is), so running it
+ * again finishes the job. On iDrive 8 with removals queued, the queue's
+ * boot unit and this tool stay until the next start, which applies them
+ * and then removes both. Apps and the renderer adopted from IterioDev's
+ * App Manager stay, as `uninstall oap-appmanager` leaves them. */
+var REMOVE_ALL_FILE = path.join(DEPLOY_DIR, 'remove-all.json');
+var GUARD_FILE_NAME = 'mgu-deploy-guard.json';
+/* What IterioDev's App Manager installed: the apps its record names (adopted)
+ * and, while it is on the unit, the ones it lists itself. */
+function amAdopted() {
+    var rec = readJsonOrNull(AM_RECORD) || {};
+    var apps = (Array.isArray(rec.apps) ? rec.apps : []).concat(amPresent() ? amApps() : []);
+    var ids = [];
+    apps.forEach(function (x) { if (x && typeof x.id === 'string' && ids.indexOf(x.id) < 0) ids.push(x.id); });
+    return { apps: ids, renderer: !!rec.renderer };
+}
+/* The apps this tool installed: recorded, listed by the fallback or marked
+ * local-only; on iDrive 8 also those with our das lines and queued installs. */
+function removalApps(state) {
+    var adopted = amAdopted().apps, custom = readCustomApps(), recorded = state.apps || {}, out = {};
+    function add(id, version) {
+        if (adopted.indexOf(id) >= 0 || ID8_PROTECTED.indexOf(id) >= 0 || id === AM.app) return;
+        if (!out[id] || !out[id].version) out[id] = { id: id, version: version || null, next_start: queuedRemoval(id) };
+    }
+    registryEntries().forEach(function (r) {
+        var app = installedApp(r.id);
+        if (app && (recorded[r.id] || r.id in custom || app.pkg.mguLocalOnly === true)) add(r.id, app.version);
+    });
+    if (isId8()) {
+        dasApps().forEach(function (id) { add(id, (installedApp(id) || {}).version); });
+        readPending().forEach(function (c) { if (c.action === 'install') add(c.id, c.version); });
+    }
+    return Object.keys(out).sort().map(function (id) { return out[id]; });
+}
+function removalTools() {
+    var keepRenderer = amAdopted().renderer;
+    return installedTools().filter(function (t) { return t.id !== 'mgu-deploy' && !(keepRenderer && t.id === 'mgu-renderd'); });
+}
+/* A tool another remaining tool requires goes after it; else by id. */
+function removalOrder(tools) {
+    var left = tools.slice(), out = [];
+    while (left.length) {
+        var next = left.filter(function (t) {
+            return !left.some(function (o) { return o !== t && o.component.requires && typeof o.component.requires === 'object' &&
+                Object.prototype.hasOwnProperty.call(o.component.requires, t.id); });
+        })[0] || left[0];
+        out.push(next);
+        left.splice(left.indexOf(next), 1);
+    }
+    return out;
+}
+function fallbackOnUnit() {
+    return fallbackPresent() || fs.existsSync(FALLBACK_COPY) || (binds() && bindMounted(mainJs())) || fs.existsSync(customAppsFile());
+}
+function removeAllPlan(state) {
+    var info = unitInfo(), self = readJsonOrNull(path.join(DEPLOY_DIR, 'current', 'component.json'));
+    var sources = readJsonOrNull(sourcesFile()), adopted = amAdopted();
+    var kept = adopted.apps.filter(function (id) { return !!readJsonOrNull(appEntryFile(id)) || dasApps().indexOf(id) >= 0; });
+    if (adopted.renderer && installedTools().some(function (t) { return t.id === 'mgu-renderd'; })) kept.push('mgu-renderd');
+    return {
+        unit: { hmi: info.hmi, firmware: info.firmware },
+        apps: removalApps(state),
+        tools: removalOrder(removalTools()).map(function (t) {
+            return { id: t.id, version: t.version, title: t.component.title || t.id };
+        }),
+        kept: kept,
+        privacy_patch: installedTools().some(function (t) { return t.id === 'app-privacy'; }),
+        fallback: fallbackOnUnit(),
+        sources: sources && Array.isArray(sources.sources) ? sources.sources.length : 0,
+        tokens: storedTokens().length,
+        deploy_tool: self && self.version ? self.version : VERSION
+    };
+}
+function cmdRemoveAll(args) {
+    var plan = removeAllPlan(loadState());
+    if (!args.yes) {
+        if (args.json) { say(JSON.stringify(plan)); return 0; }
+        say('apps: ' + (plan.apps.map(function (a) { return a.id + (a.version ? ' ' + a.version : ''); }).join(', ') || 'none'));
+        say('tools: ' + (plan.tools.map(function (t) { return t.id + ' ' + t.version; }).join(', ') || 'none'));
+        if (plan.kept.length) say("kept (from IterioDev's App Manager): " + plan.kept.join(', '));
+        say('updater: ' + plan.sources + ' sources, ' + plan.tokens + ' tokens');
+        say('deploy tool ' + plan.deploy_tool + ', its state and backups');
+        say('remove-all --yes removes all of it');
+        return 0;
+    }
+    /* the steps' lines go to stderr; stdout keeps the result, one JSON line */
+    var out = process.stdout.write, result;
+    process.stdout.write = function (chunk) { return process.stderr.write(chunk); };
+    try { result = removeAll(plan); }
+    finally { process.stdout.write = out; }
+    say(JSON.stringify(result));
+    return result.left.length ? 1 : 0;
+}
+function removeAll(plan) {
+    var left = [], removed = [], state;
+    function step(what, fn) {
+        try { fn(); return true; }
+        catch (e) {
+            left.push(what);
+            process.stderr.write('mgu-deploy: ' + what + ' stays: ' + e.message + '\n');
+            return false;
+        }
+    }
+    function uninstall(id) {
+        var running = leftRunning.length;
+        if (step(id, function () { cmdUninstall({ positional: [id], yes: true }); })) removed.push(id);
+        /* a service left running needs the next start, also when a later run finishes the job */
+        if (leftRunning.length > running) {
+            var s = loadState();
+            addPending(s, 'mgu-deploy', id + ' removed; its services run until the next start');
+            saveState(s);
+        }
+    }
+    bounceDeferred = true;
+    bounceOwed = false;
+    leftRunning = [];
+    var privacy = plan.tools.some(function (t) { return t.id === 'app-privacy'; });
+    try {
+        plan.apps.forEach(function (a) {
+            if (a.next_start) { removed.push(a.id); return; }
+            uninstall(a.id);
+        });
+        plan.tools.forEach(function (t) { if (t.id !== 'app-privacy') uninstall(t.id); });
+        state = loadState();
+        var appsLeft = removalApps(state).filter(function (a) { return !a.next_start; });
+        if (appsLeft.length) {
+            appsLeft.forEach(function (a) { if (left.indexOf(a.id) < 0) left.push(a.id); });
+        } else {
+            if (fallbackOnUnit()) {
+                step('the provisioning fallback', function () {
+                    if (fallbackPresent() || fs.existsSync(FALLBACK_COPY) || (binds() && bindMounted(mainJs()))) fallbackOff(state, {});
+                    rmrf(customAppsFile());
+                    saveState(state);
+                });
+            }
+            if (privacy) uninstall('app-privacy');
+        }
+    } finally {
+        bounceDeferred = false;
+    }
+    /* the one bounce, while this tool still keeps its record (state.json) */
+    var bounced = true;
+    if (bounceOwed && !isId8() && managerPid()) {
+        try { bounceManager(); }
+        catch (e) { bounced = false; process.stderr.write('mgu-deploy: the app manager was not restarted: ' + e.message + '\n'); }
+    }
+    var queued = isId8() && readPending().some(function (c) { return c.action === 'remove'; });
+    state = loadState();
+    var restart = !bounced || leftRunning.length > 0 || state.pending_reboot.some(function (p) { return p.id !== FALLBACK_NAME; }) ||
+        (isId8() && (plan.apps.length > 0 || privacy || plan.fallback));
+    /* files a removal handed over while a process ran them: gone now, or
+     * the cleanup unit and this tool stay to remove them at the next start */
+    var busy = [];
+    step('the files left for removal when unused', function () { busy = removeUnused(readUnused()); writeUnused(busy); });
+    if (busy.length) { left.push('files in use: ' + busy.join(', ')); restart = true; }
+    var self = 'kept';
+    if (!left.length) {
+        if (step('the deploy tool', function () { removeSelf(state, queued); })) self = queued ? 'next-start' : 'removed';
+    }
+    return { removed: removed, left: left, restart: restart || self === 'next-start',
+        next_start: readPending().filter(function (c) { return c.action === 'remove'; }).map(function (c) { return c.id; }),
+        self: self };
+}
+/* The last step: this tool's own pieces outside its folder, then the
+ * folder. queued: iDrive 8 removals wait for the next start; the queue's
+ * boot unit, its entry and this tool stay for it (REMOVE_ALL_FILE). */
+function removeSelf(state, queued) {
+    var units = [[VERIFY_UNIT, VERIFY_NAME], [CLEANUP_UNIT, CLEANUP_NAME]].concat(queued ? [] : [[APPLY_UNIT, APPLY_NAME]]);
+    var ops = [], names = units.map(function (u) { return u[1]; });
+    units.forEach(function (u) {
+        [path.join(CFG.systemd, APPLY_WANTS, u[0]), path.join(CFG.systemd, u[0])].forEach(function (p) {
+            if (lstatOrNull(p)) ops.push({ type: 'delete', path: p });
+        });
+    });
+    var rec = recmgrOp([], names.concat([FALLBACK_NAME]));
+    if (rec) ops.push(rec);
+    /* what a kept tool (adopted from the App Manager) still has stays */
+    var keep = installedTools().filter(function (t) { return t.id !== 'mgu-deploy'; });
+    ops = ops.concat(limitsPlan(keep, null).ops);
+    var crash = crashListPlan(keep), remounts = rootMountMode() === 'ro';
+    if (crash && crash.op) ops.push(crash.op);
+    if (ops.length) {
+        rootfsWindow(ops);
+        runOk(CFG.systemctl, ['daemon-reload']);
+    }
+    crashListDone(crash, remounts);
+    pruneCreatedDirs(state);
+    saveState(state);
+    [customAppsFile(), localOnlyFile(), inplaceStatusFile(), listedRecordFile(), path.join(mgrHome(), 'data', GUARD_FILE_NAME)].forEach(rmrf);
+    if (!installedTools().some(function (t) { return t.id === 'mgu-updater'; })) rmrf(updaterDir());
+    if (queued) {
+        writeAtomic(REMOVE_ALL_FILE, JSON.stringify({ at: new Date().toISOString() }) + '\n', 0o644);
+        rmrf(BACKUPS_DIR);
+        snapshotsTaken.length = 0;
+        say('the deploy tool removes itself at the next start, after the queued removals');
+        return;
+    }
+    removeDeployDir();
+}
+function removeDeployDir() {
+    snapshotsTaken.length = 0;
+    rmrf(DEPLOY_DIR);
+    say('deploy tool removed from ' + DEPLOY_DIR);
+}
+/* At the next start on iDrive 8, after a remove-all's queued removals went
+ * through: the queue's boot unit and its entry, then this tool. */
+function removeSelfAtStart() {
+    var ops = [path.join(CFG.systemd, APPLY_WANTS, APPLY_UNIT), path.join(CFG.systemd, APPLY_UNIT)]
+        .filter(function (p) { return !!lstatOrNull(p); }).map(function (p) { return { type: 'delete', path: p }; });
+    var rec = recmgrOp([], [APPLY_NAME]);
+    if (rec) ops.push(rec);
+    if (ops.length) rootfsWindow(ops);
+    var state = loadState();
+    pruneCreatedDirs(state);
+    [customAppsFile(), listedRecordFile(), path.join(mgrHome(), 'data', GUARD_FILE_NAME)].forEach(rmrf);
+    removeDeployDir();
 }
 /* rollback <id>: a tool's current back to the one other version kept
  * (args.to: that version only). The version going runs its deactivate
@@ -6711,6 +6983,7 @@ function cmdRestore(args) {
  * app that stays registered without the fallback listing it has now,
  * marked or not. Those are uninstalled first. */
 function preflightRestore(name, dir, data) {
+    preflightFirmware(name, data);
     var rec = {}, blocked = [];
     data.entries.forEach(function (e) { rec[e.path] = e; });
     function goes(p) { return !!rec[p] && rec[p].kind === 'absent'; }
@@ -6749,6 +7022,25 @@ function preflightRestore(name, dir, data) {
         throw refuse('restoring ' + name + ': ' + blocked.join('; ') +
             '. Uninstall what was installed after it, or install the artifact wanted, first');
     }
+}
+/* A backup holds the system files (/etc's restart lists, units, main.js)
+ * of the firmware it was taken on; a firmware update replaces them. A
+ * restore that would write system files is refused unless the backup's
+ * manifest records the firmware the unit runs now. A backup without that
+ * record counts as another firmware's: it may be older than the last
+ * firmware update. */
+function preflightFirmware(name, data) {
+    var now = unitInfo().firmware, recorded = Object.prototype.hasOwnProperty.call(data, 'firmware');
+    if (recorded && data.firmware === now) return;
+    var writes = data.entries.filter(function (e) {
+        return e.kind !== 'record' && e.kind !== 'other' && systemPath(e.path) && !entryMatches(e);
+    }).map(function (e) { return e.path; });
+    if (!writes.length) return;
+    throw refuse('restoring ' + name + ': ' + (recorded ? 'it was taken on firmware ' + (data.firmware || '(unknown)') :
+        'it does not record the firmware it was taken on') + ' and this head unit runs ' + (now || '(unknown)') +
+        '; it would write system files of that firmware (' + writes.slice(0, 3).join(', ') +
+        (writes.length > 3 ? ' and ' + (writes.length - 3) + ' more' : '') + '). ' +
+        'To remove the Store setup, run the installer\'s uninstall');
 }
 function removeAppSources(id) {
     if (fs.existsSync(CFG.oap)) {
@@ -6795,6 +7087,8 @@ var HELP = [
     '                                    install tools/apps (default: ./artifacts/*.tgz)',
     '  status [--json]                  installed components and pending reboots',
     '  uninstall <id> [--yes]           remove one tool or app',
+    '  remove-all [--json]              what the Store setup put on this unit',
+    '  remove-all --yes                 remove all of it, this tool last',
     '  rollback <id> [--yes]            a tool back to its other kept version, an app to its kept older package',
     '  restore [name] [--yes]           restore a backup (default stock); verified',
     '  backups                          list backups (stock marked)',
@@ -6840,7 +7134,7 @@ function main() {
 }
 function runCommand() {
     var args = parseArgs(process.argv.slice(2)), locked = false;
-    var rootOnly = ['install', 'uninstall', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending',
+    var rootOnly = ['install', 'uninstall', 'remove-all', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending',
         'appmanager', 'verify', 'remove-unused']
         .indexOf(args.command) >= 0;
     try {
@@ -6848,7 +7142,7 @@ function runCommand() {
             throw refuse('run as root');
         }
         if (rootOnly && !(args.command === 'fallback' && args.positional[0] === 'status') &&
-            !(args.command === 'appmanager' && !args.positional[0])) {
+            !(args.command === 'appmanager' && !args.positional[0]) && !(args.command === 'remove-all' && !args.yes)) {
             acquireLock(); locked = true;
             try { cleanStale(); } catch (e) { warn('could not remove a killed run\'s files: ' + e.message); }
         }
@@ -6861,6 +7155,7 @@ function runCommand() {
             return cmdRelist();
         }
         if (args.command === 'uninstall') return cmdUninstall(args);
+        if (args.command === 'remove-all') return cmdRemoveAll(args);
         if (args.command === 'rollback') return cmdRollback(args);
         if (args.command === 'restore') return cmdRestore(args);
         if (args.command === 'backups') return cmdBackups();
