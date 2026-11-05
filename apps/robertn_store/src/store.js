@@ -70,11 +70,11 @@ const i18n = require('./i18n.js');
 const { qrPng } = require('./qr.js');
 const { spell } = require('./speller.js');
 const { Drawn, DEPTHS } = require('./store_drawn.js');
-const { typeKey, wifiOf } = require('./store_ui.js');
+const { typeKey, wifiOf, proxyOf } = require('./store_ui.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
     loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage,
-    removable, requiredAlone, undoable, withSources, listed, localized } = require('./store_view.js');
+    removable, requiredAlone, undoable, withSources, listed, localized, proxyUrlError } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 const tr = i18n.t;
@@ -238,6 +238,7 @@ class Store extends OnlineApp {
         this._spelling = false;         // the HMI's speller is up
         this._typing = null;            // the drawn keyboard's page up: { page, resolve, under (the page it took the place of) }
         this._uplinkNote = null;        // the refusal of the last Wi-Fi or preferred-connection request
+        this._proxyNote = null;         // why the last proxy change was refused
         this._qr = { login: { key: null, file: null, chain: Promise.resolve() },
             phone: { key: null, file: null, chain: Promise.resolve() }, app: { key: null, file: null, chain: Promise.resolve() } };
         this._hmi = 'ID7';
@@ -309,6 +310,9 @@ class Store extends OnlineApp {
                 this._probed({ type: 'probe', repo: this._pick.repo, status: 'refused', error: String(msg) });
             } else if (UPLINK_OPS.indexOf(forOp) >= 0) {
                 this._uplinkNote = String(msg);
+                this._render();
+            } else if (forOp === 'proxy-set') {
+                this._proxyNote = String(msg);
                 this._render();
             } else if (forOp === 'token-add' && this._tokenAdding) {
                 this._endTokenAdd({ kind: 'refused', error: String(msg) });
@@ -659,7 +663,7 @@ class Store extends OnlineApp {
             version: this._version(), note: this._sourcesNote, login: this._login,
             webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
             pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe, tokenNote: !!this._pick.tokenNote },
-            uplinkNote: this._uplinkNote, language: i18n.language() };
+            uplinkNote: this._uplinkNote, proxyNote: this._proxyNote, language: i18n.language() };
     }
 
     /* A press on the drawn screens (src/store_ui.js acts). */
@@ -681,6 +685,8 @@ class Store extends OnlineApp {
                 this._removeId = act.page.id;
             } else if (act.page.name === 'confirm' && act.page.kind === 'undo') {
                 this._undoId = act.page.id;
+            } else if (act.page.name === 'proxy') {
+                this._proxyNote = null;
             } else if (act.page.name === 'wifi') {
                 const w = wifiOf({ connected: this._connected, st: this._st });
                 this._uplinkNote = null;
@@ -727,6 +733,16 @@ class Store extends OnlineApp {
             this._uplink({ op: 'wifi-forget', ssid: act.ssid });
             break;
         case 'uplink-prefer': this._uplink({ op: 'uplink-prefer', kind: act.kind }); break;
+        case 'proxy-toggle': {
+            const p = proxyOf({ connected: this._connected, st: this._st });
+            if (p && p.on) {
+                this._setProxy('');
+            } else {
+                this._editProxy();
+            }
+            break;
+        }
+        case 'proxy-edit': this._editProxy(); break;
         default: break;
         }
         this._render();
@@ -760,6 +776,39 @@ class Store extends OnlineApp {
             this._uplink({ op: 'wifi-connect', ssid, psk });
             this._render();
         });
+    }
+
+    /* The proxy's address, typed (iDrive 8: the drawn keyboard; iDrive 7: the
+     * HMI's speller), checked here and by the updater, which keeps it. */
+    _editProxy() {
+        this._proxyNote = null;
+        const p = proxyOf({ connected: this._connected, st: this._st });
+        // a user name and password are not shown, so an address with them is typed again in full
+        const text = p && p.on && p.address && !p.auth ? `${p.kind}://${p.address}` : '';
+        this._spell(tr("Proxy"), (m) => { this._proxyNote = sourcesMessage(m); this._render(); },
+            { label: tr("Address"), text, max: 300 }).then((url) => {
+            const typed = (url || '').trim();
+            if (!typed) {
+                return;
+            }
+            const why = proxyUrlError(typed);
+            if (why) {
+                this._proxyNote = why;
+                this._render();
+                return;
+            }
+            this._setProxy(typed);
+        });
+    }
+
+    _setProxy(url) {
+        this._proxyNote = null;
+        // the address can hold a password: only whether one is set goes to the log
+        logger.info(`proxy ${url ? 'set' : 'off'}`);
+        if (!this._privileged({ op: 'proxy-set', url })) {
+            this._proxyNote = readSecret() ? 'updater not running' : 'no updater secret';
+        }
+        this._render();
     }
 
     _openState(name) {

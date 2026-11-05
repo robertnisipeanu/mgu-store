@@ -29,7 +29,7 @@ const { t: tr } = require('./i18n.js');
  * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
  * { do: 'pick', channel }, { do: 'pick-retry' }, { do: 'pick-add-token' }, { do: 'key', key } (typeKey),
  * { do: 'wifi-power' }, { do: 'wifi-scan' }, { do: 'wifi-join', ssid }, { do: 'wifi-password', ssid },
- * { do: 'wifi-forget', ssid }, { do: 'uplink-prefer', kind }.
+ * { do: 'wifi-forget', ssid }, { do: 'uplink-prefer', kind }, { do: 'proxy-toggle' }, { do: 'proxy-edit' }.
  *
  * The type page ({ name: 'type', title, text, shift, sym, layout, symbols,
  * go, secret, max, min, label }) is text typed on the drawn keyboard: layout 'url'
@@ -41,6 +41,10 @@ const { t: tr } = require('./i18n.js');
  * The Wi-Fi page (wifi) and the preferred connection (prefer) show the
  * uplink's state (state.uplink: mgu-uplink 0.7.0's status.json through the
  * updater) and are there only with its Wi-Fi.
+ *
+ * The proxy (state.proxy: { on, kind, address, error }, an updater from
+ * 0.8.27) is a row in Settings and its page (proxy): on or off, and its
+ * address; model.proxyNote is the refusal of the last change.
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
@@ -294,6 +298,12 @@ function settingsView(m) {
     if (toks) {
         access.push({ id: 'accounts', title: tr("Accounts"), sub: accountsState(toks), plain: true, vicon: 'lock', iconColor: 'text',
             right: 'chevron', act: { do: 'open', page: { name: 'accounts' } } });
+    }
+    const px = proxyOf(m);
+    if (px) {
+        access.push({ id: 'proxy', title: tr("Proxy"), sub: !px.on ? tr("Off") : px.error ? tr("Error") : px.address,
+            subColor: px.error ? AMBER : DIM, plain: true, vicon: 'route', iconColor: px.error ? AMBER : 'text',
+            right: 'chevron', act: { do: 'open', page: { name: 'proxy' } } });
     }
     if (web) {
         access.push({ id: 'phone', title: tr("Phone access"), sub: phoneState(web), plain: true, vicon: 'phone', iconColor: 'text',
@@ -560,6 +570,24 @@ function phoneView(m) {
     };
 }
 
+/* The updater's proxy setting, null with an updater before 0.8.27. */
+function proxyOf(m) {
+    const p = m.connected && m.st && m.st.proxy;
+    return p && typeof p === 'object' ? p : null;
+}
+
+function proxyView(m) {
+    const p = proxyOf(m) || { on: false };
+    return {
+        rows: { items: [
+            { id: 'proxy', title: tr("Proxy"), sub: '', plain: true, vicon: 'route', iconColor: 'text',
+                right: `toggle:${p.on ? 'on' : 'off'}`, act: { do: 'proxy-toggle' } },
+            { id: 'address', title: tr("Address"), sub: p.on && p.address ? `${p.kind}://${p.address}` : tr("None"), plain: true,
+                vicon: 'wrench', iconColor: 'text', right: 'chevron', act: { do: 'proxy-edit' } }], empty: '' },
+        error: { text: String(m.proxyNote || p.error || '').slice(0, 200) }
+    };
+}
+
 /* ---- the uplink: Wi-Fi and the preferred connection (state.uplink, mgu-uplink 0.7.0's status.json) ---- */
 
 /* The uplink's Wi-Fi (status.json's wifi), null without it (an uplink before
@@ -681,6 +709,7 @@ function view(m) {
     case 'type': values = typeView(m, page); break;
     case 'wifi': values = wifiView(m); break;
     case 'prefer': values = preferView(m); break;
+    case 'proxy': values = proxyView(m); break;
     default: screen = 'store'; values = storeView(m);
     }
     values.nav = nav(m, tabSel);
@@ -706,4 +735,4 @@ function icons(v) {
     return out.filter((f, i) => out.indexOf(f) === i);
 }
 
-module.exports = { view, icons, typeKey, wifiOf, TABS, FILTERS, canRestart };
+module.exports = { view, icons, typeKey, wifiOf, proxyOf, TABS, FILTERS, canRestart };

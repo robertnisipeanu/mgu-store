@@ -178,6 +178,9 @@
     "Delete": "מחיקה",
     "Shift": "Shift",
     "Remove all": "הסרת הכול",
-    "Tools only it uses: {0}": "כלים שרק היא משתמשת בהם: {0}"
+    "Tools only it uses: {0}": "כלים שרק היא משתמשת בהם: {0}",
+    "Proxy": "שרת proxy",
+    "Address": "כתובת",
+    "Use http://host:port or socks5://host:port": "יש להשתמש ב-http://host:port או socks5://host:port"
   }
 }

@@ -182,7 +182,10 @@ module.exports = [
    "Delete": "حذف",
    "Shift": "Shift",
    "Remove all": "إزالة الكل",
-   "Tools only it uses: {0}": "أدوات لا يستخدمها غيره: {0}"
+   "Tools only it uses: {0}": "أدوات لا يستخدمها غيره: {0}",
+   "Proxy": "الوكيل",
+   "Address": "العنوان",
+   "Use http://host:port or socks5://host:port": "استخدم http://host:port أو socks5://host:port"
   }
  },
  {
@@ -366,7 +369,10 @@ module.exports = [
    "Delete": "Smazat",
    "Shift": "Shift",
    "Remove all": "Odebrat vše",
-   "Tools only it uses: {0}": "Nástroje, které používá jen ona: {0}"
+   "Tools only it uses: {0}": "Nástroje, které používá jen ona: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adresa",
+   "Use http://host:port or socks5://host:port": "Použijte http://host:port nebo socks5://host:port"
   }
  },
  {
@@ -550,7 +556,10 @@ module.exports = [
    "Delete": "Slet",
    "Shift": "Skift",
    "Remove all": "Fjern alle",
-   "Tools only it uses: {0}": "Værktøjer kun den bruger: {0}"
+   "Tools only it uses: {0}": "Værktøjer kun den bruger: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adresse",
+   "Use http://host:port or socks5://host:port": "Brug http://host:port eller socks5://host:port"
   }
  },
  {
@@ -734,7 +743,10 @@ module.exports = [
    "Delete": "Löschen",
    "Shift": "Umschalt",
    "Remove all": "Alle entfernen",
-   "Tools only it uses: {0}": "Nur von ihr genutzte Tools: {0}"
+   "Tools only it uses: {0}": "Nur von ihr genutzte Tools: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adresse",
+   "Use http://host:port or socks5://host:port": "http://host:port oder socks5://host:port verwenden"
   }
  },
  {
@@ -918,7 +930,10 @@ module.exports = [
    "Delete": "Διαγραφή",
    "Shift": "Shift",
    "Remove all": "Κατάργηση όλων",
-   "Tools only it uses: {0}": "Εργαλεία που χρησιμοποιεί μόνο αυτή: {0}"
+   "Tools only it uses: {0}": "Εργαλεία που χρησιμοποιεί μόνο αυτή: {0}",
+   "Proxy": "Proxy",
+   "Address": "Διεύθυνση",
+   "Use http://host:port or socks5://host:port": "Χρησιμοποιήστε http://host:port ή socks5://host:port"
   }
  },
  {
@@ -1102,7 +1117,10 @@ module.exports = [
    "Delete": "Borrar",
    "Shift": "Mayús",
    "Remove all": "Eliminar todo",
-   "Tools only it uses: {0}": "Herramientas que solo usa ella: {0}"
+   "Tools only it uses: {0}": "Herramientas que solo usa ella: {0}",
+   "Proxy": "Proxy",
+   "Address": "Dirección",
+   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port"
   }
  },
  {
@@ -1286,7 +1304,10 @@ module.exports = [
    "Delete": "Borrar",
    "Shift": "Mayús",
    "Remove all": "Eliminar todo",
-   "Tools only it uses: {0}": "Herramientas que solo usa ella: {0}"
+   "Tools only it uses: {0}": "Herramientas que solo usa ella: {0}",
+   "Proxy": "Proxy",
+   "Address": "Dirección",
+   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port"
   }
  },
  {
@@ -1470,7 +1491,10 @@ module.exports = [
    "Delete": "Poista",
    "Shift": "Vaihto",
    "Remove all": "Poista kaikki",
-   "Tools only it uses: {0}": "Vain sen käyttämät työkalut: {0}"
+   "Tools only it uses: {0}": "Vain sen käyttämät työkalut: {0}",
+   "Proxy": "Välityspalvelin",
+   "Address": "Osoite",
+   "Use http://host:port or socks5://host:port": "Käytä muotoa http://host:port tai socks5://host:port"
   }
  },
  {
@@ -1654,7 +1678,10 @@ module.exports = [
    "Delete": "Effacer",
    "Shift": "Maj",
    "Remove all": "Tout supprimer",
-   "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}"
+   "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}",
+   "Proxy": "Proxy",
+   "Address": "Adresse",
+   "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port"
   }
  },
  {
@@ -1838,7 +1865,10 @@ module.exports = [
    "Delete": "Effacer",
    "Shift": "Maj",
    "Remove all": "Tout supprimer",
-   "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}"
+   "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}",
+   "Proxy": "Proxy",
+   "Address": "Adresse",
+   "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port"
   }
  },
  {
@@ -2022,7 +2052,10 @@ module.exports = [
    "Delete": "מחיקה",
    "Shift": "Shift",
    "Remove all": "הסרת הכול",
-   "Tools only it uses: {0}": "כלים שרק היא משתמשת בהם: {0}"
+   "Tools only it uses: {0}": "כלים שרק היא משתמשת בהם: {0}",
+   "Proxy": "שרת proxy",
+   "Address": "כתובת",
+   "Use http://host:port or socks5://host:port": "יש להשתמש ב-http://host:port או socks5://host:port"
   }
  },
  {
@@ -2206,7 +2239,10 @@ module.exports = [
    "Delete": "Törlés",
    "Shift": "Shift",
    "Remove all": "Összes eltávolítása",
-   "Tools only it uses: {0}": "Csak általa használt eszközök: {0}"
+   "Tools only it uses: {0}": "Csak általa használt eszközök: {0}",
+   "Proxy": "Proxy",
+   "Address": "Cím",
+   "Use http://host:port or socks5://host:port": "Használja a http://host:port vagy socks5://host:port formát"
   }
  },
  {
@@ -2390,7 +2426,10 @@ module.exports = [
    "Delete": "Hapus",
    "Shift": "Shift",
    "Remove all": "Hapus semua",
-   "Tools only it uses: {0}": "Alat yang hanya dipakai aplikasi ini: {0}"
+   "Tools only it uses: {0}": "Alat yang hanya dipakai aplikasi ini: {0}",
+   "Proxy": "Proxy",
+   "Address": "Alamat",
+   "Use http://host:port or socks5://host:port": "Gunakan http://host:port atau socks5://host:port"
   }
  },
  {
@@ -2574,7 +2613,10 @@ module.exports = [
    "Delete": "Elimina",
    "Shift": "Maiusc",
    "Remove all": "Rimuovi tutto",
-   "Tools only it uses: {0}": "Strumenti usati solo da essa: {0}"
+   "Tools only it uses: {0}": "Strumenti usati solo da essa: {0}",
+   "Proxy": "Proxy",
+   "Address": "Indirizzo",
+   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port"
   }
  },
  {
@@ -2758,7 +2800,10 @@ module.exports = [
    "Delete": "削除",
    "Shift": "Shift",
    "Remove all": "すべて削除",
-   "Tools only it uses: {0}": "このアプリだけが使うツール：{0}"
+   "Tools only it uses: {0}": "このアプリだけが使うツール：{0}",
+   "Proxy": "プロキシ",
+   "Address": "アドレス",
+   "Use http://host:port or socks5://host:port": "http://host:port または socks5://host:port を使用"
   }
  },
  {
@@ -2942,7 +2987,10 @@ module.exports = [
    "Delete": "삭제",
    "Shift": "Shift",
    "Remove all": "모두 제거",
-   "Tools only it uses: {0}": "이 앱만 사용하는 도구: {0}"
+   "Tools only it uses: {0}": "이 앱만 사용하는 도구: {0}",
+   "Proxy": "프록시",
+   "Address": "주소",
+   "Use http://host:port or socks5://host:port": "http://host:port 또는 socks5://host:port 사용"
   }
  },
  {
@@ -3126,7 +3174,10 @@ module.exports = [
    "Delete": "Slett",
    "Shift": "Skift",
    "Remove all": "Fjern alle",
-   "Tools only it uses: {0}": "Verktøy bare den bruker: {0}"
+   "Tools only it uses: {0}": "Verktøy bare den bruker: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adresse",
+   "Use http://host:port or socks5://host:port": "Bruk http://host:port eller socks5://host:port"
   }
  },
  {
@@ -3312,7 +3363,10 @@ module.exports = [
    "Delete": "Wissen",
    "Shift": "Shift",
    "Remove all": "Alles verwijderen",
-   "Tools only it uses: {0}": "Tools die alleen zij gebruikt: {0}"
+   "Tools only it uses: {0}": "Tools die alleen zij gebruikt: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adres",
+   "Use http://host:port or socks5://host:port": "Gebruik http://host:port of socks5://host:port"
   }
  },
  {
@@ -3496,7 +3550,10 @@ module.exports = [
    "Delete": "Usuń",
    "Shift": "Shift",
    "Remove all": "Usuń wszystko",
-   "Tools only it uses: {0}": "Narzędzia używane tylko przez nią: {0}"
+   "Tools only it uses: {0}": "Narzędzia używane tylko przez nią: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adres",
+   "Use http://host:port or socks5://host:port": "Użyj http://host:port lub socks5://host:port"
   }
  },
  {
@@ -3680,7 +3737,10 @@ module.exports = [
    "Delete": "Apagar",
    "Shift": "Shift",
    "Remove all": "Remover tudo",
-   "Tools only it uses: {0}": "Ferramentas que só ele usa: {0}"
+   "Tools only it uses: {0}": "Ferramentas que só ele usa: {0}",
+   "Proxy": "Proxy",
+   "Address": "Endereço",
+   "Use http://host:port or socks5://host:port": "Use http://host:port ou socks5://host:port"
   }
  },
  {
@@ -3864,7 +3924,10 @@ module.exports = [
    "Delete": "Apagar",
    "Shift": "Shift",
    "Remove all": "Remover tudo",
-   "Tools only it uses: {0}": "Ferramentas que só ela usa: {0}"
+   "Tools only it uses: {0}": "Ferramentas que só ela usa: {0}",
+   "Proxy": "Proxy",
+   "Address": "Endereço",
+   "Use http://host:port or socks5://host:port": "Utilize http://host:port ou socks5://host:port"
   }
  },
  {
@@ -4048,7 +4111,10 @@ module.exports = [
    "Delete": "Șterge",
    "Shift": "Shift",
    "Remove all": "Eliminați tot",
-   "Tools only it uses: {0}": "Instrumente folosite doar de ea: {0}"
+   "Tools only it uses: {0}": "Instrumente folosite doar de ea: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adresă",
+   "Use http://host:port or socks5://host:port": "Folosiți http://host:port sau socks5://host:port"
   }
  },
  {
@@ -4232,7 +4298,10 @@ module.exports = [
    "Delete": "Удалить",
    "Shift": "Shift",
    "Remove all": "Удалить всё",
-   "Tools only it uses: {0}": "Утилиты, которые использует только оно: {0}"
+   "Tools only it uses: {0}": "Утилиты, которые использует только оно: {0}",
+   "Proxy": "Прокси",
+   "Address": "Адрес",
+   "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port"
   }
  },
  {
@@ -4416,7 +4485,10 @@ module.exports = [
    "Delete": "Vymazať",
    "Shift": "Shift",
    "Remove all": "Odstrániť všetko",
-   "Tools only it uses: {0}": "Nástroje, ktoré používa len ona: {0}"
+   "Tools only it uses: {0}": "Nástroje, ktoré používa len ona: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adresa",
+   "Use http://host:port or socks5://host:port": "Použite http://host:port alebo socks5://host:port"
   }
  },
  {
@@ -4600,7 +4672,10 @@ module.exports = [
    "Delete": "Izbriši",
    "Shift": "Shift",
    "Remove all": "Odstrani vse",
-   "Tools only it uses: {0}": "Orodja, ki jih uporablja samo ta: {0}"
+   "Tools only it uses: {0}": "Orodja, ki jih uporablja samo ta: {0}",
+   "Proxy": "Proxy",
+   "Address": "Naslov",
+   "Use http://host:port or socks5://host:port": "Uporabite http://host:port ali socks5://host:port"
   }
  },
  {
@@ -4784,7 +4859,10 @@ module.exports = [
    "Delete": "Radera",
    "Shift": "Skift",
    "Remove all": "Ta bort alla",
-   "Tools only it uses: {0}": "Verktyg som bara den använder: {0}"
+   "Tools only it uses: {0}": "Verktyg som bara den använder: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adress",
+   "Use http://host:port or socks5://host:port": "Använd http://host:port eller socks5://host:port"
   }
  },
  {
@@ -4968,7 +5046,10 @@ module.exports = [
    "Delete": "ลบ",
    "Shift": "Shift",
    "Remove all": "ลบทั้งหมด",
-   "Tools only it uses: {0}": "เครื่องมือที่ใช้เฉพาะแอปนี้: {0}"
+   "Tools only it uses: {0}": "เครื่องมือที่ใช้เฉพาะแอปนี้: {0}",
+   "Proxy": "พร็อกซี",
+   "Address": "ที่อยู่",
+   "Use http://host:port or socks5://host:port": "ใช้ http://host:port หรือ socks5://host:port"
   }
  },
  {
@@ -5152,7 +5233,10 @@ module.exports = [
    "Delete": "Sil",
    "Shift": "Shift",
    "Remove all": "Tümünü kaldır",
-   "Tools only it uses: {0}": "Yalnızca onun kullandığı araçlar: {0}"
+   "Tools only it uses: {0}": "Yalnızca onun kullandığı araçlar: {0}",
+   "Proxy": "Proxy",
+   "Address": "Adres",
+   "Use http://host:port or socks5://host:port": "http://host:port veya socks5://host:port kullanın"
   }
  },
  {
@@ -5336,7 +5420,10 @@ module.exports = [
    "Delete": "Видалити",
    "Shift": "Shift",
    "Remove all": "Видалити все",
-   "Tools only it uses: {0}": "Утиліти лише для неї: {0}"
+   "Tools only it uses: {0}": "Утиліти лише для неї: {0}",
+   "Proxy": "Проксі",
+   "Address": "Адреса",
+   "Use http://host:port or socks5://host:port": "Використовуйте http://host:port або socks5://host:port"
   }
  },
  {
@@ -5520,7 +5607,10 @@ module.exports = [
    "Delete": "Xóa",
    "Shift": "Shift",
    "Remove all": "Xóa tất cả",
-   "Tools only it uses: {0}": "Công cụ chỉ ứng dụng này dùng: {0}"
+   "Tools only it uses: {0}": "Công cụ chỉ ứng dụng này dùng: {0}",
+   "Proxy": "Proxy",
+   "Address": "Địa chỉ",
+   "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port"
   }
  },
  {
@@ -5706,7 +5796,10 @@ module.exports = [
    "{0} networks": "{0} 个网络",
    "Space": "空格",
    "Delete": "删除",
-   "Shift": "Shift"
+   "Shift": "Shift",
+   "Proxy": "代理",
+   "Address": "地址",
+   "Use http://host:port or socks5://host:port": "请使用 http://host:port 或 socks5://host:port"
   }
  },
  {
@@ -5892,7 +5985,10 @@ module.exports = [
    "Delete": "刪除",
    "Shift": "Shift",
    "Remove all": "全部移除",
-   "Tools only it uses: {0}": "僅它使用的工具：{0}"
+   "Tools only it uses: {0}": "僅它使用的工具：{0}",
+   "Proxy": "代理伺服器",
+   "Address": "位址",
+   "Use http://host:port or socks5://host:port": "請使用 http://host:port 或 socks5://host:port"
   }
  }
 ];

@@ -1,5 +1,10 @@
 # Updater changelog
 
+## 0.8.27
+
+- An optional proxy for every download: `proxy = http://host:port` or `proxy = socks5://host:port` (a user name and password as `user:pass@`) in `updater.local.conf`, or set from the Store or the phone page. GitHub, catalogs, packages, pictures and every redirect go through it, as do the downloads of a build on the unit. TLS stays end to end with the same certificate checks; the proxy gets only its own user name and password, never a token. A SOCKS5 proxy looks the names up itself.
+- A proxy that is down or refuses shows as `proxy <host:port>: <why>` in the source's or the download's error.
+
 ## 0.8.26
 
 - The Store's own install runs after every other queued request, the updater's own update and what waits for it included: it closes the Store, which shows the rest of the queue until then.

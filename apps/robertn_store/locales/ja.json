@@ -178,6 +178,9 @@
     "Delete": "削除",
     "Shift": "Shift",
     "Remove all": "すべて削除",
-    "Tools only it uses: {0}": "このアプリだけが使うツール：{0}"
+    "Tools only it uses: {0}": "このアプリだけが使うツール：{0}",
+    "Proxy": "プロキシ",
+    "Address": "アドレス",
+    "Use http://host:port or socks5://host:port": "http://host:port または socks5://host:port を使用"
   }
 }

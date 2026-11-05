@@ -178,6 +178,9 @@
     "Delete": "Hapus",
     "Shift": "Shift",
     "Remove all": "Hapus semua",
-    "Tools only it uses: {0}": "Alat yang hanya dipakai aplikasi ini: {0}"
+    "Tools only it uses: {0}": "Alat yang hanya dipakai aplikasi ini: {0}",
+    "Proxy": "Proxy",
+    "Address": "Alamat",
+    "Use http://host:port or socks5://host:port": "Gunakan http://host:port atau socks5://host:port"
   }
 }

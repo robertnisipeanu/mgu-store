@@ -4,7 +4,8 @@
 restart (as confirm), installed, usb and settings screens with the Store's
 labels, and the Store's own pages in the same frame (type: his Add
 repository page's text box and keyboard under a title; wifi: his App
-Manager 2.0.6's Wi-Fi page; prefer: the uplink's preferred connection).
+Manager 2.0.6's Wi-Fi page; prefer: the uplink's preferred connection;
+proxy: the proxy downloads go through).
 
     python3 tools/gen_screens.py <screens.json> src/am_screens.js <mgu-app-store commit>
 """
@@ -155,6 +156,14 @@ st['components'] += [copy.deepcopy(BACK),
     comp('list', 'appList', 610, 292, 1500, 540, {'items': [], 'rowH': 108, 'empty': ''}),
 ]
 screens.append(st)
+# the proxy downloads go through: on or off, and its address
+st = base('proxy')
+st['components'] += [copy.deepcopy(BACK),
+    text('title', 610, 138, 1600, 90, 'Proxy', 72, 'bold'),
+    comp('rows', 'appList', 610, 292, 1500, 240, {'items': [], 'rowH': 120, 'empty': ''}),
+    text('error', 610, 570, 1500, 160, '', 34, 'label', '#ffb020', wrap=True),
+]
+screens.append(st)
 body = json.dumps({'design': d['design'], 'screens': screens}, indent=1)
 open(out, 'w').write("""'use strict';
 /**
@@ -164,7 +173,7 @@ open(out, 'w').write("""'use strict';
  * app, confirm (the sheet), installed, usb and settings are IterioDev's App
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
  * @ %s, the HMI UI builder's export of projects/app-manager.json) with the Store's labels; source, pick, accounts, login, phone,
- * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page) and prefer are the Store's
+ * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page), prefer and proxy are the Store's
  * own in the same frame. Each element is drawn by am_gpu.js; src/store_ui.js gives their values.
  */
 module.exports = %s;

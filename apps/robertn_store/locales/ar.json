@@ -178,6 +178,9 @@
     "Delete": "حذف",
     "Shift": "Shift",
     "Remove all": "إزالة الكل",
-    "Tools only it uses: {0}": "أدوات لا يستخدمها غيره: {0}"
+    "Tools only it uses: {0}": "أدوات لا يستخدمها غيره: {0}",
+    "Proxy": "الوكيل",
+    "Address": "العنوان",
+    "Use http://host:port or socks5://host:port": "استخدم http://host:port أو socks5://host:port"
   }
 }

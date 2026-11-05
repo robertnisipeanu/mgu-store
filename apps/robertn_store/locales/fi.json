@@ -178,6 +178,9 @@
     "Delete": "Poista",
     "Shift": "Vaihto",
     "Remove all": "Poista kaikki",
-    "Tools only it uses: {0}": "Vain sen käyttämät työkalut: {0}"
+    "Tools only it uses: {0}": "Vain sen käyttämät työkalut: {0}",
+    "Proxy": "Välityspalvelin",
+    "Address": "Osoite",
+    "Use http://host:port or socks5://host:port": "Käytä muotoa http://host:port tai socks5://host:port"
   }
 }
