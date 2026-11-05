@@ -1158,6 +1158,28 @@ function testUidsDaemon() {
             });
         })
         .then(() => {
+            // queue: the Store's own install after the other installs, before the updater's own update
+            const order = [];
+            u.conf.store_app = 'robertn_store';
+            u.src = new Map([['s', { components: [{ id: 'robertn_store', requires: {} }, { id: 'mgu-updater', requires: {} },
+                { id: 'app_a', requires: {} }, { id: 'app_b', requires: {} }] }]]);
+            u.install = (item) => {
+                order.push(item.id);
+                return Promise.resolve(false);
+            };
+            u.rollback = (item) => {
+                order.push(`rollback:${item.id}`);
+                return Promise.resolve(false);
+            };
+            u.queue = [{ op: 'install', id: 'robertn_store', source: 's' }, { op: 'install', id: 'mgu-updater', source: 's' },
+                { op: 'install', id: 'app_a', source: 's' }, { op: 'rollback', id: 'robertn_store' }, { op: 'install', id: 'app_b', source: 's' }];
+            u.next();
+            return new Promise((r) => setTimeout(r, 50)).then(() => {
+                ok('queue: the Store\'s own install after the others, then the updater',
+                    order.join() === 'app_a,rollback:robertn_store,app_b,robertn_store,mgu-updater', order.join());
+            });
+        })
+        .then(() => {
             // the queue across the restart: handover writes it, the kept version takes it up
             const exit = process.exit;
             let code = null;

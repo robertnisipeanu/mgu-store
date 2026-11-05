@@ -691,11 +691,13 @@ class Store extends OnlineApp {
             this._drawn.push(act.page);
             break;
         case 'install': this._install(act.id); break;
-        case 'update-all':
-            (this._connected && this._st ? this._st.components : [])
-                .filter((c) => c.status === 'update' && rowAction(c, this._st.busy) === 'install')
-                .forEach((c) => this._install(c.id));
+        case 'update-all': {
+            // the Store's own update last: it closes the Store
+            const ids = (this._connected && this._st ? this._st.components : [])
+                .filter((c) => c.status === 'update' && rowAction(c, this._st.busy) === 'install').map((c) => c.id);
+            ids.filter((id) => id !== APP_ID).concat(ids.filter((id) => id === APP_ID)).forEach((id) => this._install(id));
             break;
+        }
         case 'remove': this._removeId = act.id; this._remove(act.tools); break;
         case 'undo': this._undoId = act.id; this._undo(); break;
         case 'restart': this._restart(); break;

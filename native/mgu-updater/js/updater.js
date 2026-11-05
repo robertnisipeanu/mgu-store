@@ -2397,8 +2397,9 @@ class Updater {
     }
 
     /* Takes the next request: the first that does not need a newer updater
-     * than this one; the updater's own update when only those are left (the
-     * rest of the queue is kept for the new version, queue.json), else
+     * than this one, the Store's own install after the others, since it
+     * closes the Store; the updater's own update when only those are left
+     * (the rest of the queue is kept for the new version, queue.json), else
      * last, since it restarts the daemon. */
     next() {
         const needsSelf = (q) => {
@@ -2407,7 +2408,11 @@ class Updater {
             const min = own && own.requires && own.requires[SELF];
             return !!min && !this.requirementMet(SELF, min);
         };
-        let i = this.queue.findIndex((q) => q.id !== SELF && !needsSelf(q));
+        const store = (q) => q.op === 'install' && (q.unit || q.id) === this.conf.store_app;
+        let i = this.queue.findIndex((q) => q.id !== SELF && !needsSelf(q) && !store(q));
+        if (i < 0) {
+            i = this.queue.findIndex((q) => q.id !== SELF && !needsSelf(q));
+        }
         if (i < 0) {
             i = Math.max(0, this.queue.findIndex((q) => q.id === SELF));
         }
