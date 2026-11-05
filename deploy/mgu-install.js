@@ -959,9 +959,15 @@ async function firstInstall(o) {
  * iDrive 7 unit: they do once the running app manager runs the fallback
  * copy, and a restart brings that while the fallback is on. why: the
  * deploy tool's reason it could not turn the fallback on. A status
- * without manager_runs_copy (an older deploy tool, iDrive 8, no status),
- * no app listed, or the retired installer's leftovers (which list the apps
- * themselves) count as shown. */
+ * without manager_runs_copy (an older deploy tool, no status), no app
+ * listed, or the retired installer's leftovers (which list the apps
+ * themselves) count as shown. On iDrive 8 the Store and every app listed
+ * in custom_apps.json show once the status reports their tiles visible
+ * (from the provisioning MainApp-21 gets, or the sections the running
+ * MainApp-21's fallback filled); a Store not yet registered does not.
+ * why: the deploy tool's reason the fallback is off (live_installs). A
+ * status without listed_by_manager (an older deploy tool) counts as
+ * shown. */
 function tilesShow(line) {
     let s = null;
     try {
@@ -970,6 +976,14 @@ function tilesShow(line) {
         return { shown: true };
     }
     const fb = s && s.fallback;
+    if (fb && (s.unit || {}).hmi === 'ID8' && 'listed_by_manager' in fb) {
+        const apps = (s.components || []).filter((c) => c.kind === 'app');
+        const ours = ['robertn_store'].concat(fb.apps || []);
+        const shown = ours.every((id, i) => (i > 0 && !apps.some((c) => c.id === id)) ||
+            apps.some((c) => c.id === id && c.tile_visible === true));
+        const off = !shown && !fb.active && /^off: /.test((s.live_installs || {}).reason || '') ? s.live_installs.reason.slice(5) : null;
+        return off ? { shown, why: off } : { shown };
+    }
     if (!fb || !('manager_runs_copy' in fb) || (s.unit || {}).hmi === 'ID8' || !(fb.apps || []).length ||
         (s.retired_leftovers || []).length) {
         return { shown: true };
