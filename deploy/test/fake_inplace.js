@@ -28,6 +28,9 @@
  * a request, "late" announces it 1.5 s after the start.
  * $FAKE_MGR_PASS_MS: the start-up provisioning pass that many ms after the
  * start (fake_manager.js startupPass).
+ * $FAKE_INPLACE_PROVISIONED: an update of an app that neither
+ * custom_apps.json nor $FAKE_MGR_SECTIONS listed at this start is refused
+ * as MainApp refuses a disabled app's.
  *
  * On a fake iDrive 8 ($FAKE_MGR_DIR oap-mainapp21) it is MainApp-21: the
  * stub's members have no underscore, and the controller takes install(id,
@@ -53,6 +56,10 @@ const entry = (id) => path.join(data, 'apps', `${id}.json`);
 const listed = (id) => {
     try { return id in JSON.parse(fs.readFileSync(path.join(data, 'custom_apps.json'), 'utf8')); } catch (e) { return false; }
 };
+const listedAtStart = (() => {
+    const read = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) || {}; } catch (e) { return {}; } };
+    return Object.assign({}, env.FAKE_MGR_SECTIONS ? read(env.FAKE_MGR_SECTIONS) : {}, read(path.join(data, 'custom_apps.json')));
+})();
 const appRegistry = {
     getById: (id) => {
         if (mode === 'self' && !fs.existsSync(entry(id)) && listed(id) && fake.install(id, ' on its own', null)) {
@@ -109,6 +116,10 @@ const work = {
         if (!preinstalled(opts) || fake.install(id, ' in place') === null) throw new Error(`no package for ${id}`);
     }),
     update: (id, mechanism) => settle(() => {
+        if (env.FAKE_INPLACE_PROVISIONED && !(id in listedAtStart)) {
+            throw new Error(`AppManagerStub::_callMethod appManager.update(${id}, PLATFORM,) failed due to Error: ` +
+                `AppManager::update (${id}, PLATFORM, null) ${id} has been disabled (enabled = false / allowed = false)..`);
+        }
         if (mode === 'reject') {
             fake.rejectedUpdate(id);
             return;

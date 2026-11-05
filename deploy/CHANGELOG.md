@@ -1,5 +1,9 @@
 # Deploy tool changelog
 
+## 0.7.18
+
+- iDrive 7: an update of an app while the app manager runs older code than its files hold (a fallback copy rebuilt by this install, as after a failed install's rollback took the fallback and the app's listing away) lists the app in `custom_apps.json` before it restarts the manager. The restarted manager provisions the app at its start and updates it in place; one it found unlisted refuses the update as disabled (`robertn_store has been disabled (enabled = false / allowed = false)`).
+
 ## 0.7.17
 
 - `rollback <tool>` runs the deactivate of the version it leaves first, with all of that version in place, as its removal does. One that fails refuses the rollback (exit 2): that version stays current and its activate runs again. A rollback that fails after it (the health check, app-privacy's apply, the activate of the version it goes to) puts the snapshot back and runs the deactivated version's activate again.

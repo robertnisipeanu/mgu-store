@@ -46,7 +46,7 @@ var cp = require('child_process');
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.7.17';
+var VERSION = '0.7.18';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -3653,6 +3653,13 @@ function cleanInterrupted(state) {
     if (gone) delete state.inflight;
 }
 
+/* The app is listed enabled and allowed whatever its registry entry
+ * cached: an app provisioning once dropped caches both false, and the
+ * manager installs no app the listing disables. */
+function listApp(a, entry) {
+    customAppsPut(a.id, Object.assign({}, entry ? entry.provisioningCache : null, { '-enabled': 'true', '-allowed': 'true' }),
+        a.pkg.mguAppStartType || 'manually');
+}
 /* Privacy, the fallback, the package, the app listed by the fallback; then
  * the running manager installs or updates it in place, or else one bounce:
  * the restarted manager installs it fresh, or updates it from its registry
@@ -3660,9 +3667,9 @@ function cleanInterrupted(state) {
  * installed or updated by itself by then needs no bounce.
  *
  * An update the running manager cannot make in place, as it runs older
- * bundles than the files hold, bounces the manager before the new package
- * is there: the restarted manager starts the app as it is, and updates it
- * in place. The package of an update waits while the manager is younger
+ * bundles than the files hold, bounces the manager once the app is listed
+ * and before the new package is there: the restarted manager starts the
+ * app as it is, and updates it in place. The package of an update waits while the manager is younger
  * than the bounce minimum (waitStartedUp), whatever restarted it. The manager's own update at its
  * start removes and inserts the app's tile again while its start-up insert
  * of that tile may still be under way, which can leave the HMI without the
@@ -3677,6 +3684,9 @@ function installApp(a, state, decision) {
         inplaceHookOf(fs.readFileSync(FALLBACK_COPY, 'utf8')) !== null) {
         say('the app manager runs older code than its main.js or AppManagement.js: restarting it before the update, ' +
             'which it then makes in place');
+        /* listed before the restart: the manager provisions apps at its
+         * start, and refuses to update one it found unlisted (disabled) */
+        listApp(a, readJsonOrNull(appEntryFile(a.id)));
         if (kept) rebuildFallback(false);
         bounceManager();
     }
@@ -3685,11 +3695,7 @@ function installApp(a, state, decision) {
     var kc = existing ? lstatOrNull(keychainFile(existing.uid)) : null;
     a.noKeychain = existing && !(kc && kc.size > 0) ? existing.uid : null;
     placePreinstalled(a);
-    /* The app is listed enabled and allowed whatever its registry entry
-     * cached: an app provisioning once dropped caches both false, and the
-     * manager installs no app the listing disables. */
-    customAppsPut(a.id, Object.assign({}, entry ? entry.provisioningCache : null, { '-enabled': 'true', '-allowed': 'true' }),
-        a.pkg.mguAppStartType || 'manually');
+    listApp(a, entry);
     var r = installInPlace(a, existing), uid = r.uid;
     /* MainApp's installer rejected the app's install or update: a restarted
      * manager runs the same install, and restarting it stops every app. */
