@@ -130,13 +130,18 @@ function screens() {
             go: 'Connect' }]) }],
         ['type-symbols', { tab: 'settings', stack: main.concat([{ name: 'type', title: 'Password', text: 'Wi-\\"`', layout: 'text', symbols: true,
             sym: true, go: 'Connect' }]) }],
-        // Wi-Fi (the uplink's): its networks, off, a join that failed; a password; Forget; the preferred connection
+        // Wi-Fi (the uplink's): its networks, off, a join that failed, paused for wireless Android Auto (and in Settings for
+        // CarPlay); a password; Forget; the preferred connection
         ['wifi', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) }],
         ['wifi-off', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
             wifiSt(st, { enabled: false, link: 'off', ssid: '', ip: '', signal: null, networks: [] })],
         ['wifi-failed', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
             wifiSt(st, { link: 'idle', ssid: '', ip: '', signal: null, error: 'could not join "FRITZ!Box 7590 XY" (wrong password, or out of range)',
                 networks: st.uplink.wifi.networks.map((n) => Object.assign({}, n, { current: false })) })],
+        ['wifi-paused', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
+            wifiSt(st, { link: 'idle', ssid: '', ip: '', signal: null, paused: 'android-auto',
+                networks: st.uplink.wifi.networks.map((n) => Object.assign({}, n, { current: false })) })],
+        ['settings-wifi-paused', { tab: 'settings', stack: main }, wifiSt(st, { link: 'idle', ssid: '', ip: '', signal: null, paused: 'carplay' })],
         ['wifi-password', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'type', title: 'FRITZ!Box 7590 XY', text: 'sec',
             label: 'Password', layout: 'text', symbols: true, go: 'Connect', min: 8, max: 63, secret: 'password' }]) }],
         ['confirm-wifi-forget', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'confirm', kind: 'wifi-forget', ssid: 'Home' }]),

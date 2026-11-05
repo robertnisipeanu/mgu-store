@@ -185,7 +185,8 @@ module.exports = [
    "Tools only it uses: {0}": "أدوات لا يستخدمها غيره: {0}",
    "Proxy": "الوكيل",
    "Address": "العنوان",
-   "Use http://host:port or socks5://host:port": "استخدم http://host:port أو socks5://host:port"
+   "Use http://host:port or socks5://host:port": "استخدم http://host:port أو socks5://host:port",
+   "Paused for wireless {0}": "متوقف مؤقتًا لأجل {0} اللاسلكي"
   }
  },
  {
@@ -372,7 +373,8 @@ module.exports = [
    "Tools only it uses: {0}": "Nástroje, které používá jen ona: {0}",
    "Proxy": "Proxy",
    "Address": "Adresa",
-   "Use http://host:port or socks5://host:port": "Použijte http://host:port nebo socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Použijte http://host:port nebo socks5://host:port",
+   "Paused for wireless {0}": "Pozastaveno: bezdrátový {0}"
   }
  },
  {
@@ -559,7 +561,8 @@ module.exports = [
    "Tools only it uses: {0}": "Værktøjer kun den bruger: {0}",
    "Proxy": "Proxy",
    "Address": "Adresse",
-   "Use http://host:port or socks5://host:port": "Brug http://host:port eller socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Brug http://host:port eller socks5://host:port",
+   "Paused for wireless {0}": "På pause: trådløs {0}"
   }
  },
  {
@@ -746,7 +749,8 @@ module.exports = [
    "Tools only it uses: {0}": "Nur von ihr genutzte Tools: {0}",
    "Proxy": "Proxy",
    "Address": "Adresse",
-   "Use http://host:port or socks5://host:port": "http://host:port oder socks5://host:port verwenden"
+   "Use http://host:port or socks5://host:port": "http://host:port oder socks5://host:port verwenden",
+   "Paused for wireless {0}": "Pausiert für kabelloses {0}"
   }
  },
  {
@@ -933,7 +937,8 @@ module.exports = [
    "Tools only it uses: {0}": "Εργαλεία που χρησιμοποιεί μόνο αυτή: {0}",
    "Proxy": "Proxy",
    "Address": "Διεύθυνση",
-   "Use http://host:port or socks5://host:port": "Χρησιμοποιήστε http://host:port ή socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Χρησιμοποιήστε http://host:port ή socks5://host:port",
+   "Paused for wireless {0}": "Σε παύση: ασύρματο {0}"
   }
  },
  {
@@ -1120,7 +1125,8 @@ module.exports = [
    "Tools only it uses: {0}": "Herramientas que solo usa ella: {0}",
    "Proxy": "Proxy",
    "Address": "Dirección",
-   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port",
+   "Paused for wireless {0}": "En pausa: {0} inalámbrico"
   }
  },
  {
@@ -1307,7 +1313,8 @@ module.exports = [
    "Tools only it uses: {0}": "Herramientas que solo usa ella: {0}",
    "Proxy": "Proxy",
    "Address": "Dirección",
-   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port",
+   "Paused for wireless {0}": "En pausa: {0} inalámbrico"
   }
  },
  {
@@ -1494,7 +1501,8 @@ module.exports = [
    "Tools only it uses: {0}": "Vain sen käyttämät työkalut: {0}",
    "Proxy": "Välityspalvelin",
    "Address": "Osoite",
-   "Use http://host:port or socks5://host:port": "Käytä muotoa http://host:port tai socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Käytä muotoa http://host:port tai socks5://host:port",
+   "Paused for wireless {0}": "Tauolla: langaton {0}"
   }
  },
  {
@@ -1681,7 +1689,8 @@ module.exports = [
    "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}",
    "Proxy": "Proxy",
    "Address": "Adresse",
-   "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port",
+   "Paused for wireless {0}": "En pause : {0} sans fil"
   }
  },
  {
@@ -1868,7 +1877,8 @@ module.exports = [
    "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}",
    "Proxy": "Proxy",
    "Address": "Adresse",
-   "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port",
+   "Paused for wireless {0}": "En pause : {0} sans fil"
   }
  },
  {
@@ -2055,7 +2065,8 @@ module.exports = [
    "Tools only it uses: {0}": "כלים שרק היא משתמשת בהם: {0}",
    "Proxy": "שרת proxy",
    "Address": "כתובת",
-   "Use http://host:port or socks5://host:port": "יש להשתמש ב-http://host:port או socks5://host:port"
+   "Use http://host:port or socks5://host:port": "יש להשתמש ב-http://host:port או socks5://host:port",
+   "Paused for wireless {0}": "מושהה עבור {0} אלחוטי"
   }
  },
  {
@@ -2242,7 +2253,8 @@ module.exports = [
    "Tools only it uses: {0}": "Csak általa használt eszközök: {0}",
    "Proxy": "Proxy",
    "Address": "Cím",
-   "Use http://host:port or socks5://host:port": "Használja a http://host:port vagy socks5://host:port formát"
+   "Use http://host:port or socks5://host:port": "Használja a http://host:port vagy socks5://host:port formát",
+   "Paused for wireless {0}": "Szünetel: vezeték nélküli {0}"
   }
  },
  {
@@ -2429,7 +2441,8 @@ module.exports = [
    "Tools only it uses: {0}": "Alat yang hanya dipakai aplikasi ini: {0}",
    "Proxy": "Proxy",
    "Address": "Alamat",
-   "Use http://host:port or socks5://host:port": "Gunakan http://host:port atau socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Gunakan http://host:port atau socks5://host:port",
+   "Paused for wireless {0}": "Dijeda untuk {0} nirkabel"
   }
  },
  {
@@ -2616,7 +2629,8 @@ module.exports = [
    "Tools only it uses: {0}": "Strumenti usati solo da essa: {0}",
    "Proxy": "Proxy",
    "Address": "Indirizzo",
-   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port",
+   "Paused for wireless {0}": "In pausa per {0} wireless"
   }
  },
  {
@@ -2803,7 +2817,8 @@ module.exports = [
    "Tools only it uses: {0}": "このアプリだけが使うツール：{0}",
    "Proxy": "プロキシ",
    "Address": "アドレス",
-   "Use http://host:port or socks5://host:port": "http://host:port または socks5://host:port を使用"
+   "Use http://host:port or socks5://host:port": "http://host:port または socks5://host:port を使用",
+   "Paused for wireless {0}": "ワイヤレス{0}中は一時停止"
   }
  },
  {
@@ -2990,7 +3005,8 @@ module.exports = [
    "Tools only it uses: {0}": "이 앱만 사용하는 도구: {0}",
    "Proxy": "프록시",
    "Address": "주소",
-   "Use http://host:port or socks5://host:port": "http://host:port 또는 socks5://host:port 사용"
+   "Use http://host:port or socks5://host:port": "http://host:port 또는 socks5://host:port 사용",
+   "Paused for wireless {0}": "무선 {0} 사용 중 일시 중지"
   }
  },
  {
@@ -3177,7 +3193,8 @@ module.exports = [
    "Tools only it uses: {0}": "Verktøy bare den bruker: {0}",
    "Proxy": "Proxy",
    "Address": "Adresse",
-   "Use http://host:port or socks5://host:port": "Bruk http://host:port eller socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Bruk http://host:port eller socks5://host:port",
+   "Paused for wireless {0}": "På pause: trådløs {0}"
   }
  },
  {
@@ -3366,7 +3383,8 @@ module.exports = [
    "Tools only it uses: {0}": "Tools die alleen zij gebruikt: {0}",
    "Proxy": "Proxy",
    "Address": "Adres",
-   "Use http://host:port or socks5://host:port": "Gebruik http://host:port of socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Gebruik http://host:port of socks5://host:port",
+   "Paused for wireless {0}": "Gepauzeerd: draadloze {0}"
   }
  },
  {
@@ -3553,7 +3571,8 @@ module.exports = [
    "Tools only it uses: {0}": "Narzędzia używane tylko przez nią: {0}",
    "Proxy": "Proxy",
    "Address": "Adres",
-   "Use http://host:port or socks5://host:port": "Użyj http://host:port lub socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Użyj http://host:port lub socks5://host:port",
+   "Paused for wireless {0}": "Wstrzymane: {0} bez kabla"
   }
  },
  {
@@ -3740,7 +3759,8 @@ module.exports = [
    "Tools only it uses: {0}": "Ferramentas que só ele usa: {0}",
    "Proxy": "Proxy",
    "Address": "Endereço",
-   "Use http://host:port or socks5://host:port": "Use http://host:port ou socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Use http://host:port ou socks5://host:port",
+   "Paused for wireless {0}": "Em pausa: {0} sem fio"
   }
  },
  {
@@ -3927,7 +3947,8 @@ module.exports = [
    "Tools only it uses: {0}": "Ferramentas que só ela usa: {0}",
    "Proxy": "Proxy",
    "Address": "Endereço",
-   "Use http://host:port or socks5://host:port": "Utilize http://host:port ou socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Utilize http://host:port ou socks5://host:port",
+   "Paused for wireless {0}": "Em pausa: {0} sem fios"
   }
  },
  {
@@ -4114,7 +4135,8 @@ module.exports = [
    "Tools only it uses: {0}": "Instrumente folosite doar de ea: {0}",
    "Proxy": "Proxy",
    "Address": "Adresă",
-   "Use http://host:port or socks5://host:port": "Folosiți http://host:port sau socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Folosiți http://host:port sau socks5://host:port",
+   "Paused for wireless {0}": "În pauză: {0} wireless"
   }
  },
  {
@@ -4301,7 +4323,8 @@ module.exports = [
    "Tools only it uses: {0}": "Утилиты, которые использует только оно: {0}",
    "Proxy": "Прокси",
    "Address": "Адрес",
-   "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port",
+   "Paused for wireless {0}": "Пауза: беспроводной {0}"
   }
  },
  {
@@ -4488,7 +4511,8 @@ module.exports = [
    "Tools only it uses: {0}": "Nástroje, ktoré používa len ona: {0}",
    "Proxy": "Proxy",
    "Address": "Adresa",
-   "Use http://host:port or socks5://host:port": "Použite http://host:port alebo socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Použite http://host:port alebo socks5://host:port",
+   "Paused for wireless {0}": "Pozastavené: bezdrôtové {0}"
   }
  },
  {
@@ -4675,7 +4699,8 @@ module.exports = [
    "Tools only it uses: {0}": "Orodja, ki jih uporablja samo ta: {0}",
    "Proxy": "Proxy",
    "Address": "Naslov",
-   "Use http://host:port or socks5://host:port": "Uporabite http://host:port ali socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Uporabite http://host:port ali socks5://host:port",
+   "Paused for wireless {0}": "Zaustavljeno: brezžični {0}"
   }
  },
  {
@@ -4862,7 +4887,8 @@ module.exports = [
    "Tools only it uses: {0}": "Verktyg som bara den använder: {0}",
    "Proxy": "Proxy",
    "Address": "Adress",
-   "Use http://host:port or socks5://host:port": "Använd http://host:port eller socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Använd http://host:port eller socks5://host:port",
+   "Paused for wireless {0}": "Pausad för trådlös {0}"
   }
  },
  {
@@ -5049,7 +5075,8 @@ module.exports = [
    "Tools only it uses: {0}": "เครื่องมือที่ใช้เฉพาะแอปนี้: {0}",
    "Proxy": "พร็อกซี",
    "Address": "ที่อยู่",
-   "Use http://host:port or socks5://host:port": "ใช้ http://host:port หรือ socks5://host:port"
+   "Use http://host:port or socks5://host:port": "ใช้ http://host:port หรือ socks5://host:port",
+   "Paused for wireless {0}": "หยุดชั่วคราวขณะใช้ {0} ไร้สาย"
   }
  },
  {
@@ -5236,7 +5263,8 @@ module.exports = [
    "Tools only it uses: {0}": "Yalnızca onun kullandığı araçlar: {0}",
    "Proxy": "Proxy",
    "Address": "Adres",
-   "Use http://host:port or socks5://host:port": "http://host:port veya socks5://host:port kullanın"
+   "Use http://host:port or socks5://host:port": "http://host:port veya socks5://host:port kullanın",
+   "Paused for wireless {0}": "Duraklatıldı: kablosuz {0}"
   }
  },
  {
@@ -5423,7 +5451,8 @@ module.exports = [
    "Tools only it uses: {0}": "Утиліти лише для неї: {0}",
    "Proxy": "Проксі",
    "Address": "Адреса",
-   "Use http://host:port or socks5://host:port": "Використовуйте http://host:port або socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Використовуйте http://host:port або socks5://host:port",
+   "Paused for wireless {0}": "Пауза: бездротовий {0}"
   }
  },
  {
@@ -5610,7 +5639,8 @@ module.exports = [
    "Tools only it uses: {0}": "Công cụ chỉ ứng dụng này dùng: {0}",
    "Proxy": "Proxy",
    "Address": "Địa chỉ",
-   "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port"
+   "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port",
+   "Paused for wireless {0}": "Tạm dừng vì {0} không dây"
   }
  },
  {
@@ -5799,7 +5829,8 @@ module.exports = [
    "Shift": "Shift",
    "Proxy": "代理",
    "Address": "地址",
-   "Use http://host:port or socks5://host:port": "请使用 http://host:port 或 socks5://host:port"
+   "Use http://host:port or socks5://host:port": "请使用 http://host:port 或 socks5://host:port",
+   "Paused for wireless {0}": "因无线{0}已暂停"
   }
  },
  {
@@ -5988,7 +6019,8 @@ module.exports = [
    "Tools only it uses: {0}": "僅它使用的工具：{0}",
    "Proxy": "代理伺服器",
    "Address": "位址",
-   "Use http://host:port or socks5://host:port": "請使用 http://host:port 或 socks5://host:port"
+   "Use http://host:port or socks5://host:port": "請使用 http://host:port 或 socks5://host:port",
+   "Paused for wireless {0}": "因無線{0}已暫停"
   }
  }
 ];

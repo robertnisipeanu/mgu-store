@@ -181,6 +181,7 @@
     "Tools only it uses: {0}": "Verktøy bare den bruker: {0}",
     "Proxy": "Proxy",
     "Address": "Adresse",
-    "Use http://host:port or socks5://host:port": "Bruk http://host:port eller socks5://host:port"
+    "Use http://host:port or socks5://host:port": "Bruk http://host:port eller socks5://host:port",
+    "Paused for wireless {0}": "På pause: trådløs {0}"
   }
 }

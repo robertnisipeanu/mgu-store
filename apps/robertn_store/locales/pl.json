@@ -181,6 +181,7 @@
     "Tools only it uses: {0}": "Narzędzia używane tylko przez nią: {0}",
     "Proxy": "Proxy",
     "Address": "Adres",
-    "Use http://host:port or socks5://host:port": "Użyj http://host:port lub socks5://host:port"
+    "Use http://host:port or socks5://host:port": "Użyj http://host:port lub socks5://host:port",
+    "Paused for wireless {0}": "Wstrzymane: {0} bez kabla"
   }
 }

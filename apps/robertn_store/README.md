@@ -1,4 +1,4 @@
-# robertn_store 0.9.23
+# robertn_store 0.9.24
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -329,7 +329,10 @@ through an updater from 0.8.0; without them the row is not there), with
 its state: `Online · <network>`, `Connected · <network>` (joined; the
 uplink uses another device or waits for DHCP), `Connecting · <network>`,
 `Not connected`, `Not used`, `Unavailable` (no radio, or the car uses it),
-`Failed`, `Error`; the page shows the reason. Its page (from IterioDev App Manager 2.0.6's Wi-Fi page) lists,
+`Failed`, `Error`; the page shows the reason. While Wi-Fi is not joined and
+wireless CarPlay or Android Auto keeps the uplink from searching by itself
+(`wifi.paused`, mgu-uplink 0.7.5), the row and the page's status line say
+`Paused for wireless CarPlay` (or Android Auto). Its page (from IterioDev App Manager 2.0.6's Wi-Fi page) lists,
 while Wi-Fi is on, the network joined first, then the latest scan's,
 strongest first, then saved ones out of range, each with `Online` /
 `Connected` / `Connecting`, `Saved`, `Secured` or `Open` and its signal
@@ -399,15 +402,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.23/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.24/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.23.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.23.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.24.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.24.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

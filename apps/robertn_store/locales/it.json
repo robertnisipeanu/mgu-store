@@ -181,6 +181,7 @@
     "Tools only it uses: {0}": "Strumenti usati solo da essa: {0}",
     "Proxy": "Proxy",
     "Address": "Indirizzo",
-    "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port"
+    "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port",
+    "Paused for wireless {0}": "In pausa per {0} wireless"
   }
 }

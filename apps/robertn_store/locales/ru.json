@@ -181,6 +181,7 @@
     "Tools only it uses: {0}": "Утилиты, которые использует только оно: {0}",
     "Proxy": "Прокси",
     "Address": "Адрес",
-    "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port"
+    "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port",
+    "Paused for wireless {0}": "Пауза: беспроводной {0}"
   }
 }

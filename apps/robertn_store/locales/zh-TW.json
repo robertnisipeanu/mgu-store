@@ -183,6 +183,7 @@
     "Tools only it uses: {0}": "僅它使用的工具：{0}",
     "Proxy": "代理伺服器",
     "Address": "位址",
-    "Use http://host:port or socks5://host:port": "請使用 http://host:port 或 socks5://host:port"
+    "Use http://host:port or socks5://host:port": "請使用 http://host:port 或 socks5://host:port",
+    "Paused for wireless {0}": "因無線{0}已暫停"
   }
 }

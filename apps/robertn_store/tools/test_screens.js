@@ -530,6 +530,14 @@ eq([{ link: 'connected' }, { link: 'connecting', ssid: 'Cafe' }, { enabled: fals
     { link: 'failed', ssid: '', error: 'wpa_supplicant ended (exit status 1)' }, { link: 'idle', ssid: '', error: 'could not join Cafe' },
     { link: 'idle', ssid: '' }].map(wifiSub),
 ['Connected · Mario iPhone', 'Connecting · Cafe', 'Not used', 'Unavailable', 'Failed', 'Error', 'Not connected']);
+// wireless CarPlay or Android Auto keeps the uplink from searching: said while not joined
+eq([{ link: 'idle', ssid: '', paused: 'carplay' }, { link: 'scanning', ssid: '', paused: 'android-auto' },
+    { link: 'online', paused: 'carplay' }, { enabled: false, link: 'off', ssid: '', paused: 'carplay' }, { link: 'idle', ssid: '', paused: 'other' }].map(wifiSub),
+['Paused for wireless CarPlay', 'Paused for wireless Android Auto', 'Online · Mario iPhone', 'Not used', 'Not connected']);
+eq(screen('settings-wifi-paused').values.access.items[0].sub, 'Paused for wireless CarPlay');
+f = screen('wifi-paused');
+eq([text(f, 'subtitle'), text(f, 'state'), own(f).indexOf('Scan') >= 0], ['Paused for wireless Android Auto', 'Not connected', true],
+    'paused: the page says so; Scan stays');
 // the page: the network joined first, then the scan's, then saved ones out of range; a tap joins a saved or open one and asks a
 // secured one's password; a saved one has Forget; Don't use Wi-Fi, Scan, the preferred connection
 f = screen('wifi');

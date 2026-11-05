@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.24
+
+While wireless CarPlay or Android Auto keeps the uplink from searching for
+its Wi-Fi networks by itself (mgu-uplink 0.7.5), Settings' Wi-Fi row and
+the Wi-Fi page say `Paused for wireless CarPlay` (or Android Auto). Scan
+and the networks work as before.
+
 ## 0.9.23
 
 Settings has **Proxy** (Off, or the proxy's address) beside Wi-Fi and

@@ -292,7 +292,8 @@ function settingsView(m) {
     const w = wifiOf(m);
     if (w) {
         const s = wifiState(w);
-        access.push({ id: 'wifi', title: 'Wi-Fi', sub: s[0], subColor: s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
+        const paused = pausedLine(w);
+        access.push({ id: 'wifi', title: 'Wi-Fi', sub: paused || s[0], subColor: paused ? DIM : s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
             right: 'chevron', act: { do: 'open', page: { name: 'wifi' } } });
     }
     if (toks) {
@@ -612,6 +613,14 @@ function wifiState(w) {
     return { online: [tr("Online{0}", at), GREEN], connected: [tr("Connected{0}", at), BLUE], connecting: [tr("Connecting{0}", at), BLUE],
         off: [tr("Not used"), DIM] }[w.link] || [tr("Not connected"), DIM];
 }
+const PROJECTION = { carplay: 'CarPlay', 'android-auto': 'Android Auto' };
+/* While wireless CarPlay or Android Auto keeps the uplink from searching for
+ * its networks by itself (mgu-uplink 0.7.5's wifi.paused) and Wi-Fi is not
+ * joined: that line; '' otherwise. */
+function pausedLine(w) {
+    const name = w.enabled && PROJECTION[w.paused];
+    return name && ['online', 'connected', 'connecting'].indexOf(w.link) < 0 ? tr("Paused for wireless {0}", name) : '';
+}
 const strength = (dbm) => (typeof dbm !== 'number' ? null : dbm >= -60 ? [tr("Strong"), GREEN] : dbm >= -72 ? [tr("Good"), BLUE] : [tr("Weak"), AMBER]);
 const scanningOf = (w) => !!(w.scanning || w.link === 'scanning');
 
@@ -657,7 +666,8 @@ function wifiView(m) {
     const dbm = typeof w.signal === 'number' ? `${w.signal} dBm` : '';
     const preferred = (m.st && m.st.uplink && m.st.uplink.preferred) || '';
     return {
-        subtitle: { text: !w.enabled || w.link === 'unavailable' || w.link === 'failed' ? '' : scanning ? tr("Scanning") : plural(nets.length, 'network') },
+        subtitle: { text: !w.enabled || w.link === 'unavailable' || w.link === 'failed' ? '' : scanning ? tr("Scanning")
+            : pausedLine(w) || plural(nets.length, 'network') },
         networks: { items: nets.map((n) => netRow(w, n)),
             empty: waiting ? tr("Waiting") : !w.enabled ? tr("Not used") : w.link === 'unavailable' ? tr("Unavailable") : scanning ? tr("Scanning") : tr("No networks") },
         icon: { vicon: 'wifi', kind: 'service', colors: LIT[s[1]] || '#7a808a,#3a3f47' },

@@ -181,6 +181,7 @@
     "Tools only it uses: {0}": "Yalnızca onun kullandığı araçlar: {0}",
     "Proxy": "Proxy",
     "Address": "Adres",
-    "Use http://host:port or socks5://host:port": "http://host:port veya socks5://host:port kullanın"
+    "Use http://host:port or socks5://host:port": "http://host:port veya socks5://host:port kullanın",
+    "Paused for wireless {0}": "Duraklatıldı: kablosuz {0}"
   }
 }

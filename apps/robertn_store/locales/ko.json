@@ -181,6 +181,7 @@
     "Tools only it uses: {0}": "이 앱만 사용하는 도구: {0}",
     "Proxy": "프록시",
     "Address": "주소",
-    "Use http://host:port or socks5://host:port": "http://host:port 또는 socks5://host:port 사용"
+    "Use http://host:port or socks5://host:port": "http://host:port 또는 socks5://host:port 사용",
+    "Paused for wireless {0}": "무선 {0} 사용 중 일시 중지"
   }
 }
