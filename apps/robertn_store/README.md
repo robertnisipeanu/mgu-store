@@ -7,7 +7,7 @@ It is the screen of [mgu-updater](../../native/mgu-updater/README.md),
 which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
 privileged ones (uninstall, source-add, source-probe, source-remove, token-add, token-remove,
-login-start, login-cancel, web, and uplink-prefer, wifi-enable, wifi-scan, wifi-connect,
+login-start, login-cancel, web, proxy-set, and uplink-prefer, wifi-enable, wifi-scan, wifi-connect,
 wifi-forget, which the updater relays to [mgu-uplink](../../native/mgu-uplink/README.md)),
 which carry the secret the updater leaves in the app's data folder
 (`data/updater-secret`, read again for every request). It is for iDrive 7
@@ -60,8 +60,11 @@ USB, Settings) beside:
   components, error, Remove with a confirm step, and while a sign-in does
   not reach a private one the GitHub App's install page as a QR code and
   its address), Add source, Wi-Fi (below), Accounts (each one's Remove with a confirm
-  step; Sign in with GitHub while `state.signin` is true; Add token), Phone
-  access, the head unit and versions, Check now, Restart head unit.
+  step; Sign in with GitHub while `state.signin` is true; Add token), Proxy
+  (Off or its address, with an updater that reports `state.proxy`: its page
+  turns it on or off and sets its address, `http://` or `socks5://`, checked
+  before it is sent), Phone access, the head unit and versions, Check now,
+  Restart head unit.
 
 Confirm steps are a sheet over the page, Cancel first. Every page is a host
 state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
