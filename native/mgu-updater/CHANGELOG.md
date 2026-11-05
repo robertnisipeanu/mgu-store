@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.28
+
+- `{"op":"wifi-5ghz","on":true|false}` (privileged) is relayed to the uplink as it is: Allow 5 GHz for the Store's Wi-Fi (mgu-uplink 0.7.6).
+
 ## 0.8.27
 
 - An optional proxy for every download: `proxy = http://host:port` or `proxy = socks5://host:port` (a user name and password as `user:pass@`) in `updater.local.conf`, or set from the Store or the phone page. GitHub, catalogs, packages, pictures and every redirect go through it, as do the downloads of a build on the unit. TLS stays end to end with the same certificate checks; the proxy gets only its own user name and password, never a token. The proxy looks up the names of what is downloaded.

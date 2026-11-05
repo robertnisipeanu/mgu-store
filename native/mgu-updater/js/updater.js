@@ -824,7 +824,7 @@ function under(entry, id) {
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
 const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
-    'uplink-prefer', 'wifi-enable', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
+    'uplink-prefer', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
  * the updater (README.md, "The uplink"): each one's ctl.sock request, built
@@ -834,6 +834,7 @@ const UPLINK_OPS = {
     'uplink-prefer': (r) => (typeof r.kind === 'string' && /^[a-z]{0,16}$/.test(r.kind) ? { op: 'prefer', kind: r.kind }
         : 'uplink-prefer needs a kind ("" for none)'),
     'wifi-enable': (r) => (typeof r.on === 'boolean' ? { op: 'wifi-enable', on: r.on } : 'wifi-enable needs on: true or false'),
+    'wifi-5ghz': (r) => (typeof r.on === 'boolean' ? { op: 'wifi-5ghz', on: r.on } : 'wifi-5ghz needs on: true or false'),
     'wifi-scan': () => ({ op: 'wifi-scan' }),
     'wifi-connect': (r) => (!SSID_OK(r.ssid) ? 'a network name is 1 to 32 bytes'
         // a WPA passphrase: 8 to 63 printable ASCII characters; none for a saved or an open network
@@ -3591,6 +3592,7 @@ class Updater {
         case 'logs': return this.logs(req, reply);
         case 'uplink-prefer':
         case 'wifi-enable':
+        case 'wifi-5ghz':
         case 'wifi-scan':
         case 'wifi-connect':
         case 'wifi-forget': return this.uplinkRequest(req, reply);
