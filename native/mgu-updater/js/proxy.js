@@ -19,8 +19,7 @@
  *   connectMs: how long the name lookup and the TCP connection may take
  *   together (15 s); idleMs: how long a connection may go without data;
  *   open (the tests only): any port and address; proxy: the updater's proxy
- *   setting (tunnel.js), which every connection goes through, the name
- *   looked up by that proxy.
+ *   setting (tunnel.js), which every connection goes through.
  * stdout: one JSON line per event
  *   { listening: <port> }
  *   { request: "CONNECT host:443" | "GET http://host/..." }

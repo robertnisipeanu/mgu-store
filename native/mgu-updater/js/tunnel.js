@@ -3,9 +3,8 @@
  * A connection to host:port through the proxy the updater's `proxy` setting
  * names (README.md, "Through a proxy"): http://[user:pass@]host[:port] asks it with
  * HTTP CONNECT, socks5://[user:pass@]host[:port] (or socks5h://) with SOCKS5.
- * The target's name goes to the proxy as it is, so the proxy looks it up
- * (socks5h): a name server that answers wrongly on the head unit's network
- * is never asked. Only the proxy's own user name and password go to it;
+ * The target's name goes to the proxy as it is, and the proxy looks it up
+ * (socks5h). Only the proxy's own user name and password go to it;
  * what passes through the tunnel (TLS, the request's headers) is the
  * caller's. Errors name the proxy by host:port alone. Node 8.
  */

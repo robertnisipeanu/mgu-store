@@ -248,9 +248,9 @@ together: `http_proxy`,
 `https_proxy` (and upper case) name it with a random password, and it
 serves only connections of the build uid (`/proc/net/tcp`) that carry it;
 CONNECT to port 443 and http GET/HEAD to port 80, to host names with a
-public IPv4 address (with a proxy set, also names the car's DNS cannot look
-up, which the proxy then looks up); at most `build_max_bytes` in all; each host it is
-asked for is logged (`build <id>: internet: CONNECT host:443`). Without the
+public IPv4 address (with a proxy set, also names the car's DNS cannot
+look up, which the proxy then looks up); at most `build_max_bytes` in all;
+each host it is asked for is logged (`build <id>: internet: CONNECT host:443`). Without the
 uplink's lease, such a build fails: *needs internet to build*. It is
 stopped past `build_timeout_s` (600) or once its folder holds more than
 `build_max_bytes` (200 MB); every process of the build uid is killed
@@ -590,8 +590,10 @@ proxy = socks5://192.168.8.1:7891
 - TLS runs through the proxy to the server itself, with the same
   certificate checks. The proxy gets its own user name and password only,
   never a token.
-- A SOCKS5 proxy looks up the names itself, so a name server that answers
-  wrongly on the car's network does not matter.
+- The proxy looks up the names of what is downloaded itself, so a name
+  server that answers wrongly on the car's network does not matter. A
+  build's names are first looked up on the car, and one there that is not
+  public is refused.
 - When the proxy is down or refuses, the error says so, e.g. `proxy
   192.168.8.1:7890: connection refused`.
 - The log and the Store show only the proxy's host and port. The file is
