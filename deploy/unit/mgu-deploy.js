@@ -4827,10 +4827,13 @@ function cmdApplyPending() {
         }
         results.push(res);
     });
-    try {
-        var listedNow = relistId8();
-        if (listedNow.length) say('listed for the provisioning fallback: ' + listedNow.join(', '));
-    } catch (e) { process.stderr.write('listing for the provisioning fallback failed: ' + e.message + '\n'); }
+    /* a remove-all's start lists nothing: no fallback is left to read it */
+    if (!fs.existsSync(REMOVE_ALL_FILE)) {
+        try {
+            var listedNow = relistId8();
+            if (listedNow.length) say('listed for the provisioning fallback: ' + listedNow.join(', '));
+        } catch (e) { process.stderr.write('listing for the provisioning fallback failed: ' + e.message + '\n'); }
+    }
     if (results.length) writeAtomic(ID8_LAST, JSON.stringify({ at: new Date().toISOString(), results: results }, null, 2) + '\n', 0o644);
     changes.forEach(function (c) { if (c.file) rmrf(c.file); });
     writePending([], kept);
@@ -4840,8 +4843,12 @@ function cmdApplyPending() {
         old.slice(0, Math.max(0, old.length - 3)).forEach(function (n) { rmrf(path.join(ID8_TRASH, n)); });
     }
     var ok = results.every(function (r) { return r.ok; });
-    /* a remove-all's last step, once its removals went through */
-    if (ok && !kept.length && fs.existsSync(REMOVE_ALL_FILE)) removeSelfAtStart();
+    /* a remove-all's last step, once its removals went through; after a
+     * failed one the deploy tool stays for remove-all to run again */
+    if (fs.existsSync(REMOVE_ALL_FILE)) {
+        if (ok && !kept.length) removeSelfAtStart();
+        else { rmrf(REMOVE_ALL_FILE); process.stderr.write('the deploy tool stays: run the uninstall again\n'); }
+    }
     return ok ? 0 : 1;
 }
 
@@ -5621,7 +5628,10 @@ function migrateRetired(state, plan) {
         var check = privacyCheck();
         if ((loads() !== loadedBefore || (check && check.restartNeeded)) && managerPid()) {
             bounced = true;
-            bounceManager();
+            /* the check needs the restarted manager, also within remove-all */
+            var deferred = bounceDeferred;
+            bounceDeferred = false;
+            try { bounceManager(); } finally { bounceDeferred = deferred; }
             verifyMigration(before);
         } else {
             var problems = migrationProblems(before);
@@ -6629,6 +6639,11 @@ function removeAll(plan) {
     state = loadState();
     var restart = !bounced || leftRunning.length > 0 || state.pending_reboot.some(function (p) { return p.id !== FALLBACK_NAME; }) ||
         (isId8() && (plan.apps.length > 0 || privacy || plan.fallback));
+    /* files a removal handed over while a process ran them: gone now, or
+     * the cleanup unit and this tool stay to remove them at the next start */
+    var busy = [];
+    step('the files left for removal when unused', function () { busy = removeUnused(readUnused()); writeUnused(busy); });
+    if (busy.length) { left.push('files in use: ' + busy.join(', ')); restart = true; }
     var self = 'kept';
     if (!left.length) {
         if (step('the deploy tool', function () { removeSelf(state, queued); })) self = queued ? 'next-start' : 'removed';
@@ -6688,6 +6703,7 @@ function removeSelfAtStart() {
     if (ops.length) rootfsWindow(ops);
     var state = loadState();
     pruneCreatedDirs(state);
+    [customAppsFile(), listedRecordFile(), path.join(mgrHome(), 'data', GUARD_FILE_NAME)].forEach(rmrf);
     removeDeployDir();
 }
 /* rollback <id>: a tool's current back to the one other version kept

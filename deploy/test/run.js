@@ -6264,6 +6264,27 @@ function testRemoveAllId8() {
         JSON.stringify(fs.readdirSync(root.p('var/opt'))) === '["public"]', `${a.out}\n${fs.readdirSync(root.p('var/opt'))}`);
 }
 
+/* iDrive 8: a queued removal that fails at the next start keeps the deploy
+ * tool, so the uninstall can run again. */
+function testRemoveAllId8Failed() {
+    const root = id8Root();
+    const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097, marked: true });
+    root.run(['install', '--artifact', art, '--yes']);
+    root.noManager();
+    root.run(['apply-pending']);
+    write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED' }));
+    write(root.p('var/opt/public/oap/oap_13001/source/package.json'), JSON.stringify({ name: 'oap-cardash', version: '1.1.4', mguLocalOnly: true }));
+    root.run(['remove-all', '--yes']);
+    const queue = root.p('var/opt/mgu-deploy/id8/pending.json');
+    const pend = readJson(queue);
+    write(queue, JSON.stringify(Object.assign({}, pend, { changes: pend.changes.concat([{ id: 'oap-other', action: 'bogus' }]) })));
+    const a = root.run(['apply-pending']);
+    const b = root.run(['apply-pending']);
+    check('id8 remove-all, a queued change failing at the next start: the deploy tool stays, also at the start after',
+        a.status === 1 && b.status === 0 && fs.existsSync(root.p('var/opt/mgu-deploy/current')) &&
+        !fs.existsSync(root.p('var/opt/mgu-deploy/remove-all.json')) && root.run(['remove-all', '--json']).status === 0, `${a.out}\n${b.out}`);
+}
+
 /* iDrive 8: an install after a remove-all keeps the deploy tool at the next
  * start; the App Manager's own apps are not ours to remove. */
 function testRemoveAllId8Kept() {
@@ -8084,6 +8105,7 @@ const SUITES = [
     testRemoveAllFirmware,
     testRestoreFirmwareGuard,
     testRemoveAllId8,
+    testRemoveAllId8Failed,
     testRemoveAllId8Kept,
     testRemoveAllRunning,
     testMguInstallUninstall
