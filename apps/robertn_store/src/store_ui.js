@@ -292,7 +292,9 @@ function settingsView(m) {
     const w = wifiOf(m);
     if (w) {
         const s = wifiState(w);
-        access.push({ id: 'wifi', title: 'Wi-Fi', sub: s[0], subColor: s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
+        const paused = pausedLine(w);
+        const sub = paused || [s[0], bandOf(w)].filter(Boolean).join(' · ');
+        access.push({ id: 'wifi', title: 'Wi-Fi', sub, subColor: paused ? DIM : s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
             right: 'chevron', act: { do: 'open', page: { name: 'wifi' } } });
     }
     if (toks) {
@@ -612,6 +614,23 @@ function wifiState(w) {
     return { online: [tr("Online{0}", at), GREEN], connected: [tr("Connected{0}", at), BLUE], connecting: [tr("Connecting{0}", at), BLUE],
         off: [tr("Not used"), DIM] }[w.link] || [tr("Not connected"), DIM];
 }
+const PROJECTION = { carplay: 'CarPlay', 'android-auto': 'Android Auto' };
+/* While wireless CarPlay or Android Auto keeps the uplink from searching for
+ * its networks by itself (mgu-uplink 0.7.5's wifi.paused) and Wi-Fi is not
+ * joined: that line; '' otherwise. */
+function pausedLine(w) {
+    const name = w.enabled && PROJECTION[w.paused];
+    return name && ['online', 'connected', 'connecting'].indexOf(w.link) < 0 ? tr("Paused for wireless {0}", name) : '';
+}
+/* The band of the access point joined (mgu-uplink 0.7.5's wifi.freq, MHz)
+ * while Wi-Fi is joined; '' without it. */
+function bandOf(w) {
+    const f = w.freq;
+    if (['online', 'connected'].indexOf(w.link) < 0 || typeof f !== 'number') {
+        return '';
+    }
+    return f >= 2400 && f < 2500 ? tr("2.4 GHz") : f >= 4900 && f < 5900 ? tr("5 GHz") : '';
+}
 const strength = (dbm) => (typeof dbm !== 'number' ? null : dbm >= -60 ? [tr("Strong"), GREEN] : dbm >= -72 ? [tr("Good"), BLUE] : [tr("Weak"), AMBER]);
 const scanningOf = (w) => !!(w.scanning || w.link === 'scanning');
 
@@ -634,7 +653,7 @@ function netRow(w, n) {
     const status = n.away ? tr("Saved · not in range") : n.current ? { online: tr("Online"), connected: tr("Connected"), connecting: tr("Connecting") }[w.link] || tr("Saved")
         : n.saved ? tr("Saved") : n.secure ? tr("Secured") : tr("Open");
     const act = n.away || joined ? null : n.saved || !n.secure ? { do: 'wifi-join', ssid: n.ssid } : { do: 'wifi-password', ssid: n.ssid };
-    return { id: n.ssid, title: n.ssid, sub: [status, q && q[0]].filter(Boolean).join(' · '), subColor: n.current ? GREEN : DIM, plain: true,
+    return { id: n.ssid, title: n.ssid, sub: [status, q && q[0], joined && bandOf(w)].filter(Boolean).join(' · '), subColor: n.current ? GREEN : DIM, plain: true,
         vicon: n.secure && !n.saved ? 'lock' : 'wifi', iconColor: q ? q[1] : DIM, act,
         right: n.saved ? 'chip:' + tr('Forget') : act ? 'chevron' : '', chipColor: DIM,
         chipAct: n.saved ? { do: 'open', page: { name: 'confirm', kind: 'wifi-forget', ssid: n.ssid } } : null };
@@ -657,7 +676,8 @@ function wifiView(m) {
     const dbm = typeof w.signal === 'number' ? `${w.signal} dBm` : '';
     const preferred = (m.st && m.st.uplink && m.st.uplink.preferred) || '';
     return {
-        subtitle: { text: !w.enabled || w.link === 'unavailable' || w.link === 'failed' ? '' : scanning ? tr("Scanning") : plural(nets.length, 'network') },
+        subtitle: { text: !w.enabled || w.link === 'unavailable' || w.link === 'failed' ? '' : scanning ? tr("Scanning")
+            : pausedLine(w) || plural(nets.length, 'network') },
         networks: { items: nets.map((n) => netRow(w, n)),
             empty: waiting ? tr("Waiting") : !w.enabled ? tr("Not used") : w.link === 'unavailable' ? tr("Unavailable") : scanning ? tr("Scanning") : tr("No networks") },
         icon: { vicon: 'wifi', kind: 'service', colors: LIT[s[1]] || '#7a808a,#3a3f47' },

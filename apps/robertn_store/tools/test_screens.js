@@ -530,6 +530,33 @@ eq([{ link: 'connected' }, { link: 'connecting', ssid: 'Cafe' }, { enabled: fals
     { link: 'failed', ssid: '', error: 'wpa_supplicant ended (exit status 1)' }, { link: 'idle', ssid: '', error: 'could not join Cafe' },
     { link: 'idle', ssid: '' }].map(wifiSub),
 ['Connected · Mario iPhone', 'Connecting · Cafe', 'Not used', 'Unavailable', 'Failed', 'Error', 'Not connected']);
+// wireless CarPlay or Android Auto keeps the uplink from searching: said while not joined
+eq([{ link: 'idle', ssid: '', paused: 'carplay' }, { link: 'scanning', ssid: '', paused: 'android-auto' },
+    { link: 'online', paused: 'carplay' }, { enabled: false, link: 'off', ssid: '', paused: 'carplay' }, { link: 'idle', ssid: '', paused: 'other' }].map(wifiSub),
+['Paused for wireless CarPlay', 'Paused for wireless Android Auto', 'Online · Mario iPhone', 'Not used', 'Not connected']);
+eq(screen('settings-wifi-paused').values.access.items[0].sub, 'Paused for wireless CarPlay');
+// the band of the access point joined (mgu-uplink 0.7.5's wifi.freq), only while joined and known
+eq([{ freq: 5745 }, { link: 'connected', freq: 2437 }, { freq: 2484 }, { freq: 5180 }, { freq: 5825 }].map(wifiSub),
+    ['Online · Mario iPhone · 5 GHz', 'Connected · Mario iPhone · 2.4 GHz', 'Online · Mario iPhone · 2.4 GHz', 'Online · Mario iPhone · 5 GHz',
+        'Online · Mario iPhone · 5 GHz']);
+eq([{}, { freq: undefined }, { freq: 0 }, { freq: null }, { freq: '5745' }, { freq: 60480 }, { freq: -1 }, { freq: NaN }].map(wifiSub),
+    ['Online · Mario iPhone', 'Online · Mario iPhone', 'Online · Mario iPhone', 'Online · Mario iPhone', 'Online · Mario iPhone',
+        'Online · Mario iPhone', 'Online · Mario iPhone', 'Online · Mario iPhone'], 'no band without a frequency it knows (an older uplink, a read that failed)');
+eq([{ link: 'connecting', ssid: 'Cafe', freq: 5745 }, { link: 'idle', ssid: '', freq: 5745 }, { enabled: false, link: 'off', ssid: '', freq: 5745 },
+    { link: 'unavailable', ssid: '', error: 'no Wi-Fi radio (wlan1)', freq: 2437 }, { link: 'idle', ssid: '', paused: 'carplay', freq: 2437 }].map(wifiSub),
+['Connecting · Cafe', 'Not connected', 'Not used', 'Unavailable', 'Paused for wireless CarPlay'], 'nor while not joined');
+eq(screen('settings', {}, { uplink: { device: { kind: 'usbecm', name: 'HUAWEI' }, state: 'online', error: null, preferred: 'usb', wifi: null } })
+    .labels.indexOf('Wi-Fi'), -1, 'a USB uplink without Wi-Fi: no row');
+eq(screen('settings', {}, { uplink: Object.assign({}, fixture.state().uplink, { device: { kind: 'usbecm', name: 'HUAWEI' },
+    wifi: Object.assign({}, fixture.state().uplink.wifi, { link: 'connected', freq: 5745 }) }) }).values.access.items[0].sub,
+'Connected · Mario iPhone · 5 GHz', 'joined while a USB stick is the uplink');
+eq(screen('settings-wifi-band').values.access.items[0].sub, 'Online · Mario iPhone · 5 GHz');
+eq(screen('wifi-band').values.networks.items.map((n) => n.sub).slice(0, 2), ['Online · Strong · 2.4 GHz', 'Secured · Strong'],
+    'the page: on the joined network\'s row');
+eq(screen('wifi').values.networks.items[0].sub, 'Online · Strong', 'the page without a frequency: as before');
+f = screen('wifi-paused');
+eq([text(f, 'subtitle'), text(f, 'state'), own(f).indexOf('Scan') >= 0], ['Paused for wireless Android Auto', 'Not connected', true],
+    'paused: the page says so; Scan stays');
 // the page: the network joined first, then the scan's, then saved ones out of range; a tap joins a saved or open one and asks a
 // secured one's password; a saved one has Forget; Don't use Wi-Fi, Scan, the preferred connection
 f = screen('wifi');

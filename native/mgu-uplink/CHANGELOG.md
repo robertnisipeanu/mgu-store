@@ -1,5 +1,11 @@
 # mgu-uplink changelog
 
+## 0.7.5
+
+- Wi-Fi during wireless CarPlay and Android Auto: while the phone projects over the car's Wi-Fi (the CarPlay or Android Auto daemon connected to the phone, and a P2P group receiving from it), the supplicant's own scans keep off the phone's band. Through the car's supplicant (`wlan0`), our networks get a `scan_freq` of the other band, read from the phone's P2P group's frequency; with the band not known, or a supplicant that refuses `scan_freq`, they are switched off while Wi-Fi is not joined. On `wlan1`, our wpa_supplicant makes no scans of its own while Wi-Fi is not joined. A `wifi-scan` or `wifi-connect` request still covers every channel, a joined network stays joined, and when the session ends everything is as before within 2 s. `status.json`'s `wifi.paused` (`carplay`, `android-auto`) says when the supplicant makes no scans of its own.
+- Calls to the car's wpa_supplicant carry D-Bus's NO_AUTO_START flag: a call made while it is not running never starts one.
+- `status.json`'s `wifi.freq`: the frequency (MHz) of the access point joined, while it can be read (car's supplicant: `CurrentBSS` and its `Frequency`; `wlan1`: `STATUS`). The log names the network, interface, frequency and band when Wi-Fi joins and whenever the frequency changes.
+
 ## 0.7.4
 
 - Wi-Fi through the car's supplicant (iDrive 7, `wlan0`): while the uplink is online on a device that ranks above Wi-Fi (a phone with `preferred = phone`, an adapter with `usb`) and Wi-Fi is not joined, our networks are switched off in the car's supplicant, which then stops scanning every 5 s for a saved network out of range. Those scans took the shared radio off wireless CarPlay's channel and flooded the journal. They are switched on again as soon as that uplink is offline or gone, and for a `wifi-scan` request. They are only ever in the supplicant's memory, and a start adds them switched on. `wlan1` (our own wpa_supplicant) is unchanged.

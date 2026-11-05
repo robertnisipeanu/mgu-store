@@ -181,6 +181,9 @@
     "Tools only it uses: {0}": "Ferramentas que só ele usa: {0}",
     "Proxy": "Proxy",
     "Address": "Endereço",
-    "Use http://host:port or socks5://host:port": "Use http://host:port ou socks5://host:port"
+    "Use http://host:port or socks5://host:port": "Use http://host:port ou socks5://host:port",
+    "Paused for wireless {0}": "Em pausa: {0} sem fio",
+    "2.4 GHz": "2,4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

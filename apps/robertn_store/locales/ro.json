@@ -181,6 +181,9 @@
     "Tools only it uses: {0}": "Instrumente folosite doar de ea: {0}",
     "Proxy": "Proxy",
     "Address": "Adresă",
-    "Use http://host:port or socks5://host:port": "Folosiți http://host:port sau socks5://host:port"
+    "Use http://host:port or socks5://host:port": "Folosiți http://host:port sau socks5://host:port",
+    "Paused for wireless {0}": "În pauză: {0} wireless",
+    "2.4 GHz": "2,4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

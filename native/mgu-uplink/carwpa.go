@@ -37,6 +37,8 @@ const (
 	wpaDBusIface = wpaDBus + ".Interface"
 	wpaDBusNet   = wpaDBus + ".Network"
 	wpaDBusBSS   = wpaDBus + ".BSS"
+	wpaDBusP2P   = wpaDBusIface + ".P2PDevice"
+	wpaDBusGroup = wpaDBus + ".Group"
 	carTag       = "mgu-uplink" // id_str of our networks
 	carIfname    = "wlan0"
 
@@ -67,11 +69,14 @@ type carSupplicant struct {
 	ours     map[objPath]string // our networks in the car's supplicant: SSID
 	pending  *savedNet          // join's network until joined or reload
 	setAside bool
-	quiet    bool // our networks are off (setQuiet)
+	quiet    bool   // our networks are off (hold)
+	scanFreq string // the scan_freq our saved networks get (hold), "" none
+	freqOn   map[objPath]string
+	noFreq   bool // the supplicant refused a scan_freq: hold turns ours off instead
 }
 
 func newCarSupplicant(iface, conf, ctrl string) *carSupplicant {
-	return &carSupplicant{iface: iface, conf: conf, ctrl: ctrl, ours: map[objPath]string{}}
+	return &carSupplicant{iface: iface, conf: conf, ctrl: ctrl, ours: map[objPath]string{}, freqOn: map[objPath]string{}}
 }
 
 func (s *carSupplicant) name() string { return backendCar }
@@ -222,7 +227,7 @@ func (s *carSupplicant) ensure(string) error {
 	if err != nil {
 		return fmt.Errorf("the car's wpa_supplicant: %v", err)
 	}
-	s.path, s.at, s.ours, s.pending = p, time.Now(), map[objPath]string{}, nil
+	s.path, s.at, s.ours, s.freqOn, s.pending, s.noFreq = p, time.Now(), map[objPath]string{}, map[objPath]string{}, nil, false
 	for _, n := range paths(m, "Networks") {
 		if s.tagged(n) {
 			s.call(p, wpaDBusIface, "RemoveNetwork", "o", n)
@@ -237,15 +242,15 @@ func (s *carSupplicant) ensure(string) error {
 	return nil
 }
 
-// addSaved adds every saved network, enabled, and has the supplicant look
-// for them. With s.mu held.
+// addSaved adds every saved network, enabled, with the scan_freq hold
+// gave, and has the supplicant look for them. With s.mu held.
 func (s *carSupplicant) addSaved() error {
 	nets, err := s.readSaved()
 	if err != nil {
 		return err
 	}
 	for _, n := range nets {
-		if _, err := s.add(n, !s.quiet); err != nil {
+		if _, err := s.add(n, !s.quiet, s.scanFreq); err != nil {
 			return err
 		}
 	}
@@ -256,8 +261,9 @@ func (s *carSupplicant) addSaved() error {
 	return nil
 }
 
-// add puts n into the car's supplicant, in its memory only.
-func (s *carSupplicant) add(n savedNet, enabled bool) (objPath, error) {
+// add puts n into the car's supplicant, in its memory only; scanFreq: the
+// channels its automatic scans keep to ("" all).
+func (s *carSupplicant) add(n savedNet, enabled bool, scanFreq string) (objPath, error) {
 	props := dbusProps{
 		{"ssid", dbusVariant{"ay", []byte(n.ssid)}},
 		{"scan_ssid", dbusVariant{"u", uint32(1)}}, // hidden and sleeping hotspots answer a directed probe
@@ -275,6 +281,9 @@ func (s *carSupplicant) add(n savedNet, enabled bool) (objPath, error) {
 	if enabled {
 		props = append(props, dbusProp{"disabled", dbusVariant{"u", uint32(0)}})
 	}
+	if scanFreq != "" {
+		props = append(props, dbusProp{"scan_freq", dbusVariant{"s", scanFreq}})
+	}
 	r, err := s.call(s.path, wpaDBusIface, "AddNetwork", "a{sv}", props)
 	if err != nil {
 		return "", fmt.Errorf("the car's wpa_supplicant: AddNetwork: %v", err)
@@ -286,7 +295,7 @@ func (s *carSupplicant) add(n savedNet, enabled bool) (objPath, error) {
 	if p == "" {
 		return "", errors.New("the car's wpa_supplicant: AddNetwork: no network")
 	}
-	s.ours[p] = n.ssid
+	s.ours[p], s.freqOn[p] = n.ssid, scanFreq
 	return p, nil
 }
 
@@ -295,6 +304,7 @@ func (s *carSupplicant) dropOurs() {
 	for n := range s.ours {
 		s.call(s.path, wpaDBusIface, "RemoveNetwork", "o", n)
 		delete(s.ours, n)
+		delete(s.freqOn, n)
 	}
 }
 
@@ -316,7 +326,7 @@ func (s *carSupplicant) stop() {
 	if car, err := s.carNetwork(); onOurs && !car && err == nil {
 		s.call(s.path, wpaDBusIface, "Disconnect", "")
 	}
-	s.path, s.pending, s.quiet = "", nil, false
+	s.path, s.pending, s.quiet, s.scanFreq = "", nil, false, ""
 	if s.bus != nil {
 		s.bus.close()
 		s.bus = nil
@@ -395,6 +405,28 @@ func (s *carSupplicant) signal() (int, bool) {
 	}
 	sig, ok := prop[int16](bm, "Signal")
 	return int(sig), ok
+}
+
+// freq is the frequency (MHz) of the access point the interface is on, 0
+// none or not known: CurrentBSS, then that BSS's Frequency, each one
+// property read with the call's timeout.
+func (s *carSupplicant) freq() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.path == "" {
+		return 0
+	}
+	v, err := s.getProp(s.path, wpaDBusIface, "CurrentBSS")
+	bss, _ := v.(objPath)
+	if err != nil || bss == "" || bss == "/" {
+		return 0
+	}
+	v, err = s.getProp(bss, wpaDBusBSS, "Frequency")
+	f, _ := v.(uint16)
+	if err != nil {
+		return 0
+	}
+	return int(f)
 }
 
 func (s *carSupplicant) scan() error {
@@ -502,9 +534,11 @@ func (s *carSupplicant) join(ssid, psk string, open bool) error {
 		if name == ssid {
 			s.call(s.path, wpaDBusIface, "RemoveNetwork", "o", p)
 			delete(s.ours, p)
+			delete(s.freqOn, p)
 		}
 	}
-	p, err := s.add(n, false)
+	// a join the owner asked for looks on every channel
+	p, err := s.add(n, false, "")
 	if err != nil {
 		return err
 	}
@@ -554,14 +588,101 @@ func (s *carSupplicant) setNetEnabled(p objPath, on bool) error {
 	return nil
 }
 
-// setQuiet turns our networks off (on: with none enabled the supplicant
-// logs "No enabled networks - do not scan" and goes inactive) or back on.
-// Only ours, in the supplicant's memory: the car's networks and its P2P
-// groups are other objects. A failed Set is tried again on the next call.
-func (s *carSupplicant) setQuiet(on bool) {
+// hold limits the supplicant's own scans for our networks (wifi.go,
+// scanHold): their scan_freq (with every enabled network carrying one, the
+// supplicant's automatic scans keep to those channels; a scan request and
+// a join the owner asked for still cover them all), and off turns them off
+// (with none enabled the supplicant logs "No enabled networks - do not
+// scan" and goes inactive) or back on. Only ours, in the supplicant's
+// memory: the car's networks and its P2P groups are other objects. A
+// network of ours keeps an association while its scan_freq changes (WPA-PSK
+// keeps no PMKSA for the change to flush). A supplicant that refuses a
+// scan_freq has ours off instead while h.idle; one that refuses to clear it
+// has that network added again, unless it is joined (then on a later
+// call). Reports whether ours are off.
+func (s *carSupplicant) hold(h scanHold) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.path == "" || s.quiet == on || on && len(s.ours) == 0 {
+	if s.path == "" {
+		return false
+	}
+	want := ""
+	if h.session != "" && !s.noFreq {
+		want = freqList(otherBand(h.band))
+	}
+	if want != s.scanFreq {
+		s.scanFreq = want
+		if want != "" {
+			logf("wifi: automatic scans on %s keep to %s during wireless %s", s.iface, bandName(7-h.band), projectionName(h.session))
+		} else {
+			logf("wifi: automatic scans on %s on every channel", s.iface)
+		}
+	}
+	for p := range s.ours {
+		if s.freqOn[p] == s.scanFreq {
+			continue
+		}
+		err := s.setNetProps(p, dbusProps{{"scan_freq", dbusVariant{"s", s.scanFreq}}})
+		switch {
+		case err == nil:
+			s.freqOn[p] = s.scanFreq
+			continue
+		case s.scanFreq != "":
+			logf("wifi: %v; no automatic scans instead during wireless %s", err, projectionName(h.session))
+			s.noFreq, s.scanFreq = true, ""
+		case s.onNetwork(p):
+			continue // joined, or can't tell: on a later call
+		default:
+			logf("wifi: %v; adding the network again", err)
+			s.readd(p)
+		}
+		break
+	}
+	off := h.idle && (h.other || h.session != "" && s.scanFreq == "")
+	s.setOff(off)
+	return s.quiet
+}
+
+// onNetwork: the interface is on network p, or the supplicant can't say.
+// With s.mu held.
+func (s *carSupplicant) onNetwork(p objPath) bool {
+	m, err := s.getAll(s.path, wpaDBusIface)
+	if err != nil {
+		return true
+	}
+	cur, _ := prop[objPath](m, "CurrentNetwork")
+	return cur == p
+}
+
+// readd removes one of our networks and adds it again from wpa.conf, as
+// addSaved would. With s.mu held.
+func (s *carSupplicant) readd(p objPath) {
+	ssid := s.ours[p]
+	s.call(s.path, wpaDBusIface, "RemoveNetwork", "o", p)
+	delete(s.ours, p)
+	delete(s.freqOn, p)
+	nets, _ := s.readSaved()
+	for _, n := range nets {
+		if n.ssid == ssid {
+			if _, err := s.add(n, !s.quiet, s.scanFreq); err != nil {
+				logf("wifi: %v", err)
+			}
+		}
+	}
+}
+
+func (s *carSupplicant) setNetProps(p objPath, props dbusProps) error {
+	_, err := s.call(p, "org.freedesktop.DBus.Properties", "Set", "ssv", wpaDBusNet, "Properties", dbusVariant{"a{sv}", props})
+	if err != nil {
+		return fmt.Errorf("the car's wpa_supplicant: set a network's %s: %v", props[0].key, err)
+	}
+	return nil
+}
+
+// setOff turns our networks off or back on. A failed Set is tried again on
+// the next call. With s.mu held.
+func (s *carSupplicant) setOff(on bool) {
+	if s.quiet == on || on && len(s.ours) == 0 {
 		return
 	}
 	for p := range s.ours {
@@ -572,10 +693,66 @@ func (s *carSupplicant) setQuiet(on bool) {
 	}
 	s.quiet = on
 	if on {
-		logf("wifi: saved networks paused on %s: the uplink is online on another device", s.iface)
+		logf("wifi: saved networks paused on %s: no automatic scans", s.iface)
 	} else {
 		logf("wifi: saved networks on again on %s", s.iface)
 	}
+}
+
+// groupFreq is the frequency (MHz) of the car's P2P group on ifname, from
+// the car's supplicant (read only): the group interface's Group, and its
+// Frequency.
+func (s *carSupplicant) groupFreq(ifname string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.call(wpaDBusPath, wpaDBus, "GetInterface", "s", ifname)
+	if err != nil {
+		return 0, err
+	}
+	var ip objPath
+	if len(r) > 0 {
+		ip, _ = r[0].(objPath)
+	}
+	if ip == "" {
+		return 0, errors.New("GetInterface: not an object path")
+	}
+	g, err := s.getProp(ip, wpaDBusP2P, "Group")
+	if err != nil {
+		return 0, err
+	}
+	gp, _ := g.(objPath)
+	if gp == "" || gp == "/" {
+		return 0, fmt.Errorf("%s is in no P2P group", ifname)
+	}
+	f, err := s.getProp(gp, wpaDBusGroup, "Frequency")
+	if err != nil {
+		return 0, err
+	}
+	switch v := f.(type) {
+	case uint16:
+		return int(v), nil
+	case uint32:
+		return int(v), nil
+	case int32:
+		return int(v), nil
+	}
+	return 0, fmt.Errorf("%s's group: Frequency is %T", ifname, f)
+}
+
+// With s.mu held.
+func (s *carSupplicant) getProp(path objPath, iface, name string) (any, error) {
+	r, err := s.call(path, "org.freedesktop.DBus.Properties", "Get", "ss", iface, name)
+	if err != nil {
+		return nil, err
+	}
+	if len(r) == 0 {
+		return nil, fmt.Errorf("D-Bus: Get %s: no reply value", name)
+	}
+	v, ok := r[0].(dbusVariant)
+	if !ok {
+		return nil, fmt.Errorf("D-Bus: Get %s: not a variant", name)
+	}
+	return v.val, nil
 }
 
 // reload drops what join set up: our networks are the saved ones again.
@@ -610,6 +787,7 @@ func (s *carSupplicant) forget(ssid string) error {
 		if name == ssid {
 			s.call(s.path, wpaDBusIface, "RemoveNetwork", "o", p)
 			delete(s.ours, p)
+			delete(s.freqOn, p)
 		}
 	}
 	return s.writeSaved(out)

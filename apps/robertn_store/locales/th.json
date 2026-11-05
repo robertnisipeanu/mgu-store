@@ -181,6 +181,9 @@
     "Tools only it uses: {0}": "เครื่องมือที่ใช้เฉพาะแอปนี้: {0}",
     "Proxy": "พร็อกซี",
     "Address": "ที่อยู่",
-    "Use http://host:port or socks5://host:port": "ใช้ http://host:port หรือ socks5://host:port"
+    "Use http://host:port or socks5://host:port": "ใช้ http://host:port หรือ socks5://host:port",
+    "Paused for wireless {0}": "หยุดชั่วคราวขณะใช้ {0} ไร้สาย",
+    "2.4 GHz": "2.4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

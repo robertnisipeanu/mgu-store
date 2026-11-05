@@ -181,6 +181,9 @@
     "Tools only it uses: {0}": "Εργαλεία που χρησιμοποιεί μόνο αυτή: {0}",
     "Proxy": "Proxy",
     "Address": "Διεύθυνση",
-    "Use http://host:port or socks5://host:port": "Χρησιμοποιήστε http://host:port ή socks5://host:port"
+    "Use http://host:port or socks5://host:port": "Χρησιμοποιήστε http://host:port ή socks5://host:port",
+    "Paused for wireless {0}": "Σε παύση: ασύρματο {0}",
+    "2.4 GHz": "2,4 GHz",
+    "5 GHz": "5 GHz"
   }
 }

@@ -198,6 +198,42 @@ scans. They are switched on again as soon as that uplink is offline or gone,
 and for 8 s after a `wifi-scan` request. A start or a Wi-Fi switch-on adds
 them switched on.
 
+#### During wireless CarPlay and Android Auto
+
+A station scan takes the radio off the channel the phone projects on. So
+while wireless CarPlay or Android Auto is connected, the supplicant's own
+scans (looking for a saved network, or joining one again) keep off the
+phone's band; a `wifi-scan` request and a `wifi-connect` still cover every
+channel, at any time, and a joined network stays joined.
+
+A session is the projection daemon connected to an address that is not a
+loopback one (`/proc/net/tcp`, `tcp6`: uid 13002 for CarPlay, `carplay`;
+uid 13006 for Android Auto, `aapd`) while a P2P group interface (`p2p-*`)
+received data in the last 30 s (`/proc/net/dev`); wired CarPlay has the
+connection but no P2P traffic. The groups that received data are the
+phone's.
+
+- Through the car's supplicant (`wlan0`): the frequency of the phone's
+  group, read from the car's supplicant (the group interface's
+  `fi.w1.wpa_supplicant1.Interface.P2PDevice.Group`, its `Frequency`),
+  gives the band. Our networks get a `scan_freq` of the other band's
+  channels (2412 to 2472 MHz, or 5180 to 5825 MHz), so the supplicant's
+  own scans cover only those. With the band not known (both groups
+  receive, or the frequency can't be read), or a supplicant that refuses
+  `scan_freq`, our networks are switched off while Wi-Fi is not joined, as
+  above.
+- On `wlan1` (our wpa_supplicant; every interface of these units may share
+  the one radio): while Wi-Fi is not joined, `DISCONNECT`, which keeps
+  the supplicant from scanning and joining by itself until `RECONNECT`.
+
+`wifi.paused` (`carplay`, `android-auto`) says when the supplicant makes
+no scans of its own for that session. When the session ends, everything is
+as before within 2 s. A joined network makes no scans to roam: the car's
+wpa_supplicant runs without a configuration file (`-u -s -d`), so it has no
+global `bgscan`, and our networks in it set none; on `wlan1`, our
+`wpa.conf` sets no global `bgscan` and our networks none (and `mgu-wpa` is
+built without bgscan modules).
+
 ### status.json
 
 `/run/mgu-uplink/status.json` (0644, present while the service runs), for
@@ -230,7 +266,13 @@ with `uplink = auto`, also `wifi`, and `preferred` while a group is preferred:
 `networks` is the latest scan (the strongest per name, at most 20,
 strongest first), `saved` the saved names, `scanning` true for 8 s after a
 scan request, `signal` dBm, `backend` what joins (`mgu-wpa` or
-`car-supplicant`) while Wi-Fi is on and there is a radio. `error` keeps a failed join ("could not join
+`car-supplicant`) while Wi-Fi is on and there is a radio, `paused`
+(`carplay`, `android-auto`) while the supplicant makes no scans of its own
+during that wireless session, `freq` the frequency (MHz) of the access
+point joined while it can be read (the car's supplicant: `CurrentBSS`,
+then its `Frequency`; `wlan1`: `STATUS`'s `freq=`), left out otherwise.
+The log says `wifi: joined "<network>" on <interface> at <MHz> MHz
+(<band>)` when Wi-Fi joins and whenever that frequency changes. `error` keeps a failed join ("could not join
 … (wrong password, or out of range)", after 40 s) until the next request.
 
 | `state` | |

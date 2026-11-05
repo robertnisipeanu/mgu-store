@@ -41,7 +41,10 @@ type supplicant struct {
 	run       *supplicantRun
 	startedAt time.Time
 	conn      *net.UnixConn
-	setAside  bool // wpa.conf was moved to wpa.conf.bad (takeSetAside)
+	setAside  bool      // wpa.conf was moved to wpa.conf.bad (takeSetAside)
+	held      bool      // DISCONNECT sent by hold
+	heldRun   time.Time // to the supplicant started then
+	inSession bool      // hold's last call had a session
 }
 
 // What wpa_supplicant 2.10 prints when it can't read wpa.conf at the start.
@@ -269,6 +272,13 @@ func (s *supplicant) status() map[string]string {
 	return parseKV(r)
 }
 
+// freq is the frequency (MHz) of the access point it is on (STATUS freq=),
+// 0 none.
+func (s *supplicant) freq() int {
+	f, _ := strconv.Atoi(s.status()["freq"])
+	return f
+}
+
 func (s *supplicant) signal() (int, bool) {
 	r, err := s.request("SIGNAL_POLL")
 	if err != nil {
@@ -364,6 +374,9 @@ func (s *supplicant) join(ssid, psk string, open bool) error {
 			return err
 		}
 	}
+	s.mu.Lock()
+	s.held = false // SELECT_NETWORK ended the DISCONNECT
+	s.mu.Unlock()
 	return nil
 }
 
@@ -387,10 +400,44 @@ func (s *supplicant) reload() error {
 	return err
 }
 
-// setQuiet does nothing on wlan1: mgu-wpa's radio is not the one wireless
-// CarPlay uses, and DISABLE_NETWORK would reach wpa.conf on the next
-// SAVE_CONFIG.
-func (s *supplicant) setQuiet(bool) {}
+// hold stops the supplicant's own scans while a wireless CarPlay or
+// Android Auto session is up and it only searches (wifi.go, scanHold):
+// DISCONNECT, which keeps it from scanning or joining until RECONNECT (or a
+// join the owner asks for), and touches neither an association nor
+// wpa.conf. On these units every interface may share the one radio, so
+// the phone's band does not narrow anything. The uplink online on another
+// device changes nothing here (DISABLE_NETWORK would reach wpa.conf on the
+// next SAVE_CONFIG). A session's end always sends RECONNECT, which does
+// nothing to a supplicant that is not disconnected, so a DISCONNECT is
+// never left behind. Reports whether its scans are off.
+func (s *supplicant) hold(h scanHold) bool {
+	off := h.idle && h.session != ""
+	s.mu.Lock()
+	held, started := s.held && s.heldRun == s.startedAt, s.startedAt
+	ended := s.inSession && h.session == ""
+	s.inSession = h.session != ""
+	s.mu.Unlock()
+	if held == off && !(ended && !off) {
+		return off
+	}
+	cmd := "RECONNECT"
+	if off {
+		cmd = "DISCONNECT"
+	}
+	if err := s.ok(cmd); err != nil {
+		logf("wifi: %v", err)
+		return held
+	}
+	s.mu.Lock()
+	s.held, s.heldRun = off, started
+	s.mu.Unlock()
+	if off {
+		logf("wifi: no automatic scans on %s during wireless %s", s.iface, projectionName(h.session))
+	} else {
+		logf("wifi: automatic scans on %s again", s.iface)
+	}
+	return off
+}
 
 func (s *supplicant) forget(ssid string) error {
 	id, ok := s.saved()[ssid]

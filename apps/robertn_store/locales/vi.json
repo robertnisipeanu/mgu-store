@@ -181,6 +181,9 @@
     "Tools only it uses: {0}": "Công cụ chỉ ứng dụng này dùng: {0}",
     "Proxy": "Proxy",
     "Address": "Địa chỉ",
-    "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port"
+    "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port",
+    "Paused for wireless {0}": "Tạm dừng vì {0} không dây",
+    "2.4 GHz": "2,4 GHz",
+    "5 GHz": "5 GHz"
   }
 }
