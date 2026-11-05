@@ -34,6 +34,7 @@ type config struct {
 	Preferred string   // the group tried first (preferGroups; "": the order of autoKinds)
 	Skipped   []string // settings left out, logged at the start: a preferred value that is no group, settings_conf lines this version does not take
 	WiFi      bool     // the Wi-Fi provider is switched on
+	WiFi5     bool     // Wi-Fi joins use 5 GHz too (wifiband.go)
 	WiFiIf    string   // the Wi-Fi interface
 }
 
@@ -100,7 +101,7 @@ func (c *config) read(path string, top, lenient bool) error {
 			return fmt.Errorf("%s:%d: expected key = value", path, n)
 		}
 		key, val := strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1])
-		if lenient && key != "preferred" && key != "wifi" {
+		if lenient && key != "preferred" && key != "wifi" && key != "wifi_5ghz" {
 			c.Skipped = append(c.Skipped, fmt.Sprintf("%s:%d: unknown key %q", path, n, key))
 			continue
 		}
@@ -201,6 +202,11 @@ func (c *config) set(key, val string) error {
 			return fmt.Errorf("wifi: on or off, not %q", val)
 		}
 		c.WiFi = val == "on"
+	case "wifi_5ghz":
+		if val != "on" && val != "off" {
+			return fmt.Errorf("wifi_5ghz: on or off, not %q", val)
+		}
+		c.WiFi5 = val == "on"
 	default:
 		return fmt.Errorf("unknown key %q", key)
 	}
