@@ -463,6 +463,10 @@ func fakeWPA(scanFile string, args []string) int {
 			}
 		case "DISCONNECT":
 			state, cur = "DISCONNECTED", -1
+		case "RECONNECT":
+			if state == "DISCONNECTED" {
+				try()
+			}
 		case "ENABLE_NETWORK":
 			for _, nn := range nets {
 				nn.off = false

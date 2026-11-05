@@ -41,7 +41,9 @@ type supplicant struct {
 	run       *supplicantRun
 	startedAt time.Time
 	conn      *net.UnixConn
-	setAside  bool // wpa.conf was moved to wpa.conf.bad (takeSetAside)
+	setAside  bool      // wpa.conf was moved to wpa.conf.bad (takeSetAside)
+	held      bool      // DISCONNECT sent by hold
+	heldRun   time.Time // to the supplicant started then
 }
 
 // What wpa_supplicant 2.10 prints when it can't read wpa.conf at the start.
@@ -322,6 +324,9 @@ func (s *supplicant) networks() ([]wifiNetwork, []string) {
 // the network it is joined to would keep the old association. Nothing is
 // saved yet: joined saves, reload drops it.
 func (s *supplicant) join(ssid, psk string, open bool) error {
+	s.mu.Lock()
+	s.held = false // SELECT_NETWORK ends a DISCONNECT
+	s.mu.Unlock()
 	id, have := s.saved()[ssid]
 	if !have {
 		if psk == "" && !open {
@@ -387,10 +392,40 @@ func (s *supplicant) reload() error {
 	return err
 }
 
-// setQuiet does nothing on wlan1: mgu-wpa's radio is not the one wireless
-// CarPlay uses, and DISABLE_NETWORK would reach wpa.conf on the next
-// SAVE_CONFIG.
-func (s *supplicant) setQuiet(bool) {}
+// hold stops the supplicant's own scans while a wireless CarPlay or
+// Android Auto session is up and it only searches (wifi.go, scanHold):
+// DISCONNECT, which keeps it from scanning or joining until RECONNECT (or a
+// join the owner asks for), and touches neither an association nor
+// wpa.conf. On these units every interface may share the one radio, so
+// the phone's band does not narrow anything. The uplink online on another
+// device changes nothing here (DISABLE_NETWORK would reach wpa.conf on the
+// next SAVE_CONFIG). Reports whether its scans are off.
+func (s *supplicant) hold(h scanHold) bool {
+	off := h.idle && h.session != ""
+	s.mu.Lock()
+	held, started := s.held && s.heldRun == s.startedAt, s.startedAt
+	s.mu.Unlock()
+	if held == off {
+		return off
+	}
+	cmd := "RECONNECT"
+	if off {
+		cmd = "DISCONNECT"
+	}
+	if err := s.ok(cmd); err != nil {
+		logf("wifi: %v", err)
+		return held
+	}
+	s.mu.Lock()
+	s.held, s.heldRun = off, started
+	s.mu.Unlock()
+	if off {
+		logf("wifi: no automatic scans on %s during wireless %s", s.iface, projectionName(h.session))
+	} else {
+		logf("wifi: automatic scans on %s again", s.iface)
+	}
+	return off
+}
 
 func (s *supplicant) forget(ssid string) error {
 	id, ok := s.saved()[ssid]

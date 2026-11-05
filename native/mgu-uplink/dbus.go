@@ -278,6 +278,13 @@ func (e *dbusEnc) value(sig string, v any) error {
 		}
 		e.pad(2)
 		e.b = binary.LittleEndian.AppendUint16(e.b, uint16(x))
+	case "q":
+		x, ok := v.(uint16)
+		if !ok {
+			return bad
+		}
+		e.pad(2)
+		e.b = binary.LittleEndian.AppendUint16(e.b, x)
 	case "b":
 		x, ok := v.(bool)
 		if !ok {
