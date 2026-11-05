@@ -1911,6 +1911,29 @@ class AppManagementController{constructor(){this.queuedRecursiveRetry=makeMethod
     stopHooked(st.root);
 }
 
+/* An update of an app the running manager has not listed (the listing and
+ * the fallback gone, as after a failed install's rollback) while the
+ * manager runs older code: the app is listed before the restart, so the
+ * restarted manager provisions it and updates it in place. */
+function testStaleUnlisted() {
+    const b = inplaceRoot(undefined, { minUp: 1 });
+    const copy = b.root.p('var/opt/mgu-deploy/main.js');
+    fs.writeFileSync(copy, `/* an earlier build */\n${fs.readFileSync(copy, 'utf8').replace('state:"ready"', 'state:"ready",earlier:1')}`);
+    fs.utimesSync(copy, Date.now() / 1000 - 3600, Date.now() / 1000 - 3600);
+    const list = b.root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`);
+    write(list, '{}\n', 0o660);
+    const k0 = b.root.kills().length;
+    const r = b.root.run(['install', '--artifact', appArtifact('fixture_app', '1.1.0', true), '--yes'],
+        { FAKE_MGR_HOOK: '1', FAKE_INPLACE_PROVISIONED: '1' });
+    const log = b.root.managerLog();
+    check('stale unlisted: listed before the restart, the restarted manager updates it in place, one bounce',
+        r.status === 0 && b.root.kills().length === k0 + 1 && r.out.includes('restarting it before the update') &&
+        r.out.includes('updated in place') && !r.out.includes('has been disabled') && !r.out.includes('re-seeded') &&
+        log.includes('update fixture_app 1.1.0 uid 13001 in place'), `${r.out}\n${log.join('\n')}`);
+    check('stale unlisted: listed enabled and allowed', ((readJsonOrNull(list) || {}).fixture_app || {})['-enabled'] === 'true');
+    stopHooked(b.root);
+}
+
 /* MainApp's update unregisters the app and removes its folders before it
  * generates the app's SOME/IP interfaces; a manifest it rejects there fails
  * the update (UPDATE_FAILED) with the app neither registered nor startable.
@@ -7719,6 +7742,7 @@ const SUITES = [
     testUnknownInterfaces,
     testInterrupted,
     testInplaceKeepCopy,
+    testStaleUnlisted,
     testInplaceHook,
     testInplaceUninstall,
     testRejectedUpdate,
