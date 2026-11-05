@@ -7,7 +7,16 @@
 // on stderr. "<command>@<version>" listed in $FAKE_HOOK_SLOW sleeps 5 s
 // first; listed in $FAKE_HOOK_FAIL, it exits 3. Its last stdout line is
 // {"status", "reboot", "removeWhenUnused"}, "reboot" being $FAKE_HOOK_REBOOT
-// and a deactivate's "removeWhenUnused" the JSON in $FAKE_HOOK_UNUSED when set.
+// (for the "<command>@<version>" $FAKE_HOOK_REBOOT_ON lists, when set) and a
+// deactivate's "removeWhenUnused" the JSON in $FAKE_HOOK_UNUSED when set.
+// Files on the root, each a JSON list of [<command>, <path>, ...] for the
+// command that runs: $FAKE_HOOK_REPLACE [<command>, <path>] writes <path>
+// again as carplay's patcher does (a temp file written with mode 0755,
+// renamed over it); $FAKE_HOOK_CHMOD [<command>, <path>, <octal mode>,
+// <uid>, <gid>] sets that mode (and owner, when given); $FAKE_HOOK_CREATE
+// [<command>, <path>] writes a new file with mode 0600. $FAKE_HOOK_UMASK
+// names a file the hook appends "<command> <its umask>" to, and
+// $FAKE_HOOK_MARK one it writes.
 const fs = require('fs');
 const path = require('path');
 
@@ -32,6 +41,24 @@ fs.appendFileSync(env.FAKE_HOOK_LOG, which + ' ' + version + ' cwd=' + path.rela
 if (listed(env.FAKE_HOOK_SLOW)) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000);
 }
+const ours = (v) => JSON.parse(v || '[]').filter((e) => e[0] === which);
+if (env.FAKE_HOOK_UMASK) {
+    fs.appendFileSync(env.FAKE_HOOK_UMASK, `${which} ${('000' + process.umask().toString(8)).slice(-4)}\n`);
+}
+ours(env.FAKE_HOOK_REPLACE).forEach(([, p]) => {
+    fs.writeFileSync(`${p}.woc-tmp`, fs.readFileSync(p), { mode: 0o755 });
+    fs.renameSync(`${p}.woc-tmp`, p);
+});
+ours(env.FAKE_HOOK_CHMOD).forEach(([, p, m, uid, gid]) => {
+    if (uid !== undefined) {
+        fs.chownSync(p, uid, gid);
+    }
+    fs.chmodSync(p, parseInt(m, 8));
+});
+ours(env.FAKE_HOOK_CREATE).forEach(([, p]) => fs.writeFileSync(p, 'backup\n', { mode: 0o600 }));
+if (env.FAKE_HOOK_MARK) {
+    fs.writeFileSync(env.FAKE_HOOK_MARK, me);
+}
 console.log('hook ' + me + ' says hello');
 console.error('hook ' + me + ' on stderr');
 if (listed(env.FAKE_HOOK_FAIL)) {
@@ -39,7 +66,7 @@ if (listed(env.FAKE_HOOK_FAIL)) {
     process.exit(3);
 }
 const result = { status: me + ' done' };
-if (env.FAKE_HOOK_REBOOT) {
+if (env.FAKE_HOOK_REBOOT && (!env.FAKE_HOOK_REBOOT_ON || listed(env.FAKE_HOOK_REBOOT_ON))) {
     result.reboot = env.FAKE_HOOK_REBOOT;
 }
 if (env.FAKE_HOOK_UNUSED && which === 'deactivate') {

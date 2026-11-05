@@ -987,6 +987,22 @@ them (below).
   unit, link or drop-in another installed tool lists is never stopped or
   taken out.
 
+**Stock files stay usable.** The deploy tool runs with umask 022, whatever
+its caller's, and so does everything it runs; a file that must be root's
+alone is written with its mode. After each `activate`, `deactivate` and
+`postInstall`, it checks the stock files whose service runs as its own user
+and fails, restarting the head unit at every start, when that user cannot
+use them: `/usr/bin/carplay` and `/usr/bin/aapd` must be readable and
+runnable by group and others, `/etc/aapd.conf` readable. One that lacks such
+a bit gets it added to its mode (the rest of the mode stays), and one not
+owned by root:root gets root:root, in a rootfs window, with a warning
+(`warning: <id> activate: /usr/bin/carplay is 0700 0:0, which its service's
+user cannot run: it becomes 0755 0:0`). Only a regular file on `/`'s file
+system is touched: none through a symlink, in its path or itself, and none
+a mount covers. When the window fails (`/` not read-only after it), the hook
+fails as a non-zero exit does, after its result (restart reason, files
+removed once unused) is recorded; the install fails after a `postInstall`.
+
 **Files removed once unused.** A hook that replaced a binary a process still
 runs keeps the old file linked (an unlinked file a process holds keeps `/`
 from going read-only) and hands it over with `"removeWhenUnused": [<absolute

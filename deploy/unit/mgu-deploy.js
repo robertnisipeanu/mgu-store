@@ -45,9 +45,16 @@ var path = require('path');
 var crypto = require('crypto');
 var cp = require('child_process');
 
+/* What this tool, and every hook, script and command it runs, creates
+ * keeps group and others' read and execute bits, whatever umask the caller
+ * had: a hook writing a stock binary run by another user leaves it
+ * runnable by that user. Files that are root's alone are written with
+ * their mode. */
+process.umask(0o022);
+
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.8.0';
+var VERSION = '0.8.1';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -67,6 +74,8 @@ var CFG = {
     vminput: env('MGU_DEPLOY_VMINPUT', '/usr/bin/vminput'),
     oap: env('MGU_DEPLOY_OAP', '/var/opt/public/oap'),
     etc: env('MGU_DEPLOY_ETC', '/etc'),
+    // the root file system whose stock files a hook must leave usable (fixStock)
+    rootfs: env('MGU_DEPLOY_ROOTFS', '/'),
     proc: env('MGU_DEPLOY_PROC', '/proc'),
     procStat: env('MGU_DEPLOY_PROC_STAT', '/proc/stat'),
     procMounts: env('MGU_DEPLOY_PROC_MOUNTS', '/proc/mounts'),
@@ -1483,6 +1492,7 @@ function rootfsWindowRun(ops) {
                 syncDisks(); fs.renameSync(tmp, op.path); syncDisks();
             }
             else if (op.type === 'tree') { rmrf(op.path); copyTree(op.src, op.path); }
+            else if (op.type === 'mode') { if (op.uid !== undefined) fs.chownSync(op.path, op.uid, op.gid); fs.chmodSync(op.path, op.mode); }
         });
         syncDisks();
         return;
@@ -1501,6 +1511,8 @@ function rootfsWindowRun(ops) {
         else if (op.type === 'rmdir') lines.push('rmdir ' + p);
         else if (op.type === 'tree') lines.push('mkdir -p ' + d + '; rm -rf ' + p + '; cp -a ' + shQuote(op.src) + ' ' + p);
         else if (op.type === 'symlink') lines.push('mkdir -p ' + d + '; rm -rf ' + p + '; ln -s ' + shQuote(op.target) + ' ' + p);
+        /* chown first: it clears setuid, which the chmod sets again */
+        else if (op.type === 'mode') lines.push((op.uid !== undefined ? 'chown ' + op.uid + ':' + op.gid + ' ' + p + '; ' : '') + 'chmod ' + op.mode.toString(8) + ' ' + p);
         else if (op.type === 'copy') {
             lines.push('mkdir -p ' + d + '; cat ' + shQuote(op.src) + ' > ' + p + '.tmp-' + process.pid);
             if (op.mode !== undefined) lines.push('chmod ' + (op.mode & 0o7777).toString(8) + ' ' + p + '.tmp-' + process.pid);
@@ -2273,6 +2285,63 @@ function privacyReverted() {
     say('app-privacy: removed; MainApp-21 runs without it from the next start of the head unit');
 }
 
+/* ---- stock files a tool's own code must leave usable ------------------------- */
+/* A tool's hooks and postInstall run as root and may write a stock file on /
+ * (a patch of carplay). STOCK_NEEDS lists the stock files whose service, run
+ * as its own user, fails when that user cannot read or run them, and recmgr
+ * then restarts the head unit at every start (a carplay left 0700 root fails
+ * carplay.service with 203/EXEC), with the bits for group and others the
+ * user needs: read and execute for a program, read for a config. After each
+ * hook and postInstall, fixStock adds those bits back to such a file that
+ * lacks one, and sets root:root on one owned otherwise, in a rootfs window,
+ * with a warning; the rest of its mode stays. Only a regular file on /'s
+ * file system is touched: none through a symlink (the file or a folder above
+ * it), none another mount covers. */
+var STOCK_NEEDS = [
+    { path: 'usr/bin/carplay', bits: 0o055 },
+    { path: 'usr/bin/aapd', bits: 0o055 },
+    { path: 'etc/aapd.conf', bits: 0o044 }
+];
+/* The mount points in the mounts table. */
+function mountPoints() {
+    try {
+        return fs.readFileSync(CFG.procMounts, 'utf8').split('\n').map(function (l) {
+            return (l.split(' ')[1] || '').replace(/\\040/g, ' ');
+        }).filter(Boolean);
+    } catch (e) { return []; }
+}
+/* The stock file at rel under the root when fixStock may touch it: its lstat, else null. */
+function stockFileStat(rel, top, mounts) {
+    var p = CFG.rootfs, parts = rel.split('/'), st = null, i;
+    for (i = 0; i < parts.length; i++) {
+        p = path.join(p, parts[i]);
+        st = lstatOrNull(p);
+        if (!st || st.isSymbolicLink() || st.dev !== top.dev ||
+            mounts.indexOf(p) >= 0 || mounts.indexOf(path.join('/', path.relative(CFG.rootfs, p))) >= 0) return null;
+    }
+    return st.isFile() ? st : null;
+}
+/* Gives each file of STOCK_NEEDS the bits its user needs back, and root:root
+ * (prefix starts each line). Throws when the rootfs window does, as when / is
+ * not read-only after it. */
+function fixStock(prefix) {
+    var top = lstatOrNull(CFG.rootfs), mounts = mountPoints(), ops = [];
+    if (!top) return;
+    STOCK_NEEDS.forEach(function (n) {
+        var st = stockFileStat(n.path, top, mounts);
+        if (!st) return;
+        var mode = st.mode & 0o7777, want = mode | n.bits, own = st.uid !== 0 || st.gid !== 0;
+        if (want === mode && !own) return;
+        var p = path.join(CFG.rootfs, n.path), op = { type: 'mode', path: p, mode: want };
+        if (own) { op.uid = 0; op.gid = 0; }
+        warn(prefix + p + ' is ' + modeOwner(mode, st.uid, st.gid) + (want !== mode ? ', which its service\'s user cannot ' +
+            (n.bits & 0o011 ? 'run' : 'read') : ', not root\'s') + ': it becomes ' + modeOwner(want, 0, 0));
+        ops.push(op);
+    });
+    if (ops.length) rootfsWindow(ops);
+}
+function modeOwner(mode, uid, gid) { return ('000' + (mode & 0o7777).toString(8)).slice(-4) + ' ' + uid + ':' + gid; }
+
 /* ---- activate and deactivate ------------------------------------------------- */
 /* A tool's "activate" (run once a version is in place) and "deactivate" (run
  * before it is removed), deploy/README.md "Activate and deactivate". The
@@ -2293,6 +2362,8 @@ function runHook(id, dir, c, which, state) {
     var r = cp.spawnSync(argv[0] === 'node' ? CFG.node : path.join(dir, argv[0]), argv.slice(1), {
         cwd: dir, encoding: 'utf8', timeout: CFG.hookTimeoutMs, killSignal: 'SIGKILL', maxBuffer: 16 << 20
     });
+    var stuck = null;
+    try { fixStock(prefix); } catch (e) { stuck = 'left a stock file its service cannot use, and fixing it failed: ' + e.message; }
     var out = lines(r.stdout), err = lines(r.stderr), result = null;
     if (!r.error && r.status === 0 && out.length) {
         try { result = JSON.parse(out[out.length - 1]); } catch (e) { result = null; }
@@ -2304,7 +2375,7 @@ function runHook(id, dir, c, which, state) {
         var last = (err.length ? err : out).slice(-1)[0];
         var why = r.error && r.error.code === 'ETIMEDOUT' ? 'timed out after ' + Math.round(CFG.hookTimeoutMs / 1000) + ' s'
             : r.error ? 'could not run: ' + r.error.message : r.status === null ? 'was killed (' + r.signal + ')' : 'exited ' + r.status;
-        return { ok: false, why: why + (last ? ': ' + last.trim() : '') };
+        return { ok: false, why: why + (last ? ': ' + last.trim() : '') + (stuck ? '; it ' + stuck : '') };
     }
     if (result && typeof result.status === 'string' && result.status.trim()) say(prefix + oneLine(result.status).trim());
     var reboot = result && typeof result.reboot === 'string' && result.reboot.trim() ? oneLine(result.reboot).trim() : null;
@@ -2312,6 +2383,16 @@ function runHook(id, dir, c, which, state) {
     if (reboot) say(prefix + 'a head-unit restart is pending: ' + reboot);
     noteHook(state, id, c.version, which);
     if (result && result.removeWhenUnused !== undefined) handOver(id, result.removeWhenUnused, state);
+    /* it ran, recorded above; a restart it asked for stays pending, on disk
+     * at once like the records, when the stock files fail it */
+    if (stuck) {
+        if (reboot) {
+            addPending(state, id, reboot);
+            try { var disk = loadState(); addPending(disk, id, reboot); saveState(disk); }
+            catch (e) { warn(prefix + 'its restart is not on disk yet: ' + e.message); }
+        }
+        return { ok: false, why: stuck, reboot: reboot };
+    }
     return { ok: true, reboot: reboot };
 }
 /* Per tool, in state.json: the kept versions whose last hook to run was
@@ -2744,7 +2825,8 @@ function keptToolArtifact(t) {
 /* A tool's postInstall: its script (one of its files) with the arguments
  * after it, run by sh as root from current/ once the install is in place,
  * at every install, for at most postInstallMs. Its output is shown; the
- * install stands whatever it does. */
+ * install stands whatever it does, but for a stock file it leaves unusable
+ * that fixStock cannot fix. */
 function postInstall(c, root) {
     var cur = path.join(root, 'current');
     say(c.id + ': ' + c.postInstall.join(' '));
@@ -2755,6 +2837,8 @@ function postInstall(c, root) {
     if (r.error || r.status !== 0) {
         warn(c.id + ': ' + c.postInstall[0] + (r.error ? ': ' + r.error.message : ' exited ' + (r.status === null ? r.signal : r.status)));
     }
+    try { fixStock(c.id + ' postInstall: '); }
+    catch (e) { throw fail(c.id + ' ' + c.version + ': postInstall left a stock file its service cannot use, and fixing it failed: ' + e.message); }
 }
 
 /* ---- a tool's check, and the check at the next start ------------------------- */
