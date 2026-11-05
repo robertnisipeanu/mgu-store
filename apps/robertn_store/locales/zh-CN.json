@@ -180,6 +180,9 @@
     "{0} networks": "{0} 个网络",
     "Space": "空格",
     "Delete": "删除",
-    "Shift": "Shift"
+    "Shift": "Shift",
+    "Proxy": "代理",
+    "Address": "地址",
+    "Use http://host:port or socks5://host:port": "请使用 http://host:port 或 socks5://host:port"
   }
 }

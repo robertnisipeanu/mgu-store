@@ -1132,7 +1132,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.22', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.23', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1451,6 +1451,47 @@ function runDrawn() {
         drawn.pop();
         app._states[host(2)].emit('visible', { visible: false });
         app._states[host(1)].emit('focus', { focus: true });
+    }).then(() => {
+        // the proxy: its address typed (iDrive 7: the speller; iDrive 8: the keyboard page), checked here, sent to the updater
+        const proxied = (p) => app._client.emit('state', Object.assign({}, st, { proxy: Object.assign({ on: false, kind: null, address: null,
+            auth: false, error: null }, p) }));
+        const typeIn = (text) => {
+            if (HMI === 'ID7') {
+                spellerAnswers.push(text);
+                return tick();
+            }
+            return tick().then(() => {
+                drawn.top().text = text;
+                app._act({ do: 'key', key: 'OK' });
+                return tick();
+            });
+        };
+        proxied({});
+        reset();
+        logged.length = 0;
+        app._act({ do: 'proxy-toggle' });
+        return typeIn('socks4://192.168.8.1:1080').then(() => {
+            eq([sent, app._drawnModel().proxyNote], [[], 'Use http://host:port or socks5://host:port'], 'proxy: not an address, nothing sent');
+            app._act({ do: 'proxy-edit' });
+            return typeIn(' socks5://me:s3cret@192.168.8.1:7891 ');
+        }).then(() => {
+            eq([sent.map(secretless), !!(sent[0] || {}).secret, app._drawnModel().proxyNote],
+                [[{ op: 'proxy-set', url: 'socks5://me:s3cret@192.168.8.1:7891' }], true, null], 'proxy: set, with the updater secret');
+            eq(logged.filter((l) => l.indexOf('s3cret') >= 0), [], 'no proxy password in the log');
+            app._client.emit('reply-error', 'cannot save the proxy: EROFS', 'proxy-set');
+            eq(app._drawnModel().proxyNote, 'cannot save the proxy: EROFS', 'the updater\'s refusal shows on the page');
+            proxied({ on: true, kind: 'socks5', address: '192.168.8.1:7891' });
+            reset();
+            app._act({ do: 'proxy-toggle' });
+            eq(sent.map(secretless), [{ op: 'proxy-set', url: '' }], 'proxy: on, the switch turns it off');
+            if (HMI !== 'ID7') {
+                // the keyboard opens on the address there is, unless it has a password, which is not shown
+                app._act({ do: 'proxy-edit' });
+                eq([drawn.top().name, drawn.top().text, drawn.top().layout, drawn.top().symbols], ['type', 'socks5://192.168.8.1:7891', 'text', true],
+                    'the keyboard with every symbol, for a user name and password');
+                app._back();
+            }
+        });
     }).then(() => {
         if (HMI === 'ID7') {
             return null;

@@ -40,6 +40,7 @@ function state() {
         signinApp: { installUrl: 'https://github.com/apps/mgu-store/installations/new' },
         login: null,
         web: { enabled: false, urls: [], error: null },
+        proxy: { on: false, kind: null, address: null, auth: false, error: null },
         uplink: { device: { kind: 'wifi', name: 'Mario iPhone' }, state: 'online', error: null, preferred: 'wifi',
             wifi: { enabled: true, link: 'online', ssid: 'Mario iPhone', ip: '172.20.10.3', signal: -52, scanning: false, error: null,
                 networks: [{ ssid: 'Mario iPhone', signal: -52, secure: true, saved: true, current: true },
@@ -141,6 +142,16 @@ function screens() {
         ['confirm-wifi-forget', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'confirm', kind: 'wifi-forget', ssid: 'Home' }]),
             focus: 0 }],
         ['prefer', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'prefer' }]) }],
+        // the proxy: off, on, failing; its address typed
+        ['proxy', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }],
+        ['proxy-on', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
+        ['proxy-error', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) },
+            proxySt({ on: true, kind: 'http', address: '192.168.8.1:7890', error: 'proxy 192.168.8.1:7890: connection refused (5 tries)' })],
+        ['settings-proxy-on', { tab: 'settings', stack: main, scroll: { 'settings.access': 10000 } }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
+        // the access card scrolled to its end: Proxy and Phone access
+        ['settings-access-end', { tab: 'settings', stack: main, scroll: { 'settings.access': 10000 } }],
+        ['type-proxy', { tab: 'settings', stack: main.concat([{ name: 'proxy' }, { name: 'type', title: 'Proxy', label: 'Address',
+            text: 'socks5://192.168.8.1:7891', layout: 'text', symbols: true, max: 300 }]) }],
         ['offline', { tab: 'store', stack: main, connected: false, st: null, secret: false }],
         // an error of about 200 characters: on a component's page, a source's page
         ['app-failed', { stack: main.concat([{ name: 'app', id: 'vehicle_control' }]) }, failedSt(st, 'vehicle_control', { error: LONG_ERROR })],
@@ -162,6 +173,11 @@ function failedSt(st, id, o) {
 function sourceFailed(st) {
     return { catalog: Object.assign({}, st.catalog, { error: `IterioDev/car-apps: ${LONG_ERROR}` }),
         sources: st.sources.map((s) => (s.id === 'car-apps' ? Object.assign({}, s, { status: 'error', error: LONG_ERROR }) : s)) };
+}
+
+/* State overrides: the proxy setting p. */
+function proxySt(p) {
+    return { proxy: Object.assign({ on: false, kind: null, address: null, auth: false, error: null }, p) };
 }
 
 /* State overrides: the uplink's Wi-Fi with w over it. */

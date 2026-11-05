@@ -102,7 +102,7 @@ The side menu has four pages:
   update available, restart pending, …).
 - **Installed**: what is installed, with **Update** and **Update all**.
 - **USB**: what a plugged-in USB stick offers.
-- **Settings**: sources, Wi-Fi, accounts, phone access, **Check now** and
+- **Settings**: sources, Wi-Fi, accounts, proxy, phone access, **Check now** and
   **Restart head unit**.
 
 Open an app or tool to install, update or remove it. Updates never install
@@ -177,6 +177,16 @@ through:
   with a Broadcom radio, WPA3-only networks can't be joined.
 
 The Store shows `Online` once connected.
+
+### Proxy
+
+Where GitHub is slow or blocked, the updater can download through a proxy
+on the same network, such as Clash on a computer or a router: Settings →
+**Proxy**, turn it on and type its address, `http://192.168.8.1:7890` or
+`socks5://192.168.8.1:7891`. A proxy that wants a password takes it as
+`socks5://user:password@192.168.8.1:7891`. Everything the updater
+downloads goes through it, and builds on the unit too. Turn it off to
+download directly again. The phone page has the same setting.
 
 ## Offline: USB stick
 

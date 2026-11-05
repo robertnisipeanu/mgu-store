@@ -178,6 +178,9 @@
     "Delete": "Effacer",
     "Shift": "Maj",
     "Remove all": "Tout supprimer",
-    "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}"
+    "Tools only it uses: {0}": "Outils utilisés par elle seule : {0}",
+    "Proxy": "Proxy",
+    "Address": "Adresse",
+    "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port"
   }
 }

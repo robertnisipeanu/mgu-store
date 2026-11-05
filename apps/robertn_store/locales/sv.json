@@ -178,6 +178,9 @@
     "Delete": "Radera",
     "Shift": "Skift",
     "Remove all": "Ta bort alla",
-    "Tools only it uses: {0}": "Verktyg som bara den använder: {0}"
+    "Tools only it uses: {0}": "Verktyg som bara den använder: {0}",
+    "Proxy": "Proxy",
+    "Address": "Adress",
+    "Use http://host:port or socks5://host:port": "Använd http://host:port eller socks5://host:port"
   }
 }

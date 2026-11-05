@@ -178,6 +178,9 @@
     "Delete": "Διαγραφή",
     "Shift": "Shift",
     "Remove all": "Κατάργηση όλων",
-    "Tools only it uses: {0}": "Εργαλεία που χρησιμοποιεί μόνο αυτή: {0}"
+    "Tools only it uses: {0}": "Εργαλεία που χρησιμοποιεί μόνο αυτή: {0}",
+    "Proxy": "Proxy",
+    "Address": "Διεύθυνση",
+    "Use http://host:port or socks5://host:port": "Χρησιμοποιήστε http://host:port ή socks5://host:port"
   }
 }

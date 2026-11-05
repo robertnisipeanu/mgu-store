@@ -178,6 +178,9 @@
     "Delete": "Sil",
     "Shift": "Shift",
     "Remove all": "Tümünü kaldır",
-    "Tools only it uses: {0}": "Yalnızca onun kullandığı araçlar: {0}"
+    "Tools only it uses: {0}": "Yalnızca onun kullandığı araçlar: {0}",
+    "Proxy": "Proxy",
+    "Address": "Adres",
+    "Use http://host:port or socks5://host:port": "http://host:port veya socks5://host:port kullanın"
   }
 }

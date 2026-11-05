@@ -178,6 +178,9 @@
     "Delete": "Vymazať",
     "Shift": "Shift",
     "Remove all": "Odstrániť všetko",
-    "Tools only it uses: {0}": "Nástroje, ktoré používa len ona: {0}"
+    "Tools only it uses: {0}": "Nástroje, ktoré používa len ona: {0}",
+    "Proxy": "Proxy",
+    "Address": "Adresa",
+    "Use http://host:port or socks5://host:port": "Použite http://host:port alebo socks5://host:port"
   }
 }

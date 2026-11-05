@@ -178,6 +178,9 @@
     "Delete": "Izbriši",
     "Shift": "Shift",
     "Remove all": "Odstrani vse",
-    "Tools only it uses: {0}": "Orodja, ki jih uporablja samo ta: {0}"
+    "Tools only it uses: {0}": "Orodja, ki jih uporablja samo ta: {0}",
+    "Proxy": "Proxy",
+    "Address": "Naslov",
+    "Use http://host:port or socks5://host:port": "Uporabite http://host:port ali socks5://host:port"
   }
 }

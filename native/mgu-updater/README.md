@@ -248,8 +248,9 @@ together: `http_proxy`,
 `https_proxy` (and upper case) name it with a random password, and it
 serves only connections of the build uid (`/proc/net/tcp`) that carry it;
 CONNECT to port 443 and http GET/HEAD to port 80, to host names with a
-public IPv4 address; at most `build_max_bytes` in all; each host it is
-asked for is logged (`build <id>: internet: CONNECT host:443`). Without the
+public IPv4 address (with a proxy set, also names the car's DNS cannot
+look up, which the proxy then looks up); at most `build_max_bytes` in all;
+each host it is asked for is logged (`build <id>: internet: CONNECT host:443`). Without the
 uplink's lease, such a build fails: *needs internet to build*. It is
 stopped past `build_timeout_s` (600) or once its folder holds more than
 `build_max_bytes` (200 MB); every process of the build uid is killed
@@ -569,6 +570,36 @@ fetcher can change nothing it installs.
   whole file. A POST, a refused certificate, an unknown host name and other
   HTTP answers are not tried again.
 
+### Through a proxy
+
+Downloads can go through a proxy, for networks where GitHub is slow or
+blocked. Set it in the Store (Settings → Proxy), on the phone page, or in
+`/var/opt/mgu-updater/updater.local.conf` (then restart the updater or the
+head unit):
+
+```
+proxy = socks5://192.168.8.1:7891
+```
+
+- `http://host:port` (a proxy that takes `CONNECT`) or `socks5://host:port`;
+  with a user name and password as `socks5://user:password@host:port`
+  (characters such as `@`, `:` or `#` in them written as `%40`, `%3A`,
+  `%23`).
+- Everything goes through it: GitHub, catalogs, packages, pictures, every
+  redirect, and the downloads of a build on the unit.
+- TLS runs through the proxy to the server itself, with the same
+  certificate checks. The proxy gets its own user name and password only,
+  never a token.
+- The proxy looks up the names of what is downloaded itself, so a name
+  server that answers wrongly on the car's network does not matter. A
+  build's names are first looked up on the car, and a name whose address
+  there is not public is refused.
+- When the proxy is down or refuses, the error says so, e.g. `proxy
+  192.168.8.1:7890: connection refused`.
+- The log and the Store show only the proxy's host and port. The file is
+  root's alone.
+- An empty `proxy` (or off in the Store) downloads directly again.
+
 ## Its own uids
 
 Builds, downloads and the phone page each run as a uid of the updater's
@@ -747,7 +778,7 @@ on and off (privileged `web` op) and shows its QR code.
   (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
   `source-add` (`github` or `https` only), `source-probe` (its answer goes
   back to the page as it is), `source-remove`, `token-add`,
-  `token-remove`, `login-start` and `login-cancel`, each with only its own
+  `token-remove`, `login-start`, `login-cancel` and `proxy-set`, each with only its own
   fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
   is the daemon's own regular file; the journals of `mgu-updater`,
@@ -778,7 +809,7 @@ what it started, and fails), `deploy_tool`, `uplink_tool`, `bootstrap_check_s`, 
 `state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `store_app`,
 `reboot`, `log_file`, `socket`, `socket_group`, `web_uid`, `web_gid`,
 `web_port`, `web_iface`, `web_secret`, `uplink_status`, `uplink_ctl`,
-`uplink_poll_s` ("The uplink"). Relative paths are relative to
+`uplink_poll_s` ("The uplink"), `proxy` ("Through a proxy"). Relative paths are relative to
 `updater.conf`.
 
 **Log.** Every line the daemon logs goes to the journal and, with its UTC
@@ -817,6 +848,7 @@ each request, and whenever it changes (at most every 250 ms):
   "login": { "url": "https://github.com/login/device", "code": "ABCD-1234",
     "expiresAt": 1792620900000, "status": "pending", "error": null },
   "web": { "enabled": false, "urls": [], "error": null },
+  "proxy": { "on": true, "kind": "socks5", "address": "192.168.8.1:7891", "auth": false, "error": null },
   "uplink": { "device": { "kind": "wifi", "name": "Phone" }, "state": "online", "error": null, "preferred": "wifi",
     "wifi": { "enabled": true, "link": "online", "ssid": "Phone", "ip": "172.20.10.2", "signal": -45, "networks": [ … ],
       "saved": [ "Phone" ], "scanning": false, "error": null } },
@@ -905,6 +937,10 @@ each request, and whenever it changes (at most every 250 ms):
 - `login`: the GitHub sign-in in progress (`pending`, `done`, `error`,
   `expired`), or null.
 - `web`: the phone page's state (`js/web.js`), present when the updater has it.
+- `proxy`: the proxy setting ("Through a proxy"): `on`, `kind` (`http` or
+  `socks5`), `address` (host:port), `auth` (it has a user name or
+  password, never shown), and `error`: what is wrong with the setting, else
+  the last download's failure at the proxy until one gets through.
 - `uplink`: the uplink's `status.json` ("The uplink"): its `device`,
   `state`, `error`, `preferred` (`""`: none) and `wifi` (null without it:
   an uplink before 0.7.0, or not on `uplink = auto`); null while the
@@ -935,6 +971,7 @@ Store says it at each connection (below, "The Store's update").
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
 | `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |
+| `{"op":"proxy-set","url"}` | the proxy downloads go through (`""`: none), checked and kept in `updater.local.conf`; the sources are read again |
 | `{"op":"web","enable":true\|false}` | the phone page on or off, kept across restarts (`state/web.json`) |
 | `{"op":"logs","unit","lines"}` | `{"type":"logs","unit","text"}`: a journal for the phone page |
 | `{"op":"uplink-prefer","kind"}` | the uplink's preferred connection: `wifi`, `usb`, `phone` (`""` for none), relayed as its `prefer` ("The uplink") |

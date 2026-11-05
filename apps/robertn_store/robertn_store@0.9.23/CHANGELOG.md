@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.23
+
+Settings has **Proxy** (Off, or the proxy's address) beside Wi-Fi and
+Accounts: its page turns the proxy downloads go through on or off and
+sets its address (`http://host:port` or `socks5://host:port`, with a user
+name and password if it takes them), checked before it is saved. Shown
+with mgu-updater 0.8.27 or newer.
+
 ## 0.9.22
 
 **Update all** asks for the Store's own update last, so the Store stays

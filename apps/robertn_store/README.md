@@ -1,4 +1,4 @@
-# robertn_store 0.9.22
+# robertn_store 0.9.23
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -7,7 +7,7 @@ It is the screen of [mgu-updater](../../native/mgu-updater/README.md),
 which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
 privileged ones (uninstall, source-add, source-probe, source-remove, token-add, token-remove,
-login-start, login-cancel, web, and uplink-prefer, wifi-enable, wifi-scan, wifi-connect,
+login-start, login-cancel, web, proxy-set, and uplink-prefer, wifi-enable, wifi-scan, wifi-connect,
 wifi-forget, which the updater relays to [mgu-uplink](../../native/mgu-uplink/README.md)),
 which carry the secret the updater leaves in the app's data folder
 (`data/updater-secret`, read again for every request). It is for iDrive 7
@@ -60,8 +60,11 @@ USB, Settings) beside:
   components, error, Remove with a confirm step, and while a sign-in does
   not reach a private one the GitHub App's install page as a QR code and
   its address), Add source, Wi-Fi (below), Accounts (each one's Remove with a confirm
-  step; Sign in with GitHub while `state.signin` is true; Add token), Phone
-  access, the head unit and versions, Check now, Restart head unit.
+  step; Sign in with GitHub while `state.signin` is true; Add token), Proxy
+  (Off or its address, with an updater that reports `state.proxy`: its page
+  turns it on or off and sets its address, `http://` or `socks5://`, checked
+  before it is sent), Phone access, the head unit and versions, Check now,
+  Restart head unit.
 
 Confirm steps are a sheet over the page, Cancel first. Every page is a host
 state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
@@ -396,15 +399,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.22/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.23/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.22.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.22.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.23.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.23.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

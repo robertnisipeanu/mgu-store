@@ -178,6 +178,9 @@
     "Delete": "삭제",
     "Shift": "Shift",
     "Remove all": "모두 제거",
-    "Tools only it uses: {0}": "이 앱만 사용하는 도구: {0}"
+    "Tools only it uses: {0}": "이 앱만 사용하는 도구: {0}",
+    "Proxy": "프록시",
+    "Address": "주소",
+    "Use http://host:port or socks5://host:port": "http://host:port 또는 socks5://host:port 사용"
   }
 }

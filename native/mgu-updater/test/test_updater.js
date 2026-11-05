@@ -42,7 +42,10 @@
  *    service tool and a preload tool with the capability it needs.
  *    MGU_TEST_PROXY_OPEN lets that proxy reach the tests' local servers.
  *  - the build proxy across a network switch: the lease read for each
- *    connection, none, and a name server or an upstream that stays silent.
+ *    connection, none, and a name server or an upstream that stays silent;
+ *  - the proxy setting: set and cleared through proxy-set, kept in
+ *    updater.local.conf, a source read through it (test_proxy.js covers
+ *    fetch.js and the build proxy through each kind of proxy).
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -5489,6 +5492,115 @@ function testRequests(certs) {
         });
 }
 
+/* The proxy setting (README.md, "Through a proxy"): proxy-set needs the secret,
+ * refuses what is not a proxy address, keeps it in updater.local.conf
+ * (root's alone, other keys kept), shows only its host:port; a source is
+ * read through it, the token inside the tunnel only; a refusal at the proxy
+ * shows as the source's error and the proxy's; '' turns it off. */
+function testProxySetting(certs) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'proxyset');
+    [M, path.join(M, 'state')].forEach(mkdirp);
+    // the lease's name server knows nothing: through the proxy only it looks names up
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: ['127.0.0.1:9'] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    const local = path.join(M, 'updater.local.conf');
+    fs.writeFileSync(local, '# mine\ncheck_interval_s = 999\nproxy = http://old:1\n');
+    ghRepo('px/cat', { private: true, tokens: ['tok-px'] });
+    gh.users['tok-px'] = 'tester';
+    gh.repos['px/cat'].catalog = Buffer.from(JSON.stringify({ schema: 1, components: [] }));
+    fs.writeFileSync(path.join(M, 'sources.json'), JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: 'px/cat', builtin: true }] }));
+    const conf = { state_dir: path.join(M, 'state'), sources: path.join(M, 'sources.json'), credentials_dir: path.join(M, 'cred'),
+        lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'), github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD,
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), local_conf: local };
+    // a SOCKS5 proxy (user u, password pw) to 127.0.0.1, which sees every byte it is sent
+    const log = [];
+    const socks = net.createServer((c) => {
+        const e = { bytes: '' };
+        log.push(e);
+        c.on('error', () => {});
+        let buf = Buffer.alloc(0);
+        let stage = 0;
+        const onData = (d) => {
+            e.bytes += d.toString('latin1');
+            buf = Buffer.concat([buf, d]);
+            if (stage === 0 && buf.length >= 2 + buf[1]) {
+                buf = buf.slice(2 + buf[1]);
+                c.write(Buffer.from([5, 2]));
+                stage = 1;
+            }
+            if (stage === 1 && buf.length >= 3 && buf.length >= 3 + buf[1] + buf[2 + buf[1]]) {
+                e.user = buf.slice(2, 2 + buf[1]).toString();
+                e.pass = buf.slice(3 + buf[1], 3 + buf[1] + buf[2 + buf[1]]).toString();
+                buf = buf.slice(3 + buf[1] + buf[2 + buf[1]]);
+                if (e.pass !== 'pw') {
+                    c.end(Buffer.from([1, 1]));
+                    return;
+                }
+                c.write(Buffer.from([1, 0]));
+                stage = 2;
+            }
+            if (stage === 2 && buf.length >= 5 && buf.length >= 7 + buf[4]) {
+                e.host = buf.slice(5, 5 + buf[4]).toString();
+                const port = buf.readUInt16BE(5 + buf[4]);
+                c.removeListener('data', onData);
+                c.on('data', (x) => { e.bytes += x.toString('latin1'); });
+                const up = net.connect(port, '127.0.0.1', () => {
+                    c.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]));
+                    c.pipe(up).pipe(c);
+                });
+                up.on('error', () => c.destroy());
+                stage = 3;
+            }
+        };
+        c.on('data', onData);
+    });
+    let u;
+
+    const lines = () => fs.readFileSync(local, 'utf8').split('\n').filter(Boolean);
+    return new Promise((r) => socks.listen(0, '127.0.0.1', r)).then(() => {
+        u = new Updater(conf);
+        u.tokens.add('tok-px', { login: 'tester', label: 'tester' });
+
+        const at = `127.0.0.1:${socks.address().port}`;
+        ok('proxy: refused without the secret', u.handle({ op: 'proxy-set', url: `socks5://u:pw@${at}` }, () => {}) === 'forbidden');
+        ok('proxy: not a proxy address is refused, nothing saved', u.setProxy('ftp://x:1') === 'a proxy address starts with http:// or socks5://' &&
+            lines().indexOf('proxy = http://old:1') >= 0);
+        const err = u.setProxy(`socks5://u:pw@${at}`);
+        const st = u.state().proxy;
+        const mode = fs.statSync(local).mode & 0o777;
+        ok('proxy: set, kept in updater.local.conf beside its other keys, root\'s alone', err === null &&
+            JSON.stringify(lines()) === JSON.stringify(['# mine', 'check_interval_s = 999', `proxy = socks5://u:pw@${at}`]) && mode === 0o600,
+        JSON.stringify([err, lines(), mode.toString(8)]));
+        ok('proxy: the state shows its host:port, never its user name or password', st.on && st.kind === 'socks5' && st.address === at &&
+            st.auth === true && JSON.stringify(u.state()).indexOf('pw') < 0 && JSON.stringify(u.state()).indexOf('u:') < 0, JSON.stringify(st));
+        log.length = 0;
+        return u.checkSource('mgu-store');
+    }).then(() => {
+        const rt = u.src.get('mgu-store');
+        ok('proxy: a private source is read through it, names looked up by the proxy', rt.status === 'ok' && log.length > 0 &&
+            log.every((e) => e.user === 'u' && /github\.com$/.test(e.host || '')), JSON.stringify([rt.status, rt.error, log.map((e) => e.host)]));
+        ok('proxy: the token never reaches the proxy', log.every((e) => e.bytes.indexOf('tok-px') < 0));
+        return new Promise((r) => setTimeout(r, 200)).then(() => {
+            fs.writeFileSync(local, fs.readFileSync(local, 'utf8').replace(':pw@', ':nope@'));
+            u.conf.proxy = u.conf.proxy.replace(':pw@', ':nope@');
+            return u.checkSource('mgu-store');
+        });
+    }).then(() => {
+        const rt = u.src.get('mgu-store');
+        const want = `proxy 127.0.0.1:${socks.address().port}: refused the user name and password`;
+        ok('proxy: a refusal at the proxy is the source\'s error and the proxy\'s', rt.status === 'error' && rt.error.indexOf(want) >= 0 &&
+            u.state().proxy.error === want, JSON.stringify([rt.error, u.state().proxy]));
+        ok('proxy: off with an empty address, the other keys kept', u.setProxy('') === null && !u.state().proxy.on &&
+            JSON.stringify(lines()) === JSON.stringify(['# mine', 'check_interval_s = 999']), JSON.stringify(lines()));
+        socks.close();
+        if (u.server) {
+            u.server.close();
+        }
+
+    });
+}
+
 /* The deploy tool still running after deploy_timeout_s: it and what it
  * started are stopped, and the run fails with that reason. */
 function testDeployTimeout() {
@@ -5936,6 +6048,7 @@ function main() {
         .then(([dnsSrv, httpsSrv]) => testFetch(certs, pubDir)
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
             .then(() => testRequests(certs).catch((e) => ok('requests scenario', false, e.stack)))
+            .then(() => testProxySetting(certs).catch((e) => ok('proxy setting scenario', false, e.stack)))
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
             .then(() => testCrossSource(certs).catch((e) => ok('cross-source requirements scenario', false, e.stack)))

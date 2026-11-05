@@ -180,6 +180,9 @@
     "Delete": "Wissen",
     "Shift": "Shift",
     "Remove all": "Alles verwijderen",
-    "Tools only it uses: {0}": "Tools die alleen zij gebruikt: {0}"
+    "Tools only it uses: {0}": "Tools die alleen zij gebruikt: {0}",
+    "Proxy": "Proxy",
+    "Address": "Adres",
+    "Use http://host:port or socks5://host:port": "Gebruik http://host:port of socks5://host:port"
   }
 }

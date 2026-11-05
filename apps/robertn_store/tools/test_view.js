@@ -8,7 +8,7 @@
 const assert = require('assert');
 const { listed, sourceAuthor, sourceNames, withSources, rowState, rowAction, removable, undoable, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
     sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress,
-    parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage } = require('../src/store_view.js');
+    parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, proxyUrlError } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
@@ -294,7 +294,12 @@ const cases = [
     [probeStatus({ status: 'offline' }), 'Offline'],
     [probeStatus({ status: 'rate-limited' }), 'GitHub limit reached. Try later or sign in.'],
     [probeStatus({ status: 'error', error: 'HTTP 500 from api.github.com' }), 'HTTP 500 from api.github.com'],
-    [sourcesMessage({ kind: 'checking', repo: 'o/r' }), 'Checking o/r']
+    [sourcesMessage({ kind: 'checking', repo: 'o/r' }), 'Checking o/r'],
+    // a proxy address: what the updater takes
+    [['http://192.168.8.1:7890', 'socks5://192.168.8.1:7891', 'socks5h://u:p@proxy.lan', 'http://[fd00::1]:3128/', ' http://h:1 ', 'SOCKS5://u:p%40ss@h:1']
+        .map(proxyUrlError).join(','), ',,,,,'],
+    [['', 'https://h:1', 'socks4://h:1', 'h:1', 'http://h:1/x', 'http://h:99999', 'http://h :1', 'http://h:1?x', 'socks5://u:p%zz@h:1']
+        .map(proxyUrlError).filter((e) => e === 'Use http://host:port or socks5://host:port').length, 9]
 ];
 cases.forEach(([got, want], i) => assert.strictEqual(got, want, `case ${i}: ${JSON.stringify(got)} != ${JSON.stringify(want)}`));
 console.log(`store_view: ${cases.length} cases pass`);

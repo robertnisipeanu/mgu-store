@@ -367,7 +367,7 @@ eq(text(f, 'subtitle'), 'USB STICK · 2 packages');
 // Settings: sources, Add source, Wi-Fi, Accounts, Phone access, the unit; no restart while busy
 f = screen('settings');
 eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source',
-    'Wi-Fi', 'Accounts', 'Phone access', 'Check now']);
+    'Wi-Fi', 'Accounts', 'Proxy', 'Phone access', 'Check now']);
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
 eq(text(f, 'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-renderd 1.1.0');
 eq(text(screen('settings', {}, { allProviders: { renderer: [{ id: 'mgu-render', version: '0.2.0' }, { id: 'mgu-renderd', version: '1.1.2' }] } }),
@@ -579,6 +579,26 @@ f = screen('wifi', {}, { uplink: Object.assign({}, fixture.state().uplink, { wif
     scanning: false, error: 'wlan1 is in access point mode' } }) });
 eq([text(f, 'state'), text(f, 'note'), f.values.networks.empty, f.values.scan.disabled, text(f, 'subtitle')],
     ['Unavailable', 'wlan1 is in access point mode', 'Unavailable', true, '']);
+
+// the proxy (an updater from 0.8.27): a row in Settings' access card; its page turns it on or off and sets its address
+f = screen('settings');
+eq(f.values.access.items.map((i) => [i.title, i.sub]), [['Wi-Fi', 'Online · Mario iPhone'], ['Accounts', '2 accounts'], ['Proxy', 'Off'],
+    ['Phone access', 'Off']]);
+eq(f.items.find((i) => i.label === 'Proxy').act, { do: 'open', page: { name: 'proxy' } });
+ok(screen('settings', {}, { proxy: undefined }).labels.indexOf('Proxy') < 0, 'no Proxy row with an updater before 0.8.27');
+eq(screen('settings-proxy-on').values.access.items[2].sub, '192.168.8.1:7891');
+eq([screen('proxy-error').values.access, screen('settings', {}, { proxy: { on: true, kind: 'http', address: '10.0.0.1:3128', error: 'x' } })
+    .values.access.items[2].sub], [undefined, 'Error']);
+f = screen('proxy');
+eq([own(f), f.values.rows.items.map((i) => [i.title, i.sub, i.right]), text(f, 'error')],
+    [['Proxy', 'Address', 'Back'], [['Proxy', '', 'toggle:off'], ['Address', 'None', 'chevron']], '']);
+eq(f.items.slice(0, 2).map((i) => i.act), [{ do: 'proxy-toggle' }, { do: 'proxy-edit' }]);
+f = screen('proxy-on');
+eq(f.values.rows.items.map((i) => [i.sub, i.right]), [['', 'toggle:on'], ['socks5://192.168.8.1:7891', 'chevron']]);
+eq(text(screen('proxy-error'), 'error'), 'proxy 192.168.8.1:7890: connection refused (5 tries)');
+eq(text(screen('proxy-on', { proxyNote: 'cannot save the proxy: EROFS' }), 'error'), 'cannot save the proxy: EROFS', 'a refused change');
+f = screen('type-proxy');
+eq([text(f, 'title'), text(f, 'field')], ['Proxy', 'socks5://192.168.8.1:7891']);
 
 // sign-in, phone, no updater
 f = screen('login');

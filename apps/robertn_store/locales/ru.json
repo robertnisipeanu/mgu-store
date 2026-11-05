@@ -178,6 +178,9 @@
     "Delete": "Удалить",
     "Shift": "Shift",
     "Remove all": "Удалить всё",
-    "Tools only it uses: {0}": "Утилиты, которые использует только оно: {0}"
+    "Tools only it uses: {0}": "Утилиты, которые использует только оно: {0}",
+    "Proxy": "Прокси",
+    "Address": "Адрес",
+    "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port"
   }
 }

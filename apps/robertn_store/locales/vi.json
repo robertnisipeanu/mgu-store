@@ -178,6 +178,9 @@
     "Delete": "Xóa",
     "Shift": "Shift",
     "Remove all": "Xóa tất cả",
-    "Tools only it uses: {0}": "Công cụ chỉ ứng dụng này dùng: {0}"
+    "Tools only it uses: {0}": "Công cụ chỉ ứng dụng này dùng: {0}",
+    "Proxy": "Proxy",
+    "Address": "Địa chỉ",
+    "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port"
   }
 }

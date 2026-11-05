@@ -178,6 +178,9 @@
     "Delete": "ลบ",
     "Shift": "Shift",
     "Remove all": "ลบทั้งหมด",
-    "Tools only it uses: {0}": "เครื่องมือที่ใช้เฉพาะแอปนี้: {0}"
+    "Tools only it uses: {0}": "เครื่องมือที่ใช้เฉพาะแอปนี้: {0}",
+    "Proxy": "พร็อกซี",
+    "Address": "ที่อยู่",
+    "Use http://host:port or socks5://host:port": "ใช้ http://host:port หรือ socks5://host:port"
   }
 }

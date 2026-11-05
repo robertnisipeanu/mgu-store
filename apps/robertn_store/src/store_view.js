@@ -401,6 +401,16 @@ function probeStatus(probe) {
     }
 }
 
+/* Why text is not a proxy address the updater takes (its tunnel.js parse:
+ * http:// or socks5://, a host, an optional port and user name and
+ * password, nothing after them); null when it is one. */
+function proxyUrlError(text) {
+    const m = /^(?:http|socks5h?):\/\/(?:([^\s@/?#]*)@)?(\[[0-9a-f:.]+\]|[^\s:@/?#[\]]+)(?::(\d{1,5}))?\/?$/i.exec(String(text || '').trim());
+    // a % in a user name or password starts an escape (%40 for @)
+    const escapes = !m || !m[1] || /^(?:[^%]|%[0-9a-f]{2})*$/i.test(m[1]);
+    return m && escapes && (!m[3] || (Number(m[3]) > 0 && Number(m[3]) < 65536)) ? null : tr("Use http://host:port or socks5://host:port");
+}
+
 /* The Accounts page's status line: Add token's progress or refusal. */
 function tokenMessage(m) {
     switch (m.kind) {
@@ -423,6 +433,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };
