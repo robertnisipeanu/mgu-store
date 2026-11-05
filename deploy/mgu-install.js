@@ -1118,8 +1118,13 @@ async function uninstall(o) {
         return 1;
     }
     if (result.left.length) {
-        say(`Not finished: ${result.left.join(', ')} ${result.left.length === 1 ? 'is' : 'are'} still on the head unit. ` +
-            'Run uninstall again to finish.');
+        const still = `Not finished: ${result.left.join(', ')} ${result.left.length === 1 ? 'is' : 'are'} still on the head unit. `;
+        if (!result.restart) {
+            say(still + 'Run uninstall again to finish.');
+            return 1;
+        }
+        say(still + 'Restart the head unit, then run uninstall again to finish.');
+        await offerRestart(o, AFTER_UNINSTALL);
         return 1;
     }
     if (result.self === 'next-start') {

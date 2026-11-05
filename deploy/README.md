@@ -382,7 +382,9 @@ It ends with one line:
 removed at the next start, `Restart the head unit to finish: <apps> and
 the deploy tool go at its next start.`, either followed by the restart
 question as first-install asks it; or `Not finished: <what> is still on
-the head unit. Run uninstall again to finish.` (exit 1).
+the head unit. Run uninstall again to finish.` (exit 1), or, when what
+is left goes only after a restart, `… Restart the head unit, then run
+uninstall again to finish.` and the restart question (exit 1).
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.sh | sh -s -- uninstall --identity ~/.ssh/mgu_root_key
