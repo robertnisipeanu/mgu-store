@@ -32,6 +32,7 @@ const { Tokens, TOKEN } = require('./tokens');
 const { runBuild, cleanBuilds } = require('./build');
 const { ServiceUids, retireOld } = require('./uids');
 const { UpdaterClient } = require('./client');
+const tunnel = require('./tunnel');
 
 const ID = catalogLib.ID;
 
@@ -86,13 +87,62 @@ function appInstall(url) {
     return m ? { installUrl: `${m[1]}/installations/new` } : null;
 }
 
+/* The unit's own overrides (updater.local.conf). */
+function localConfFile(conf) {
+    return process.env.MGU_UPDATER_CONF || conf.local_conf || '/var/opt/mgu-updater/updater.local.conf';
+}
+
+/* Sets key = value in file (removed when value is empty), the rest kept;
+ * root's alone, as it can hold a proxy's password, and on disk before it
+ * returns. */
+function setLocalConf(file, key, value) {
+    let lines = [];
+    try {
+        lines = fs.readFileSync(file, 'utf8').split('\n');
+    } catch (e) { /* none yet */ }
+    lines = lines.filter((l) => !(new RegExp(`^\\s*${key}\\s*=`).test(l)));
+    while (lines.length && !lines[lines.length - 1].trim()) {
+        lines.pop();
+    }
+    if (value) {
+        lines.push(`${key} = ${value}`);
+    }
+    mkdirp(path.dirname(file), 0o755);
+    const tmp = `${file}.tmp`;
+    rmIfThere(tmp);
+    const fd = fs.openSync(tmp, 'wx', 0o600);
+    try {
+        fs.writeSync(fd, lines.length ? `${lines.join('\n')}\n` : '');
+        fs.fsyncSync(fd);
+    } finally {
+        fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+}
+
+/* What the state shows of the proxy setting: { on, kind, address (host:port),
+ * auth (it has a user name or password), error }; never the user name or
+ * password. error: the setting's fault, else the last download's failure
+ * at the proxy until one gets through. */
+function proxyState(text, lastError) {
+    if (!text) {
+        return { on: false, kind: null, address: null, auth: false, error: null };
+    }
+    try {
+        const p = tunnel.parse(text);
+        return { on: true, kind: p.kind, address: p.label, auth: !!(p.user || p.pass), error: lastError || null };
+    } catch (e) {
+        return { on: true, kind: null, address: null, auth: false, error: `proxy setting: ${e.message}` };
+    }
+}
+
 /* updater.conf next to this file (in the repo: one folder up), then the
  * unit's own overrides. */
 function loadConf() {
     const own = path.join(HERE, 'updater.conf');
     const file = fs.existsSync(own) ? own : path.join(HERE, '..', 'updater.conf');
     const conf = readConf(file, {});
-    readConf(process.env.MGU_UPDATER_CONF || conf.local_conf || '/var/opt/mgu-updater/updater.local.conf', conf);
+    readConf(localConfFile(conf), conf);
     // relative paths in either file are relative to updater.conf
     ['ca_file'].forEach((k) => {
         if (conf[k]) {
@@ -550,6 +600,16 @@ class Fetcher {
         this.etagBytes = 0;
         // hosts whose certificate dates fetch.js has ignored, logged once each
         this.datesLogged = new Set();
+        // the last download's failure at the proxy (tunnel.js), until one gets through; onProxy() on a change
+        this.proxyError = null;
+        this.onProxy = () => {};
+    }
+
+    noteProxy(error) {
+        if (error !== this.proxyError) {
+            this.proxyError = error;
+            this.onProxy();
+        }
     }
 
     datesIgnored(host, error) {
@@ -709,6 +769,9 @@ class Fetcher {
                             `${ev.from ? ` from byte ${ev.from}` : ''}`);
                     } else if (ev.done || ev.error || ev.notModified) {
                         result = ev;
+                        if (this.conf.proxy) {
+                            this.noteProxy(ev.error && /^proxy /.test(ev.error) ? ev.error : ev.error ? this.proxyError : null);
+                        }
                     }
                 }
             });
@@ -729,7 +792,7 @@ class Fetcher {
                 }
             });
             child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, lease: this.conf.lease || undefined, ca: this.ca,
-                method: job.method || 'GET', body: job.body, keep: job.keep || [] }));
+                method: job.method || 'GET', body: job.body, keep: job.keep || [], proxy: this.conf.proxy || undefined }));
         }).then((bytes) => {
             this.retire(dir);
             return bytes;
@@ -761,7 +824,7 @@ function under(entry, id) {
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
 const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
-    'uplink-prefer', 'wifi-enable', 'wifi-scan', 'wifi-connect', 'wifi-forget'];
+    'uplink-prefer', 'wifi-enable', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
  * the updater (README.md, "The uplink"): each one's ctl.sock request, built
@@ -861,6 +924,11 @@ class Updater {
         this.uids = new ServiceUids(conf, (l) => console.log(l));
         const picked = this.uids.ensure();
         this.fetcher = new Fetcher(conf);
+        this.fetcher.onProxy = () => this.changed();
+        if (conf.proxy) {
+            const p = proxyState(conf.proxy);
+            console.log(p.address ? `proxy: ${p.kind} ${p.address}` : p.error);
+        }
         if (picked.some((c) => c.role === 'fetch')) {
             this.fetcher.notBefore = Date.now() + UPLINK_RESCAN_MS;
         }
@@ -1457,6 +1525,8 @@ class Updater {
             // the uplink's device, preferred group and Wi-Fi (its status.json), null while it does not run
             uplink: this.uplink,
             privacy: this.privacy,
+            // the proxy downloads go through (README.md, "A proxy"): its host:port, never its user name or password
+            proxy: proxyState(this.conf.proxy, this.fetcher.proxyError),
             // one line for clients that know a single catalog (the Store 0.3)
             catalog: {
                 commit: (this.src.get(SELF_SOURCE_ID) || {}).commit || null,
@@ -3375,6 +3445,32 @@ class Updater {
         return null;
     }
 
+    /* The proxy downloads go through: url (http:// or socks5://, with a user
+     * name and password if it takes them), '' for none; kept in
+     * updater.local.conf. Sources are read again through it. */
+    setProxy(url) {
+        const text = typeof url === 'string' ? url.trim() : '';
+        let p = null;
+        if (text) {
+            try {
+                p = tunnel.parse(text);
+            } catch (e) {
+                return e.message;
+            }
+        }
+        try {
+            setLocalConf(localConfFile(this.conf), 'proxy', text);
+        } catch (e) {
+            return `cannot save the proxy: ${e.message}`;
+        }
+        this.conf.proxy = text;
+        this.fetcher.proxyError = null;
+        console.log(p ? `proxy: ${p.kind} ${p.label}` : 'proxy: none');
+        this.changed();
+        this.check();
+        return null;
+    }
+
     /* A unit's journal for the phone page: {type:"logs", unit, text}. */
     logs(req, reply) {
         if (!web) {
@@ -3491,6 +3587,7 @@ class Updater {
         case 'token-add': return this.tokenAdd(req, reply);
         case 'token-remove': return this.tokenRemove(req.id);
         case 'web': return this.setWeb(req.enable === true);
+        case 'proxy-set': return this.setProxy(req.url);
         case 'logs': return this.logs(req, reply);
         case 'uplink-prefer':
         case 'wifi-enable':

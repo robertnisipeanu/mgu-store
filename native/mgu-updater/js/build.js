@@ -154,7 +154,8 @@ function startProxy(conf, lease, log, id) {
             }
         });
         child.stdin.end(JSON.stringify({ token, uid: asRoot ? Number(conf.build_uid) : process.getuid(), dns: lease.dns,
-            lease: conf.lease || undefined, maxBytes: Number(conf.build_max_bytes), idleMs: 60000, open: process.env.MGU_TEST_PROXY_OPEN === '1' }));
+            lease: conf.lease || undefined, maxBytes: Number(conf.build_max_bytes), idleMs: 60000, open: process.env.MGU_TEST_PROXY_OPEN === '1',
+            proxy: conf.proxy || undefined }));
     });
 }
 

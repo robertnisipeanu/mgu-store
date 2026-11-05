@@ -8,7 +8,7 @@
  * Node 8.
  *
  * stdin: one JSON job
- *   { token, uid, dns: ["1.2.3.4", ...], lease, maxBytes, connectMs, idleMs, open }
+ *   { token, uid, dns: ["1.2.3.4", ...], lease, maxBytes, connectMs, idleMs, open, proxy }
  *   token: the password every request carries (Proxy-Authorization: Basic,
  *   any user name); uid: the only uid whose connections are served (read
  *   from /proc/net/tcp; not checked where that file is missing); dns: the
@@ -18,7 +18,9 @@
  *   between networks); maxBytes: the most that may pass, both ways, in all;
  *   connectMs: how long the name lookup and the TCP connection may take
  *   together (15 s); idleMs: how long a connection may go without data;
- *   open (the tests only): any port and address.
+ *   open (the tests only): any port and address; proxy: the updater's proxy
+ *   setting (tunnel.js), which every connection goes through, the name
+ *   looked up by that proxy.
  * stdout: one JSON line per event
  *   { listening: <port> }
  *   { request: "CONNECT host:443" | "GET http://host/..." }
@@ -26,8 +28,8 @@
  *
  * Served: CONNECT to port 443, and plain http GET/HEAD to port 80, to host
  * names that resolve to public IPv4 addresses (no address literal, nothing
- * private, loopback, link-local or shared). It runs until the updater
- * stops it.
+ * private, loopback, link-local or shared); through a proxy, to host names,
+ * which the proxy resolves. It runs until the updater stops it.
  */
 const fs = require('fs');
 const net = require('net');
@@ -35,7 +37,8 @@ const dns = require('dns');
 const http = require('http');
 const crypto = require('crypto');
 const { URL } = require('url');
-const { leaseDns, CONNECT_MS } = require('./fetch');
+const { leaseDns, lookupVia, CONNECT_MS } = require('./fetch');
+const tunnel = require('./tunnel');
 
 const HOST = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$/i;
 
@@ -85,41 +88,63 @@ function resolver(job) {
     };
 }
 
-/* host's address and a connection to it, within connectMs: a network the
- * uplink has left answers neither the lookup nor the connection. A timer of
- * its own: Node 8's socket timeout can fire at up to twice its time on a
- * socket that has not connected yet. open(ip) starts the connection and
- * returns its socket; cb(err) once, on failure or once it has connected;
- * the function returned stops waiting. */
-function connectTo(lookup, connectMs, host, open, cb) {
+/* A connection to host:port within connectMs: a network the uplink has
+ * left answers neither the lookup nor the connection. A timer of its own:
+ * Node 8's socket timeout can fire at up to twice its time on a socket that
+ * has not connected yet. Through job.proxy (the updater's proxy setting,
+ * tunnel.js) when there is one, which looks host up itself; else to host's
+ * address from lookup. cb(err, sock) once; the function returned stops
+ * waiting. */
+function connectTo(job, lookup, connectMs, host, port, cb) {
     let done = false;
     let sock = null;
-    const finish = (err) => {
+    let proxy = null;
+    const finish = (err, s) => {
         if (!done) {
             done = true;
             clearTimeout(timer);
-            cb(err);
+            cb(err, s);
         }
     };
     const timer = setTimeout(() => {
-        finish(new Error(`${host}: no connection in ${Math.round(connectMs / 1000)} s`));
+        const why = `no connection in ${Math.round(connectMs / 1000)} s`;
+        finish(new Error(proxy ? tunnel.failure(proxy, why).message : `${host}: ${why}`));
         cancel();
         if (sock) {
             sock.destroy();
         }
     }, connectMs);
-    const cancel = lookup(host, (err, ip) => {
-        if (done) {
-            return;
+    let cancel = () => {};
+    if (job.proxy) {
+        const servers = job.lease ? leaseDns(job.lease) : job.dns;
+        if (!HOST.test(host)) {
+            finish(new Error(`${host}: not a host name`));
+        } else if (!servers) {
+            finish(new Error('no internet (the uplink is down)'));
+        } else {
+            try {
+                proxy = tunnel.parse(job.proxy);
+            } catch (e) {
+                finish(new Error(`proxy setting: ${e.message}`));
+                return () => {};
+            }
+            // the tunnel leaves the socket paused; its reader here is the caller's, attached at once
+            sock = tunnel.open(proxy, host, port, lookupVia(servers), (err, s) => finish(err, s && s.resume()));
         }
-        if (err) {
-            finish(err);
-            return;
-        }
-        sock = open(ip);
-        sock.once('connect', () => finish(null));
-        sock.once('error', finish);
-    });
+    } else {
+        cancel = lookup(host, (err, ip) => {
+            if (done) {
+                return;
+            }
+            if (err) {
+                finish(err);
+                return;
+            }
+            sock = net.connect(port, ip);
+            sock.once('connect', () => finish(null, sock));
+            sock.once('error', finish);
+        });
+    }
     return () => {
         done = true;
         clearTimeout(timer);
@@ -202,14 +227,17 @@ function main(job) {
             return;
         }
         emit({ request: `${req.method} http://${target.hostname}${target.pathname}` });
-        const stop = connectTo(lookup, connectMs, target.hostname, (ip) => {
+        const stop = connectTo(job, lookup, connectMs, target.hostname, Number(target.port) || 80, (err, sock) => {
+            if (err) {
+                refuse(502, err.message);
+                return;
+            }
             const headers = Object.assign({}, req.headers);
             delete headers['proxy-authorization'];
             delete headers['proxy-connection'];
             headers.host = target.host;
             // one request a connection: nothing reuses the upstream socket, so it closes with the answer
             headers.connection = 'close';
-            const sock = net.connect(Number(target.port) || 80, ip);
             const up = http.request({ method: req.method, path: target.pathname + target.search, headers, createConnection: () => sock }, (r) => {
                 res.writeHead(r.statusCode, r.headers);
                 r.on('data', (d) => {
@@ -224,11 +252,6 @@ function main(job) {
             up.setTimeout(idleMs, () => up.abort());
             up.on('error', (e) => refuse(502, `${target.hostname}: ${e.code || e.message}`));
             up.end();
-            return sock;
-        }, (err) => {
-            if (err) {
-                refuse(502, err.message);
-            }
         });
         res.on('close', stop);
     });
@@ -258,27 +281,30 @@ function main(job) {
             return;
         }
         emit({ request: `CONNECT ${m[1]}:${m[2]}` });
-        stop = connectTo(lookup, connectMs, m[1], (ip) => {
-            up = net.connect(Number(m[2]), ip, () => {
-                socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
-                if (head && head.length) {
-                    up.write(head);
+        stop = connectTo(job, lookup, connectMs, m[1], Number(m[2]), (err, s) => {
+            if (err) {
+                refuse(502, err.message);
+                return;
+            }
+            up = s;
+            socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
+            if (head && head.length) {
+                up.write(head);
+            }
+            const meter = (from, to) => from.on('data', (d) => {
+                if (!count(d.length)) {
+                    emit({ refused: `more than ${job.maxBytes} bytes` });
+                    up.destroy();
+                    socket.destroy();
+                    return;
                 }
-                const meter = (from, to) => from.on('data', (d) => {
-                    if (!count(d.length)) {
-                        emit({ refused: `more than ${job.maxBytes} bytes` });
-                        up.destroy();
-                        socket.destroy();
-                        return;
-                    }
-                    to.write(d);
-                });
-                meter(up, socket);
-                meter(socket, up);
-                up.on('end', () => socket.end());
-                socket.on('end', () => up.end());
+                to.write(d);
             });
-            [up, socket].forEach((s) => s.setTimeout(idleMs, () => {
+            meter(up, socket);
+            meter(socket, up);
+            up.on('end', () => socket.end());
+            socket.on('end', () => up.end());
+            [up, socket].forEach((x) => x.setTimeout(idleMs, () => {
                 up.destroy();
                 socket.destroy();
             }));
@@ -286,11 +312,6 @@ function main(job) {
                 up.destroy();
                 socket.destroy();
             });
-            return up;
-        }, (err) => {
-            if (err) {
-                refuse(502, err.message);
-            }
         });
     });
     server.listen(0, '127.0.0.1', () => emit({ listening: server.address().port }));

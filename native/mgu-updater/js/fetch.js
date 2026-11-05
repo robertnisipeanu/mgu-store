@@ -7,7 +7,7 @@
  *
  * stdin: one JSON job
  *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], lease, ca, method, body, keep,
- *     connectMs, idleMs, retryMs }
+ *     connectMs, idleMs, retryMs, proxy }
  *   dns: resolve host names through these servers (the uplink lease's);
  *   empty: the system resolver. lease: the uplink's lease file, read again
  *   for each try: its dns servers replace dns, and a try without one fails
@@ -18,7 +18,10 @@
  *   done. connectMs: how long the name lookup, the TCP connection and the
  *   TLS handshake may take together (15 s); idleMs: how long the answer's
  *   headers, and then each part of its body, may take to come (30 s);
- *   retryMs: the first wait before trying again (1 s).
+ *   retryMs: the first wait before trying again (1 s). proxy: the updater's
+ *   proxy setting (tunnel.js); every connection, a redirect's too, goes
+ *   through it, dns then looks up only the proxy's own name, and its
+ *   connection and answer count in connectMs.
  * stdout: one JSON line per event
  *   { progress: <bytes>, total: <bytes|null> }  while downloading
  *   { done: true, bytes, status, headers }      dest complete (headers: those kept)
@@ -58,7 +61,9 @@
  * checked again without them (certs.js: every signature up to a trusted
  * root, CA constraints, key usages) and the host name with
  * tls.checkServerIdentity. Nothing is sent before that passes. The trusted
- * roots are Node's own, or ca's.
+ * roots are Node's own, or ca's. Through a proxy TLS runs inside its
+ * tunnel, to the origin, with the same checks; the proxy is sent only its
+ * own user name and password.
  */
 const fs = require('fs');
 const dns = require('dns');
@@ -67,6 +72,7 @@ const tls = require('tls');
 const https = require('https');
 const { URL } = require('url');
 const certs = require('./certs');
+const tunnel = require('./tunnel');
 
 const MAX_REDIRECTS = 5;
 // a network that has moved on leaves a connection silent, never reset: these bound each wait
@@ -129,43 +135,73 @@ function refusedButForDates(sock, host, ca) {
     return name ? name.message : null;
 }
 
-/* A TLS connection to target whose certificate checks out (dates aside), or an error. */
+/* A TLS connection to target whose certificate checks out (dates aside), or
+ * an error; through job.proxy's tunnel when there is one, the proxy's own
+ * connection and its answer counted in connectMs. */
 function connect(job, target, cb) {
     let done = false;
-    const finish = (err, sock) => {
+    let sock = null;        // the connection under way: to the proxy, then TLS
+    let proxy = null;       // the proxy, while its tunnel is not open yet
+    const finish = (err, s) => {
         if (!done) {
             done = true;
             clearTimeout(timer);
-            cb(err, sock);
+            cb(err, s);
         }
     };
     const host = target.hostname;
+    const port = Number(target.port) || 443;
     const connectMs = job.connectMs || CONNECT_MS;
     // a timer of its own: Node 8's socket timeout can fire at up to twice its time
-    const timer = setTimeout(() => sock.destroy(new Error(`no connection in ${Math.round(connectMs / 1000)} s`)), connectMs);
-    const sock = tls.connect({
-        host,
-        port: Number(target.port) || 443,
-        servername: net.isIP(host) ? undefined : host,
-        lookup: lookupVia(job.dns),
-        ca: job.ca || undefined,
-        rejectUnauthorized: false
-    }, () => {
-        if (sock.authorized) {
-            finish(null, sock);
-            return;
-        }
-        const code = sock.authorizationError;
-        const why = DATE_ERRORS.indexOf(code) < 0 ? code : refusedButForDates(sock, host, job.ca);
-        if (why) {
+    const timer = setTimeout(() => {
+        const why = `no connection in ${Math.round(connectMs / 1000)} s`;
+        finish(proxy ? tunnel.failure(proxy, why) : new Error(why));
+        if (sock) {
             sock.destroy();
-            finish(Object.assign(new Error(why === code ? code : `${code}, and ${why}`), { refused: true }));
+        }
+    }, connectMs);
+    const secure = (opts) => {
+        sock = tls.connect(Object.assign({
+            host,
+            port,
+            servername: net.isIP(host) ? undefined : host,
+            ca: job.ca || undefined,
+            rejectUnauthorized: false
+        }, opts), () => {
+            if (sock.authorized) {
+                finish(null, sock);
+                return;
+            }
+            const code = sock.authorizationError;
+            const why = DATE_ERRORS.indexOf(code) < 0 ? code : refusedButForDates(sock, host, job.ca);
+            if (why) {
+                sock.destroy();
+                finish(Object.assign(new Error(why === code ? code : `${code}, and ${why}`), { refused: true }));
+                return;
+            }
+            emit({ certDates: host, error: code });
+            finish(null, sock);
+        });
+        sock.on('error', finish);
+    };
+    if (!job.proxy) {
+        secure({ lookup: lookupVia(job.dns) });
+        return;
+    }
+    try {
+        proxy = tunnel.parse(job.proxy);
+    } catch (e) {
+        finish(Object.assign(new Error(`proxy setting: ${e.message}`), { proxy: true, refused: true }));
+        return;
+    }
+    sock = tunnel.open(proxy, host, port, lookupVia(job.dns), (err, raw) => {
+        if (err) {
+            finish(err);
             return;
         }
-        emit({ certDates: host, error: code });
-        finish(null, sock);
+        proxy = null;
+        secure({ socket: raw });
     });
-    sock.on('error', finish);
 }
 
 function get(job, url, headers, hops, from, finish) {
@@ -176,7 +212,9 @@ function get(job, url, headers, hops, from, finish) {
     }
     connect(job, target, (err, sock) => {
         if (err) {
-            finish({ error: `${target.hostname}: ${err.code || err.message}`, retry: !err.refused && NO_SUCH_NAME.indexOf(err.code) < 0 });
+            // a proxy's error names the proxy
+            finish({ error: err.proxy ? err.message : `${target.hostname}: ${err.code || err.message}`,
+                retry: !err.refused && NO_SUCH_NAME.indexOf(err.code) < 0 });
             return;
         }
         request(job, url, target, headers, hops, sock, from, finish);
@@ -405,7 +443,7 @@ function leaseDns(file) {
     }
 }
 
-module.exports = { leaseDns, CONNECT_MS };
+module.exports = { leaseDns, lookupVia, CONNECT_MS };
 
 if (require.main === module) {
     let input = '';
