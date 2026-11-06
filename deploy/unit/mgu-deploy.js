@@ -4103,40 +4103,60 @@ function carryData(id, stash, oldUid, oldGid, fresh) {
     say(id + "'s data carried over");
     return true;
 }
-/* state.json data_stash, {<id>: {path, uid, gid}}: the data folders this
- * tool set aside and did not put back. Each waits for its app to be
- * registered again with no data of its own, and goes only with an explicit
- * removal of the app (forgetStash). */
+/* state.json data_stash, {<id>: [{path, uid, gid}, ...]}, oldest first:
+ * the data folders this tool set aside for the app and did not put back.
+ * The newest goes in when the app is registered again with no data of its
+ * own; all of them go only with an explicit removal of the app
+ * (forgetStash). A record of one folder ({path, uid, gid}) reads as a list
+ * of it. */
+function stashesOf(state, id) {
+    var d = state.data_stash && state.data_stash[id];
+    if (!d) return [];
+    if (!Array.isArray(d)) state.data_stash[id] = d = [d];
+    return d;
+}
 function keepStash(id, stash, uid, gid) {
     if (!fs.existsSync(stash)) return;
-    var s = loadState();
+    var s = loadState(), list = stashesOf(s, id);
+    if (!list.some(function (d) { return d.path === stash; })) list.push({ path: stash, uid: uid, gid: gid });
     s.data_stash = Object.assign({}, s.data_stash);
-    s.data_stash[id] = { path: stash, uid: uid, gid: gid };
+    s.data_stash[id] = list;
     saveState(s);
     say(id + "'s data is kept in " + stash + ' for its next install');
 }
-function carryStash(id, state) {
-    var d = state.data_stash && state.data_stash[id];
-    if (d && carryData(id, d.path, d.uid, d.gid, false)) delete state.data_stash[id];
+/* The newest folder set aside for app id into its home; not while a
+ * reinstall of the app puts the folder it set aside in this run back. True
+ * when state changed. */
+var reinstalling = {};
+function takeNewestStash(state, id) {
+    var list = stashesOf(state, id), d = list[list.length - 1];
+    if (!d || reinstalling[id] || !carryData(id, d.path, d.uid, d.gid, false)) return false;
+    list.pop();
+    if (!list.length) delete state.data_stash[id];
+    return true;
 }
+function carryStash(id, state) { takeNewestStash(state, id); }
 function forgetStash(state, id) {
-    var d = state.data_stash && state.data_stash[id];
-    if (!d) return;
-    rmrf(d.path);
-    delete state.data_stash[id];
-    say(id + ': the data folder set aside for it goes (' + d.path + ')');
+    stashesOf(state, id).forEach(function (d) {
+        rmrf(d.path);
+        say(id + ': the data folder set aside for it goes (' + d.path + ')');
+    });
+    if (state.data_stash) delete state.data_stash[id];
 }
-/* Each recorded folder whose app is registered again goes in (not while
- * the MainApp guard is off); one whose app has data of its own stays,
- * said once (held). True when state changed. */
+/* For each app registered again, its newest folder goes in (not while the
+ * MainApp guard is off); one whose app has data of its own stays, said
+ * once (held). Folders no longer there drop out. True when state changed. */
 function settleStashes(state) {
     var changed = false;
     Object.keys(state.data_stash || {}).forEach(function (id) {
-        var d = state.data_stash[id];
-        if (!d || !fs.existsSync(d.path)) { delete state.data_stash[id]; changed = true; return; }
+        var list = stashesOf(state, id), there = list.filter(function (d) { return d && fs.existsSync(d.path); });
+        if (there.length !== list.length || !Array.isArray(state.data_stash[id])) changed = true;
+        if (!there.length) { delete state.data_stash[id]; return; }
+        state.data_stash[id] = there;
         if (!installedApp(id) || guardWhy()) return;
-        if (carryData(id, d.path, d.uid, d.gid, false)) { delete state.data_stash[id]; changed = true; }
-        else if (!d.held) {
+        if (takeNewestStash(state, id)) { changed = true; return; }
+        var d = there[there.length - 1];
+        if (!d.held) {
             d.held = true;
             changed = true;
             say(id + ' has data of its own: the data folder set aside for it stays in ' + d.path);
@@ -4154,7 +4174,9 @@ function settleStashes(state) {
 function reinstallApp(app, file, again, version) {
     var id = app.id;
     /* beside the homes: the same filesystem as the data folder */
-    var data = path.join(appHome(app.uid), 'data'), stash = path.join(CFG.oap, '.mgu-deploy-data-' + id + '-' + process.pid);
+    var data = path.join(appHome(app.uid), 'data'), stash = path.join(CFG.oap, '.mgu-deploy-data-' + id + '-' + process.pid), n = 1;
+    /* a name of its own beside the folders kept from earlier runs */
+    while (lstatOrNull(stash)) stash = path.join(CFG.oap, '.mgu-deploy-data-' + id + '-' + process.pid + '-' + n++);
     var oldGid = (lstatOrNull(data) || {}).gid;
     if (fs.existsSync(data)) fs.renameSync(data, stash);
     var putBack = function () {
@@ -4166,6 +4188,10 @@ function reinstallApp(app, file, again, version) {
         if (!installedApp(id)) recordApp(id, target.version, fs.existsSync(keptFile(id, target.version)) ? null : target.file);
         putBack();
     }, function () {
+        reinstalling[id] = true;
+        try { return reinstallBody(); } finally { delete reinstalling[id]; }
+    });
+    function reinstallBody() {
         try {
             cmdUninstall({ positional: [id], keepPackages: true });
         } catch (e) {
@@ -4188,7 +4214,7 @@ function reinstallApp(app, file, again, version) {
         }
         putBack();
         return err;
-    });
+    }
 }
 
 /* ---- uninstall -------------------------------------------------------------- */

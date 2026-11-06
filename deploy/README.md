@@ -1189,15 +1189,18 @@ One that dies before turns the guard off for the rest of the boot:
 
 Every data folder a reinstall sets aside (`.mgu-deploy-data-<id>-<pid>`
 beside the homes) and does not put back, stopped or failed, is recorded in
-`data_stash`. It goes into the app's home once the app is registered again,
-whoever installed it (the updater's reinstall, an install from the Store,
-or the app manager by itself at its start): by that install, else by the
-next changing run or `status` run as root (not while the guard is off),
-and only while the app has no data folder or an empty one, the home and
-data folder never followed through a link. An app with data of its own
-keeps it, and the folder stays recorded, said once. Only an explicit
-removal of the app removes it: an uninstall, a restore that removes the
-app, `remove-all`. A folder no record names is left as it is.
+`data_stash`, each app's folders oldest first. The newest goes into the
+app's home once the app is registered again, whoever installed it (the
+updater's reinstall, an install from the Store, or the app manager by
+itself at its start): by that install, else by the next changing run or
+`status` run as root (not while the guard is off), and only while the app
+has no data folder or an empty one, the home and data folder never
+followed through a link. An install within a reinstall of the app takes
+none: the reinstall puts back the folder it set aside itself. An app with
+data of its own keeps it, and its folders stay recorded, said once. Only
+an explicit removal of the app removes them, all of them: an uninstall, a
+restore that removes the app, `remove-all`. A folder no record names is
+left as it is.
 
 The guard file (`oap_12201/data/mgu-deploy-guard.json`, `{boot, bounce,
 watch, off}`) is written before the bounce and when the watch starts. A
@@ -1955,7 +1958,9 @@ until the next start; one that dies after it: nothing; a watch a killed
 run left, judged at the next status; the copy's guard loaded once per
 start; a data folder set aside taken by its app registered again with an
 empty data folder, kept recorded beside one with data, never through a
-link, kept through status and later commands after a failed reinstall, and
+link, kept through a later reinstall of the app that succeeds, fails or
+is stopped (both folders recorded then), all of them removed by an
+uninstall, kept through status and later commands after a failed reinstall, and
 gone after a removal, a restore or remove-all; a fallback install stopped
 recording its version; the records of a stopped app-privacy install, update
 and rollback, restore and fallback on and off matching the finished ones; a stopped boot

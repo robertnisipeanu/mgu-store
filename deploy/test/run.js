@@ -960,7 +960,7 @@ function testGuardNested() {
     let root = nested();
     let r = root.run(['rollback', 'fixture_app', '--yes'], Object.assign({ FAKE_MGR_CRASH_AT: String(root.kills().length + 1) }, W));
     let st = root.status();
-    const stash = (root.state().data_stash || {}).fixture_app;
+    const stash = ((root.state().data_stash || {}).fixture_app || [])[0];
     check('guard nested: a rollback whose removal is stopped keeps the record at the version it goes to, with its kept package',
         r.status === 3 && !fs.existsSync(root.entry('fixture_app')) && root.state().apps.fixture_app.version === '1.0.0' &&
         fs.existsSync(root.kept) && st.lost_apps.length === 1 && st.lost_apps[0].version === '1.0.0',
@@ -988,12 +988,15 @@ function testGuardNested() {
         st.lost_apps.length === 0, `${r.out}\n${JSON.stringify(root.state())}`);
 }
 
-/* What a stopped reinstall set aside: its data folder waits only while the
- * app is lost. Registered again by whatever installed it, the app takes it,
- * its own newer files kept; removed for good, or by a restore, it goes; a
- * folder no record names goes. A reinstall's fallback install stopped
- * records its own version, and the tool's mode fix after a hook happens
- * before any bounce, which it never makes. */
+/* The data folders reinstalls set aside and did not put back stay
+ * recorded, every one of them: the app registered again takes the newest
+ * into an empty data folder, never over data of its own nor through a link,
+ * and never one a later reinstall of the app would replace with the folder
+ * it sets aside itself; only an uninstall, a restore that removes the app
+ * or remove-all removes them, and a folder no record names stays. Also: a
+ * reinstall's fallback install stopped records its own version, a hook's
+ * mode fix happens before any bounce and never bounces, and remove-all
+ * waits while the guard is off. */
 function testGuardStash() {
     const W = { MGU_DEPLOY_GUARD_WATCH_S: '2', FAKE_MGR_CRASH_MS: '400' };
     const stashed = () => {
@@ -1005,7 +1008,7 @@ function testGuardStash() {
         write(path.join(root.home(uid), 'data', 'note.txt'), 'old note\n');
         write(path.join(root.home(uid), 'data', 'old-only.txt'), 'old only\n');
         const r = root.run(['rollback', 'fixture_app', '--yes'], Object.assign({ FAKE_MGR_CRASH_AT: String(root.kills().length + 1) }, W));
-        root.stash = (root.state().data_stash || {}).fixture_app;
+        root.stash = ((root.state().data_stash || {}).fixture_app || [])[0];
         if (r.status !== 3 || !root.stash) throw new Error(`setup: ${r.out}`);
         // the next start
         root.reboot(Math.floor(Date.now() / 1000) - 100);
@@ -1031,7 +1034,7 @@ function testGuardStash() {
     check('stash: an app the manager registered again with data of its own keeps it; the folder set aside stays, recorded, said once',
         read(path.join(data, 'note.txt')) === 'new note\n' && read(path.join(data, 'old-only.txt')) === null &&
         (root.state().data_stash || {}).fixture_app && fs.existsSync(path.join(root.stash.path, 'note.txt')) && st.lost_apps.length === 0 &&
-        root.state().data_stash.fixture_app.held === true, `${JSON.stringify(root.state().data_stash)} ${fs.readdirSync(data)}`);
+        root.state().data_stash.fixture_app[0].held === true, `${JSON.stringify(root.state().data_stash)} ${fs.readdirSync(data)}`);
     const said = root.run(['status', '--json']);
     write(path.join(data, 'note.txt'), 'newest note\n');
     const up = root.run(['install', '--artifact', appArtifact('fixture_app', '1.2.0', true), '--yes']);
@@ -1055,6 +1058,50 @@ function testGuardStash() {
     check('stash: after a removal on purpose a fresh install gets none of the old data, nothing left set aside',
         read(path.join(data, 'note.txt')) === null && !(root.state().data_stash || {}).fixture_app &&
         !fs.readdirSync(root.p('var/opt/public/oap')).some((n) => n.startsWith('.mgu-deploy-data-')), fs.readdirSync(root.p('var/opt/public/oap')).join(' '));
+
+    // a stash held beside data of its own, then a reinstall of the app (an update, then its rollback)
+    const held = () => {
+        const root = stashed();
+        const own = managerInstalls(root);
+        write(path.join(own, 'own.txt'), 'own data\n');
+        root.status();
+        const u = root.run(['install', '--artifact', appArtifact('fixture_app', '1.2.0', true), '--yes']);
+        if (u.status !== 0 || !root.state().data_stash.fixture_app[0].held) throw new Error(`setup: ${u.out}`);
+        root.setManagerStart(Date.now() / 1000 - 90);
+        return root;
+    };
+    const stashPaths = (root) => ((root.state().data_stash || {}).fixture_app || []).map((d) => d.path);
+    const appData = (root, f) => read(path.join(root.home(readJson(root.entry('fixture_app')).userId), 'data', f));
+    root = held();
+    let rb = root.run(['rollback', 'fixture_app', '--yes']);
+    check('stash: a held folder through a reinstall that succeeds: still there and recorded, the app has the data it had',
+        rb.status === 0 && appData(root, 'own.txt') === 'own data\n' && appData(root, 'note.txt') === null &&
+        JSON.stringify(stashPaths(root)) === JSON.stringify([root.stash.path]) && fs.existsSync(path.join(root.stash.path, 'note.txt')),
+        `${rb.out}\n${JSON.stringify(root.state().data_stash)}`);
+    root = held();
+    rb = root.run(['rollback', 'fixture_app', '--yes'], { FAKE_MGR_REJECT: '1' });
+    let paths = stashPaths(root);
+    check('stash: a held folder through a reinstall that fails: both folders recorded, oldest first, both there',
+        rb.status === 1 && paths.length === 2 && paths[0] === root.stash.path && fs.existsSync(path.join(paths[0], 'note.txt')) &&
+        fs.readFileSync(path.join(paths[1], 'own.txt'), 'utf8') === 'own data\n', `${rb.out}\n${JSON.stringify(root.state().data_stash)}`);
+    root = held();
+    rb = root.run(['rollback', 'fixture_app', '--yes'], Object.assign({ FAKE_MGR_CRASH_AT: String(root.kills().length + 1) }, W));
+    paths = stashPaths(root);
+    check('stash: a held folder through a reinstall the guard stops: both folders recorded, both there',
+        rb.status === 3 && paths.length === 2 && paths[0] === root.stash.path && fs.existsSync(path.join(paths[0], 'note.txt')) &&
+        fs.readFileSync(path.join(paths[1], 'own.txt'), 'utf8') === 'own data\n', `${rb.out}\n${JSON.stringify(root.state().data_stash)}`);
+    // registered again with data of its own, then removed: every folder set aside for it goes
+    root.reboot(Math.floor(Date.now() / 1000) - 100);
+    root.setManagerStart(Date.now() / 1000 - 90);
+    fs.unlinkSync(`${root.R}.mgr.pid.crashed`);
+    fs.copyFileSync(root.p('var/opt/mgu-deploy/kept/fixture_app/fixture_app@1.1.0.tgz'), root.preinstalled('fixture_app', '1.1.0'));
+    const again = cp.spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.join(HERE, 'fake_manager.js'))}).install('fixture_app')`],
+        { env: root.env, encoding: 'utf8' });
+    if (again.status !== 0) throw new Error(again.stderr);
+    write(path.join(root.home(readJson(root.entry('fixture_app')).userId), 'data', 'newer.txt'), 'newer\n');
+    const un = root.run(['uninstall', 'fixture_app', '--yes']);
+    check('stash: an uninstall removes every folder set aside for the app, and its record',
+        un.status === 0 && paths.every((x) => !fs.existsSync(x)) && !(root.state().data_stash || {}).fixture_app, `${un.out}\n${JSON.stringify(paths)}`);
 
     // nothing deletes a data folder by inference: one no record names stays
     root = fakeRoot();
@@ -5212,7 +5259,7 @@ function testSetUpElsewhere() {
         stash.length === 1 && r.out.includes(`robertn_demo's data is kept in`) &&
         fs.readFileSync(root.p(`var/opt/public/oap/${stash[0]}/settings.json`), 'utf8') === '{"theme":"dark"}\n', r.out);
     const folder = root.p(`var/opt/public/oap/${stash[0]}`);
-    const recorded = () => ((root.state().data_stash || {}).robertn_demo || {}).path === folder;
+    const recorded = () => ((root.state().data_stash || {}).robertn_demo || []).some((d) => d.path === folder);
     check('forced update: the data folder kept is recorded for the app\'s next install', recorded(), JSON.stringify(root.state().data_stash));
     // the updater's status seconds later, and another changing command: it stays, recorded
     root.status();
