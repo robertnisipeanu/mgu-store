@@ -52,7 +52,7 @@
     "Connecting": "Forbinder",
     "Connecting{0}": "Forbinder{0}",
     "Default branch": "Standardgren",
-    "Don't use Wi-Fi": "Brug ikke Wi-Fi",
+    "Don't use Wi-Fi": "Slå Wi-Fi fra",
     "Downloading": "Downloader",
     "Downloading {0} %": "Downloader {0} %",
     "Error": "Fejl",
@@ -141,7 +141,7 @@
     "Update {0}": "Opdater {0}",
     "Updater not running": "Updater kører ikke",
     "Updater {0}": "Updater {0}",
-    "Use Wi-Fi": "Brug Wi-Fi",
+    "Use Wi-Fi": "Slå Wi-Fi til",
     "Verifying": "Verificerer",
     "Version {0}": "Version {0}",
     "Waiting": "Venter",
@@ -186,6 +186,7 @@
     "2.4 GHz": "2,4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "Tillad 5 GHz",
+    "May cause CarPlay issues": "Kan give problemer med CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Slå Maksimer kompatibilitet til på iPhone",
     "This network is 5 GHz only: CarPlay audio may drop": "Dette netværk er kun 5 GHz: CarPlay-lyd kan falde ud"
   }

@@ -52,7 +52,7 @@
     "Connecting": "Conectando",
     "Connecting{0}": "Conectando{0}",
     "Default branch": "Branch padrão",
-    "Don't use Wi-Fi": "Não usar Wi-Fi",
+    "Don't use Wi-Fi": "Desativar Wi-Fi",
     "Downloading": "Baixando",
     "Downloading {0} %": "Baixando {0} %",
     "Error": "Erro",
@@ -141,7 +141,7 @@
     "Update {0}": "Atualizar {0}",
     "Updater not running": "Atualizador não está em execução",
     "Updater {0}": "Atualizador {0}",
-    "Use Wi-Fi": "Usar Wi-Fi",
+    "Use Wi-Fi": "Ativar Wi-Fi",
     "Verifying": "Verificando",
     "Version {0}": "Versão {0}",
     "Waiting": "Aguardando",
@@ -186,6 +186,7 @@
     "2.4 GHz": "2,4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "Permitir 5 GHz",
+    "May cause CarPlay issues": "Pode causar problemas no CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "No iPhone, ative Maximizar Compatibilidade",
     "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar"
   }

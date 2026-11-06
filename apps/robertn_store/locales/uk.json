@@ -186,6 +186,7 @@
     "2.4 GHz": "2,4 ГГц",
     "5 GHz": "5 ГГц",
     "Allow 5 GHz": "Дозволити 5 ГГц",
+    "May cause CarPlay issues": "Можливі проблеми з CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "На iPhone увімкніть «Максимальна сумісність»",
     "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися"
   }

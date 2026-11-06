@@ -52,7 +52,7 @@
     "Connecting": "Bağlanıyor",
     "Connecting{0}": "Bağlanıyor{0}",
     "Default branch": "Varsayılan dal",
-    "Don't use Wi-Fi": "Wi-Fi kullanma",
+    "Don't use Wi-Fi": "Wi-Fi'ı kapat",
     "Downloading": "İndiriliyor",
     "Downloading {0} %": "İndiriliyor %{0}",
     "Error": "Hata",
@@ -141,7 +141,7 @@
     "Update {0}": "Güncelleme: {0}",
     "Updater not running": "Güncelleyici çalışmıyor",
     "Updater {0}": "Güncelleyici {0}",
-    "Use Wi-Fi": "Wi-Fi kullan",
+    "Use Wi-Fi": "Wi-Fi'ı aç",
     "Verifying": "Doğrulanıyor",
     "Version {0}": "Sürüm {0}",
     "Waiting": "Bekleniyor",
@@ -186,6 +186,7 @@
     "2.4 GHz": "2,4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "5 GHz'e izin ver",
+    "May cause CarPlay issues": "CarPlay'de sorunlara yol açabilir",
     "On the iPhone, turn on Maximize Compatibility": "iPhone'da Uyumluluğu Artır'ı açın",
     "This network is 5 GHz only: CarPlay audio may drop": "Bu ağ yalnızca 5 GHz: CarPlay sesi kesilebilir"
   }

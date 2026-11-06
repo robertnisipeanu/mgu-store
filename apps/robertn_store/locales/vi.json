@@ -52,7 +52,7 @@
     "Connecting": "Đang kết nối",
     "Connecting{0}": "Đang kết nối{0}",
     "Default branch": "Nhánh mặc định",
-    "Don't use Wi-Fi": "Không dùng Wi-Fi",
+    "Don't use Wi-Fi": "Tắt Wi-Fi",
     "Downloading": "Đang tải xuống",
     "Downloading {0} %": "Đang tải xuống {0} %",
     "Error": "Lỗi",
@@ -141,7 +141,7 @@
     "Update {0}": "Cập nhật {0}",
     "Updater not running": "Trình cập nhật không chạy",
     "Updater {0}": "Trình cập nhật {0}",
-    "Use Wi-Fi": "Dùng Wi-Fi",
+    "Use Wi-Fi": "Bật Wi-Fi",
     "Verifying": "Đang xác minh",
     "Version {0}": "Phiên bản {0}",
     "Waiting": "Đang chờ",
@@ -186,6 +186,7 @@
     "2.4 GHz": "2,4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "Cho phép 5 GHz",
+    "May cause CarPlay issues": "Có thể gây lỗi CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Trên iPhone, bật Tối đa hóa tương thích",
     "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt"
   }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.26
+
+On the Wi-Fi page, **Allow 5 GHz** has the note `May cause CarPlay
+issues` under it, and the button that switches Wi-Fi on or off reads as an
+action in every language (Romanian `Activează Wi-Fi` / `Dezactivează
+Wi-Fi`). Clearer words on the Wi-Fi page in Arabic, Finnish, Japanese,
+Polish, Romanian and Slovenian.
+
 ## 0.9.25
 
 The Wi-Fi page has **Allow 5 GHz** (mgu-uplink 0.7.6), off by default:

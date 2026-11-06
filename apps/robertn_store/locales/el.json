@@ -52,7 +52,7 @@
     "Connecting": "Γίνεται σύνδεση",
     "Connecting{0}": "Γίνεται σύνδεση{0}",
     "Default branch": "Προεπιλεγμένος κλάδος",
-    "Don't use Wi-Fi": "Χωρίς Wi-Fi",
+    "Don't use Wi-Fi": "Απενεργοποίηση Wi-Fi",
     "Downloading": "Λήψη",
     "Downloading {0} %": "Λήψη {0} %",
     "Error": "Σφάλμα",
@@ -141,7 +141,7 @@
     "Update {0}": "Ενημέρωση {0}",
     "Updater not running": "Το πρόγραμμα ενημέρωσης δεν εκτελείται",
     "Updater {0}": "Ενημερώσεις {0}",
-    "Use Wi-Fi": "Χρήση Wi-Fi",
+    "Use Wi-Fi": "Ενεργοποίηση Wi-Fi",
     "Verifying": "Επαλήθευση",
     "Version {0}": "Έκδοση {0}",
     "Waiting": "Αναμονή",
@@ -186,6 +186,7 @@
     "2.4 GHz": "2,4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "Να επιτρέπονται 5 GHz",
+    "May cause CarPlay issues": "Μπορεί να προκαλέσει προβλήματα στο CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Στο iPhone, ενεργοποιήστε τη Μεγιστοποίηση συμβατότητας",
     "This network is 5 GHz only: CarPlay audio may drop": "Δίκτυο μόνο 5 GHz: ο ήχος του CarPlay μπορεί να διακόπτεται"
   }

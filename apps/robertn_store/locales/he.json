@@ -52,7 +52,7 @@
     "Connecting": "מתחבר",
     "Connecting{0}": "מתחבר{0}",
     "Default branch": "ענף ברירת מחדל",
-    "Don't use Wi-Fi": "ללא Wi-Fi",
+    "Don't use Wi-Fi": "כבה Wi-Fi",
     "Downloading": "מוריד",
     "Downloading {0} %": "מוריד {0} %",
     "Error": "שגיאה",
@@ -141,7 +141,7 @@
     "Update {0}": "עדכון {0}",
     "Updater not running": "שירות העדכון אינו פועל",
     "Updater {0}": "שירות העדכון {0}",
-    "Use Wi-Fi": "שימוש ב-Wi-Fi",
+    "Use Wi-Fi": "הפעל Wi-Fi",
     "Verifying": "מאמת",
     "Version {0}": "גרסה {0}",
     "Waiting": "ממתין",
@@ -186,6 +186,7 @@
     "2.4 GHz": "2.4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "אפשר 5 GHz",
+    "May cause CarPlay issues": "עלול לגרום לבעיות ב-CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "ב-iPhone, הפעל את הגדלת התאימות",
     "This network is 5 GHz only: CarPlay audio may drop": "רשת זו היא 5 GHz בלבד: השמע של CarPlay עלול להיקטע"
   }

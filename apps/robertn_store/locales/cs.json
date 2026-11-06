@@ -52,7 +52,7 @@
     "Connecting": "Připojování",
     "Connecting{0}": "Připojování{0}",
     "Default branch": "Výchozí větev",
-    "Don't use Wi-Fi": "Nepoužívat Wi-Fi",
+    "Don't use Wi-Fi": "Vypnout Wi-Fi",
     "Downloading": "Stahování",
     "Downloading {0} %": "Stahování {0} %",
     "Error": "Chyba",
@@ -141,7 +141,7 @@
     "Update {0}": "Aktualizovat {0}",
     "Updater not running": "Služba aktualizací neběží",
     "Updater {0}": "Služba aktualizací {0}",
-    "Use Wi-Fi": "Používat Wi-Fi",
+    "Use Wi-Fi": "Zapnout Wi-Fi",
     "Verifying": "Ověřování",
     "Version {0}": "Verze {0}",
     "Waiting": "Čekání",
@@ -186,6 +186,7 @@
     "2.4 GHz": "2,4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "Povolit 5 GHz",
+    "May cause CarPlay issues": "Může způsobit potíže s CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Na iPhonu zapněte Maximalizovat kompatibilitu",
     "This network is 5 GHz only: CarPlay audio may drop": "Tato síť je jen 5 GHz: zvuk CarPlay může vypadávat"
   }
