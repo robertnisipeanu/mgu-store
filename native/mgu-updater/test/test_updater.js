@@ -4309,7 +4309,7 @@ function testFirmwareSetup() {
     tool('mgu-deploy', '0.9.0');
     tool('mgu-updater', '0.9.0');
     tool('fw_tool', '1.0.0');
-    const listing = (v) => publish(cat, [entry(toolKit(cat, 'fw_tool', v, {}), 'tool', 'Firmware tool'),
+    const listing = (v, req) => publish(cat, [Object.assign(entry(toolKit(cat, 'fw_tool', v, {}), 'tool', 'Firmware tool'), req ? { requires: req } : {}),
         entry(toolKit(cat, 'mgu-deploy', '0.9.0', {}), 'tool', 'Deploy tool'), entry(toolKit(cat, 'mgu-updater', '0.9.0', {}), 'tool', 'Updater')], { schema: 2 });
     const sources = path.join(M, 'sources.json');
     fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: cat, builtin: true }] }));
@@ -4438,6 +4438,17 @@ function testFirmwareSetup() {
         .then(() => {
             ok('firmware: a setup that fails is the row\'s error, and it still needs setup', /setup failed/.test(comp().error || '') && comp().needsSetup,
                 JSON.stringify(comp()));
+            // a newer version that cannot be asked for (a requirement no source has): its files laid again instead
+            ['setupfail', 'setup'].forEach((x) => rmIfThere(`${deployLog}.${x}`));
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.1.0', { no_such_tool: '1.0.0' });
+            stale();
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: a newer version the updater cannot queue leaves the stale tool to its files laid again',
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup, calls().join('\n'));
             ['fail', 'stale', 'setup', 'setupfail'].forEach((x) => rmIfThere(`${deployLog}.${x}`));
             u.server.close();
         }, (e) => {

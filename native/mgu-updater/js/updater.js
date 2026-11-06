@@ -2121,6 +2121,11 @@ class Updater {
         return null;
     }
 
+    /* Whether an install of id is queued or running. */
+    asked(id) {
+        return (!!this.busy && this.busy.id === id) || this.queue.some((q) => q.id === id);
+    }
+
     /* The ids of the installed tools providing cap. */
     providerIds(cap) {
         return (this.providers[cap] || []).map((x) => x.id);
@@ -3135,12 +3140,16 @@ class Updater {
             if (newer && !this.tried[key]) {
                 this.tried[key] = true;
                 this.relayOnFail[id] = !!s.kept && !s.setup;
-                if (this.request(id) === null) {
+                const refused = this.request(id);
+                if (refused === null && this.asked(id)) {
                     console.log(`${id}: ${s.setup ? 'needs setup' : `not working (${s.why})`}: updated to ${r.entry.version} from its source`);
                     return;
                 }
-                delete this.tried[key];
                 delete this.relayOnFail[id];
+                // refused for now (another change of it under way): asked again at the next check
+                if (refused !== null) {
+                    delete this.tried[key];
+                }
             }
             if (s.setup || this.repairs[id] === s.why) {
                 return;

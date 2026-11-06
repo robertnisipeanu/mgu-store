@@ -3,7 +3,7 @@
 ## 0.8.31
 
 - A tool a firmware update left not working, or whose install step waits (the deploy tool's `needs_setup`), is updated from its source at the first check that finds the source listing a newer version while the unit is online, each newer version once while the updater runs. Otherwise, or when that update fails, a tool the deploy tool keeps a copy of has its files laid again (`relay`), once for each reason.
-- A setup that fails is the row's `error`.
+- A setup that fails is the row's `error`. A newer version the updater cannot queue (a requirement no source has) leaves a stale tool to its files laid again.
 - A row has `needsSetup`: why the tool's install step waits. `{"op":"setup","id"}` (privileged) runs the deploy tool's `setup`, which lays the tool again from its kept copy with its step.
 - The updater requires mgu-deploy 0.8.4.
 
