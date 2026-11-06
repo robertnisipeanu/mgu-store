@@ -45,7 +45,7 @@ USB, Settings) beside:
   Installing, Removing) with its progress; `Not installable` and why (a package of an id another source's app
   holds; installed, it shows as installed, with Remove and no update), `Not for this head unit` / `For
   iDrive 8` (that version is not offered), the failure in full (above the description), what is wrong with an installed component (the updater's `problem`: `In-page drawing unavailable: <reason>` from the renderer, `Not working: <reason>` for one that does not work until it is set up again after a firmware update), `Restart pending`; and what can be done:
-  Install, Update to, Try again, Restart head unit, Undo update (where the updater offers the version before; a confirm step), Remove (a confirm step; for an app it lists the tools only that app uses, the updater's `requiredAlone`, with Remove all, which removes them too). A second renderer
+  Install, Update to, Try again, Set up (a tool whose install step waits after a firmware update, the updater's `needsSetup`; its tile and row say `Needs setup`), Restart head unit, Undo update (where the updater offers the version before; a confirm step), Remove (a confirm step; for an app it lists the tools only that app uses, the updater's `requiredAlone`, with Remove all, which removes them too). A second renderer
   installs beside the first. On iDrive 8 an app install or removal is
   queued for the next start: its row shows `Restart pending`, as a tool
   pending a restart does.
@@ -174,6 +174,7 @@ after the head unit's next start.
 | `Extended dashboard` · `Waiting` | nothing (queued) |
 | `Display bridge` · `Restart pending` | nothing (installed; active after the next reboot) |
 | `Cluster render` · `Not working` | as an installed row: installed, but not working until it is set up again (the updater's `repair`), which the updater has its source do |
+| `Cluster render` · `Needs setup` | set it up: its install step, which a firmware update left (the updater's `needsSetup`) |
 | `Car Data` · `Restart pending` | an iDrive 8 app install queued for the next start (the updater's `nextStart: "install"`): *Remove?* when `uninstallable`, which drops it; a queued removal (`nextStart: "remove"`) offers nothing |
 | `Car Data` · `Not for this head unit` | nothing (installed; the updater marks the new version `compat: "no"`); *Remove?* when `uninstallable` |
 | `DOOM` · `Failed, retry` | try again (the status line names the error); a removal the last start failed to apply is removed again (*Remove?*); an install it failed to apply is installed again, and its page also has *Remove* (when `uninstallable`), which clears it |
@@ -417,15 +418,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.27/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.28/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.27.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.27.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.28.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.28.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

@@ -119,6 +119,9 @@ function rowState(row, busy) {
     if (row.installed && row.repair && row.status !== 'update') {
         return tr("Not working");
     }
+    if (setupable(row, busy)) {
+        return tr("Needs setup");
+    }
     switch (row.status) {
     case 'update': return tr("Update {0}", row.revision && row.version === row.installed ? row.revision : row.version);
     case 'available': return tr("Install {0}", row.version);
@@ -126,8 +129,9 @@ function rowState(row, busy) {
     }
 }
 
-/* What a press on the row does: install, remove (after a confirm step), or
- * nothing. A removal the last start failed to apply is tried again. */
+/* What a press on the row does: install, set up (a tool's install step,
+ * setupable), remove (after a confirm step), or nothing. A removal the last
+ * start failed to apply is tried again. */
 function rowAction(row, busy) {
     if ((busy && busy.id === row.id) || row.queued) {
         return null;
@@ -135,10 +139,25 @@ function rowAction(row, busy) {
     if (row.error && row.applyFailed === 'remove') {
         return removable(row, busy) ? 'remove' : null;
     }
+    /* a failed Set up, with no update offered: tried again from the kept copy */
+    if (row.error && setupable(Object.assign({}, row, { error: null }), busy)) {
+        return 'setup';
+    }
     if (!notForUnit(row) && !row.blocked && (((row.status === 'update' || row.status === 'available') && !startPending(row)) || row.error)) {
         return 'install';
     }
+    if (setupable(row, busy)) {
+        return 'setup';
+    }
     return removable(row, busy) ? 'remove' : null;
+}
+
+/* Whether the installed tool's install step waits for Set up (the
+ * updater's needsSetup), with no update of it offered, and it is neither
+ * blocked nor for another head unit. */
+function setupable(row, busy) {
+    return !!row.installed && !!row.needsSetup && row.status !== 'update' && !row.error && !row.queued && !row.blocked &&
+        row.compat !== 'no' && !(busy && busy.id === row.id);
 }
 
 /* Whether the component can be removed now (after a confirm step): one
@@ -440,6 +459,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { setupable, proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.28
+
+A tool whose install step waits after a firmware update (mgu-updater
+0.8.31's `needsSetup`) shows **Needs setup**, and its page has **Set up**,
+which runs the step; a press on its row on the widget screens does the
+same, and after a Set up that failed, Try again sets it up again. Both in
+every language.
+
 ## 0.9.27
 
 The status line says **Restart head unit to install apps** while the

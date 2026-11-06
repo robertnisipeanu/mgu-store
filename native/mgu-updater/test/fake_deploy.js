@@ -49,6 +49,10 @@
  * $FAKE_DEPLOY_LOG.tiles ({ <app id>: false | "withheld" }) names the apps
  * whose tile does not show (tile_visible), "withheld" by provisioning's own
  * section (tile_withheld).
+ * $FAKE_DEPLOY_LOG.setup holds { <id>: why }: status --json's needs_setup
+ * of that tool; relay <id> --yes moves a kept stale tool there, and setup
+ * <id> --yes and an install of it clear it; while $FAKE_DEPLOY_LOG.setupfail
+ * exists, setup exits 1.
  * mgu-uplink stands for the internet: once its current version runs, the
  * lease at $FAKE_LEASE exists ($FAKE_LEASE.good copied) unless that
  * version's component.json says "test_broken": true.
@@ -212,11 +216,19 @@ function tools() {
         }
     }).filter((c) => c && c.id);
 }
+const SETUP_FILE = `${process.env.FAKE_DEPLOY_LOG}.setup`;
+const readSetup = () => (fs.existsSync(SETUP_FILE) ? JSON.parse(fs.readFileSync(SETUP_FILE, 'utf8')) : {});
+const setSetup = (id, why) => {
+    const s = readSetup();
+    if (why) s[id] = why; else delete s[id];
+    fs.writeFileSync(SETUP_FILE, JSON.stringify(s));
+};
 const STALE_FILE = `${process.env.FAKE_DEPLOY_LOG}.stale`;
 const readStale = () => (fs.existsSync(STALE_FILE) ? JSON.parse(fs.readFileSync(STALE_FILE, 'utf8')) : {});
 const withStale = (c) => {
     const s = readStale()[c.id];
-    return s ? Object.assign(c, { stale: s.why, kept: !!s.kept }) : Object.assign(c, { stale: null });
+    const out = s ? Object.assign(c, { stale: s.why, kept: !!s.kept }) : Object.assign(c, { stale: null });
+    return c.kind === 'tool' ? Object.assign(out, { needs_setup: readSetup()[c.id] || null }) : out;
 };
 const unstale = (id) => {
     const s = readStale();
@@ -225,6 +237,24 @@ const unstale = (id) => {
         fs.writeFileSync(STALE_FILE, JSON.stringify(s));
     }
 };
+if (cmd === 'relay' || cmd === 'setup') {
+    const id = process.argv[3], st = readStale()[id];
+    if (cmd === 'relay' && st && st.kept) {
+        unstale(id);
+        setSetup(id, st.why);
+    } else if (cmd === 'setup') {
+        if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.setupfail`)) {
+            process.stderr.write(`mgu-deploy: ${id}: activate exited 3\n`);
+            process.exit(1);
+        }
+        if (!readSetup()[id]) {
+            process.stderr.write(`mgu-deploy: ${id} needs no setup\n`);
+            process.exit(2);
+        }
+        setSetup(id, null);
+    }
+    process.exit(0);
+}
 if (cmd === 'status') {
     const pending = (process.env.FAKE_PENDING || '').split(',').filter(Boolean).concat(pendingIds());
     console.log(JSON.stringify({ unit: { hmi: process.env.FAKE_UNIT_HMI || 'ID7', firmware: 'test firmware' },
@@ -275,6 +305,7 @@ if (fs.existsSync(path.join(tmp, 'component.json'))) {
         .forEach((v) => cp.execFileSync('rm', ['-rf', path.join(root, 'versions', v)]));
     uplinkRuns(root);
     unstale(c.id);
+    setSetup(c.id, null);
     console.log(`${c.id} ${c.version} installed`);
     if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.failafter`)) {
         process.stderr.write(`mgu-deploy: ${c.id} ${c.version}: activate failed, and its deactivate too\n`);

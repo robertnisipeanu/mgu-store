@@ -116,6 +116,8 @@
     "Restart head unit to show {0}": "Reinicia la unidad para mostrar {0}",
     "Restart head unit to install apps": "Reinicia la unidad para instalar apps",
     "Not working": "No funciona",
+    "Needs setup": "Requiere configuración",
+    "Set up": "Configurar",
     "Restart the head unit to finish setup": "Reinicia la unidad principal para terminar",
     "Restarting": "Reiniciando",
     "Saved": "Guardada",

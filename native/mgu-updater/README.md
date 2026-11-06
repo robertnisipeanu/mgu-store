@@ -909,10 +909,19 @@ each request, and whenever it changes (at most every 250 ms):
   `/var/opt/<id>/status.json` (mgu-render's page template), else for an
   installed component that does not work `Not working: <repair>`, else null.
   `repair`: why an installed component does not work until it is set up
-  again (the deploy tool's `stale`, after a firmware update), else null;
-  one the deploy tool does not set up again itself is installed again from
-  its source (its version there), once for each reason while the updater
-  runs; not the updater itself, nor an app on iDrive 8.
+  again (the deploy tool's `stale`, after a firmware update), else null.
+  At each check (not the updater itself, nor an app on iDrive 8), a tool
+  its source lists newer, while online, is updated from it, each newer
+  version once while the updater runs. Otherwise, once for each reason, a
+  tool the deploy tool keeps a copy of has its files laid again (`relay`;
+  also when that update fails): files only for one with an install step,
+  which is left; else the component is installed again from its source
+  (its version there). `needsSetup`: why the installed tool's install step
+  (`activate`, `postInstall`) waits after a firmware update (the deploy
+  tool's `needs_setup`), else null; such a tool is updated at the first
+  check that finds its source listing a newer version while online, and
+  Set up (`setup`) runs its step from the copy kept, a failure its row's
+  `error`.
   `tileHidden`: an installed app of ours whose tile does not show (the
   deploy tool's `tile_visible`, not one provisioning's own section hides,
   `tile_withheld`) after an install that restarted the app
@@ -984,6 +993,7 @@ Store says it at each connection (below, "The Store's update").
 |---|---|
 | `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"): at once with the secret; without it while a Store older than 0.9.16 is installed, within the restart limits |
 | `{"op":"uninstall","id","tools"?}` | removes an `uninstallable` component (every app but the Store); then each of `tools`, which must be among the app row's `requiredAlone` (else nothing is queued), a tool before those it requires. A tool whose turn comes while something installed still requires it (the app's removal failed) stays; an app whose removal waits for the next start (iDrive 8) requires none |
+| `{"op":"setup","id"}` | Set up: a tool whose row has `needsSetup` laid again by the deploy tool from its kept copy with its install step (`mgu-deploy.sh setup <id> --yes`) |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A repo that is already a source is refused |

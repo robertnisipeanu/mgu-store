@@ -706,6 +706,7 @@ class Store extends OnlineApp {
         }
         case 'remove': this._removeId = act.id; this._remove(act.tools); break;
         case 'undo': this._undoId = act.id; this._undo(); break;
+        case 'setup': this._setup(act.id); break;
         case 'restart': this._restart(); break;
         case 'source-remove': this._sourceId = act.id; this._removeSource(); break;
         case 'account-remove': this._tokenId = act.id; this._removeAccount(); break;
@@ -930,6 +931,8 @@ class Store extends OnlineApp {
         const action = rowAction(row, this._st.busy);
         if (action === 'install') {
             this._install(row.id);
+        } else if (action === 'setup') {
+            this._setup(row.id);
         } else if (action === 'remove') {
             this._removeId = row.id;
             this._openPage('remove', { name: 'confirm', kind: 'remove', id: row.id });
@@ -952,6 +955,15 @@ class Store extends OnlineApp {
             const along = Array.isArray(tools) && tools.length ? { tools } : {};
             logger.info(`uninstall ${row.id}${along.tools ? ` with ${tools.join(', ')}` : ''}`);
             this._privileged(Object.assign({ op: 'uninstall', id: row.id }, along));
+        }
+    }
+
+    /* Set up: the tool's install step, which a firmware update left for it (the updater's setup). */
+    _setup(id) {
+        const row = this._component(id);
+        if (row && rowAction(row, this._st.busy) === 'setup') {
+            logger.info(`set up ${row.id}`);
+            this._privileged({ op: 'setup', id: row.id });
         }
     }
 

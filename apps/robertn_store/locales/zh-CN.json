@@ -120,6 +120,8 @@
     "Restart head unit to show {0}": "重启主机以显示 {0}",
     "Restart head unit to install apps": "重启主机以安装应用",
     "Not working": "无法使用",
+    "Needs setup": "待设置",
+    "Set up": "设置",
     "Restart the head unit to finish setup": "请重启主机以完成设置",
     "Restarting": "重启中",
     "Saved": "已保存",

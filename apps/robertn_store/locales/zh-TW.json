@@ -118,6 +118,8 @@
     "Restart head unit to show {0}": "重新啟動主機以顯示 {0}",
     "Restart head unit to install apps": "重新啟動主機以安裝應用程式",
     "Not working": "無法運作",
+    "Needs setup": "待設定",
+    "Set up": "設定",
     "Restart the head unit to finish setup": "請重新啟動主機以完成設定",
     "Restarting": "重新啟動中",
     "Saved": "已儲存",
