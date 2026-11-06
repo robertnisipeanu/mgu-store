@@ -337,8 +337,9 @@ the uplink reads the access point's frequency (`wifi.freq`, mgu-uplink
 0.7.5), the row and the joined network's row on the page add its band
 (`Online · <network> · 5 GHz`, `· 2.4 GHz`). Above the networks, while Wi-Fi is on
 and the uplink has it (mgu-uplink 0.7.6, `wifi.allow5ghz`), **Allow 5
-GHz** is a switch, with `May cause CarPlay issues` under it (`wifi-5ghz`, through mgu-updater 0.8.28): off, the
-uplink joins a network seen on 2.4 GHz there only. Joined on 5 GHz to a
+GHz** is a switch (`wifi-5ghz`, through mgu-updater 0.8.28) with `May
+cause CarPlay issues` under it: off, the uplink joins a network seen on
+2.4 GHz there only. Joined on 5 GHz to a
 network without 2.4 GHz with it off (`wifi.fiveOnly`), the panel says
 `This network is 5 GHz only: CarPlay audio may drop`, or, for a network
 named like an iPhone's hotspot, `On the iPhone, turn on Maximize

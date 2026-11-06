@@ -5,8 +5,8 @@
 On the Wi-Fi page, **Allow 5 GHz** has the note `May cause CarPlay
 issues` under it, and the button that switches Wi-Fi on or off reads as an
 action in every language (Romanian `Activează Wi-Fi` / `Dezactivează
-Wi-Fi`). Clearer words on the Wi-Fi page in Arabic, Finnish, Japanese,
-Polish, Romanian and Slovenian.
+Wi-Fi`). Clearer words on the Wi-Fi page in Finnish, Japanese, Polish,
+Romanian and Slovenian.
 
 ## 0.9.25
 
