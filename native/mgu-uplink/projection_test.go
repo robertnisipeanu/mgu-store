@@ -433,7 +433,7 @@ func TestWiFiSessionMGU(t *testing.T) {
 	// the provider's ticks wait while the test drives the supplicant as
 	// connect and the next tick would
 	p.reqMu.Lock()
-	err := p.wpa.join("Other", "", false) // secured, not saved: refused before SELECT_NETWORK
+	err := p.wpa.join("Other", "", false, false) // secured, not saved: refused before SELECT_NETWORK
 	p.wpa.reload()
 	p.wpa.hold(scanHold{idle: true}) // the session ended
 	state := p.wpa.status()["wpa_state"]

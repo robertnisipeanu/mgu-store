@@ -45,6 +45,8 @@ type supplicant struct {
 	held      bool      // DISCONNECT sent by hold
 	heldRun   time.Time // to the supplicant started then
 	inSession bool      // hold's last call had a session
+	joinID    int       // the network a join set up
+	noLimit   bool      // it refused a freq_list: networks on every band
 }
 
 // What wpa_supplicant 2.10 prints when it can't read wpa.conf at the start.
@@ -306,23 +308,107 @@ func (s *supplicant) saved() map[string]int {
 	return map[string]int{}
 }
 
-// networks is the newest scan, marked with the saved networks, and the
-// saved names.
-func (s *supplicant) networks() ([]wifiNetwork, []string) {
+// networks is the newest scan, marked with the saved networks, the saved
+// names, and each name's bands in the scan.
+func (s *supplicant) networks() ([]wifiNetwork, []string, map[string]int) {
 	saved := s.saved()
 	names := make([]string, 0, len(saved))
 	for n := range saved {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	nets := []wifiNetwork{}
+	var rows []wifiNetwork
 	if r, err := s.request("SCAN_RESULTS"); err == nil {
-		nets = parseScan(r)
+		rows = parseScanRows(r)
 	}
+	nets := bestNetworks(rows)
 	for i := range nets {
 		_, nets[i].Saved = saved[nets[i].SSID]
 	}
-	return nets, names
+	return nets, names, bandsOf(rows)
+}
+
+// limited is the saved networks on 2.4 GHz only (wpa.conf's freq_list, as
+// SAVE_CONFIG wrote it).
+func (s *supplicant) limited() map[string]bool {
+	out := map[string]bool{}
+	b, err := os.ReadFile(s.conf)
+	if err != nil {
+		return out
+	}
+	nets, _ := parseWPAConf(b)
+	for _, n := range nets {
+		out[n.ssid] = n.band24
+	}
+	return out
+}
+
+// setLimit puts network id on 2.4 GHz only (freq_list and scan_freq) or on
+// every band, when it is not so already: a SET_NETWORK flushes the
+// network's PMKSA, which would end a WPA3 (SAE) association on it. A
+// supplicant that refuses the freq_list keeps networks on every band.
+// Reports whether it is on 2.4 GHz only now and whether that changed.
+func (s *supplicant) setLimit(id int, on bool) (bool, bool, error) {
+	on = on && !s.noLimit
+	list := `""`
+	if on {
+		list = freqList(freqs24)
+	}
+	r, err := s.request(fmt.Sprintf("GET_NETWORK %d freq_list", id))
+	if err != nil {
+		return false, false, err
+	}
+	if cur := strings.TrimSpace(r); only24(cur) == on && (on || cur == "FAIL" || cur == "") {
+		return on, false, nil
+	}
+	for _, key := range []string{"freq_list", "scan_freq"} {
+		if err := s.ok(fmt.Sprintf("SET_NETWORK %d %s %s", id, key, list)); err != nil {
+			if !on {
+				return true, true, err
+			}
+			logf("wifi: %v; networks on every band", err)
+			s.noLimit = true
+			now, _, err := s.setLimit(id, false)
+			return now, true, err
+		}
+	}
+	return on, true, nil
+}
+
+// limit puts a saved network on 2.4 GHz only, or on every band, and saves
+// it. Never the network it is associated with (setLimit).
+func (s *supplicant) limit(ssid string, on bool) (bool, error) {
+	id, ok := s.saved()[ssid]
+	if !ok {
+		return false, fmt.Errorf("%s is not saved", ssid)
+	}
+	now, changed, err := s.setLimit(id, on)
+	if err != nil || !changed {
+		return now, err
+	}
+	return now, s.ok("SAVE_CONFIG")
+}
+
+// widen has the join under way go on on every band.
+func (s *supplicant) widen() error {
+	s.mu.Lock()
+	id := s.joinID
+	s.mu.Unlock()
+	if _, _, err := s.setLimit(id, false); err != nil {
+		return err
+	}
+	return s.selectNetwork(id)
+}
+
+// selectNetwork selects network id, which ends a DISCONNECT that hold sent.
+func (s *supplicant) selectNetwork(id int) error {
+	if err := s.ok(fmt.Sprintf("SELECT_NETWORK %d", id)); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.held = false
+	s.mu.Unlock()
+	return nil
 }
 
 // join adds the network (or updates a saved one's password), gives it the
@@ -331,7 +417,7 @@ func (s *supplicant) networks() ([]wifiNetwork, []string) {
 // that only an association with that password reaches COMPLETED: selecting
 // the network it is joined to would keep the old association. Nothing is
 // saved yet: joined saves, reload drops it.
-func (s *supplicant) join(ssid, psk string, open bool) error {
+func (s *supplicant) join(ssid, psk string, open, limit24 bool) error {
 	id, have := s.saved()[ssid]
 	if !have {
 		if psk == "" && !open {
@@ -367,17 +453,19 @@ func (s *supplicant) join(ssid, psk string, open bool) error {
 		cmds = []string{fmt.Sprintf("SET_NETWORK %d key_mgmt NONE", id)}
 	}
 	// the newest choice first among the saved ones
-	cmds = append(cmds, fmt.Sprintf("SET_NETWORK %d priority %d", id, time.Now().Unix()/60),
-		fmt.Sprintf("SELECT_NETWORK %d", id))
+	cmds = append(cmds, fmt.Sprintf("SET_NETWORK %d priority %d", id, time.Now().Unix()/60))
 	for _, c := range cmds {
 		if err := s.ok(c); err != nil {
 			return err
 		}
 	}
+	if _, _, err := s.setLimit(id, limit24); err != nil {
+		return err
+	}
 	s.mu.Lock()
-	s.held = false // SELECT_NETWORK ended the DISCONNECT
+	s.joinID = id
 	s.mu.Unlock()
-	return nil
+	return s.selectNetwork(id)
 }
 
 // joined keeps what join set up: every saved network on again, all saved.
@@ -480,7 +568,10 @@ func parseSaved(r string) map[string]int {
 
 // parseScan reads SCAN_RESULTS: a "bssid / frequency / signal level /
 // flags / ssid" header, then tab-separated rows (bestNetworks).
-func parseScan(r string) []wifiNetwork {
+func parseScan(r string) []wifiNetwork { return bestNetworks(parseScanRows(r)) }
+
+// parseScanRows is SCAN_RESULTS' rows, each with its band.
+func parseScanRows(r string) []wifiNetwork {
 	var rows []wifiNetwork
 	for i, l := range strings.Split(r, "\n") {
 		f := strings.Split(l, "\t")
@@ -491,10 +582,11 @@ func parseScan(r string) []wifiNetwork {
 		if err != nil {
 			continue
 		}
-		rows = append(rows, wifiNetwork{SSID: unescape(f[4]), Signal: sig,
+		freq, _ := strconv.Atoi(f[1])
+		rows = append(rows, wifiNetwork{SSID: unescape(f[4]), Signal: sig, bands: bandBit(freq),
 			Secure: strings.Contains(f[3], "WPA") || strings.Contains(f[3], "RSN") || strings.Contains(f[3], "WEP")})
 	}
-	return bestNetworks(rows)
+	return rows
 }
 
 // bestNetworks is one row per name, the strongest; hidden ones left out;
@@ -504,6 +596,12 @@ func bestNetworks(rows []wifiNetwork) []wifiNetwork {
 	for _, n := range rows {
 		if old, ok := best[n.SSID]; n.SSID != "" && (!ok || old.Signal < n.Signal) {
 			best[n.SSID] = n
+		}
+	}
+	for name, b := range bandsOf(rows) {
+		if n, ok := best[name]; ok {
+			n.bands = b
+			best[name] = n
 		}
 	}
 	out := make([]wifiNetwork, 0, len(best))

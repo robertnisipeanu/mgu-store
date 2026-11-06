@@ -20,11 +20,11 @@
  * component, once confirmed), "source-add", "source-probe", "source-remove", "token-add",
  * "token-remove" (an account, once confirmed), "login-start" / "login-cancel" (GitHub
  * sign-in, which adds an account), "web" (Phone access on or off), and the
- * ones the updater relays to mgu-uplink: "wifi-enable", "wifi-scan",
+ * ones the updater relays to mgu-uplink: "wifi-enable", "wifi-5ghz" (Allow 5 GHz), "wifi-scan",
  * "wifi-connect" (with the password typed for a secured network not saved
  * yet), "wifi-forget" (once confirmed) and "uplink-prefer" (the preferred
  * connection). On the drawn screens, Settings has Wi-Fi while the uplink
- * reports it (state.uplink.wifi): the networks, Use Wi-Fi, Scan and the
+ * reports it (state.uplink.wifi): the networks, Allow 5 GHz, Use Wi-Fi, Scan and the
  * preferred connection; the widget screens have none of it.
  *
  * The start screen has the status line, Check for updates, the progress of
@@ -103,7 +103,7 @@ const IF_FRONTCCU = 'de.bmw.infotainment.controlelements.FrontCCU';
 /* The HMI's context, by the instance of the CID: iDrive 7's HMI offers the first, iDrive 8's the second. */
 const HMI_CONTEXTS = [['de.bmw.infotainment.hmi.hmicontext.HMIContext', 'HMI_CID'],
     ['de.bmw.infotainment.hmi.hmicontext2.HMIContext2', '1']];
-const UPLINK_OPS = ['uplink-prefer', 'wifi-enable', 'wifi-scan', 'wifi-connect', 'wifi-forget'];
+const UPLINK_OPS = ['uplink-prefer', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget'];
 
 /* The drawn screens' host states and their proxies (tools/gen_rhmi.js). */
 const PROXIES = [48, 24, 12];
@@ -722,6 +722,13 @@ class Store extends OnlineApp {
             const w = wifiOf({ connected: this._connected, st: this._st });
             if (w) {
                 this._uplink({ op: 'wifi-enable', on: !w.enabled });
+            }
+            break;
+        }
+        case 'wifi-5ghz': {
+            const w = wifiOf({ connected: this._connected, st: this._st });
+            if (w) {
+                this._uplink({ op: 'wifi-5ghz', on: !w.allow5ghz });
             }
             break;
         }

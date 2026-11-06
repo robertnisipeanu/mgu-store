@@ -184,6 +184,9 @@
     "Use http://host:port or socks5://host:port": "Folosiți http://host:port sau socks5://host:port",
     "Paused for wireless {0}": "În pauză: {0} wireless",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Permite 5 GHz",
+    "On the iPhone, turn on Maximize Compatibility": "Pe iPhone, activați Maximizare compatibilitate",
+    "This network is 5 GHz only: CarPlay audio may drop": "Această rețea este doar 5 GHz: sunetul CarPlay se poate întrerupe"
   }
 }

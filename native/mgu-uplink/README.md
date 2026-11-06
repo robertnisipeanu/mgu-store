@@ -198,6 +198,39 @@ scans. They are switched on again as soon as that uplink is offline or gone,
 and for 8 s after a `wifi-scan` request. A start or a Wi-Fi switch-on adds
 them switched on.
 
+#### The band
+
+Wireless CarPlay and Android Auto use the car's 5 GHz P2P group when they
+can, and a station on the same band shares the radio's core with them. So
+with **Allow 5 GHz** off (`wifi_5ghz = off`, the default; the
+`wifi-5ghz` request), a network seen on 2.4 GHz in the scan results is
+joined on 2.4 GHz only: it gets a `freq_list` and a `scan_freq` of the
+2.4 GHz channels (2412 to 2472 MHz), as `AddNetwork` properties in the
+car's supplicant and as `SET_NETWORK` on `wlan1`, and they are kept in
+`wpa.conf` as `freq_list=` and `scan_freq=` lines. With Allow 5 GHz on, a
+network is joined on either band. Nobody is cut off:
+
+- a network seen on 5 GHz only (an iPhone's hotspot with Maximize
+  Compatibility off) is joined there; `wifi.fiveOnly` says so while
+  joined;
+- a join on 2.4 GHz only that has not joined after 20 s goes on on every
+  band, and is saved so; a saved network on 2.4 GHz only that is in range
+  there but not joined for 40 s is on every band until the service
+  restarts or Allow 5 GHz is switched;
+- a supplicant that refuses a `freq_list` (an `AddNetwork` with one, or
+  `SET_NETWORK`) has the network added or set again without it, once, and
+  is not asked for one again until it is taken again;
+- a saved network on 2.4 GHz only that is not in range is looked for with a
+  scan of every channel every 2 min while Wi-Fi is not joined (not during
+  a wireless session, below), so that a network now on 5 GHz only is found
+  and joined there;
+- a network saved without a `freq_list` (before this) joins on any band
+  until it is seen on 2.4 GHz.
+
+A network's band changes only while the supplicant is not on it (on
+`wlan1` a `SET_NETWORK` flushes the network's PMKSA, which would end a WPA3
+association): a joined network stays as it is until it is left.
+
 #### During wireless CarPlay and Android Auto
 
 A station scan takes the radio off the channel the phone projects on. So
@@ -270,7 +303,9 @@ scan request, `signal` dBm, `backend` what joins (`mgu-wpa` or
 (`carplay`, `android-auto`) while the supplicant makes no scans of its own
 during that wireless session, `freq` the frequency (MHz) of the access
 point joined while it can be read (the car's supplicant: `CurrentBSS`,
-then its `Frequency`; `wlan1`: `STATUS`'s `freq=`), left out otherwise.
+then its `Frequency`; `wlan1`: `STATUS`'s `freq=`), left out otherwise,
+`allow5ghz` the Allow 5 GHz setting and `fiveOnly` true while joined on
+5 GHz, with Allow 5 GHz off, to a network not seen on 2.4 GHz.
 The log says `wifi: joined "<network>" on <interface> at <MHz> MHz
 (<band>)` when Wi-Fi joins and whenever that frequency changes. `error` keeps a failed join ("could not join
 … (wrong password, or out of range)", after 40 s) until the next request.
@@ -298,12 +333,13 @@ updater only, which relays these; `status.json` shows the results.
 |---|---|
 | `{"op": "prefer", "kind": "phone"}` | the group tried first (`wifi`, `usb`, `phone`; `""` for none); takes effect within 5 s |
 | `{"op": "wifi-enable", "on": true}` | Wi-Fi on or off |
+| `{"op": "wifi-5ghz", "on": true}` | Allow 5 GHz: joins on either band (The band, above) |
 | `{"op": "wifi-scan"}` | scan now |
 | `{"op": "wifi-connect", "ssid": "…", "psk": "…"}` | join a network, with its password; saved once joined. Without `psk`: a saved network, or an open one |
 | `{"op": "wifi-forget", "ssid": "…"}` | forget a saved network |
 
-The reply is `{"ok": true}` or `{"ok": false, "error": "…"}`. `prefer` and
-`wifi-enable` are kept in `settings_conf`. A password goes to wpa_supplicant
+The reply is `{"ok": true}` or `{"ok": false, "error": "…"}`. `prefer`,
+`wifi-enable` and `wifi-5ghz` are kept in `settings_conf`. A password goes to wpa_supplicant
 only: no log line, reply or status names it.
 
 ## Config
@@ -314,7 +350,7 @@ replaced by every update. The unit's own settings go in
 replaces the shipped value, except `uids`, which adds to it), which updates keep.
 What the Store sets through requests goes in
 `/var/opt/mgu-uplink/mgu-uplink.settings.conf`, read after the local conf
-and kept by updates. Only `preferred` and `wifi` are read from it; any other
+and kept by updates. Only `preferred`, `wifi` and `wifi_5ghz` are read from it; any other
 line, or a value this version does not know, is logged and skipped, so an
 older version still starts after a rollback.
 
@@ -325,6 +361,7 @@ older version still starts after a rollback.
 | `uplink` | `auto`, or `netdev:<ifname>` for an existing interface (no Wi-Fi, no `preferred`) |
 | `preferred` | `wifi`, `usb` or `phone`, tried first; empty (shipped) for the order above; any other value is logged and ignored |
 | `wifi` | `on` or `off` (shipped) |
+| `wifi_5ghz` | `on`: Wi-Fi joins on either band; `off` (shipped): on 2.4 GHz only where a network is seen there |
 | `table`, `rule_pref` | routing table (110) and first rule priority (1100) |
 
 Components that need the internet add themselves without touching the
@@ -341,7 +378,7 @@ local conf is ignored, and the start logs it: the uplink takes whatever is
 plugged in.
 
 `uplink`, `table` and the other keys take effect at the next service
-restart; `preferred` and `wifi` set by a request take effect at once.
+restart; `preferred`, `wifi` and `wifi_5ghz` set by a request take effect at once.
 
 ## Build, install, update
 

@@ -184,6 +184,9 @@
     "Use http://host:port or socks5://host:port": "Gunakan http://host:port atau socks5://host:port",
     "Paused for wireless {0}": "Dijeda untuk {0} nirkabel",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Izinkan 5 GHz",
+    "On the iPhone, turn on Maximize Compatibility": "Di iPhone, nyalakan Maksimalkan Kompatibilitas",
+    "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus"
   }
 }

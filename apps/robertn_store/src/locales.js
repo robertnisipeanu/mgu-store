@@ -188,7 +188,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "استخدم http://host:port أو socks5://host:port",
    "Paused for wireless {0}": "متوقف مؤقتًا لأجل {0} اللاسلكي",
    "2.4 GHz": "2.4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "السماح بـ 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "على iPhone، شغّل «تعظيم التوافق»",
+   "This network is 5 GHz only: CarPlay audio may drop": "هذه الشبكة 5 GHz فقط: قد ينقطع صوت CarPlay"
   }
  },
  {
@@ -378,7 +381,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Použijte http://host:port nebo socks5://host:port",
    "Paused for wireless {0}": "Pozastaveno: bezdrátový {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Povolit 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Na iPhonu zapněte Maximalizovat kompatibilitu",
+   "This network is 5 GHz only: CarPlay audio may drop": "Tato síť je jen 5 GHz: zvuk CarPlay může vypadávat"
   }
  },
  {
@@ -568,7 +574,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Brug http://host:port eller socks5://host:port",
    "Paused for wireless {0}": "På pause: trådløs {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Tillad 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Slå Maksimer kompatibilitet til på iPhone",
+   "This network is 5 GHz only: CarPlay audio may drop": "Dette netværk er kun 5 GHz: CarPlay-lyd kan falde ud"
   }
  },
  {
@@ -758,7 +767,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "http://host:port oder socks5://host:port verwenden",
    "Paused for wireless {0}": "Pausiert für kabelloses {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "5 GHz zulassen",
+   "On the iPhone, turn on Maximize Compatibility": "Auf dem iPhone „Kompatibilität maximieren“ einschalten",
+   "This network is 5 GHz only: CarPlay audio may drop": "Dieses Netz ist nur 5 GHz: CarPlay-Ton kann aussetzen"
   }
  },
  {
@@ -948,7 +960,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Χρησιμοποιήστε http://host:port ή socks5://host:port",
    "Paused for wireless {0}": "Σε παύση: ασύρματο {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Να επιτρέπονται 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Στο iPhone, ενεργοποιήστε τη Μεγιστοποίηση συμβατότητας",
+   "This network is 5 GHz only: CarPlay audio may drop": "Δίκτυο μόνο 5 GHz: ο ήχος του CarPlay μπορεί να διακόπτεται"
   }
  },
  {
@@ -1138,7 +1153,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port",
    "Paused for wireless {0}": "En pausa: {0} inalámbrico",
    "2.4 GHz": "2.4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Permitir 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "En el iPhone, activa Maximizar compatibilidad",
+   "This network is 5 GHz only: CarPlay audio may drop": "Esta red es solo de 5 GHz: el audio de CarPlay puede cortarse"
   }
  },
  {
@@ -1328,7 +1346,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port",
    "Paused for wireless {0}": "En pausa: {0} inalámbrico",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Permitir 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "En el iPhone, activa Maximizar compatibilidad",
+   "This network is 5 GHz only: CarPlay audio may drop": "Esta red es solo de 5 GHz: el audio de CarPlay puede cortarse"
   }
  },
  {
@@ -1518,7 +1539,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Käytä muotoa http://host:port tai socks5://host:port",
    "Paused for wireless {0}": "Tauolla: langaton {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Salli 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Laita iPhonessa päälle Maksimoi yhteensopivuus",
+   "This network is 5 GHz only: CarPlay audio may drop": "Tämä verkko on vain 5 GHz: CarPlayn ääni voi katkeilla"
   }
  },
  {
@@ -1708,7 +1732,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port",
    "Paused for wireless {0}": "En pause : {0} sans fil",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Autoriser 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Sur l'iPhone, activez Optimiser la compatibilité",
+   "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper"
   }
  },
  {
@@ -1898,7 +1925,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Utilisez http://host:port ou socks5://host:port",
    "Paused for wireless {0}": "En pause : {0} sans fil",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Autoriser 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Sur l'iPhone, activez Optimiser la compatibilité",
+   "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper"
   }
  },
  {
@@ -2088,7 +2118,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "יש להשתמש ב-http://host:port או socks5://host:port",
    "Paused for wireless {0}": "מושהה עבור {0} אלחוטי",
    "2.4 GHz": "2.4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "אפשר 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "ב-iPhone, הפעל את הגדלת התאימות",
+   "This network is 5 GHz only: CarPlay audio may drop": "רשת זו היא 5 GHz בלבד: השמע של CarPlay עלול להיקטע"
   }
  },
  {
@@ -2278,7 +2311,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Használja a http://host:port vagy socks5://host:port formát",
    "Paused for wireless {0}": "Szünetel: vezeték nélküli {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "5 GHz engedélyezése",
+   "On the iPhone, turn on Maximize Compatibility": "Az iPhone-on kapcsolja be: Kompatibilitás maximalizálása",
+   "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat"
   }
  },
  {
@@ -2468,7 +2504,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Gunakan http://host:port atau socks5://host:port",
    "Paused for wireless {0}": "Dijeda untuk {0} nirkabel",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Izinkan 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Di iPhone, nyalakan Maksimalkan Kompatibilitas",
+   "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus"
   }
  },
  {
@@ -2658,7 +2697,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Usa http://host:port o socks5://host:port",
    "Paused for wireless {0}": "In pausa per {0} wireless",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Consenti 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Sull'iPhone, attiva Massimizza compatibilità",
+   "This network is 5 GHz only: CarPlay audio may drop": "Questa rete è solo a 5 GHz: l'audio di CarPlay può interrompersi"
   }
  },
  {
@@ -2848,7 +2890,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "http://host:port または socks5://host:port を使用",
    "Paused for wireless {0}": "ワイヤレス{0}中は一時停止",
    "2.4 GHz": "2.4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "5 GHzを許可",
+   "On the iPhone, turn on Maximize Compatibility": "iPhoneで「互換性を優先」をオン",
+   "This network is 5 GHz only: CarPlay audio may drop": "5 GHz 専用：CarPlay の音声が途切れる場合があります"
   }
  },
  {
@@ -3038,7 +3083,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "http://host:port 또는 socks5://host:port 사용",
    "Paused for wireless {0}": "무선 {0} 사용 중 일시 중지",
    "2.4 GHz": "2.4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "5 GHz 허용",
+   "On the iPhone, turn on Maximize Compatibility": "iPhone에서 호환성 최대화를 켜세요",
+   "This network is 5 GHz only: CarPlay audio may drop": "이 네트워크는 5 GHz 전용입니다: CarPlay 오디오가 끊길 수 있습니다"
   }
  },
  {
@@ -3228,7 +3276,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Bruk http://host:port eller socks5://host:port",
    "Paused for wireless {0}": "På pause: trådløs {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Tillat 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Slå på Maksimer kompatibilitet på iPhone",
+   "This network is 5 GHz only: CarPlay audio may drop": "Dette nettverket er bare 5 GHz: CarPlay-lyden kan falle ut"
   }
  },
  {
@@ -3420,7 +3471,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Gebruik http://host:port of socks5://host:port",
    "Paused for wireless {0}": "Gepauzeerd: draadloze {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "5 GHz toestaan",
+   "On the iPhone, turn on Maximize Compatibility": "Zet op de iPhone Maximaliseer compatibiliteit aan",
+   "This network is 5 GHz only: CarPlay audio may drop": "Dit netwerk is alleen 5 GHz: CarPlay-audio kan wegvallen"
   }
  },
  {
@@ -3610,7 +3664,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Użyj http://host:port lub socks5://host:port",
    "Paused for wireless {0}": "Wstrzymane: {0} bez kabla",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Zezwalaj na 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Na iPhonie włącz Maksymalizuj zgodność",
+   "This network is 5 GHz only: CarPlay audio may drop": "Ta sieć działa tylko w 5 GHz: dźwięk CarPlay może zanikać"
   }
  },
  {
@@ -3800,7 +3857,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Use http://host:port ou socks5://host:port",
    "Paused for wireless {0}": "Em pausa: {0} sem fio",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Permitir 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "No iPhone, ative Maximizar Compatibilidade",
+   "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar"
   }
  },
  {
@@ -3990,7 +4050,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Utilize http://host:port ou socks5://host:port",
    "Paused for wireless {0}": "Em pausa: {0} sem fios",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Permitir 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "No iPhone, ative Maximizar compatibilidade",
+   "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar"
   }
  },
  {
@@ -4180,7 +4243,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Folosiți http://host:port sau socks5://host:port",
    "Paused for wireless {0}": "În pauză: {0} wireless",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Permite 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Pe iPhone, activați Maximizare compatibilitate",
+   "This network is 5 GHz only: CarPlay audio may drop": "Această rețea este doar 5 GHz: sunetul CarPlay se poate întrerupe"
   }
  },
  {
@@ -4370,7 +4436,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port",
    "Paused for wireless {0}": "Пауза: беспроводной {0}",
    "2.4 GHz": "2,4 ГГц",
-   "5 GHz": "5 ГГц"
+   "5 GHz": "5 ГГц",
+   "Allow 5 GHz": "Разрешить 5 ГГц",
+   "On the iPhone, turn on Maximize Compatibility": "На iPhone включите «Максимальная совместимость»",
+   "This network is 5 GHz only: CarPlay audio may drop": "Эта сеть только 5 ГГц: звук CarPlay может прерываться"
   }
  },
  {
@@ -4560,7 +4629,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Použite http://host:port alebo socks5://host:port",
    "Paused for wireless {0}": "Pozastavené: bezdrôtové {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Povoliť 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Na iPhone zapnite Maximalizovať kompatibilitu",
+   "This network is 5 GHz only: CarPlay audio may drop": "Táto sieť je len 5 GHz: zvuk CarPlay môže vypadávať"
   }
  },
  {
@@ -4750,7 +4822,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Uporabite http://host:port ali socks5://host:port",
    "Paused for wireless {0}": "Zaustavljeno: brezžični {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Dovoli 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "V iPhonu vklopite Maksimiraj združljivost",
+   "This network is 5 GHz only: CarPlay audio may drop": "To omrežje je samo 5 GHz: zvok CarPlay se lahko prekinja"
   }
  },
  {
@@ -4940,7 +5015,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Använd http://host:port eller socks5://host:port",
    "Paused for wireless {0}": "Pausad för trådlös {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Tillåt 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Slå på Maximera kompatibilitet på iPhone",
+   "This network is 5 GHz only: CarPlay audio may drop": "Nätverket är bara 5 GHz: CarPlay-ljudet kan avbrytas"
   }
  },
  {
@@ -5130,7 +5208,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "ใช้ http://host:port หรือ socks5://host:port",
    "Paused for wireless {0}": "หยุดชั่วคราวขณะใช้ {0} ไร้สาย",
    "2.4 GHz": "2.4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "อนุญาต 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "เปิด เพิ่มความเข้ากันได้สูงสุด บน iPhone",
+   "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย"
   }
  },
  {
@@ -5320,7 +5401,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "http://host:port veya socks5://host:port kullanın",
    "Paused for wireless {0}": "Duraklatıldı: kablosuz {0}",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "5 GHz'e izin ver",
+   "On the iPhone, turn on Maximize Compatibility": "iPhone'da Uyumluluğu Artır'ı açın",
+   "This network is 5 GHz only: CarPlay audio may drop": "Bu ağ yalnızca 5 GHz: CarPlay sesi kesilebilir"
   }
  },
  {
@@ -5510,7 +5594,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Використовуйте http://host:port або socks5://host:port",
    "Paused for wireless {0}": "Пауза: бездротовий {0}",
    "2.4 GHz": "2,4 ГГц",
-   "5 GHz": "5 ГГц"
+   "5 GHz": "5 ГГц",
+   "Allow 5 GHz": "Дозволити 5 ГГц",
+   "On the iPhone, turn on Maximize Compatibility": "На iPhone увімкніть «Максимальна сумісність»",
+   "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися"
   }
  },
  {
@@ -5700,7 +5787,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port",
    "Paused for wireless {0}": "Tạm dừng vì {0} không dây",
    "2.4 GHz": "2,4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "Cho phép 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "Trên iPhone, bật Tối đa hóa tương thích",
+   "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt"
   }
  },
  {
@@ -5892,7 +5982,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "请使用 http://host:port 或 socks5://host:port",
    "Paused for wireless {0}": "因无线{0}已暂停",
    "2.4 GHz": "2.4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "允许 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "请在 iPhone 上打开“最大兼容性”",
+   "This network is 5 GHz only: CarPlay audio may drop": "此网络仅支持 5 GHz：CarPlay 音频可能中断"
   }
  },
  {
@@ -6084,7 +6177,10 @@ module.exports = [
    "Use http://host:port or socks5://host:port": "請使用 http://host:port 或 socks5://host:port",
    "Paused for wireless {0}": "因無線{0}已暫停",
    "2.4 GHz": "2.4 GHz",
-   "5 GHz": "5 GHz"
+   "5 GHz": "5 GHz",
+   "Allow 5 GHz": "允許 5 GHz",
+   "On the iPhone, turn on Maximize Compatibility": "請在 iPhone 上開啟「最大相容性」",
+   "This network is 5 GHz only: CarPlay audio may drop": "此網路僅支援 5 GHz：CarPlay 音訊可能中斷"
   }
  }
 ];

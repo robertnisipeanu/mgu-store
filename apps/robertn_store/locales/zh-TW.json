@@ -186,6 +186,9 @@
     "Use http://host:port or socks5://host:port": "請使用 http://host:port 或 socks5://host:port",
     "Paused for wireless {0}": "因無線{0}已暫停",
     "2.4 GHz": "2.4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "允許 5 GHz",
+    "On the iPhone, turn on Maximize Compatibility": "請在 iPhone 上開啟「最大相容性」",
+    "This network is 5 GHz only: CarPlay audio may drop": "此網路僅支援 5 GHz：CarPlay 音訊可能中斷"
   }
 }

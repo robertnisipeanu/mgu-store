@@ -184,6 +184,9 @@
     "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port",
     "Paused for wireless {0}": "Пауза: беспроводной {0}",
     "2.4 GHz": "2,4 ГГц",
-    "5 GHz": "5 ГГц"
+    "5 GHz": "5 ГГц",
+    "Allow 5 GHz": "Разрешить 5 ГГц",
+    "On the iPhone, turn on Maximize Compatibility": "На iPhone включите «Максимальная совместимость»",
+    "This network is 5 GHz only: CarPlay audio may drop": "Эта сеть только 5 ГГц: звук CarPlay может прерываться"
   }
 }

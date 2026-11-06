@@ -975,7 +975,7 @@ Store says it at each connection (below, "The Store's update").
 | `{"op":"web","enable":true\|false}` | the phone page on or off, kept across restarts (`state/web.json`) |
 | `{"op":"logs","unit","lines"}` | `{"type":"logs","unit","text"}`: a journal for the phone page |
 | `{"op":"uplink-prefer","kind"}` | the uplink's preferred connection: `wifi`, `usb`, `phone` (`""` for none), relayed as its `prefer` ("The uplink") |
-| `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi, relayed as they are ("The uplink") |
+| `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-5ghz","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi, relayed as they are ("The uplink") |
 
 A refused request gets `{"type":"error","op",…,"error"}`; one without the
 right secret, `"error":"forbidden"`. The direct answer to a request
@@ -1016,8 +1016,8 @@ requests take the secret as `opts.secret` or `setSecret()`).
 
 The Store talks to the updater only; the uplink's requests socket
 (`uplink_ctl`, `/run/mgu-uplink/ctl.sock`, root only, mgu-uplink 0.7.0)
-is the updater's to reach. `uplink-prefer`, `wifi-enable`, `wifi-scan`,
-`wifi-connect` and `wifi-forget` (privileged) are checked here (a kind of
+is the updater's to reach. `uplink-prefer`, `wifi-enable`, `wifi-5ghz` (mgu-uplink 0.7.6),
+`wifi-scan`, `wifi-connect` and `wifi-forget` (privileged) are checked here (a kind of
 up to 16 lower-case letters, a network name of 1 to 32 bytes, a password
 of 8 to 63 printable ASCII characters or none, `on` true or false), then
 sent on as one request on a new connection, `uplink-prefer` as `prefer`,

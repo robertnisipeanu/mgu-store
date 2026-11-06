@@ -184,6 +184,9 @@
     "Use http://host:port or socks5://host:port": "Használja a http://host:port vagy socks5://host:port formát",
     "Paused for wireless {0}": "Szünetel: vezeték nélküli {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "5 GHz engedélyezése",
+    "On the iPhone, turn on Maximize Compatibility": "Az iPhone-on kapcsolja be: Kompatibilitás maximalizálása",
+    "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat"
   }
 }
