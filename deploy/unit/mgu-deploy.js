@@ -4124,10 +4124,10 @@ function keepStash(id, stash, uid, gid) {
     saveState(s);
     say(id + "'s data is kept in " + stash + ' for its next install');
 }
+var reinstalling = {};
 /* The newest folder set aside for app id into its home; not while a
  * reinstall of the app puts the folder it set aside in this run back. True
  * when state changed. */
-var reinstalling = {};
 function takeNewestStash(state, id) {
     var list = stashesOf(state, id), d = list[list.length - 1];
     if (!d || reinstalling[id] || !carryData(id, d.path, d.uid, d.gid, false)) return false;
@@ -4135,7 +4135,6 @@ function takeNewestStash(state, id) {
     if (!list.length) delete state.data_stash[id];
     return true;
 }
-function carryStash(id, state) { takeNewestStash(state, id); }
 function forgetStash(state, id) {
     stashesOf(state, id).forEach(function (d) {
         rmrf(d.path);
@@ -4150,7 +4149,7 @@ function settleStashes(state) {
     var changed = false;
     Object.keys(state.data_stash || {}).forEach(function (id) {
         var list = stashesOf(state, id), there = list.filter(function (d) { return d && fs.existsSync(d.path); });
-        if (there.length !== list.length || !Array.isArray(state.data_stash[id])) changed = true;
+        if (there.length !== list.length) changed = true;
         if (!there.length) { delete state.data_stash[id]; return; }
         state.data_stash[id] = there;
         if (!installedApp(id) || guardWhy()) return;
@@ -6673,7 +6672,7 @@ function installRun(args, afresh) {
                         if (fs.existsSync(path.join(preinstalledDir(), a.id + '@' + a.version + '.tgz'))) recordApp(a.id, a.version, a.file);
                     }, function () { installApp(a, state, decisions[a.id]); });
                     keepPackage(a);
-                    carryStash(a.id, state);
+                    takeNewestStash(state, a.id);
                 }
                 syncDropIns();
                 /* a tool's earlier current folder stays until here, for a rollback */
