@@ -910,16 +910,18 @@ each request, and whenever it changes (at most every 250 ms):
   installed component that does not work `Not working: <repair>`, else null.
   `repair`: why an installed component does not work until it is set up
   again (the deploy tool's `stale`, after a firmware update), else null.
-  Once for each reason while the updater runs (not the updater itself, nor
-  an app on iDrive 8): a tool its source lists newer, while online, is
-  updated from it; else a tool the deploy tool keeps a copy of has its
-  files laid again (`relay`; when that update fails, too), its install
-  step left; else the component is installed again from its source (its
-  version there). `needsSetup`: why the installed tool's install step
+  At each check (not the updater itself, nor an app on iDrive 8), a tool
+  its source lists newer, while online, is updated from it, each newer
+  version once while the updater runs. Otherwise, once for each reason, a
+  tool the deploy tool keeps a copy of has its files laid again (`relay`;
+  also when that update fails): files only for one with an install step,
+  which is left; else the component is installed again from its source
+  (its version there). `needsSetup`: why the installed tool's install step
   (`activate`, `postInstall`) waits after a firmware update (the deploy
-  tool's `needs_setup`), else null; such a tool is updated once its source
-  lists a newer version and the unit is online, and Set up (`setup`) runs
-  its step from the copy kept.
+  tool's `needs_setup`), else null; such a tool is updated at the first
+  check that finds its source listing a newer version while online, and
+  Set up (`setup`) runs its step from the copy kept, a failure its row's
+  `error`.
   `tileHidden`: an installed app of ours whose tile does not show (the
   deploy tool's `tile_visible`, not one provisioning's own section hides,
   `tile_withheld`) after an install that restarted the app

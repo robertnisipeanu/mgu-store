@@ -51,7 +51,8 @@
  * section (tile_withheld).
  * $FAKE_DEPLOY_LOG.setup holds { <id>: why }: status --json's needs_setup
  * of that tool; relay <id> --yes moves a kept stale tool there, and setup
- * <id> --yes and an install of it clear it.
+ * <id> --yes and an install of it clear it; while $FAKE_DEPLOY_LOG.setupfail
+ * exists, setup exits 1.
  * mgu-uplink stands for the internet: once its current version runs, the
  * lease at $FAKE_LEASE exists ($FAKE_LEASE.good copied) unless that
  * version's component.json says "test_broken": true.
@@ -242,6 +243,10 @@ if (cmd === 'relay' || cmd === 'setup') {
         unstale(id);
         setSetup(id, st.why);
     } else if (cmd === 'setup') {
+        if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.setupfail`)) {
+            process.stderr.write(`mgu-deploy: ${id}: activate exited 3\n`);
+            process.exit(1);
+        }
         if (!readSetup()[id]) {
             process.stderr.write(`mgu-deploy: ${id} needs no setup\n`);
             process.exit(2);

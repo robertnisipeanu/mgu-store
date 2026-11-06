@@ -4396,7 +4396,49 @@ function testFirmwareSetup() {
             const c = calls();
             ok('firmware: an update that fails falls back to laying its files again',
                 c.length === 2 && /fw_tool@1\.1\.0\.tgz/.test(c[0]) && c[1] === 'relay fw_tool --yes' && comp().needsSetup, c.join('\n'));
-            ['fail', 'stale', 'setup'].forEach((x) => rmIfThere(`${deployLog}.${x}`));
+            // the next check, the same updater: that version is not asked for again
+            fs.writeFileSync(deployLog, '');
+            return u.check().then(() => idle('a second check'));
+        })
+        .then(() => {
+            ok('firmware: a newer version whose update failed is not asked for again by the same updater', calls().length === 0, calls().join('\n'));
+            rmIfThere(`${deployLog}.fail`);
+            // one updater: a tool first-install left needing setup, offline at first, then online
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.1.0');
+            rmIfThere(`${deployLog}.stale`);
+            fs.writeFileSync(`${deployLog}.setup`, JSON.stringify({ fw_tool: 'installed under firmware old' }));
+            online(false);
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: one updater offline: a tool that needs setup is left as it is', calls().length === 0 && comp().needsSetup, calls().join('\n'));
+            return u.check().then(() => idle('offline again'));
+        })
+        .then(() => {
+            online(true);
+            return u.check().then(() => idle('online'));
+        })
+        .then(() => {
+            ok('firmware: the same updater, online: the tool that needs setup is updated from its source',
+                calls().length === 1 && /fw_tool@1\.1\.0\.tgz/.test(calls()[0]) && !comp().needsSetup, calls().join('\n'));
+            // a failing setup: the row's error, the Store's usual failed state
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.0.0');
+            stale();
+            return fresh();
+        })
+        .then(() => {
+            fs.writeFileSync(`${deployLog}.setupfail`, '');
+            return ask(conf.socket, { op: 'setup', id: 'fw_tool', secret: u.secret });
+        })
+        .then(() => idle('a failing setup'))
+        .then(() => {
+            ok('firmware: a setup that fails is the row\'s error, and it still needs setup', /setup failed/.test(comp().error || '') && comp().needsSetup,
+                JSON.stringify(comp()));
+            ['fail', 'stale', 'setup', 'setupfail'].forEach((x) => rmIfThere(`${deployLog}.${x}`));
             u.server.close();
         }, (e) => {
             if (u) u.server.close();

@@ -1060,6 +1060,8 @@ class Updater {
         this.setup = {};
         // the stale tools whose update from their source falls back to laying their files again
         this.relayOnFail = {};
+        // the newer versions of stale or needs-setup tools asked of their source, by <id>@<version>
+        this.tried = {};
         // the reinstalls of them asked of a source since the updater started, by id: the why each was asked for
         this.repairs = {};
         // apps of ours MainApp's registry lost, their package kept (lostOf); the deploy tool's
@@ -2142,7 +2144,6 @@ class Updater {
         return needed ? null : prev;
     }
 
-    /* Queues id's return to its version before (undoTo). */
     /* Set up: the deploy tool lays the tool again from its kept copy with
      * its install step (setup), for a tool that needs it. */
     requestSetup(id) {
@@ -2190,6 +2191,7 @@ class Updater {
             });
     }
 
+    /* Queues id's return to its version before (undoTo). */
     requestRollback(id) {
         if (this.rebooting) {
             return 'the head unit is restarting';
@@ -3107,46 +3109,50 @@ class Updater {
 
     /* A component the deploy tool says is not working (a firmware update
      * took what it set up outside /var/opt), or a tool whose install step
-     * waits (needs setup), once for each reason while the updater runs: a
-     * tool its source lists newer, while online, is updated from it, which
-     * runs the step of that version; else a tool with a copy kept has its
-     * files laid again (relay, its step left for its next install or Set
-     * up), and one without has its source install it again (its version
-     * there). Not the updater itself (its reinstall restarts it, and
-     * first-install installs it), nor an app on iDrive 8, whose deploy tool
-     * installs no current app afresh. */
+     * waits (needs setup), at each check. A tool its source lists newer,
+     * while online, is updated from it, which runs the step of that version:
+     * each newer version once while the updater runs (tried), its failure
+     * leaving a stale tool's files laid again. Otherwise, once for each
+     * reason: a stale tool with a copy kept has its files laid again (relay;
+     * its step, when it has one, left for its next install or Set up), and
+     * one without has its source install it again (its version there). Not
+     * the updater itself (its reinstall restarts it, and first-install
+     * installs it), nor an app on iDrive 8, whose deploy tool installs no
+     * current app afresh. */
     repairStale() {
         const online = readLease(this.conf).online;
         const ids = Object.keys(this.stale).concat(Object.keys(this.setup).filter((id) => !this.stale[id]));
         ids.forEach((id) => {
-            const s = this.stale[id] || { why: `setup: ${this.setup[id]}`, kept: true, kind: 'tool', setup: true };
-            if (id === SELF || this.repairs[id] === s.why || (this.own || []).indexOf(id) < 0 ||
-                (s.kind === 'app' && this.unit && this.unit.hmi === 'ID8')) {
+            const s = this.stale[id] || { kept: true, kind: 'tool', setup: true };
+            if (id === SELF || (this.own || []).indexOf(id) < 0 || (s.kind === 'app' && this.unit && this.unit.hmi === 'ID8')) {
                 return;
             }
             const r = this.resolved().get(id);
             const have = this.installedVersion(id, s.kind);
             const newer = !!r && online && s.kind === 'tool' && !r.entry.blocked && !r.entry.unlisted && !!have &&
                 catalogLib.compareVersions(r.entry.version, have) > 0 && catalogLib.compat(r.entry.mguHmi, this.unit && this.unit.hmi) !== 'no';
-            // a stale one whose update fails has its files laid again
-            if (newer && s.kept && !s.setup) {
-                this.relayOnFail[id] = true;
-            }
-            if (newer && this.request(id) === null) {
-                console.log(`${id}: ${s.setup ? 'needs setup' : `not working (${s.why})`}: updated to ${r.entry.version} from its source`);
-                this.repairs[id] = s.why;
-            } else if (s.kind === 'tool' && s.kept) {
-                if (s.setup) {
-                    this.repairs[id] = s.why;
+            const key = newer ? `${id}@${r.entry.version}` : null;
+            if (newer && !this.tried[key]) {
+                this.tried[key] = true;
+                this.relayOnFail[id] = !!s.kept && !s.setup;
+                if (this.request(id) === null) {
+                    console.log(`${id}: ${s.setup ? 'needs setup' : `not working (${s.why})`}: updated to ${r.entry.version} from its source`);
                     return;
                 }
+                delete this.tried[key];
+                delete this.relayOnFail[id];
+            }
+            if (s.setup || this.repairs[id] === s.why) {
+                return;
+            }
+            if (s.kind === 'tool' && s.kept) {
                 console.log(`${id}: not working (${s.why}): its files laid again from the copy the deploy tool keeps`);
                 this.repairs[id] = s.why;
                 this.enqueue({ op: 'relay', id });
                 if (!this.busy) {
                     this.next();
                 }
-            } else if (!s.kept && r && !s.setup && this.request(id) === null) {
+            } else if (r && this.request(id) === null) {
                 console.log(`${id}: not working (${s.why}): installed again from its source`);
                 this.repairs[id] = s.why;
             }
