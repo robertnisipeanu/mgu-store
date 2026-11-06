@@ -339,7 +339,13 @@ function request(job, url, target, headers, hops, sock, from, settle) {
                 emit({ progress: bytes, total });
             }
         });
-        res.on('aborted', () => stop({ error: 'connection closed mid-download', retry: true }));
+        // Node before 8.10 (the 2019 MGU's 8.9.4) also says aborted when the connection
+        // closes after the whole answer while the file has not taken all of it yet
+        res.on('aborted', () => {
+            if (!res.complete) {
+                stop({ error: 'connection closed mid-download', retry: true });
+            }
+        });
         res.pipe(out);
         out.on('close', () => {
             if (!failure && total !== null && bytes !== total) {

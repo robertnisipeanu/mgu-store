@@ -1056,7 +1056,7 @@ js/web.js                the phone page
 updater.conf             defaults
 systemd/mgu-updater.service
 component.json           the tool component (deploy tool format)
-test/                    offline tests (test/run.sh: Node 8.16.2 in Docker)
+test/                    offline tests (test/run.sh: Node 8.16.2 in Docker; MGU_TEST_NODE_VERSION=8.9.4 for the 2019 MGU's)
 ```
 
 ## Tests

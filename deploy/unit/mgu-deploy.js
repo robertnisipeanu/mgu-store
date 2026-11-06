@@ -54,7 +54,7 @@ process.umask(0o022);
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.8.1';
+var VERSION = '0.8.2';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -246,8 +246,23 @@ function chownMaybe(p, uid, gid) {
     if (FAKE) return;
     fs.chownSync(p, uid, gid);
 }
+/* Blocks for ms. Node before 8.10 (the 2019 MGU's 8.9.4) has no Atomics:
+ * there a sleep child waits, killed at the timeout, so the wait takes no
+ * CPU and keeps millisecond precision with BusyBox's whole-second sleep.
+ * Only while no child can be started does it spin, 50 ms at a time. */
 function sleepMs(ms) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    if (typeof Atomics === 'object' && typeof SharedArrayBuffer === 'function') {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+        return;
+    }
+    var end = monoS() * 1000 + ms;
+    for (var left = ms; left > 0; left = end - monoS() * 1000) {
+        var r = cp.spawnSync('sleep', [String(Math.ceil(left / 1000) + 1)], { timeout: Math.ceil(left), stdio: 'ignore' });
+        if (r.error && r.error.code !== 'ETIMEDOUT') {
+            var spinTo = monoS() * 1000 + Math.min(left, 50);
+            while (monoS() * 1000 < spinTo) { /* no child: spin this slice */ }
+        }
+    }
 }
 function run(cmd, args, opts) {
     opts = opts || {};
