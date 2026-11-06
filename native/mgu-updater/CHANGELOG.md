@@ -1,5 +1,13 @@
 # Updater changelog
 
+## 0.8.30
+
+- An app of ours MainApp's registry no longer has while the deploy tool keeps its package (its `status --json` `lost_apps`, as oapcontroller's wipe leaves them) is installed again from that package, the Store first, once per start of the head unit (`state/boot.json`, by the new `boot_id` setting), and not while the deploy tool's MainApp guard holds app changes back. Our installed apps are looked at every 15 s. An app removed through the Store, the deploy tool's uninstall or its restore has no kept package and stays removed.
+- After an install that restarted the app manager (the deploy tool's `last_bounce_at` moved), an installed app of ours whose tile does not show (`tile_visible` false, and not hidden by provisioning's own flags, `tile_withheld`) has `tileHidden` in its row until the next start of the head unit.
+- The state has `mainappGuard`: why app changes wait for the next start of the head unit (the deploy tool's `mainapp_guard`), else null.
+- A deploy tool run its MainApp guard stopped (exit 3) is neither an error nor checked, rolled back or tried again: what it changed stays for the next start, and a Store update's trial ends. Going back the guard stopped says which version comes back at the next start.
+- The updater requires mgu-deploy 0.8.3.
+
 ## 0.8.29
 
 - Downloads work on Node 8.9.4 (2019 MGU, firmware `D_19w31.3`): a download whose answer came whole is kept when that Node reports it aborted, as it does when the server closes the connection while the file is still being written.

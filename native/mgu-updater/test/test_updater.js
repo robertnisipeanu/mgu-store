@@ -4135,6 +4135,147 @@ function testAppRemove() {
         });
 }
 
+/* Apps of ours oapcontroller's wipe took, installed again from the package
+ * the deploy tool keeps (once per start, not while its guard holds app
+ * changes back, never one removed on purpose); and the tile line after an
+ * install that restarted the app manager, until the next start. */
+function testSelfRepair() {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'selfrepair');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const cat = path.join(M, 'cat');
+    const kept = path.join(M, 'kept');
+    [M, opt, oap, cat, kept, path.join(M, 'shm'), path.join(M, 'media')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog });
+    delete process.env.FAKE_LEASE;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    ['mgu-deploy', 'mgu-updater'].forEach((id) => {
+        mkdirp(path.join(opt, id, 'versions', '0.9.0'));
+        fs.writeFileSync(path.join(opt, id, 'versions', '0.9.0', 'component.json'), JSON.stringify({ id, kind: 'tool', version: '0.9.0' }));
+        fs.symlinkSync('versions/0.9.0', path.join(opt, id, 'current'));
+    });
+    const reg = (id) => path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`);
+    const installed = (id, version, uid) => {
+        mkdirp(path.dirname(reg(id)));
+        mkdirp(path.join(oap, `oap_${uid}`, 'source'));
+        fs.writeFileSync(reg(id), JSON.stringify({ userId: uid }));
+        fs.writeFileSync(path.join(oap, `oap_${uid}`, 'source', 'package.json'), JSON.stringify({ name: id, version, mguLocalOnly: true }));
+    };
+    installed('robertn_store', '0.9.0', 13001);
+    installed('cat_app', '1.0.0', 13002);
+    installed('gone_app', '1.0.0', 13003);
+    publish(cat, [entry(appTgz(cat, 'robertn_store', '0.9.0'), 'app', 'Store'), entry(appTgz(cat, 'cat_app', '1.1.0'), 'app', 'Cat'),
+        entry(appTgz(cat, 'gone_app', '1.0.0'), 'app', 'Gone')], { schema: 2 });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: cat, builtin: true }] }));
+    const bootFile = path.join(M, 'boot_id');
+    fs.writeFileSync(bootFile, 'boot-1\n');
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: path.join(M, 'state'), tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: '', boot_id: bootFile,
+        github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD, github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    fs.writeFileSync(conf.mounts, 'proc /proc proc rw 0 0\n');
+    // the packages the deploy tool keeps, and the wipe that leaves them
+    const keptStore = appTgz(kept, 'robertn_store', '0.9.0');
+    const keptCat = appTgz(kept, 'cat_app', '1.1.0');
+    const wipe = () => ['robertn_store', 'cat_app', 'gone_app'].forEach((id) => {
+        try {
+            fs.unlinkSync(reg(id));
+        } catch (e) { /* not registered */ }
+    });
+    fs.writeFileSync(`${deployLog}.lost`, JSON.stringify([{ id: 'cat_app', version: '1.1.0', package: keptCat },
+        { id: 'robertn_store', version: '0.9.0', package: keptStore }]));
+    fs.writeFileSync(`${deployLog}.tiles`, JSON.stringify({ cat_app: false, gone_app: 'withheld' }));
+    const installs = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^install --artifact/.test(l));
+    let u = new Updater(conf);
+    const comp = (id) => u.state().components.find((c) => c.id === id) || {};
+    const idle = (what) => until(() => u.busy || u.queue.length, (b) => !b, 30000, what);
+    return u.serve()
+        .then(() => u.refresh())
+        .then(() => u.check())
+        .then(() => {
+            ok('self-repair: nothing lost, nothing installed', installs().length === 0 && !u.state().mainappGuard, installs().join('\n'));
+            // the deploy tool's MainApp guard stops the run (exit 3)
+            fs.writeFileSync(`${deployLog}.fail`, '3');
+            return ask(conf.socket, { op: 'install', id: 'cat_app' });
+        })
+        .then(() => idle('cat_app stopped by the guard'))
+        .then(() => new Promise((r) => setTimeout(r, 1000)))
+        .then(() => {
+            ok('guard stop: an install the deploy tool\'s guard stopped is no error, and is not tried again',
+                installs().length === 1 && !comp('cat_app').error && !comp('cat_app').queued, JSON.stringify(comp('cat_app')));
+            fs.unlinkSync(`${deployLog}.fail`);
+            fs.writeFileSync(`${deployLog}.bounces`, '');
+            return ask(conf.socket, { op: 'install', id: 'cat_app' });
+        })
+        .then(() => idle('cat_app updated'))
+        .then(() => {
+            ok('tile: an update that restarted the app manager, an app of ours whose tile does not show: the row says so',
+                comp('cat_app').installed === '1.1.0' && comp('cat_app').tileHidden === true && comp('robertn_store').tileHidden === false,
+                JSON.stringify([comp('cat_app'), comp('robertn_store')]));
+            ok('tile: not an app provisioning\'s own section hides (a restart does not show it)', comp('gone_app').tileHidden === false,
+                JSON.stringify(comp('gone_app')));
+            fs.unlinkSync(`${deployLog}.bounces`);
+            wipe();
+            u.watchLost();
+            return until(() => [u.busy, u.queue.length, fs.existsSync(reg('robertn_store')), fs.existsSync(reg('cat_app'))],
+                (s) => !s[0] && !s[1] && s[2] && s[3], 30000, 'the lost apps back');
+        })
+        .then(() => {
+            const i = installs();
+            ok('self-repair: after a wipe the Store and our other lost app are installed again from their kept packages, the Store first',
+                i.length === 4 && /verified\/robertn_store@0\.9\.0\.tgz --yes$/.test(i[2]) && /verified\/cat_app@1\.1\.0\.tgz --yes$/.test(i[3]), i.join('\n'));
+            ok('self-repair: an app removed on purpose (no kept package) stays removed', !fs.existsSync(reg('gone_app')));
+            wipe();
+            u.watchLost();
+            return new Promise((r) => setTimeout(r, 1500)).then(() => idle('a second wipe looked at'));
+        })
+        .then(() => {
+            ok('self-repair: once per start: a second wipe in the same start installs nothing',
+                installs().length === 4 && !fs.existsSync(reg('robertn_store')), installs().join('\n'));
+            u.server.close();
+            // the next start, with the guard holding app changes back
+            fs.writeFileSync(bootFile, 'boot-2\n');
+            fs.writeFileSync(`${deployLog}.guard`, 'the app manager stopped 12s after mgu-deploy restarted it');
+            u = new Updater(conf);
+            return u.refresh();
+        })
+        .then(() => new Promise((r) => setTimeout(r, 1000)))
+        .then(() => {
+            ok('self-repair: not while the deploy tool\'s guard holds app changes back; the state says why',
+                installs().length === 4 && u.state().mainappGuard === 'the app manager stopped 12s after mgu-deploy restarted it', installs().join('\n'));
+            fs.unlinkSync(`${deployLog}.guard`);
+            return u.refresh();
+        })
+        .then(() => idle('repaired in the next start'))
+        .then(() => {
+            ok('self-repair: the next start installs them again',
+                installs().length === 6 && fs.existsSync(reg('robertn_store')) && fs.existsSync(reg('cat_app')), installs().join('\n'));
+            ok('tile: the next start clears the tile line, and an install without a restart of the app manager sets none',
+                comp('cat_app').installed === '1.1.0' && comp('cat_app').tileHidden === false, JSON.stringify(comp('cat_app')));
+            // going back stopped by the guard: the version it goes to comes back at the next start
+            fs.writeFileSync(`${deployLog}.previous`, JSON.stringify({ cat_app: '1.0.0' }));
+            fs.writeFileSync(`${deployLog}.rollbackexit`, '3');
+            return u.refresh().then(() => u.rollback({ id: 'cat_app', why: '1.1.0 did not start' }));
+        })
+        .then(() => {
+            ok('guard stop: going back the guard stopped says which version comes back at the next start',
+                u.errors.cat_app === '1.1.0 did not start; 1.0.0 comes back at the next start' && comp('cat_app').installed === '1.1.0',
+                JSON.stringify(u.errors.cat_app));
+            ['lost', 'tiles', 'previous', 'rollbackexit'].forEach((x) => fs.unlinkSync(`${deployLog}.${x}`));
+        });
+}
+
 /* Undo update: what offers it (the deploy tool keeps the version before,
  * nothing strands), the rollback op, the last start's failed check, and
  * the Store's update undone when the new Store starts but never says hello. */
@@ -6066,6 +6207,7 @@ function main() {
             .then(() => testIdrive7(certs).catch((e) => ok('idrive7-apps installer scenario', false, e.stack)))
             .then(() => testIcons().catch((e) => ok('icons scenario', false, e.stack)))
             .then(() => testAppRemove().catch((e) => ok('app remove scenario', false, e.stack)))
+            .then(() => testSelfRepair().catch((e) => ok('self-repair scenario', false, e.stack)))
             .then(() => testUndo().catch((e) => ok('undo scenario', false, e.stack)))
             .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
             .then(() => testProxyLease().catch((e) => ok('build proxy lease scenario', false, e.stack)))

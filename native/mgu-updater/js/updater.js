@@ -38,6 +38,8 @@ const ID = catalogLib.ID;
 
 const HERE = __dirname;
 const SELF = 'mgu-updater';
+// the deploy tool's exit status when its MainApp guard stopped the run: what it changed stays
+const GUARD_STOPPED = 3;
 const HANDOVER_EXIT = 75;
 // How long a version on trial keeps trying to reach the catalog. The last
 // attempt, its refresh and the deploy tool's answer take up to about 3 min
@@ -464,6 +466,22 @@ function staleOf(st) {
 
 function pendingOf(st) {
     return ((st && st.pending_reboot) || []).map((p) => (p && p.id) || p);
+}
+
+/* Apps of ours MainApp's registry lost while the deploy tool keeps their
+ * package (status --json lost_apps): [{ id, version, package }]. */
+function lostOf(st) {
+    return ((st && Array.isArray(st.lost_apps)) ? st.lost_apps : []).filter((a) => a && typeof a.id === 'string' && ID.test(a.id) &&
+        catalogLib.SEMVER.test(a.version) && typeof a.package === 'string' && path.isAbsolute(a.package));
+}
+
+/* This start of the head unit's id, '' when unreadable. */
+function bootId(conf) {
+    try {
+        return fs.readFileSync(conf.boot_id || '/proc/sys/kernel/random/boot_id', 'utf8').trim();
+    } catch (e) {
+        return '';
+    }
 }
 
 /* iDrive 8's app changes queued for the next start, by id: 'install' or
@@ -1028,6 +1046,23 @@ class Updater {
         this.stale = {};
         // the reinstalls of them asked of a source since the updater started, by id: the why each was asked for
         this.repairs = {};
+        // apps of ours MainApp's registry lost, their package kept (lostOf); the deploy tool's
+        // MainApp guard (why app changes wait for the next start, or null); its last bounce (epoch s);
+        // our installed apps, and those whose tile does not show
+        this.lost = [];
+        this.guard = null;
+        this.lastBounceAt = null;
+        this.ownApps = [];
+        this.tilesHidden = [];
+        // this start of the head unit: the apps installed again from their kept package, and those
+        // whose tile an install that restarted the app manager left hidden (state/boot.json)
+        this.boot = { boot: bootId(conf), restored: [], hidden: [] };
+        try {
+            const b = readJson(path.join(conf.state_dir, 'boot.json'));
+            if (b.boot === this.boot.boot && Array.isArray(b.restored) && Array.isArray(b.hidden)) {
+                this.boot = b;
+            }
+        } catch (e) { /* none for this start */ }
         try {
             const seen = readJson(path.join(conf.state_dir, 'apply-seen.json'));
             this.applySeen = seen && typeof seen === 'object' && !Array.isArray(seen) ? seen : {};
@@ -1505,6 +1540,8 @@ class Updater {
                 previous: row.installed && ours ? this.undoTo(unit) : null,
                 // the installed tools only this app requires, which its removal may take along
                 requiredAlone: row.installed && ours && entry.kind === 'app' ? this.requiredAlone(row.id, all) : [],
+                // an app of ours whose tile an install that restarted the app manager left hidden, until the next start
+                tileHidden: !!row.installed && ours && entry.kind === 'app' && this.boot.hidden.indexOf(unit) >= 0,
                 error: this.errors[row.id] || (failed && failed.why) || this.verifyError(unit) || null,
                 // what the last start failed to apply, while its error shows
                 applyFailed: !this.errors[row.id] && failed ? failed.op : null
@@ -1528,6 +1565,8 @@ class Updater {
             privacy: this.privacy,
             // the proxy downloads go through (README.md, "Through a proxy"): its host:port, never its user name or password
             proxy: proxyState(this.conf.proxy, this.fetcher.proxyError),
+            // why app changes wait for the next start of the head unit (the deploy tool's MainApp guard), or null
+            mainappGuard: this.guard,
             // one line for clients that know a single catalog (the Store 0.3)
             catalog: {
                 commit: (this.src.get(SELF_SOURCE_ID) || {}).commit || null,
@@ -2116,15 +2155,25 @@ class Updater {
         const key = item.id;
         const id = item.unit || item.id;
         const from = this.installedVersion(id);
+        const to = this.previous[id] || null;
         this.busy = { id: key, op: 'rollback', phase: 'install' };
         this.changed();
         console.log(`${id}: back to ${this.previous[id] || 'its version before'}`);
         return this.deployTool(['rollback', id, '--yes'])
             .then((code) => {
-                if (code !== 0) {
+                if (code !== 0 && code !== GUARD_STOPPED) {
                     const why = this.deployError;
                     throw new Error(code === 2 ? `${why || 'refused by the deploy tool'}; nothing changed` :
                         `going back failed${why ? ': ' + why : ''}`);
+                }
+                if (code === GUARD_STOPPED) {
+                    // the deploy tool keeps the version it goes back to for the next start
+                    const back = to || 'the version before';
+                    console.log(`${id}: the deploy tool's MainApp guard stopped going back; ${back} comes back at the next start`);
+                    if (item.why) {
+                        this.errors[key] = `${item.why}; ${back} comes back at the next start`;
+                    }
+                    return;
                 }
                 const now = this.installedVersion(id);
                 console.log(`${id}: ${from} -> ${now}`);
@@ -2494,7 +2543,7 @@ class Updater {
             return;
         }
         (item.op === 'uninstall' ? this.uninstall(item) : item.op === 'rollback' ? this.rollback(item) :
-            item.op === 'adopt' ? this.adopt() : this.install(item)).then((handover) => {
+            item.op === 'adopt' ? this.adopt() : item.op === 'restore' ? this.restore(item) : this.install(item)).then((handover) => {
             if (handover) {
                 this.handover();
                 return;
@@ -2614,6 +2663,7 @@ class Updater {
         const trial = path.join(this.conf.tool_root, SELF, 'trial');
         const self = id === SELF;
         const toolDir = path.join(this.conf.tool_root, id);
+        const bounceBefore = this.lastBounceAt;
         let before = null;
         return Promise.resolve()
             .then(() => {
@@ -2677,20 +2727,29 @@ class Updater {
                 return this.deploy(verified, moved);
             })
             .then((code) => {
-                if (code !== 0) {
+                const stopped = code === GUARD_STOPPED;
+                if (code !== 0 && !stopped) {
                     const why = this.deployError;
                     const now = this.installedVersion(id, entry.kind);
                     const left = !now ? 'nothing is installed' : now === entry.version && path.basename(before || '') !== entry.version ?
                         `${entry.version} stays current` : 'the previous version was kept';
                     throw new Error(code === 2 ? `${why || 'refused by the deploy tool'}; nothing changed` : `install failed${why ? ': ' + why : ''}; ${left}`);
                 }
-                console.log(`installed ${id}@${entry.version}`);
+                console.log(stopped ? `${id}@${entry.version}: the deploy tool's MainApp guard stopped it; what it did stays until the next start`
+                    : `installed ${id}@${entry.version}`);
                 // installed from a stick's copy of a source: that source is its origin
                 this.origins[id] = { source: this.originOf(item.source), commit: entry.commit || null };
                 this.saveOrigins();
                 if (entry.listedId) {
                     this.aliases[`${this.originOf(item.source)}:${entry.listedId}`] = id;
                     this.saveAliases();
+                }
+                if (stopped) {
+                    // nothing is checked or rolled back: the next start takes it up
+                    if (this.storeTrial && id === this.conf.store_app) {
+                        this.endStoreTrial();
+                    }
+                    return undefined;
                 }
                 return this.bootstrapCheck(entry, toolDir, before, wasOnline);
             })
@@ -2711,6 +2770,7 @@ class Updater {
                     fs.unlinkSync(verified);
                 }
                 return this.refresh().then(() => {
+                    this.noteHiddenTiles(bounceBefore);
                     this.writeSecrets();
                     console.log(`${id}@${entry.version}: done`);
                     this.busy = null;
@@ -2738,7 +2798,7 @@ class Updater {
         console.log(`${id}: uninstall`);
         return this.deployTool(['uninstall', id, '--yes'])
             .then((code) => {
-                if (code !== 0) {
+                if (code !== 0 && code !== GUARD_STOPPED) {
                     const why = this.deployError;
                     throw new Error(code === 2 ? `${why || 'refused by the deploy tool'}; nothing changed` :
                         `uninstall failed${why ? ': ' + why : ''}`);
@@ -2860,9 +2920,117 @@ class Updater {
                 this.idrive7 = st.idrive7 && Array.isArray(st.idrive7.apps) ? st.idrive7.apps : [];
                 this.stale = staleOf(st);
                 this.own = ownInstalled(this.conf, st);
+                this.lost = lostOf(st);
+                this.guard = typeof st.mainapp_guard === 'string' && st.mainapp_guard ? st.mainapp_guard : null;
+                this.lastBounceAt = typeof st.last_bounce_at === 'number' ? st.last_bounce_at : null;
+                const apps = (st.components || []).filter((c) => c && c.kind === 'app' && this.own.indexOf(c.id) >= 0);
+                this.ownApps = apps.map((c) => c.id);
+                // not one provisioning's own section hides: a restart does not show it
+                this.tilesHidden = apps.filter((c) => c.tile_visible === false && c.tile_withheld !== true).map((c) => c.id);
             }
             this.privacy = privacy;
             this.takeOver();
+            this.repairLost();
+        });
+    }
+
+    saveBoot() {
+        mkdirp(this.conf.state_dir, 0o755);
+        writeAtomic(path.join(this.conf.state_dir, 'boot.json'), JSON.stringify(this.boot));
+    }
+
+    /* After an install that restarted the app manager (the deploy tool's
+     * last bounce moved since bounceBefore): our apps whose tile does not
+     * show, kept until the next start. */
+    noteHiddenTiles(bounceBefore) {
+        const add = this.tilesHidden.filter((id) => this.boot.hidden.indexOf(id) < 0);
+        if (!this.lastBounceAt || this.lastBounceAt === bounceBefore || !add.length) {
+            return;
+        }
+        console.log(`tile not showing after the app manager's restart: ${add.join(', ')}; shows after the next start`);
+        this.boot.hidden = this.boot.hidden.concat(add);
+        this.saveBoot();
+    }
+
+    /* Apps of ours oapcontroller's wipe took (lost: not registered any
+     * more, their package still kept; one removed on purpose has none):
+     * each installed again from that package, once per start of the head
+     * unit, the Store first. Not while the deploy tool's guard holds app
+     * changes back. */
+    repairLost() {
+        if (this.guard) {
+            return;
+        }
+        const busy = (id) => (this.busy && this.busy.id === id) || this.queue.some((q) => q.id === id);
+        const todo = this.lost.filter((l) => this.boot.restored.indexOf(l.id) < 0 && !busy(l.id))
+            .sort((a, b) => Number(b.id === this.conf.store_app) - Number(a.id === this.conf.store_app));
+        if (!todo.length) {
+            return;
+        }
+        // on disk before the install: a start never repeats one
+        this.boot.restored = this.boot.restored.concat(todo.map((l) => l.id));
+        this.saveBoot();
+        todo.forEach((l) => {
+            console.log(`${l.id}: not registered any more; installed again from its kept package (${l.version})`);
+            this.enqueue({ op: 'restore', id: l.id, version: l.version, package: l.package });
+        });
+        this.changed();
+        if (!this.busy) {
+            this.next();
+        }
+    }
+
+    /* Installs a lost app again from the package the deploy tool keeps for
+     * it, when it is still lost. */
+    restore(item) {
+        this.busy = { id: item.id, op: 'install', phase: 'install', progress: 0, total: null };
+        this.changed();
+        const verified = path.join(this.conf.state_dir, 'verified', path.basename(item.package));
+        const bounceBefore = this.lastBounceAt;
+        return this.refresh()
+            .then(() => {
+                if (this.guard || !this.lost.some((l) => l.id === item.id && l.version === item.version)) {
+                    return 0;
+                }
+                mkdirp(path.dirname(verified), 0o700);
+                fs.writeFileSync(verified, fs.readFileSync(item.package), { mode: 0o600 });
+                console.log(`${item.id}@${item.version}: install from its kept package`);
+                return this.deploy(verified, false).then((code) => {
+                    if (code !== 0 && code !== GUARD_STOPPED) {
+                        throw new Error(`${this.deployError || 'install failed'}; ${item.id} stays removed until it is installed again`);
+                    }
+                    console.log(code === GUARD_STOPPED ? `${item.id}@${item.version}: the deploy tool's MainApp guard stopped it; ` +
+                        'what it did stays until the next start' : `installed ${item.id}@${item.version} again`);
+                });
+            })
+            .catch((err) => {
+                console.log(`${item.id}@${item.version}: ${err.message}`);
+                this.errors[item.id] = err.message;
+            })
+            .then(() => {
+                rmIfThere(verified);
+                return this.refresh();
+            })
+            .then(() => {
+                this.noteHiddenTiles(bounceBefore);
+                this.writeSecrets();
+                this.busy = null;
+                this.changed();
+                return false;
+            });
+    }
+
+    /* Our installed apps looked at between checks: one gone from MainApp's
+     * registry has the deploy tool asked at once, so a lost one is
+     * installed again without waiting for the next check. */
+    watchLost() {
+        if (this.watchingLost || !this.ownApps.some((id) => !this.installedOf(id, 'app'))) {
+            return;
+        }
+        this.watchingLost = true;
+        this.refresh().then(() => {
+            this.watchingLost = false;
+            this.changed();
         });
     }
 
@@ -3608,7 +3776,7 @@ class Updater {
             items = readJson(file);
         } catch (e) { /* none */ }
         rmIfThere(file);
-        (Array.isArray(items) ? items : []).filter((q) => q && ID.test(String(q.id)) && ['install', 'uninstall', 'rollback', 'adopt'].indexOf(q.op) >= 0)
+        (Array.isArray(items) ? items : []).filter((q) => q && ID.test(String(q.id)) && ['install', 'uninstall', 'rollback', 'adopt', 'restore'].indexOf(q.op) >= 0)
             .forEach((q) => this.enqueue(q));
     }
 
@@ -3839,6 +4007,7 @@ class Updater {
                 if (storeUid(this.conf) !== this.storeSecretUid || this.storeSecretGone()) {
                     this.writeSecrets();
                 }
+                this.watchLost();
                 let target;
                 try {
                     target = fs.realpathSync(current);
