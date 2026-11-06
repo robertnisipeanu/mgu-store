@@ -223,7 +223,7 @@ to add or remove one, a speller that could not open; hidden otherwise),
 one row per source, its label and the account that reads it (a GitHub
 login), else its status: `OK`, `USB` (a source on a plugged-in USB stick),
 `Checking`, `Sign in` (no account reaches it), `Error`, `Offline`, `Disabled`; a switch turns a source on or off
-(not the Store's own source or a USB source; with an updater that reports `disabled`, from 0.8.28), and an off
+(not the Store's own source or a USB source; with an updater that reports `disabled`, from 0.8.32), and an off
 source is not read and none of its components are listed; then
 **Add source**, **Accounts** and **Phone access** (the phone page, for
 pasting tokens and for logs). A source's page shows its label and status,

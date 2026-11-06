@@ -263,7 +263,7 @@ function sourcesState(sources) {
 }
 
 function sourceActions(src) {
-    // a switch only where the updater reports one (it reports `disabled` from 0.8.28)
+    // a switch only where the updater reports one (it reports `disabled` from 0.8.32)
     return { remove: !src.builtin && !src.usb, enable: !src.builtin && !src.usb && typeof src.disabled === 'boolean' };
 }
 
