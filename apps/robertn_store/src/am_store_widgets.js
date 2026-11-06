@@ -141,7 +141,7 @@ function listView(b, o) {
     return { rh, all, n, max, top, first: Math.floor(top), end: Math.min(all.length, Math.ceil(top + n)) };
 }
 // the right-hand controls of a row ("toggle:on+trash": laid out from the right) -> [{ kind, arg, x, w }]
-const RIGHT_W = { chevron: 60, trash: 80, toggle: 150 };
+const RIGHT_W = { chevron: 60, trash: 80, toggle: 150, check: 64 };
 // (the Store: c scales the controls of a smaller row, o.ctlK)
 function rightBoxes(b, it, cv, c) {
     let x = b.x + b.w;
@@ -178,6 +178,12 @@ function appList(cv, t, b, o) {
                 const on = rb.arg === 'on', tw = 150 * q, th = 76 * q, tx0 = re - tw;
                 cv.roundRect(tx0, cy - th / 2, tw, th, th / 2, on ? GREEN : '#3a4352');
                 cv.circle(on ? tx0 + tw - th / 2 : tx0 + th / 2, cy, th / 2 - 8 * q, '#ffffff');
+            } else if (rb.kind === 'check') {
+                const on = rb.arg === 'on', s = 64 * q, x0 = re - s;
+                if (on) {
+                    cv.roundRect(x0, cy - s / 2, s, s, 14 * q, BLUE);
+                    vicon(cv, 'check', x0 + s * 0.14, cy - s * 0.36, s * 0.72, '#ffffff');
+                } else cv.strokeRoundRect(x0, cy - s / 2, s, s, 14 * q, 4 * q, t.dim);
             } else if (rb.kind === 'chip') chip(cv, rb.arg, re, cy - 30 * q, 60 * q, C(t, it.chipColor, BLUE), it.chipDot, true);
         }
     });

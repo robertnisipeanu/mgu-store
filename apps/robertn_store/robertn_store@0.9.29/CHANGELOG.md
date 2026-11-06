@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.29
+
+- Settings, Sources: each source but the Store's own and a stick has a switch that turns it on or off, shown at once. An off source stays listed as Disabled, is not read, and none of its components are listed.
+- Store tab: a Sources drop-down (Sources selected number/total number) with a checkbox for each source, Select all and Uncheck all; open, it covers the tiles
+- Store tab: the All/Apps/Tools tabs are replaced by Show (each press: all, installed, not installed) and the Apps and Tools buttons, each on or off.
+- Fixed issue: An app page's notes (why it cannot be installed, restart pending, for another head unit) wrap over several lines in place of one cut line
+
 ## 0.9.28
 
 A tool whose install step waits after a firmware update (mgu-updater

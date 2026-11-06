@@ -5521,6 +5521,36 @@ function testDefaultSources() {
     u = new Updater(conf());
     ok('default sources: one the owner removed is not added again', stored().length === 2 && u.stored.length === 2 &&
         JSON.parse(fs.readFileSync(path.join(D, 'state', 'default-sources.json'), 'utf8')).added.join() === 'cauliflowermossgrape/idrive7-apps');
+    // a source turned off stays stored, is not read or listed, and stays off over a restart
+    const turn = (o) => u.handle(Object.assign({ op: 'source-enable', secret: u.secret }, o));
+    const row = (id) => u.sourceState(u.defs().find((d) => d.id === id));
+    ok('source-enable: refused for the Store\'s own source, a missing source and a non-boolean',
+        /cannot be turned off/.test(turn({ id: 'mgu-store', enable: false })) && /no source/.test(turn({ id: 'nope', enable: false })) &&
+        /true or false/.test(turn({ id: 'idrive7-apps', enable: 'no' })));
+    ok('source-enable: off is stored and reported', turn({ id: 'idrive7-apps', enable: false }) === null &&
+        stored().find((x) => x.id === 'idrive7-apps').disabled === true && row('idrive7-apps').disabled === true &&
+        row('idrive7-apps').status === 'disabled' && u.enabledDefs().map((d) => d.id).join() === 'mgu-store', JSON.stringify(stored()));
+    u = new Updater(conf());
+    ok('source-enable: off over a restart, on again with all', row('idrive7-apps').disabled === true &&
+        u.handle({ op: 'source-enable', all: true, enable: true, secret: u.secret }) === null &&
+        !stored().some((x) => x.disabled) && row('idrive7-apps').disabled === false, JSON.stringify(stored()));
+    ok('source-enable: all off leaves the Store\'s own source on', u.handle({ op: 'source-enable', all: true, enable: false, secret: u.secret }) === null &&
+        stored().filter((x) => x.disabled).length === 1 && u.enabledDefs().length === 1, JSON.stringify(stored()));
+    u.handle({ op: 'source-enable', all: true, enable: true, secret: u.secret });
+    // turned on again, a source with a kept catalog is listed without being read; one without is read
+    const read = [];
+    u.checkSource = (id) => {
+        read.push(id);
+        return Promise.resolve();
+    };
+    u.src.get('idrive7-apps').components = [{ id: 'x_tool' }];
+    u.handle({ op: 'source-enable', all: true, enable: false, secret: u.secret });
+    u.handle({ op: 'source-enable', all: true, enable: true, secret: u.secret });
+    ok('source-enable: on reads no source that has a kept catalog', read.length === 0, read.join());
+    u.src.get('idrive7-apps').components = [];
+    u.handle({ op: 'source-enable', all: true, enable: false, secret: u.secret });
+    u.handle({ op: 'source-enable', all: true, enable: true, secret: u.secret });
+    ok('source-enable: on reads a source with no catalog at once', read.join() === 'idrive7-apps', read.join());
     // a unit the installers seeded with it (as deploy/sources.json): recorded, not doubled
     fs.unlinkSync(path.join(D, 'state', 'default-sources.json'));
     fs.writeFileSync(file, JSON.stringify({ schema: 1, sources: [

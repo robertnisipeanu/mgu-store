@@ -88,19 +88,70 @@ module.exports = {
      "onTap": "event:restartNow"
     },
     {
-     "name": "filter",
+     "name": "srcBtn",
      "rtype": "gpu",
-     "gpu": "tabs",
+     "gpu": "vbutton",
      "x": 1500,
      "y": 140,
-     "w": 760,
+     "w": 320,
      "h": 92,
      "opts": {
-      "items": "All,Apps,Tools",
-      "sel": 0,
-      "style": "joined",
-      "size": 34
-     }
+      "text": "Sources",
+      "vicon": "arrowDown",
+      "style": "outline",
+      "size": 30
+     },
+     "onTap": "event:srcBtn"
+    },
+    {
+     "name": "showMode",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 1830,
+     "y": 140,
+     "w": 290,
+     "h": 92,
+     "opts": {
+      "text": "All",
+      "vicon": "",
+      "style": "outline",
+      "size": 30
+     },
+     "onTap": "event:showMode"
+    },
+    {
+     "name": "kindApps",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 2130,
+     "y": 140,
+     "w": 210,
+     "h": 92,
+     "opts": {
+      "text": "Apps",
+      "vicon": "",
+      "style": "tinted",
+      "color": "#3d9bff",
+      "size": 30
+     },
+     "onTap": "event:kindApps"
+    },
+    {
+     "name": "kindTools",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 2350,
+     "y": 140,
+     "w": 230,
+     "h": 92,
+     "opts": {
+      "text": "Tools",
+      "vicon": "",
+      "style": "tinted",
+      "color": "#3d9bff",
+      "size": 30
+     },
+     "onTap": "event:kindTools"
     },
     {
      "name": "online",
@@ -113,6 +164,50 @@ module.exports = {
      "opts": {
       "items": "",
       "align": "right"
+     }
+    },
+    {
+     "name": "srcAll",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 460,
+     "y": 292,
+     "w": 560,
+     "h": 94,
+     "opts": {
+      "text": "Select all",
+      "vicon": "check",
+      "style": "tinted",
+      "color": "#3d9bff"
+     },
+     "onTap": "event:srcAll"
+    },
+    {
+     "name": "srcNone",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 1040,
+     "y": 292,
+     "w": 560,
+     "h": 94,
+     "opts": {
+      "text": "Uncheck all",
+      "vicon": "trash",
+      "style": "outline"
+     },
+     "onTap": "event:srcNone"
+    },
+    {
+     "name": "srcList",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 460,
+     "y": 396,
+     "w": 2380,
+     "h": 444,
+     "opts": {
+      "items": "",
+      "rowH": 130
      }
     },
     {
@@ -327,45 +422,14 @@ module.exports = {
      "x": 2140,
      "y": 364,
      "w": 660,
-     "h": 40,
+     "h": 190,
      "opts": {
       "text": "",
       "size": 32,
       "font": "label",
       "align": "left",
-      "color": "dim"
-     }
-    },
-    {
-     "name": "note2",
-     "rtype": "gpu",
-     "gpu": "text",
-     "x": 2140,
-     "y": 410,
-     "w": 660,
-     "h": 40,
-     "opts": {
-      "text": "",
-      "size": 32,
-      "font": "label",
-      "align": "left",
-      "color": "dim"
-     }
-    },
-    {
-     "name": "note3",
-     "rtype": "gpu",
-     "gpu": "text",
-     "x": 2140,
-     "y": 474,
-     "w": 660,
-     "h": 40,
-     "opts": {
-      "text": "",
-      "size": 32,
-      "font": "label",
-      "align": "left",
-      "color": "#ffb020"
+      "color": "dim",
+      "wrap": true
      }
     },
     {

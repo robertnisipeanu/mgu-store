@@ -853,7 +853,7 @@ function under(entry, id) {
 }
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
-const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
+const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'source-enable', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
     'uplink-prefer', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
@@ -1219,6 +1219,12 @@ class Updater {
         return this.stored.concat(this.usb);
     }
 
+    /* The sources that are read and listed: a disabled one keeps its stored
+     * entry and its kept catalog, and is neither checked nor listed. */
+    enabledDefs() {
+        return this.defs().filter((d) => !d.disabled);
+    }
+
     /* The source the installed component of id came from (origins.json),
      * else null. */
     holder(id) {
@@ -1327,7 +1333,7 @@ class Updater {
         const online = readLease(this.conf).online;
         const groups = new Map();
         const taken = new Set(Object.keys(this.aliases).map((k) => this.aliases[k]));
-        this.defs().forEach((def, order) => {
+        this.enabledDefs().forEach((def, order) => {
             const rt = this.src.get(def.id);
             (rt ? rt.components : []).forEach((entry) => {
                 taken.add(entry.id);
@@ -1502,10 +1508,11 @@ class Updater {
             type: def.type,
             label: sourcesLib.label(def),
             builtin: !!def.builtin,
+            disabled: !!def.disabled,
             usb: def.type === 'usb',
             channel: def.type === 'github' ? rt.channel || def.channel || null : null,
-            status: rt.status,
-            error: rt.error,
+            status: def.disabled ? 'disabled' : rt.status,
+            error: def.disabled ? null : rt.error,
             auth: token ? { kind: 'github', token: token.id, login: token.login || null } : null,
             checkedAt: rt.checkedAt,
             components: rt.components.length
@@ -1617,7 +1624,7 @@ class Updater {
         if (this.sourcesError) {
             return `sources.json: ${this.sourcesError}`;
         }
-        const bad = this.defs().map((d) => this.src.get(d.id)).find((rt) => rt.status === 'error' || rt.status === 'auth-needed');
+        const bad = this.enabledDefs().map((d) => this.src.get(d.id)).find((rt) => rt.status === 'error' || rt.status === 'auth-needed');
         return bad ? `${sourcesLib.label(bad.def)}: ${bad.error}` : null;
     }
 
@@ -1701,7 +1708,7 @@ class Updater {
      * that cannot be read keeps the components it listed last. */
     checkSource(id) {
         const rt = this.src.get(id);
-        if (!rt) {
+        if (!rt || rt.def.disabled) {
             return Promise.resolve();
         }
         if (rt.checking) {
@@ -1960,7 +1967,7 @@ class Updater {
                 // with every source read, which row is the installed one is settled: once the
                 // fetches under way are through, the icons of each source read now are looked at again
                 // (in the background); one that could not be read (offline, a refused token) is left alone
-                const rts = this.defs().map((d) => this.src.get(d.id)).filter((rt) => rt && rt.status === 'ok');
+                const rts = this.enabledDefs().map((d) => this.src.get(d.id)).filter((rt) => rt && rt.status === 'ok');
                 this.iconPass = Promise.all(rts.map((rt) => rt.icons)).then(() => Promise.all(rts.map((rt) => this.fetchIcons(rt))));
                 return this.pruneIcons();
             })
@@ -3575,6 +3582,38 @@ class Updater {
         return undefined;
     }
 
+    /* { id, enable } or { all: true, enable }: turns a stored source on or
+     * off. The Store's own source stays on, a stick is not stored. */
+    sourceEnable(req) {
+        if (typeof req.enable !== 'boolean') {
+            return 'enable must be true or false';
+        }
+        const turned = req.all === true ? this.stored.filter((s) => !s.builtin) : this.stored.filter((s) => s.id === req.id);
+        if (!turned.length) {
+            return req.all === true ? null : `no source ${req.id}`;
+        }
+        if (turned.some((s) => s.builtin)) {
+            return 'the Store\'s own source cannot be turned off';
+        }
+        const off = !req.enable;
+        const list = this.stored.map((s) => (turned.indexOf(s) >= 0 ? Object.assign({}, s, { disabled: off }) : s))
+            .map((s) => (s.disabled ? s : Object.assign({}, s, { disabled: undefined })));
+        this.saveSources(list.map((s) => sourcesLib.checkStored(s)));
+        turned.forEach((s) => {
+            const rt = this.src.get(s.id);
+            if (rt) {
+                rt.def = this.stored.find((d) => d.id === s.id);
+            }
+            console.log(`source ${s.id}: ${req.enable ? 'enabled' : 'disabled'}`);
+            // one with a kept catalog lists as it is (the next check reads it again); only one with none is read now
+            if (req.enable && rt && !rt.components.length) {
+                this.checkSource(s.id);
+            }
+        });
+        this.changed();
+        return null;
+    }
+
     sourceRemove(id) {
         const def = this.stored.find((s) => s.id === id);
         if (!def) {
@@ -3864,6 +3903,7 @@ class Updater {
         case 'source-add': return this.sourceAdd(req);
         case 'source-probe': return this.sourceProbe(req, reply);
         case 'source-remove': return this.sourceRemove(req.id);
+        case 'source-enable': return this.sourceEnable(req);
         case 'login-start': return this.login.start();
         case 'login-cancel': this.login.cancel(); return null;
         case 'token-add': return this.tokenAdd(req, reply);

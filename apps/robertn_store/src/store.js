@@ -273,8 +273,8 @@ class Store extends OnlineApp {
                 this._client.send({ op: 'hello', id: APP_ID, version: this._version() });
             }
             this._connected = true;
-            this._stRaw = st;
-            this._st = localized(st);
+            this._stRaw = this._pendingApply(st);
+            this._st = localized(this._stRaw);
             this._tokenAdded(st);
             this._reprobe();
             this._render();
@@ -316,6 +316,8 @@ class Store extends OnlineApp {
                 this._render();
             } else if (forOp === 'token-add' && this._tokenAdding) {
                 this._endTokenAdd({ kind: 'refused', error: String(msg) });
+            } else if (forOp === 'source-enable') {
+                this._note({ kind: 'refused', op: forOp, error: String(msg) });
             } else if (forOp === 'source-add' || forOp === 'source-remove') {
                 // a refused removal goes back to Sources, which shows why
                 if (forOp === 'source-remove') {
@@ -671,7 +673,9 @@ class Store extends OnlineApp {
         logger.info(`press ${act.do}${act.id ? ` ${act.id}` : ''}`);
         switch (act.do) {
         case 'tab': this._drawn.setTab(act.tab); break;
-        case 'filter': this._drawn.setFilter(act.filter); break;
+        case 'show': this._drawn.cycleShow(); break;
+        case 'kind': this._drawn.toggleKind(act.kind); break;
+        case 'src-menu': this._drawn.toggleSources(); break;
         case 'back': this._back(); break;
         case 'check': this._send({ op: 'check' }); break;
         case 'open':
@@ -709,6 +713,7 @@ class Store extends OnlineApp {
         case 'setup': this._setup(act.id); break;
         case 'restart': this._restart(); break;
         case 'source-remove': this._sourceId = act.id; this._removeSource(); break;
+        case 'source-enable': this._enableSource(act); break;
         case 'account-remove': this._tokenId = act.id; this._removeAccount(); break;
         case 'add-source': this._addSource(); break;
         case 'add-token': this._addToken(); break;
@@ -1041,6 +1046,45 @@ class Store extends OnlineApp {
                 this._note({ kind: 'refused', op: 'source-remove', error });
             }
         }
+    }
+
+    /* A source's switch: act.id on or off (act.enable), or every source (act.all). It shows at once; the updater's state replaces it. */
+    _enableSource(act) {
+        this._note(null);
+        const req = act.all ? { op: 'source-enable', all: true, enable: !!act.enable } : { op: 'source-enable', id: act.id, enable: !!act.enable };
+        logger.info(`${act.enable ? 'enable' : 'disable'} source ${act.all ? '(all)' : act.id}`);
+        if (!this._privileged(req)) {
+            this._note({ kind: 'refused', op: 'source-enable', error: readSecret() ? 'updater not running' : 'no updater secret' });
+            return;
+        }
+        const set = {};
+        ((this._stRaw && this._stRaw.sources) || []).filter((s) => (act.all ? sourceActions(s).enable : s.id === act.id))
+            .forEach((s) => {
+                set[s.id] = !act.enable;
+            });
+        this._pendingSources = { at: Date.now(), set };
+        if (this._stRaw) {
+            this._stRaw = this._pendingApply(this._stRaw);
+            this._st = localized(this._stRaw);
+        }
+        this._render();
+    }
+
+    /* st with the switches just pressed (set: source id to disabled) until the updater's state says the same, or 8 s. */
+    _pendingApply(st) {
+        const p = this._pendingSources;
+        if (!p || !st || !Array.isArray(st.sources)) {
+            return st;
+        }
+        const same = Object.keys(p.set).every((id) => {
+            const s = st.sources.find((x) => x.id === id);
+            return !s || s.disabled === p.set[id];
+        });
+        if (same || Date.now() - p.at > 8000) {
+            this._pendingSources = null;
+            return st;
+        }
+        return Object.assign({}, st, { sources: st.sources.map((s) => (s.id in p.set ? Object.assign({}, s, { disabled: p.set[s.id] }) : s)) });
     }
 
     /* Closes the page of the source being removed once the HMI has given it

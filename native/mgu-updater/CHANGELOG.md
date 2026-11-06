@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.32
+
+- A source can be turned off and on (`source-enable`, with the secret: `{ id, enable }`, or `{ all: true, enable }` for every source but the Store's own). A source that is off stays in `sources.json` (`disabled: true`) with its kept catalog, is not read, and none of its components are listed; what it installed stays installed. The state reports `disabled` and status `disabled` for it. Turning one on lists its kept catalog as it is and reads the source only when it has none; the next check reads it again
+
 ## 0.8.31
 
 - A tool a firmware update left not working, or whose install step waits (the deploy tool's `needs_setup`), is updated from its source at the first check that finds the source listing a newer version while the unit is online, each newer version once while the updater runs. Otherwise, or when that update fails, a tool the deploy tool keeps a copy of has its files laid again (`relay`), once for each reason.
