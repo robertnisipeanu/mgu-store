@@ -447,6 +447,8 @@ and the stick's other files stay. A root-service package of another
 mgu-deploy.sh check [--artifact <file>...]
 mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--yes]
 mgu-deploy.sh status [--json]
+mgu-deploy.sh relay [<id>...] --yes           # a stale tool's files from the copy kept here, no install step
+mgu-deploy.sh setup <id> --yes                # a tool laid again from that copy, its install step included
 mgu-deploy.sh uninstall <id> [--yes]
 mgu-deploy.sh remove-all [--json] | remove-all --yes
 mgu-deploy.sh rollback <id> [--yes]
@@ -1656,18 +1658,33 @@ our boot units) sets every component up again:
   (`state.json` `tools`) and keeps the tool's units, drop-ins and
   `component.json` in `kept/<id>/<version>/`, one for each version under
   `/var/opt/<id>/versions`.
-- Every install lays again from that copy each installed tool that lacks
-  a unit, an enablement link or a drop-in, or was installed under another
-  firmware, as an install of the same version does (its activate hook and
-  postInstall run). A tool installed before copies were kept says so; its
-  source installs it again (the updater, `repair`).
+- Every install lays again from that copy each installed tool it does not
+  install that lacks a unit, an enablement link or a drop-in, or was
+  installed under another firmware. A tool with no install step of its own
+  is laid again as an install of the same version. One with an `activate`
+  or `postInstall` gets its files only: its units, enablement links and
+  drop-ins, their recmgr names and limits, and the restart units laid
+  started as at a first install, under recmgr's rules; its step does not
+  run, since the copy may be an old version from another source and the
+  step may patch the firmware's files. Its record then holds the firmware
+  and `needsSetup` (`status --json` `needs_setup`, why), and the run's last
+  line names such tools (`needs setup (...): <ids>`). Its step runs at its
+  next install (an update, the same version again) or `setup <id> --yes`,
+  which lays it again from its copy, step included (the Store's Set up);
+  the stock-file fix follows each step as at any install. `relay [<id>...]
+  --yes` lays the files only, without an install (the updater, when no
+  newer version is reachable). A tool installed before copies were kept
+  says so; its source installs it again (the updater, `repair`).
+  `mgu-install.js first-install` installs the release's tools as usual and
+  leaves the others (from other sources) to files only, so no other
+  source's step runs unasked.
 - MainApp's first start after a firmware update marks every installed
   app as needing an update (`"NO_FORCED_UPDATE_NEEDED": false` in its
   registry entry) and starts none so marked; it updates its own apps, not
   ours. On iDrive 7 an install of such an app, already current, installs
   it afresh: uninstall, install, its data folder carried over.
 - `status --json` gives each component's `stale` until then, and for a
-  tool `kept`.
+  tool `kept` and `needs_setup`.
 
 ### Removing the Store setup
 
@@ -1916,7 +1933,7 @@ stdout, read-only, taking no lock, of this shape:
 { "version": "<x.y.z>",
   "unit": { "hmi": "ID7"|"ID8"|null, "firmware" },
   "components": [{ "id", "kind": "tool", "version", "units": [{ "name", "enabled", "active", "journal" }], "provides",
-                   "stale": "<what it lacks>"|null, "kept": true },
+                   "stale": "<what it lacks>"|null, "kept": true, "needs_setup": "<why>"|null },
                  { "id", "kind": "app", "version", "uid", "installationSource", "running",
                    "tile_provisioned", "tile_fallback", "tile_visible", "tile_withheld", "stale": "<why>"|null }],
   "pending_reboot": [{ "id", "reason" }],

@@ -3618,17 +3618,19 @@ function testStockFiles() {
             return !fs.existsSync(f) || (mode(f) === 0o700 && fs.readdirSync(f).every((n) => mode(path.join(f, n)) === 0o600));
         }));
 
-    // after a firmware update: the stock carplay back, the tool laid again from its copy by another install
+    // after a firmware update: the stock carplay back; another install lays the tool's files only, Set up runs its activate
     write(root.p('etc/os-release-id-dlt'), 'BMW MGU P18_21w03 mgu-high\n');
     root.run(['install', '--artifact', art('3.0.0'), '--yes'], { FAKE_HOOK_LOG: `${root.R}.hooks.log` });
     write(root.p('etc/os-release-id-dlt'), 'BMW MGU J18_21w19.2-1-5 mgu-high\n');
     write(carplay, 'stock carplay\n', 0o755);
-    r = underUmask(0o077, () => root.run(['install', '--artifact', namedTool('other-tool', '0.1.0'), '--yes'], {
-        FAKE_HOOK_LOG: `${root.R}.hooks.log`, FAKE_HOOK_REPLACE: JSON.stringify([['activate', carplay]])
-    }));
-    check('stock files: after a firmware update, an install under umask 077 lays the tool again and its activate leaves carplay 0755',
-        r.status === 0 && r.out.includes('laid again from the copy kept here') && r.out.includes('fixture-tool activate:') && mode(carplay) === 0o755,
+    const hookEnv = { FAKE_HOOK_LOG: `${root.R}.hooks.log`, FAKE_HOOK_REPLACE: JSON.stringify([['activate', carplay]]) };
+    r = underUmask(0o077, () => root.run(['install', '--artifact', namedTool('other-tool', '0.1.0'), '--yes'], hookEnv));
+    check('stock files: after a firmware update, an install of another tool leaves the stock carplay as it is: no activate',
+        r.status === 0 && !r.out.includes('fixture-tool activate:') && fs.readFileSync(carplay, 'utf8') === 'stock carplay\n' && mode(carplay) === 0o755,
         `${mode(carplay).toString(8)}\n${r.out}`);
+    r = underUmask(0o077, () => root.run(['setup', 'fixture-tool', '--yes'], hookEnv));
+    check('stock files: Set up under umask 077 runs its activate, which leaves carplay 0755',
+        r.status === 0 && r.out.includes('fixture-tool activate:') && mode(carplay) === 0o755, `${mode(carplay).toString(8)}\n${r.out}`);
 
     // a hook that leaves carplay 0700 (another user's) and aapd 0711, and tightens files of its own
     root = fakeRoot({ recmgr: ['fixture-tool'] });
@@ -4019,16 +4021,18 @@ function testUninstallAfterOldRollback() {
     r = rr.run(['uninstall', 'fixture-tool', '--yes'], files);
     check('old rollback: and the removal runs it again; the files are stock', r.status === 0 && stock() && !fs.existsSync(rr.tool('fixture-tool')), r.out);
 
-    // laying the current version again for a unit missing runs the due deactivate first
+    // laying the current version again for a unit missing (another install lays its files, setup the rest) runs the due deactivate first
     rr = oldStyle();
     fs.unlinkSync(rr.p('etc/systemd/system/fixture-tool.service'));
-    r = rr.run(['install', '--artifact', namedTool('other-tool', '1.0.0'), '--yes'], files);
+    rr.run(['install', '--artifact', namedTool('other-tool', '1.0.0'), '--yes'], files);
+    r = rr.run(['setup', 'fixture-tool', '--yes'], files);
     check('old rollback: laying the current version again for a unit missing runs the due deactivate first; the files are stock',
         r.status === 0 && fs.existsSync(rr.p('etc/systemd/system/fixture-tool.service')) && stock() &&
         !fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')), r.out);
     rr = oldStyle();
     fs.unlinkSync(rr.p('etc/systemd/system/fixture-tool.service'));
-    r = rr.run(['install', '--artifact', namedTool('other-tool', '1.0.0'), '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
+    rr.run(['install', '--artifact', namedTool('other-tool', '1.0.0'), '--yes'], files);
+    r = rr.run(['setup', 'fixture-tool', '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
     check('old rollback: one whose deactivate fails stays kept and owed, said, and the current version is laid again',
         r.status === 0 && fs.existsSync(rr.p('etc/systemd/system/fixture-tool.service')) &&
         fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')) &&
@@ -4044,6 +4048,9 @@ function testUninstallAfterOldRollback() {
     check('old rollback: laying the current version again after a firmware update runs no due deactivate and keeps that version',
         r.status === 0 && fs.existsSync(rr.p('etc/systemd/system/fixture-tool.service')) &&
         fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')) && !r.out.includes('patch.js deactivate'), r.out);
+    r = rr.run(['setup', 'fixture-tool', '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
+    check('old rollback: and its setup after it runs none either, the version kept',
+        r.status === 0 && fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')) && !r.out.includes('deactivate exited'), r.out);
 
     // a due deactivate that ran and then failed to hand a file over: the version it replaces is activated again
     rr = oldStyle();
@@ -7463,6 +7470,85 @@ function testToolsAfterFirmware() {
         !fs.existsSync(root.p('var/opt/mgu-deploy/kept/fixture-tool')) && !(stateOf(root).tools || {})['fixture-tool'], r.out);
 }
 
+/* A tool with an install step (activate, postInstall) set up under another
+ * firmware: an install of something else, or relay, lays its files only,
+ * its step left for its next install or Set up (setup), which runs it and
+ * the stock-file fix after it; nothing restarts the head unit. */
+function testToolsAfterFirmwareSetup() {
+    const FW = 'etc/os-release-id-dlt';
+    const PIECES = ['fixture-tool.service', 'fixture-tool.socket', 'sockets.target.wants/fixture-tool.socket'];
+    const sys = (root, rel) => root.p(`etc/systemd/system/${rel}`);
+    const hooks = (root) => (fs.existsSync(`${root.R}.hooks.log`) ? fs.readFileSync(`${root.R}.hooks.log`, 'utf8').split('\n').filter(Boolean) : []);
+    const tool = (root) => root.status().components.find((c) => c.id === 'fixture-tool');
+    const stateOf = (root) => JSON.parse(fs.readFileSync(root.p('var/opt/mgu-deploy/state.json'), 'utf8'));
+    const firmwareUpdate = (root, fw) => {
+        PIECES.forEach((rel) => fs.rmSync(sys(root, rel), { force: true }));
+        write(root.p(FW), `${fw}\n`);
+        write(root.p('usr/bin/carplay'), 'stock carplay\n', 0o755);
+    };
+    const setUp = () => {
+        const root = fakeRoot({ recmgr: ['fixture-tool'] });
+        Object.assign(root.env, { FAKE_HOOK_LOG: `${root.R}.hooks.log`,
+            FAKE_HOOK_CHMOD: JSON.stringify([['activate', root.p('usr/bin/carplay'), '700']]) });
+        write(root.p(FW), 'BMW MGU P18_21w03 mgu-high\n');
+        write(root.p('usr/bin/carplay'), 'stock carplay\n', 0o755);
+        const r = root.run(['install', '--artifact', hookArtifact('3.0.0'), '--yes']);
+        if (r.status !== 0) throw new Error(r.out);
+        firmwareUpdate(root, 'BMW MGU P18_23w44.2-1-3 mgu-high');
+        return root;
+    };
+
+    let root = setUp();
+    let n = hooks(root).length;
+    const kills = root.kills().length;
+    let r = root.run(['install', '--artifact', namedTool('other-tool', '0.1.0'), '--yes']);
+    check('tools after firmware, with an install step: an install of something else lays its files only, no hook, carplay stock',
+        r.status === 0 && PIECES.every((rel) => lstatOrNullT(sys(root, rel))) && hooks(root).length === n &&
+        !r.out.includes('fixture-tool activate:') && mode(root.p('usr/bin/carplay')) === 0o755 &&
+        r.out.includes('fixture-tool 3.0.0: fixture-tool.socket, fixture-tool.service, sockets.target.wants/fixture-tool.socket missing; ' +
+            'its files are laid again, its install step waits for its next install or Set up') &&
+        r.out.includes('needs setup (its install step runs at its next install or update, or with Set up in the Store): fixture-tool'), r.out);
+    let t = tool(root);
+    check('tools after firmware, with an install step: status says it needs setup, stale no more, the firmware it runs under recorded',
+        t.stale === null && /missing$/.test(t.needs_setup) && stateOf(root).tools['fixture-tool'].firmware === 'BMW MGU P18_23w44.2-1-3 mgu-high', JSON.stringify(t));
+    r = root.run(['install', '--artifact', namedTool('other-tool', '0.1.0'), '--yes']);
+    check('tools after firmware, with an install step: the next install leaves it alone, still needing setup',
+        r.status === 0 && !r.out.includes('fixture-tool 3.0.0:') && hooks(root).length === n && tool(root).needs_setup, r.out);
+    r = root.run(['setup', 'fixture-tool', '--yes']);
+    t = tool(root);
+    check('tools after firmware, with an install step: setup lays it again from its copy with its activate, the stock-file fix after it',
+        r.status === 0 && hooks(root).slice(n).some((l) => /^activate 3\.0\.0/.test(l)) && t.needs_setup === null && t.stale === null &&
+        mode(root.p('usr/bin/carplay')) === 0o755 && r.out.includes('it becomes 0755'), `${r.out}\n${hooks(root).slice(n).join('\n')}`);
+    r = root.run(['setup', 'fixture-tool', '--yes']);
+    check('tools after firmware, with an install step: setup of a tool that needs none is refused, exit 2', r.status === 2 &&
+        r.out.includes('needs no setup'), r.out);
+    check('tools after firmware, with an install step: nothing restarted the app manager', root.kills().length === kills);
+
+    // relay: the files only, asked for
+    root = setUp();
+    n = hooks(root).length;
+    r = root.run(['relay', '--yes']);
+    check('tools after firmware, with an install step: relay lays its files only and records why it needs setup',
+        r.status === 0 && PIECES.every((rel) => lstatOrNullT(sys(root, rel))) && hooks(root).length === n && /missing$/.test(tool(root).needs_setup), r.out);
+    r = root.run(['relay', '--yes']);
+    check('tools after firmware, with an install step: relay again has nothing to do', r.status === 0 && r.out.includes('nothing to lay again'), r.out);
+
+    // its pieces in place, another firmware: needs setup too, nothing laid
+    root = setUp();
+    root.run(['relay', '--yes']);
+    root.run(['setup', 'fixture-tool', '--yes']);
+    write(root.p(FW), 'BMW MGU P18_24w07 mgu-high\n');
+    n = hooks(root).length;
+    r = root.run(['install', '--artifact', namedTool('other-tool', '0.1.0'), '--yes']);
+    check('tools after firmware, with an install step: under another firmware with its pieces in place, it needs setup, no hook',
+        r.status === 0 && hooks(root).length === n && tool(root).needs_setup === 'installed under firmware BMW MGU P18_23w44.2-1-3 mgu-high', r.out);
+
+    // an install of a newer version runs its step and clears it
+    r = root.run(['install', '--artifact', hookArtifact('3.0.1'), '--yes']);
+    check('tools after firmware, with an install step: an install of a newer version runs its activate, nothing needs setup',
+        r.status === 0 && hooks(root).slice(n).some((l) => /^activate 3\.0\.1/.test(l)) && tool(root).needs_setup === null, r.out);
+}
+
 /* A tool's drop-in for a unit it does not own: installed into a folder it
  * creates, the unit's own files untouched, refused over a foreign one,
  * rolled back with a failed install, and removed (with the folder) on
@@ -8909,6 +8995,7 @@ const SUITES = [
     testProvides,
     testDropins,
     testToolsAfterFirmware,
+    testToolsAfterFirmwareSetup,
     testI7Takeover,
     testKeepRunning,
     testPostInstall,

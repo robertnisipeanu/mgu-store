@@ -1,5 +1,10 @@
 # Deploy tool changelog
 
+## 0.8.4
+
+- An install that finds an installed tool it does not install set up under another firmware, or missing a unit, an enablement link or a drop-in, lays a tool with an install step of its own (`activate`, `postInstall`) again files only: its units, enablement links and drop-ins, their recmgr names and limits, and the restart units laid started under recmgr's rules. Its step does not run from the copy kept here, which may be an old version from another source. Its record keeps `needsSetup` (`status --json` `needs_setup`), and the run's last line names such tools. A tool with no install step is laid again whole, as before.
+- The step runs at the tool's next install (an update or the same version again) or with `setup <id> --yes`, which lays the tool again from its kept copy with its step, the stock-file fix after it. `relay [<id>...] --yes` lays a stale tool's files only, without an install.
+
 ## 0.8.3
 
 - iDrive 7: after every bounce, the app manager it starts is watched until it has been up 60 s (`MGU_DEPLOY_GUARD_WATCH_S`). One that dies before turns the MainApp guard off for the rest of the boot and stops the run where it is (exit 3): what it changed stays and nothing is rolled back, since that would write `/` and the app manager's files while the next manager starts; the next start of the head unit takes it up. `main.js` and `CertificateManager.js` are unbound (an unmount that fails is said, and the run still stops). Until the next start nothing binds them again, nothing bounces, and app-privacy is not applied (its apply is left to `app-privacy.service` at the next start, reported pending); app installs, removals, rollbacks, `fallback migrate`, `restore`, `remove-all` and the removal of app-privacy or IterioDev's App Manager are refused, `remove-all` with its result naming what is left. Other tools still install, their hooks' stock-file fix included. oapcontroller is never restarted.

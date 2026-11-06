@@ -55,7 +55,7 @@ process.umask(0o022);
 
 /* deploy/component.json's version; bumped when a file under deploy/unit/
  * changes. */
-var VERSION = '0.8.3';
+var VERSION = '0.8.4';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -3014,6 +3014,59 @@ function keptToolArtifact(t) {
     if (!fs.existsSync(cj) || !bytesEqualFile(fs.readFileSync(cj), path.join(t.root, 'versions', t.version, 'component.json'))) return null;
     return { kind: 'tool', file: dir, dir: dir, component: t.component, id: t.id, version: t.version,
         hmi: hmiList(t.component.mguHmi, cj), hmiFrom: t.component.mguHmi ? 'declared' : null, provides: t.component.mguProvides || null };
+}
+/* ---- tools after a firmware update: files only ------------------------------ */
+/* A tool with an install step of its own (activate, postInstall) set up
+ * under another firmware, or missing a piece, is not installed again from
+ * the copy kept here on its own: that copy may be an old version, and its
+ * step may patch the firmware's files. Only its files are laid again: its
+ * units, enablement links and drop-ins, their recmgr names and limits, the
+ * restart units laid started as at a first install (recmgrs rules). Its
+ * record (state.json tools) then holds the firmware it runs under and
+ * needsSetup, why its install step is owed, until an install of the tool
+ * (its update, the same version again, or setup) runs the step. A tool
+ * without such a step is laid again whole, as an install of it. */
+function hasInstallStep(c) { return !!(c.activate || c.postInstall); }
+function needsSetup(state, id) {
+    var rec = state.tools && state.tools[id];
+    return rec && typeof rec.needsSetup === 'string' ? rec.needsSetup : null;
+}
+function relayFiles(t, state, why) {
+    var c = t.component;
+    takeSnapshot('relay', toolTouched(c));
+    var laid = layMissing(t, state), isLaid = function (u) { return laid.indexOf(u) >= 0; };
+    applyRestarts(Object.assign({}, c, { restart: (c.restart || []).filter(isLaid) }), state, true);
+    var moved = firmwareMoved(t, state) || !!(state.tools && state.tools[t.id] && state.tools[t.id].afterFirmware);
+    recordTool(state, t.id, t.version);
+    state.tools[t.id].needsSetup = why;
+    /* its setup then leaves the versions kept as after a firmware update (installTool) */
+    if (moved) state.tools[t.id].afterFirmware = true;
+    say(t.id + ' ' + t.version + ': ' + why + '; its files are laid again, its install step waits for its next install or Set up');
+}
+/* relay [<id>...] --yes: files only, for each stale tool named (none: all). */
+function cmdRelay(args) {
+    var state = loadState(), done = [];
+    installedTools().forEach(function (t) {
+        if (t.id === 'mgu-deploy' || (args.positional.length && args.positional.indexOf(t.id) < 0)) return;
+        var why = toolStale(t, state);
+        if (!why) return;
+        if (!keptToolArtifact(t)) { say(t.id + ' ' + t.version + ': ' + why + '; no copy of it is kept here'); return; }
+        relayFiles(t, state, why);
+        done.push(t.id);
+    });
+    if (done.length) { syncDropIns(); saveState(state); }
+    else say('nothing to lay again');
+    return 0;
+}
+/* setup <id> --yes: the tool laid again from its kept copy with its
+ * install step, as an install of it. */
+function cmdSetup(args) {
+    var id = args.positional[0], state = loadState();
+    var t = installedTools().filter(function (x) { return x.id === id; })[0];
+    if (!t || id === 'mgu-deploy') throw refuse((id || 'setup') + ': no installed tool to set up');
+    if (!needsSetup(state, id) && !toolStale(t, state)) throw refuse(id + ' ' + t.version + ' needs no setup');
+    if (!keptToolArtifact(t)) throw refuse(id + ' ' + t.version + ': no copy of it is kept here; install it from its source');
+    return cmdInstall({ artifacts: [], positional: [], setup: [id] });
 }
 /* A tool's postInstall: its script (one of its files) with the arguments
  * after it, run by sh as root from current/ once the install is in place,
@@ -6128,7 +6181,7 @@ function collectStatus(state) {
         });
         var stale = t.id === 'mgu-deploy' ? null : toolStale(t, state);
         components.push({ id: t.id, kind: 'tool', version: t.version, units: units, provides: t.component.mguProvides || null,
-            previous: toolPrevious(t), stale: stale, kept: !!keptToolArtifact(t) });
+            previous: toolPrevious(t), stale: stale, kept: !!keptToolArtifact(t), needs_setup: needsSetup(state, t.id) });
     });
     installedApps().forEach(function (app) {
         var tile = tileState(app, fb);
@@ -6174,7 +6227,8 @@ function cmdStatus(args, crashList, live, limits, listing) {
     say('components:');
     s.components.forEach(function (c) {
         if (c.kind === 'tool') {
-            say('  tool ' + c.id + ' ' + c.version + (c.stale ? ' (not working: ' + c.stale + ')' : ''));
+            say('  tool ' + c.id + ' ' + c.version + (c.stale ? ' (not working: ' + c.stale + ')' : '') +
+                (c.needs_setup ? ' (needs setup: ' + c.needs_setup + ')' : ''));
             c.units.forEach(function (u) {
                 say('    ' + u.name + ' enabled=' + u.enabled + ' active=' + u.active);
                 u.journal.forEach(function (l) { say('      ' + l); });
@@ -6527,7 +6581,7 @@ function cmdInstall(args) {
  * same call stay installed. */
 function installRun(args, afresh) {
     var files = args.artifacts.length ? args.artifacts.map(function (f) { return path.resolve(f); })
-        : kitArtifacts();
+        : args.setup ? [] : kitArtifacts();
     var stage = stageDir(), state = loadState(), done = [], attempted = false, id8 = isId8(), elsewhere = {};
     /* an install after a remove-all keeps the deploy tool */
     rmrf(REMOVE_ALL_FILE);
@@ -6565,10 +6619,14 @@ function installRun(args, afresh) {
             });
         }
         /* installed tools this run does not install: laid again from their
-         * kept copy when set up under another firmware or missing a piece */
+         * kept copy when set up under another firmware or missing a piece;
+         * one with an install step, files only (relayFiles), unless this run
+         * sets it up */
+        var relaid = [];
         installedTools().forEach(function (t) {
             if (t.id === 'mgu-deploy' || validated.some(function (a) { return a.id === t.id; })) return;
-            var why = toolStale(t, state), kept = why ? keptToolArtifact(t) : null;
+            var setup = (args.setup || []).indexOf(t.id) >= 0;
+            var why = toolStale(t, state) || (setup ? needsSetup(state, t.id) : null), kept = why ? keptToolArtifact(t) : null;
             if (!why) {
                 if (!state.tools || !state.tools[t.id]) {
                     recordTool(state, t.id, t.version);
@@ -6580,9 +6638,14 @@ function installRun(args, afresh) {
                 say(t.id + ' ' + t.version + ': ' + why + '; no copy of it is kept here, so its source installs it again');
                 return;
             }
+            if (!setup && hasInstallStep(t.component)) {
+                try { relayFiles(t, state, why); relaid.push(t.id); attempted = true; }
+                catch (e) { warn(t.id + ' ' + t.version + ' is not laid again: ' + e.message); }
+                return;
+            }
             say(t.id + ' ' + t.version + ': ' + why + '; laid again from the copy kept here');
             kept.repair = why;
-            kept.firmwareMoved = firmwareMoved(t, state);
+            kept.firmwareMoved = firmwareMoved(t, state) || !!(state.tools && state.tools[t.id] && state.tools[t.id].afterFirmware);
             validated.push(kept);
         });
         validated = orderArtifacts(validated);
@@ -6699,6 +6762,10 @@ function installRun(args, afresh) {
             }
         });
         if (relist) { attempted = true; relistApps(state); }
+        if (relaid.length) {
+            syncDropIns();
+            say('needs setup (its install step runs at its next install or update, or with Set up in the Store): ' + relaid.join(', '));
+        }
         if (id8 && !noOap) {
             try {
                 var listedNow = relistId8();
@@ -7542,6 +7609,8 @@ var HELP = [
     '  install [--artifact <file>...] [--skip-older] [--yes]',
     '                                    install tools/apps (default: ./artifacts/*.tgz)',
     '  status [--json]                  installed components and pending reboots',
+    '  relay [<id>...] --yes            lay a stale tool\'s files again from the copy kept here, without its install step',
+    '  setup <id> --yes                 a tool laid again from the copy kept here, its install step included',
     '  uninstall <id> [--yes]           remove one tool or app',
     '  remove-all [--json]              what the Store setup put on this unit',
     '  remove-all --yes                 remove all of it, this tool last',
@@ -7590,7 +7659,7 @@ function main() {
 }
 function runCommand() {
     var args = parseArgs(process.argv.slice(2)), locked = false;
-    var rootOnly = ['install', 'uninstall', 'remove-all', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending',
+    var rootOnly = ['install', 'relay', 'setup', 'uninstall', 'remove-all', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending',
         'appmanager', 'verify', 'remove-unused']
         .indexOf(args.command) >= 0;
     try {
@@ -7615,6 +7684,8 @@ function runCommand() {
             return cmdRelist();
         }
         if (args.command === 'uninstall') return cmdUninstall(args);
+        if (args.command === 'relay') return cmdRelay(args);
+        if (args.command === 'setup') return cmdSetup(args);
         if (args.command === 'remove-all') return cmdRemoveAll(args);
         if (args.command === 'rollback') return cmdRollback(args);
         if (args.command === 'restore') return cmdRestore(args);
