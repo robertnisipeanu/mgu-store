@@ -128,6 +128,12 @@ const cases = [
     [rowState(row({ status: 'update', repair: 'mgu-x.service missing' }), null), 'Update 1.0.1'],
     [rowState(row({ status: 'installed', repair: 'x', pendingReboot: true }), null), 'Not working'],
     [rowState(row({ status: 'installed', repair: 'x', queued: true }), null), 'Waiting'],
+    // a tool whose install step waits after a firmware update (the updater's needsSetup): a press sets it up; an update offered wins
+    [rowState(row({ status: 'installed', needsSetup: 'installed under firmware old' }), null), 'Needs setup'],
+    [rowAction(row({ status: 'installed', needsSetup: 'x' }), null), 'setup'],
+    [rowAction(row({ status: 'update', needsSetup: 'x' }), null), 'install'],
+    [rowState(row({ status: 'update', needsSetup: 'x' }), null), 'Update 1.0.1'],
+    [rowAction(row({ status: 'installed', needsSetup: 'x' }), { id: 'doom', phase: 'install' }), null],
     [rowState(row({ kind: 'tool', status: 'installed', pendingReboot: true }), null), 'Restart pending'],
     [rowState(row({ kind: 'tool', status: 'update', pendingReboot: true }), null), 'Update 1.0.1'],
     // an app install queued for the next start (iDrive 8): not offered again

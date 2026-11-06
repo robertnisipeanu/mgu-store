@@ -119,6 +119,9 @@ function rowState(row, busy) {
     if (row.installed && row.repair && row.status !== 'update') {
         return tr("Not working");
     }
+    if (setupable(row, busy)) {
+        return tr("Needs setup");
+    }
     switch (row.status) {
     case 'update': return tr("Update {0}", row.revision && row.version === row.installed ? row.revision : row.version);
     case 'available': return tr("Install {0}", row.version);
@@ -138,7 +141,16 @@ function rowAction(row, busy) {
     if (!notForUnit(row) && !row.blocked && (((row.status === 'update' || row.status === 'available') && !startPending(row)) || row.error)) {
         return 'install';
     }
+    if (setupable(row, busy)) {
+        return 'setup';
+    }
     return removable(row, busy) ? 'remove' : null;
+}
+
+/* Whether the installed tool's install step waits for Set up (the
+ * updater's needsSetup), with no update of it offered. */
+function setupable(row, busy) {
+    return !!row.installed && !!row.needsSetup && row.status !== 'update' && !row.error && !row.queued && !(busy && busy.id === row.id);
 }
 
 /* Whether the component can be removed now (after a confirm step): one
@@ -440,6 +452,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { setupable, proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

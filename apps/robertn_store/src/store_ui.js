@@ -48,7 +48,7 @@ const { t: tr } = require('./i18n.js');
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    notForUnit, removable, requiredAlone, undoable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
+    notForUnit, removable, requiredAlone, undoable, setupable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -170,6 +170,9 @@ function tileState(c, busy) {
     if (c.installed && c.repair) {
         return { sub: tr("Not working"), subColor: AMBER, badge: 'installed', progress: -1 };
     }
+    if (setupable(c, busy)) {
+        return { sub: tr("Needs setup"), subColor: AMBER, badge: 'installed', progress: -1 };
+    }
     if (c.status === 'available') {
         return { sub: [c.version, size(c.size)].filter(Boolean).join(' · '), subColor: DIM, badge: '', progress: -1 };
     }
@@ -186,7 +189,7 @@ function pending(c, busy) {
     if ((busy && busy.id === c.id) || c.queued) {
         return true;
     }
-    return !notForUnit(c) && !c.blocked && !!(c.error || startPending(c) || c.status === 'update' || c.pendingReboot);
+    return !notForUnit(c) && !c.blocked && !!(c.error || startPending(c) || c.status === 'update' || c.pendingReboot || setupable(c, busy));
 }
 
 /* A tile; name: its screen's sourceNames. */
@@ -393,6 +396,8 @@ function appView(m, page) {
     } else if (action === 'install') {
         v.primary = button(c.error ? tr("Try again") : c.status === 'update' ? tr("Update to {0}", target(c)) : tr("Install"), { do: 'install', id: c.id },
             { vicon: c.error ? 'refresh' : 'arrowDown', style: 'primary', color: BLUE });
+    } else if (action === 'setup') {
+        v.primary = button(tr("Set up"), { do: 'setup', id: c.id }, { vicon: 'refresh', style: 'primary', color: BLUE });
     } else if (c.pendingReboot && canRestart(m)) {
         v.primary = button(tr("Restart head unit"), { do: 'open', page: { name: 'confirm', kind: 'restart' } },
             { vicon: 'refresh', style: 'primary', color: BLUE });
