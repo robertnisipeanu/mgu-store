@@ -1860,6 +1860,7 @@ stdout, read-only, taking no lock, of this shape:
 node deploy/test/run.js              # MGU_TEST_ONLY=testKit,... runs those test functions only; MGU_TEST_INSTALL_EXE=<file> runs an mgu-install executable in place of the script
 sh deploy/test/run.sh                # in Docker: the unit's code on Node 8.16.2 (MGU_TEST_UNIT_NODE)
 node tools/test/run.js               # the linker and packer; sh tools/test/run.sh: on Node 8.16.2
+MGU_TEST_NODE_VERSION=8.9.4 sh deploy/test/run.sh   # both run.sh: on the 2019 MGU's Node 8.9.4
 ```
 
 Offline, against a fake root (`MGU_DEPLOY_FAKE_ROOT=1` and the

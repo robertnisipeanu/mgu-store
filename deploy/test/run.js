@@ -3330,7 +3330,9 @@ function patchArtifact(version, edit) {
         `if (process.env.FAKE_PATCH_FAIL === process.argv[2] + '@' + ${JSON.stringify(version)}) process.exit(3);`,
         "if (process.argv[2] === 'activate' && process.env.FAKE_STATE_PROBE) fs.appendFileSync(process.env.FAKE_STATE_PROBE, " +
             "JSON.stringify(JSON.parse(fs.readFileSync(process.env.FAKE_STATE_FILE, 'utf8')).deactivated || {}) + '\\n');",
-        "const block = process.env.FAKE_BLOCK_TMP ? process.env.FAKE_BLOCK_TMP + '.tmp-' + process.ppid : null;",
+        // the deploy tool's pid (Node 8.9.4 has no process.ppid)
+        "const ppid = process.ppid || Number(/\\) \\S+ (\\d+)/.exec(fs.readFileSync('/proc/self/stat', 'utf8'))[1]);",
+        "const block = process.env.FAKE_BLOCK_TMP ? process.env.FAKE_BLOCK_TMP + '.tmp-' + ppid : null;",
         "if (block && process.argv[2] === 'activate' && fs.existsSync(block)) fs.rmdirSync(block);",
         `if (${JSON.stringify(version)} !== '1.1.0') process.exit(0);`,
         "const on = process.argv[2] === 'activate';",

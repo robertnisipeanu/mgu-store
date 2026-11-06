@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.29
+
+- Downloads work on Node 8.9.4 (2019 MGU, firmware `D_19w31.3`): a download whose answer came whole is kept when that Node reports it aborted, as it does when the server closes the connection while the file is still being written.
+
 ## 0.8.28
 
 - `{"op":"wifi-5ghz","on":true|false}` (privileged) is relayed to the uplink as it is: Allow 5 GHz for the Store's Wi-Fi (mgu-uplink 0.7.6).

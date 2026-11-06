@@ -1,5 +1,9 @@
 # Deploy tool changelog
 
+## 0.8.2
+
+- Runs on Node 8.9.4 (2019 MGU, firmware `D_19w31.3`), where Node has no `Atomics` and no `module.builtinModules`: the deploy tool's waits use a `sleep` child there, and the linker takes the list of Node's builtins from the natives binding. Source builds and app installs work there; newer Node runs as before.
+
 ## 0.8.1
 
 - The deploy tool runs with umask 022 whatever its caller's, and so do the hooks, `postInstall` scripts and commands it runs. A hook that writes a stock binary with a mode keeps that mode's group and other bits, as when the updater runs it, under an SSH install's umask 077 too.
