@@ -2721,13 +2721,15 @@ function installTool(a, state, tx) {
      * the version goes, as at its removal; one that fails refuses the
      * install, the version kept and owed for the tool's next install or
      * removal. A failed install activates the version it replaces again.
-     * Laying the current version again after a firmware update
-     * (a.firmwareMoved: the firmware put the patched files back) leaves them,
-     * kept; laying it again for another reason runs them, and one that fails
+     * Any install of the tool after a firmware update, before a hook of it
+     * ran on this firmware (toolMoved; a.firmwareMoved, the kept copy laid
+     * again: the firmware put the patched files back), leaves them, kept;
+     * laying it again for another reason runs them, and one that fails
      * stays kept and owed while the current version is laid again. */
     var due = before ? deactivateDue(state, c.id, root, before).filter(function (v) { return v !== c.version; }) : [];
-    tx.keep = a.firmwareMoved ? due : [];
-    (a.firmwareMoved ? [] : due).forEach(function (v) {
+    var moved = a.firmwareMoved || toolMoved(state, c.id);
+    tx.keep = moved ? due : [];
+    (moved ? [] : due).forEach(function (v) {
         var vc = readJsonOrNull(path.join(versions, v, 'component.json'));
         if (!vc || vc.id !== c.id || !vc.deactivate) return;
         tx.deactivated = true;
@@ -3031,31 +3033,40 @@ function needsSetup(state, id) {
     var rec = state.tools && state.tools[id];
     return rec && typeof rec.needsSetup === 'string' ? rec.needsSetup : null;
 }
+/* Tool id set up under another firmware than the one running, its install
+ * step not run since (relayFiles' afterFirmware). */
+function toolMoved(state, id) {
+    return firmwareMoved({ id: id }, state) || !!(state.tools && state.tools[id] && state.tools[id].afterFirmware);
+}
 function relayFiles(t, state, why) {
     var c = t.component;
     takeSnapshot('relay', toolTouched(c));
     var laid = layMissing(t, state), isLaid = function (u) { return laid.indexOf(u) >= 0; };
     applyRestarts(Object.assign({}, c, { restart: (c.restart || []).filter(isLaid) }), state, true);
-    var moved = firmwareMoved(t, state) || !!(state.tools && state.tools[t.id] && state.tools[t.id].afterFirmware);
+    var moved = toolMoved(state, t.id);
     recordTool(state, t.id, t.version);
     state.tools[t.id].needsSetup = why;
     /* its setup then leaves the versions kept as after a firmware update (installTool) */
     if (moved) state.tools[t.id].afterFirmware = true;
     say(t.id + ' ' + t.version + ': ' + why + '; its files are laid again, its install step waits for its next install or Set up');
 }
-/* relay [<id>...] --yes: files only, for each stale tool named (none: all). */
+/* relay [<id>...] --yes: each stale tool named (none: all) laid again from
+ * its kept copy: files only for one with an install step, whole for one
+ * without (an install of it). */
 function cmdRelay(args) {
-    var state = loadState(), done = [];
+    var state = loadState(), done = [], whole = [];
     installedTools().forEach(function (t) {
         if (t.id === 'mgu-deploy' || (args.positional.length && args.positional.indexOf(t.id) < 0)) return;
         var why = toolStale(t, state);
         if (!why) return;
         if (!keptToolArtifact(t)) { say(t.id + ' ' + t.version + ': ' + why + '; no copy of it is kept here'); return; }
+        if (!hasInstallStep(t.component)) { whole.push(t.id); return; }
         relayFiles(t, state, why);
         done.push(t.id);
     });
     if (done.length) { syncDropIns(); saveState(state); }
-    else say('nothing to lay again');
+    if (whole.length) return cmdInstall({ artifacts: [], positional: [], setup: whole });
+    if (!done.length) say('nothing to lay again');
     return 0;
 }
 /* setup <id> --yes: the tool laid again from its kept copy with its
@@ -6558,11 +6569,11 @@ function confirmYes(args, what) {
     try { n = fs.readSync(0, buf, 0, 64, null); } catch (e) { /* refused below */ }
     if (buf.toString('utf8', 0, n).trim() !== 'YES') throw refuse('confirmation given was not YES');
 }
-/* An install, then the current apps it found waiting for an update after a
- * firmware update installed afresh, each with its data folder carried over. */
 /* install --leave: the tools a later install of this caller installs, which
  * no install of this run (an app's afresh among them) lays again */
 var leaveIds = [];
+/* An install, then the current apps it found waiting for an update after a
+ * firmware update installed afresh, each with its data folder carried over. */
 function cmdInstall(args) {
     if (args.leave) leaveIds = args.leave;
     var afresh = [], failed = [];
@@ -6642,14 +6653,10 @@ function installRun(args, afresh) {
                 say(t.id + ' ' + t.version + ': ' + why + '; no copy of it is kept here, so its source installs it again');
                 return;
             }
-            if (!setup && hasInstallStep(t.component)) {
-                try { relayFiles(t, state, why); relaid.push(t.id); attempted = true; }
-                catch (e) { warn(t.id + ' ' + t.version + ' is not laid again: ' + e.message); }
-                return;
-            }
+            if (!setup && hasInstallStep(t.component)) { relaid.push({ t: t, why: why }); return; }
             say(t.id + ' ' + t.version + ': ' + why + '; laid again from the copy kept here');
             kept.repair = why;
-            kept.firmwareMoved = firmwareMoved(t, state) || !!(state.tools && state.tools[t.id] && state.tools[t.id].afterFirmware);
+            kept.firmwareMoved = toolMoved(state, t.id);
             validated.push(kept);
         });
         validated = orderArtifacts(validated);
@@ -6703,6 +6710,11 @@ function installRun(args, afresh) {
             ensureStock('install', work.reduce(function (all, a) { return all.concat(artifactTouched(a)); },
                 apps && !id8 && retiredBackups().length ? retiredTouched(null) : []));
         }
+        /* past every refusal: the files only of the tools the loop above left so */
+        relaid = relaid.filter(function (x) {
+            try { relayFiles(x.t, state, x.why); attempted = true; return true; }
+            catch (e) { warn(x.t.id + ' ' + x.t.version + ' is not laid again: ' + e.message); return false; }
+        }).map(function (x) { return x.t.id; });
         work.forEach(function (a) {
             /* after the tools, app-privacy among them, before the first app */
             if (a.kind === 'app' && !migrated) {
@@ -6757,7 +6769,7 @@ function installRun(args, afresh) {
                     if (tx.saved) rmrf(tx.saved.dir);
                 } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
                 /* a tool laid again from its copy: the rest goes on */
-                if (a.repair) { warn(a.id + ' ' + a.version + ' is not laid again: ' + e.message); return; }
+                if (a.repair && (args.setup || []).indexOf(a.id) < 0) { warn(a.id + ' ' + a.version + ' is not laid again: ' + e.message); return; }
                 if (done.length) {
                     say('installed before this failure, and kept: ' + done.join(', '));
                     if (e.code === 2) e.code = 1;

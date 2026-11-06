@@ -4052,6 +4052,23 @@ function testUninstallAfterOldRollback() {
     check('old rollback: and its setup after it runs none either, the version kept',
         r.status === 0 && fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')) && !r.out.includes('deactivate exited'), r.out);
 
+    // after a firmware update, an install of a newer version from its artifact runs no due deactivate either
+    rr = oldStyle('BMW MGU P18_23w44.2-1-3 mgu-high');
+    write(rr.p('etc/os-release-id-dlt'), 'BMW MGU P18_24w07 mgu-high\n');
+    write(files.FAKE_AAPD, 'stock aapd\n');
+    write(files.FAKE_AAPD_CONF, 'stock conf\n');
+    r = rr.run(['install', '--artifact', patchArtifact('1.2.0'), '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
+    check('old rollback: after a firmware update an update from its artifact runs no due deactivate, the version kept',
+        r.status === 0 && !r.out.includes('deactivate exited') && fs.readlinkSync(path.join(rr.tool('fixture-tool'), 'current')) === 'versions/1.2.0' &&
+        fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')), r.out);
+    // files only first (relay), the firmware then recorded: the update still runs none
+    rr = oldStyle('BMW MGU P18_23w44.2-1-3 mgu-high');
+    write(rr.p('etc/os-release-id-dlt'), 'BMW MGU P18_24w07 mgu-high\n');
+    rr.run(['relay', '--yes'], files);
+    r = rr.run(['install', '--artifact', patchArtifact('1.2.0'), '--yes'], Object.assign({ FAKE_PATCH_FAIL: 'deactivate@1.1.0' }, files));
+    check('old rollback: after relay under the new firmware, an update from its artifact runs no due deactivate either',
+        r.status === 0 && !r.out.includes('deactivate exited') && fs.existsSync(path.join(rr.tool('fixture-tool'), 'versions/1.1.0')), r.out);
+
     // a due deactivate that ran and then failed to hand a file over: the version it replaces is activated again
     rr = oldStyle();
     const held = rr.p('usr/bin/held.old');
@@ -7438,6 +7455,11 @@ function testToolsAfterFirmware() {
         stateOf(root).tools['fixture-tool'].firmware === 'BMW MGU P18_23w44.2-1-3 mgu-high', r.out);
     r = root.run(['install', '--artifact', other(), '--yes']);
     check('tools after firmware: the next install leaves it alone', r.status === 0 && !r.out.includes('laid again'), r.out);
+    reset(root, 'BMW MGU P18_23w44.2-1-3 mgu-high');
+    r = root.run(['relay', '--yes']);
+    check('tools after firmware: relay lays a tool with no install step again whole, never needing setup',
+        r.status === 0 && r.out.includes('laid again from the copy kept here') && fs.existsSync(sys(root, 'fixture-tool.service')) &&
+        tool(root).stale === null && tool(root).needs_setup === null, r.out);
 
     write(root.p(FW), 'BMW MGU P18_24w07 mgu-high\n');
     check('tools after firmware: with its pieces in place, another firmware still counts',
@@ -7529,6 +7551,20 @@ function testToolsAfterFirmwareSetup() {
     r = root.run(['install', '--artifact', namedTool('other-tool', '0.1.0'), '--leave', 'fixture-tool', '--yes']);
     check('tools after firmware, with an install step: an install with --leave leaves that tool for its own install',
         r.status === 0 && !r.out.includes('fixture-tool 3.0.0:') && !lstatOrNullT(sys(root, PIECES[0])) && tool(root).needs_setup === null, r.out);
+
+    // a setup whose step fails: rolled back, exit 1, still needing setup
+    root = setUp();
+    root.run(['relay', '--yes']);
+    r = root.run(['setup', 'fixture-tool', '--yes'], { FAKE_HOOK_FAIL: 'activate@3.0.0' });
+    check('tools after firmware, with an install step: a setup whose step fails exits 1, rolled back, still needing setup',
+        r.status === 1 && r.out.includes('activate exited 3') && /missing$/.test(tool(root).needs_setup), r.out);
+
+    // an install refused at its preflight lays nothing
+    root = setUp();
+    write(root.p('usr/lib/oap-mainapp/src/main.js'), 'no anchors here\n');
+    r = root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    check('tools after firmware, with an install step: an install refused before it changes anything lays no tool again',
+        r.status === 2 && !lstatOrNullT(sys(root, PIECES[0])) && tool(root).needs_setup === null && !r.out.includes('its files are laid again'), r.out);
 
     // relay: the files only, asked for
     root = setUp();
