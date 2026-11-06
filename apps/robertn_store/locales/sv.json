@@ -113,6 +113,8 @@
     "Restart head unit?": "Starta om huvudenheten?",
     "Restart now": "Starta om nu",
     "Restart pending": "Väntar på omstart",
+    "Restart head unit to show {0}": "Starta om för att visa {0}",
+    "Restart head unit to install apps": "Starta om för att installera appar",
     "Not working": "Fungerar inte",
     "Restart the head unit to finish setup": "Starta om huvudenheten för att slutföra installationen",
     "Restarting": "Startar om",

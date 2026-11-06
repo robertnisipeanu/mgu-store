@@ -113,6 +113,8 @@
     "Restart head unit?": "Headunit neu starten?",
     "Restart now": "Jetzt neu starten",
     "Restart pending": "Neustart ausstehend",
+    "Restart head unit to show {0}": "Headunit neu starten, um {0} anzuzeigen",
+    "Restart head unit to install apps": "Headunit neu starten, um Apps zu installieren",
     "Not working": "Funktioniert nicht",
     "Restart the head unit to finish setup": "Headunit neu starten, um die Einrichtung abzuschließen",
     "Restarting": "Wird neu gestartet",

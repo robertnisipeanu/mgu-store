@@ -113,6 +113,8 @@
     "Restart head unit?": "إعادة تشغيل الوحدة الرئيسية؟",
     "Restart now": "إعادة التشغيل الآن",
     "Restart pending": "بانتظار إعادة التشغيل",
+    "Restart head unit to show {0}": "أعد تشغيل الوحدة الرئيسية لإظهار {0}",
+    "Restart head unit to install apps": "أعد تشغيل الوحدة الرئيسية لتثبيت التطبيقات",
     "Not working": "لا يعمل",
     "Restart the head unit to finish setup": "أعد تشغيل الوحدة الرئيسية لإكمال الإعداد",
     "Restarting": "جارٍ إعادة التشغيل",

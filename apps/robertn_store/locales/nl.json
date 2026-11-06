@@ -115,6 +115,8 @@
     "Restart head unit?": "Headunit herstarten?",
     "Restart now": "Nu herstarten",
     "Restart pending": "Wacht op herstart",
+    "Restart head unit to show {0}": "Herstart de headunit om {0} te tonen",
+    "Restart head unit to install apps": "Herstart de headunit om apps te installeren",
     "Not working": "Werkt niet",
     "Restart the head unit to finish setup": "Herstart de headunit om de installatie te voltooien",
     "Restarting": "Herstarten",

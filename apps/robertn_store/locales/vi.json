@@ -113,6 +113,8 @@
     "Restart head unit?": "Khởi động lại hệ thống?",
     "Restart now": "Khởi động lại ngay",
     "Restart pending": "Chờ khởi động lại",
+    "Restart head unit to show {0}": "Khởi động lại để hiển thị {0}",
+    "Restart head unit to install apps": "Khởi động lại để cài đặt ứng dụng",
     "Not working": "Không hoạt động",
     "Restart the head unit to finish setup": "Khởi động lại hệ thống để hoàn tất cài đặt",
     "Restarting": "Đang khởi động lại",

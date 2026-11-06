@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.27
+
+The status line says **Restart head unit to install apps** while the
+deploy tool holds app changes until the next start (mgu-updater 0.8.30's
+`mainappGuard`), and **Restart head unit to show** an app whose tile an
+install that restarted the app manager left hidden (`tileHidden`), in
+every language, after any install or restart error.
+
 ## 0.9.26
 
 On the Wi-Fi page, **Allow 5 GHz** has the note `May cause CarPlay

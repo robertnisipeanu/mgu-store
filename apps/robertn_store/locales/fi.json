@@ -113,6 +113,8 @@
     "Restart head unit?": "Käynnistetäänkö pääyksikkö uudelleen?",
     "Restart now": "Käynnistä uudelleen nyt",
     "Restart pending": "Vaatii käynnistyksen",
+    "Restart head unit to show {0}": "Käynnistä uudelleen, jotta {0} näkyy",
+    "Restart head unit to install apps": "Käynnistä uudelleen asentaaksesi sovelluksia",
     "Not working": "Ei toimi",
     "Restart the head unit to finish setup": "Viimeistele asennus käynnistämällä pääyksikkö uudelleen",
     "Restarting": "Käynnistetään uudelleen",

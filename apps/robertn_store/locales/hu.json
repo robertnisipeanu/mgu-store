@@ -113,6 +113,8 @@
     "Restart head unit?": "Újraindítja a fejegységet?",
     "Restart now": "Újraindítás most",
     "Restart pending": "Újraindításra vár",
+    "Restart head unit to show {0}": "Indítsa újra a(z) {0} megjelenítéséhez",
+    "Restart head unit to install apps": "Indítsa újra az alkalmazások telepítéséhez",
     "Not working": "Nem működik",
     "Restart the head unit to finish setup": "A beállítás befejezéséhez indítsa újra a fejegységet",
     "Restarting": "Újraindítás…",

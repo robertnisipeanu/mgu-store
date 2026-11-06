@@ -113,6 +113,8 @@
     "Restart head unit?": "Reštartovať jednotku?",
     "Restart now": "Reštartovať teraz",
     "Restart pending": "Čaká na reštart",
+    "Restart head unit to show {0}": "Reštartujte jednotku na zobrazenie {0}",
+    "Restart head unit to install apps": "Reštartujte jednotku na inštaláciu aplikácií",
     "Not working": "Nefunguje",
     "Restart the head unit to finish setup": "Na dokončenie nastavenia reštartujte hlavnú jednotku",
     "Restarting": "Reštartuje sa",
