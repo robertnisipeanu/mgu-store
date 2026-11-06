@@ -129,8 +129,9 @@ function rowState(row, busy) {
     }
 }
 
-/* What a press on the row does: install, remove (after a confirm step), or
- * nothing. A removal the last start failed to apply is tried again. */
+/* What a press on the row does: install, set up (a tool's install step,
+ * setupable), remove (after a confirm step), or nothing. A removal the last
+ * start failed to apply is tried again. */
 function rowAction(row, busy) {
     if ((busy && busy.id === row.id) || row.queued) {
         return null;
@@ -148,9 +149,11 @@ function rowAction(row, busy) {
 }
 
 /* Whether the installed tool's install step waits for Set up (the
- * updater's needsSetup), with no update of it offered. */
+ * updater's needsSetup), with no update of it offered, and it is neither
+ * blocked nor for another head unit. */
 function setupable(row, busy) {
-    return !!row.installed && !!row.needsSetup && row.status !== 'update' && !row.error && !row.queued && !(busy && busy.id === row.id);
+    return !!row.installed && !!row.needsSetup && row.status !== 'update' && !row.error && !row.queued && !row.blocked &&
+        row.compat !== 'no' && !(busy && busy.id === row.id);
 }
 
 /* Whether the component can be removed now (after a confirm step): one

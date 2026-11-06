@@ -183,8 +183,8 @@ function tileState(c, busy) {
 }
 
 /* Whether something runs or waits on the component, as tileState tells it:
- * its install or removal, a queued one, a failure, a restart pending or an
- * update. */
+ * its install or removal, a queued one, a failure, a restart pending, an
+ * update, or its setup. */
 function pending(c, busy) {
     if ((busy && busy.id === c.id) || c.queued) {
         return true;
@@ -374,7 +374,9 @@ function appView(m, page) {
     if (c.blocked) {
         notes.push([c.blocked, AMBER]);
     }
-    if (c.pendingReboot) {
+    if (setupable(c, busy)) {
+        notes.push([tr("Needs setup"), AMBER]);
+    } else if (c.pendingReboot) {
         notes.push([tr("Restart pending"), AMBER]);
         const failed = restartFailed(m);
         if (failed) {

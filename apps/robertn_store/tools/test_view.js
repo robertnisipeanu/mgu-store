@@ -134,6 +134,10 @@ const cases = [
     [rowAction(row({ status: 'update', needsSetup: 'x' }), null), 'install'],
     [rowState(row({ status: 'update', needsSetup: 'x' }), null), 'Update 1.0.1'],
     [rowAction(row({ status: 'installed', needsSetup: 'x' }), { id: 'doom', phase: 'install' }), null],
+    // not for one blocked or for another head unit
+    [rowAction(row({ status: 'installed', needsSetup: 'x', blocked: 'doom is already installed from o/r' }), null), null],
+    [rowState(row({ status: 'installed', needsSetup: 'x', blocked: 'doom is already installed from o/r' }), null), 'Installed 1.0.0'],
+    [rowAction(row({ status: 'installed', needsSetup: 'x', compat: 'no' }), null), null],
     [rowState(row({ kind: 'tool', status: 'installed', pendingReboot: true }), null), 'Restart pending'],
     [rowState(row({ kind: 'tool', status: 'update', pendingReboot: true }), null), 'Update 1.0.1'],
     // an app install queued for the next start (iDrive 8): not offered again

@@ -240,6 +240,9 @@ f = frame(fixture.model({}, setup), { textScale: 1, focus: 0, scroll: {} });
 eq(f.values.grid.items.map((t) => [t.id, t.sub, t.badge]), [['doom', 'Needs setup', 'installed']], 'a tool that needs setup');
 f = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }, setup), { textScale: 1, focus: 0, scroll: {} });
 eq([f.items[0].label, JSON.stringify(f.items[0].act)], ['Set up', JSON.stringify({ do: 'setup', id: 'doom' })], 'Set up on its page');
+setup.components[0].pendingReboot = true;
+f = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }, setup), { textScale: 1, focus: 0, scroll: {} });
+eq([text(f, 'note1'), f.items[0].label], ['Needs setup', 'Set up'], 'its page says Needs setup, also with a restart pending');
 // with the updater's nextStart: a queued first install has Remove (drops it), a queued removal none; a failed apply shows why
 later.components = [Object.assign({}, later.components[0], { nextStart: 'install' }),
     Object.assign({}, later.components[1], { status: 'installed', installed: '1.0.1', nextStart: 'remove' })];
