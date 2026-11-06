@@ -157,6 +157,10 @@ until `apply` replaces them). `--version` prints `app-privacy <version>`.
 appIds, marks an app installed from a build without the marker. Installers
 neither read nor write it.
 
+`/var/opt/public/oap/oap_12201/data/never-start-apps.json`, the same shape,
+lists BMW apps MainApp 8.3.2 never starts (README, "BMW apps that never
+start"). Installers neither read nor write it.
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
