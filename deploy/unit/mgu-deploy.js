@@ -6560,7 +6560,11 @@ function confirmYes(args, what) {
 }
 /* An install, then the current apps it found waiting for an update after a
  * firmware update installed afresh, each with its data folder carried over. */
+/* install --leave: the tools a later install of this caller installs, which
+ * no install of this run (an app's afresh among them) lays again */
+var leaveIds = [];
 function cmdInstall(args) {
+    if (args.leave) leaveIds = args.leave;
     var afresh = [], failed = [];
     var code = installRun(args, afresh);
     afresh.forEach(function (r) {
@@ -6624,8 +6628,7 @@ function installRun(args, afresh) {
          * sets it up */
         var relaid = [];
         installedTools().forEach(function (t) {
-            if (t.id === 'mgu-deploy' || validated.some(function (a) { return a.id === t.id; }) ||
-                (args.leave || []).indexOf(t.id) >= 0) return;
+            if (t.id === 'mgu-deploy' || validated.some(function (a) { return a.id === t.id; }) || leaveIds.indexOf(t.id) >= 0) return;
             var setup = (args.setup || []).indexOf(t.id) >= 0;
             var why = toolStale(t, state) || (setup ? needsSetup(state, t.id) : null), kept = why ? keptToolArtifact(t) : null;
             if (!why) {

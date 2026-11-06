@@ -7524,6 +7524,12 @@ function testToolsAfterFirmwareSetup() {
         r.out.includes('needs no setup'), r.out);
     check('tools after firmware, with an install step: nothing restarted the app manager', root.kills().length === kills);
 
+    // --leave: a tool a later install of the caller installs is not laid again by this one
+    root = setUp();
+    r = root.run(['install', '--artifact', namedTool('other-tool', '0.1.0'), '--leave', 'fixture-tool', '--yes']);
+    check('tools after firmware, with an install step: an install with --leave leaves that tool for its own install',
+        r.status === 0 && !r.out.includes('fixture-tool 3.0.0:') && !lstatOrNullT(sys(root, PIECES[0])) && tool(root).needs_setup === null, r.out);
+
     // relay: the files only, asked for
     root = setUp();
     n = hooks(root).length;
