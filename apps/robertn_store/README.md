@@ -1,4 +1,4 @@
-# robertn_store 0.9.24
+# robertn_store 0.9.25
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -24,7 +24,9 @@ drawn with, `src/am_*.js` and `src/kit_*.js`), fed from the updater's state
 (`src/store_ui.js`). A side menu (Store, Installed with its update count,
 USB, Settings) beside:
 
-- **Store**: All / Apps / Tools, Online / Offline / Checking, the status line
+- **Store**: Sources (a drop-down, `Sources 3/5`: a checkbox for each source the updater can turn off, Select all
+  and Uncheck all; open, it covers the tiles), Show (each press: All, Installed, Not installed) and Apps and Tools
+  (each on or off), Online / Offline / Checking, the status line
   (or the running install; an app whose title another listed app has is
   named with its source, `DOOM (cauliflowermossgrape)`), a grid of tiles: the package's picture when the
   updater names one (`components[].icon`, a PNG file), else a letter tile
@@ -33,7 +35,7 @@ USB, Settings) beside:
   same name comes from the same author), its state (`Installed`, `Update 1.0.1`, `Downloading
   42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`, `Not working`,
   version and size) and a badge or progress ring. While a listed app or tool waits
-  for a restart, **Restart now** sits left of the filters: Settings' confirm
+  for a restart, **Restart now** sits in the header: Settings' confirm
   step, whose Restart is off while an install runs or waits. A component for another
   head unit only (the updater's `compat: "no"`) is listed only while
   installed, so it can be removed (on the widget screens too). A version
@@ -56,7 +58,7 @@ USB, Settings) beside:
   a restart pending) come first; while the focus is on a row, the rows and
   Restart now stay as they are.
 - **USB**: the components of the sticks' sources.
-- **Settings**: the sources (each opens its page: channel, account,
+- **Settings**: the sources (each with a switch that turns it on or off, and opens its page: channel, account,
   components, error, Remove with a confirm step, and while a sign-in does
   not reach a private one the GitHub App's install page as a QR code and
   its address), Add source, Wi-Fi (below), Accounts (each one's Remove with a confirm
@@ -215,7 +217,9 @@ already restarting the unit, and with an updater older than 0.1.4.
 to add or remove one, a speller that could not open; hidden otherwise),
 one row per source, its label and the account that reads it (a GitHub
 login), else its status: `OK`, `USB` (a source on a plugged-in USB stick),
-`Checking`, `Sign in` (no account reaches it), `Error`, `Offline`; then
+`Checking`, `Sign in` (no account reaches it), `Error`, `Offline`, `Disabled`; a switch turns a source on or off
+(not the Store's own source or a USB source; with an updater that reports `disabled`, from 0.8.28), and an off
+source is not read and none of its components are listed; then
 **Add source**, **Accounts** and **Phone access** (the phone page, for
 pasting tokens and for logs). A source's page shows its label and status,
 **Channel** (`Releases`, `Branch <name>`, `Tags`), **Account** (the GitHub
@@ -405,15 +409,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.24/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.25/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.24.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.24.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.25.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.25.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

@@ -127,6 +127,15 @@ function itemsOf(st, page) {
                             list: key });
                     }
                 }
+                if (it.toggleAct) {
+                    // the switch takes its own tap, the rest of the row opens it
+                    const sw = rightBoxes({ x: b.x, y, w: b.w, h: v.rh - gap }, it, measure, o.ctlK).find((rb) => rb.kind === 'toggle');
+                    if (sw) {
+                        const k = o.ctlK || 1, th = 76 * k;
+                        items.push({ x: sw.x, y: y + (v.rh - gap - th) / 2 - 8 * k, w: sw.w - 12 * k, h: th + 16 * k, r: th / 2, label: it.title, act: it.toggleAct, reveal, box: b,
+                            list: key });
+                    }
+                }
             });
         } else if (c.gpu === 'keyboard') {
             // each key presses what it types now (Shift: capitals, the symbols page: its symbols)

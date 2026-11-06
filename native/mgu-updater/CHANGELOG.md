@@ -1,5 +1,9 @@
 # Updater changelog
 
+## 0.8.28
+
+- A source can be turned off and on (`source-enable`, with the secret: `{ id, enable }`, or `{ all: true, enable }` for every source but the Store's own). A source that is off stays in `sources.json` (`disabled: true`) with its kept catalog, is not read, and none of its components are listed; what it installed stays installed. The state reports `disabled` and status `disabled` for it. Turning one on lists its kept catalog as it is and reads the source only when it has none; the next check reads it again
+
 ## 0.8.27
 
 - An optional proxy for every download: `proxy = http://host:port` or `proxy = socks5://host:port` (a user name and password as `user:pass@`) in `updater.local.conf`, or set from the Store or the phone page. GitHub, catalogs, packages, pictures and every redirect go through it, as do the downloads of a build on the unit. TLS stays end to end with the same certificate checks; the proxy gets only its own user name and password, never a token. The proxy looks up the names of what is downloaded.

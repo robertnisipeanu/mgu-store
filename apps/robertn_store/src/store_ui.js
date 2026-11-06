@@ -10,8 +10,10 @@ const { t: tr } = require('./i18n.js');
  *
  * model: { st (the updater's state or null), connected, secret (whether the
  * updater secret is there), version (this Store's), stack (pages; the first
- * { name: 'main' }), tab (store, installed, usb, settings), filter (all,
- * app, tool), note (the Sources status line), login ({ waiting, refusal }),
+ * { name: 'main' }), tab (store, installed, usb, settings), show (all,
+ * installed, new: the Store tab's Show button), kinds ({ app, tool }, each
+ * on or off: its Apps and Tools buttons), srcOpen (its Sources drop-down is
+ * open), note (the Sources status line), login ({ waiting, refusal }),
  * webText (the web-url file), accountsNote ({ text, error }: the Accounts
  * status line), pick (the GitHub repo being added: { repo, probe (the
  * updater's answer, null while it looks), tokenNote (Add token's status
@@ -21,10 +23,11 @@ const { t: tr } = require('./i18n.js');
  * its Restart now shows; or null) }.
  *
  * What a press does rides on the values as `act`: on a button's opts, on
- * each nav, grid and list item, on each filter cell (acts). The acts:
- * { do: 'tab', tab }, { do: 'filter', filter }, { do: 'open', page },
+ * each nav, grid and list item, and on a list row's switch (toggleAct). The acts:
+ * { do: 'tab', tab }, { do: 'show' }, { do: 'kind', kind }, { do: 'open', page },
  * { do: 'back' }, { do: 'check' }, { do: 'install', id }, { do: 'update-all' },
  * { do: 'remove', id, tools? }, { do: 'restart' },
+ * { do: 'src-menu' }, { do: 'source-enable', id, enable } or { do: 'source-enable', all: true, enable },
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
  * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
  * { do: 'pick', channel }, { do: 'pick-retry' }, { do: 'pick-add-token' }, { do: 'key', key } (typeKey),
@@ -59,7 +62,6 @@ const DIM = 'dim';
 const PALETTE = [['#2d7fd6', '#16588e'], ['#ff4b55', '#a8101c'], ['#ffc24d', '#c77700'], ['#5fb4ff', '#1f5fd0'],
     ['#b48cff', '#6a3fd0'], ['#36e0c0', '#118c78'], ['#5be38e', '#1f9a52'], ['#ff8a4c', '#c4501a']];
 const TABS = ['store', 'installed', 'usb', 'settings'];
-const FILTERS = ['all', 'app', 'tool'];
 
 const size = (b) => (!b ? '' : b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 function colors(id) {           // a steady colour per component for its letter tile
@@ -213,19 +215,36 @@ function storeView(m) {
     const busyRow = busy && find(comps(m), busy.id);
     // the status line names a row as the tiles tell it apart
     const st = m.st && Object.assign({}, m.st, { components: m.st.components.map((c) => (listed(c) ? Object.assign({}, c, { title: named(m, c) }) : c)) });
-    const list = comps(m).filter((c) => m.filter === 'all' || (m.filter === 'app' ? !isTool(c) : isTool(c)));
+    // Show (all, installed, not installed) and the Apps and Tools buttons (each on or off) say what the tiles are
+    const show = m.show || 'all';
+    const kinds = m.kinds || { app: true, tool: true };
+    const showText = { all: tr("All"), installed: tr("Installed"), new: tr("Not installed") }[show];
+    const list = comps(m).filter((c) => (isTool(c) ? kinds.tool : kinds.app) && (show === 'all' || (show === 'installed') === !!c.installed));
+    const kind = (text, k) => button(text, { do: 'kind', kind: k }, kinds[k] ? { style: 'tinted', color: BLUE } : { style: 'outline' });
     const name = sourceNames(list, sources(m));
     const checking = !!(m.connected && m.st && m.st.catalog && m.st.catalog.checking);
     const online = m.connected && m.st && m.st.online;
+    // the Sources drop-down: a checkbox for each source the updater lets be turned off
+    const srcs = (sources(m) || []).filter((s) => sourceActions(s).enable);
+    const open = !!m.srcOpen && srcs.length > 0;
+    const all = (enable) => ({ do: 'source-enable', all: true, enable });
     return {
         title: { text: tr("Store") },
+        srcBtn: srcs.length ? button(tr("Sources {0}/{1}", srcs.filter((s) => !s.disabled).length, srcs.length), { do: 'src-menu' },
+            { vicon: 'arrowDown', style: open ? 'primary' : 'outline', color: BLUE }) : hidden,
+        srcAll: open ? button(tr("Select all"), all(true), { vicon: 'check', style: 'tinted', color: BLUE }) : hidden,
+        srcNone: open ? button(tr("Uncheck all"), all(false), { vicon: 'trash', style: 'outline' }) : hidden,
+        srcList: open ? { items: srcs.map((s) => Object.assign({}, sourceRow(s), { right: `check:${s.disabled ? 'off' : 'on'}`, toggleAct: null,
+            act: { do: 'source-enable', id: s.id, enable: !!s.disabled } })), empty: '' } : hidden,
         subtitle: busyRow ? { text: `${busy.phase === 'download' ? tr("Downloading {0} %", percent(busy)) : tr(PHASE[busy.phase] || 'Installing')} · ${named(m, busyRow)}`, color: BLUE }
             : { text: m.connected ? statusLine(st, true) : statusLine(null, false, m.secret), color: DIM },
-        filter: { sel: Math.max(0, FILTERS.indexOf(m.filter)), acts: FILTERS.map((f) => ({ do: 'filter', filter: f })) },
+        showMode: button(showText, { do: 'show' }, show === 'all' ? { style: 'outline' } : { style: 'tinted', color: BLUE }),
+        kindApps: kind(tr("Apps"), 'app'),
+        kindTools: kind(tr("Tools"), 'tool'),
         online: { items: !m.connected ? [] : checking ? [{ text: tr("Checking"), color: BLUE, dot: true }]
             : online ? [{ text: tr("Online"), color: GREEN, dot: true }] : [{ text: tr("Offline"), color: AMBER, dot: true }] },
         restartNow: restartNow(m),
-        grid: { items: list.map((c) => tile(m, c, busy, name)), empty: m.connected ? tr("Nothing here") : '' }
+        grid: open ? hidden : { items: list.map((c) => tile(m, c, busy, name)), empty: m.connected ? tr("Nothing here") : '' }
     };
 }
 
@@ -277,10 +296,14 @@ function sourceRow(s) {
     const bad = [tr("Sign in"), tr("Error"), tr("Offline")].indexOf(status) >= 0;
     const line = [sourceChannel(s), sourceAccount(s), typeof s.components === 'number' ? plural(s.components, 'component') : '']
         .filter(Boolean).join(' · ');
-    return { id: s.id, title: sourceLabel(s), sub: bad || status === tr("Checking") ? status : line || status,
-        subColor: bad ? AMBER : status === tr("Checking") ? BLUE : DIM, plain: true,
-        vicon: bad ? 'warning' : s.usb ? 'usb' : s.auth ? 'lock' : 'unlock', iconColor: bad ? AMBER : GREEN,
-        right: 'chevron', act: { do: 'open', page: { name: 'source', id: s.id } } };
+    const off = s.disabled === true;
+    const sw = sourceActions(s).enable;
+    return { id: s.id, title: sourceLabel(s), sub: off ? [tr("Disabled"), sourceChannel(s)].filter(Boolean).join(' · ') : bad || status === tr("Checking") ? status : line || status,
+        subColor: off ? DIM : bad ? AMBER : status === tr("Checking") ? BLUE : DIM, plain: true,
+        vicon: off ? 'unlock' : bad ? 'warning' : s.usb ? 'usb' : s.auth ? 'lock' : 'unlock', iconColor: off ? 'text' : bad ? AMBER : GREEN,
+        // the switch turns the source on or off, the rest of the row opens it
+        right: sw ? `toggle:${off ? 'off' : 'on'}+chevron` : 'chevron', toggleAct: sw ? { do: 'source-enable', id: s.id, enable: off } : null,
+        act: { do: 'open', page: { name: 'source', id: s.id } } };
 }
 
 function settingsView(m) {
@@ -335,8 +358,7 @@ function appView(m, page) {
     const c = rowOf(m, page);
     if (!c) {
         return { name: { text: tr("Not listed") }, author: { text: '' }, facts: { items: [] }, desc: { text: '' }, icon: { letter: '?' },
-            instValue: { text: '' }, availLabel: { text: '' }, availValue: { text: '' }, problem: { text: '' }, note1: { text: '' }, note2: { text: '' },
-            note3: { text: '' }, progress: hidden, primary: hidden, secondary: hidden };
+            instValue: { text: '' }, availLabel: { text: '' }, availValue: { text: '' }, problem: { text: '' }, note1: { text: '' }, progress: hidden, primary: hidden, secondary: hidden };
     }
     const busy = busyOf(m);
     const s = tileState(c, busy);
@@ -378,9 +400,8 @@ function appView(m, page) {
             notes.push([failed, AMBER]);
         }
     }
-    ['note1', 'note2', 'note3'].forEach((k, i) => {
-        v[k] = notes[i] ? { text: String(notes[i][0]).slice(0, 80), color: notes[i][1] } : { text: '' };
-    });
+    // the notes one under the other, each wrapped to the panel's width
+    v.note1 = { text: notes.map((n) => String(n[0]).slice(0, 240)).join('\n'), color: notes.length ? notes[0][1] : DIM };
     v.progress = mine ? { hidden: false, label: tr(PHASE[busy.phase] || 'Installing'), value: busy.phase === 'download' ? percent(busy) : 100,
         right: busy.phase === 'download' ? `${percent(busy)} %` : '',
         sub: busy.phase === 'download' && busy.total ? tr("{0} of {1}", size(busy.progress), size(busy.total)) : '' }
@@ -755,4 +776,4 @@ function icons(v) {
     return out.filter((f, i) => out.indexOf(f) === i);
 }
 
-module.exports = { view, icons, typeKey, wifiOf, proxyOf, TABS, FILTERS, canRestart };
+module.exports = { view, icons, typeKey, wifiOf, proxyOf, TABS, canRestart };

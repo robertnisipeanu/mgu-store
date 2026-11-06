@@ -699,6 +699,23 @@ function run() {
     }).then(() => {
         eq(last(/storeSourcesStatus\.0\.Text/),
             'storeSourcesStatus.0.Text=Add source failed: https://example.org/c.json is already a source');
+        // a source's switch, and every source's
+        reset();
+        app._enableSource({ id: 'idrive7-apps', enable: false });
+        app._client.emit('reply-error', 'forbidden', 'source-enable');
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'source-enable', id: 'idrive7-apps', enable: false }]);
+        eq(last(/storeSourcesStatus\.0\.Text/), 'storeSourcesStatus.0.Text=Sources failed: forbidden');
+        // a switch shows at once; the updater's state replaces it when it says the same
+        app._pendingSources = { at: Date.now(), set: { a: true } };
+        eq(app._pendingApply({ sources: [{ id: 'a', disabled: false }, { id: 'b', disabled: false }] }).sources.map((s) => s.disabled), [true, false]);
+        eq([app._pendingApply({ sources: [{ id: 'a', disabled: true }] }).sources[0].disabled, app._pendingSources], [true, null]);
+        reset();
+        app._enableSource({ all: true, enable: true });
+        return tick();
+    }).then(() => {
+        eq(sent.map(secretless), [{ op: 'source-enable', all: true, enable: true }]);
         reset();
         app._sourceId = 'idrive7-apps';
         app._removeSource();
@@ -1132,7 +1149,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.24', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.25', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1260,6 +1277,30 @@ function runDrawn() {
         eq(drawn.top(), { name: 'accounts' });
         eq(drawn.items.some((i) => i.label === 'Sign in with GitHub'), true, 'Sign in with GitHub with state.signin');
         eq(drawn.items.find((i) => i.label === 'Add token').act, { do: 'add-token' });
+        // the Sources drop-down opens on the Store tab, and a filter or another tab closes it
+        drawn.setTab('store');
+        app._act({ do: 'src-menu' });
+        eq(drawn.srcOpen, true, 'the Sources drop-down opens');
+        app._act({ do: 'src-menu' });
+        eq(drawn.srcOpen, false, 'and closes');
+        app._act({ do: 'src-menu' });
+        app._act({ do: 'kind', kind: 'app' });
+        eq([drawn.srcOpen, drawn.kinds], [false, { app: false, tool: true }], 'the Apps button closes it');
+        app._act({ do: 'kind', kind: 'app' });
+        app._act({ do: 'src-menu' });
+        drawn.setTab('settings');
+        eq(drawn.srcOpen, false, 'another tab closes it');
+        // Show cycles all, installed, not installed; Apps and Tools switch on and off
+        drawn.setTab('store');
+        app._act({ do: 'show' });
+        app._act({ do: 'show' });
+        eq(drawn.show, 'new');
+        app._act({ do: 'show' });
+        eq(drawn.show, 'all');
+        app._act({ do: 'kind', kind: 'tool' });
+        eq(drawn.kinds, { app: true, tool: false });
+        app._act({ do: 'kind', kind: 'tool' });
+        eq(drawn.kinds, { app: true, tool: true });
         // Add source: iDrive 7 types in the HMI's speller, which hides the renderer's picture while it is up; iDrive 8
         // on the drawn keyboard's page, the next host state
         drawn.setTab('settings');
