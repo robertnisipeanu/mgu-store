@@ -2713,8 +2713,12 @@ function installTool(a, state, tx) {
     var moved = tx.moved = a.firmwareMoved || toolMoved(state, c.id);
     /* an older version, or one from another source (a.otherSource): the
      * version it replaces runs its deactivate first, with all of it in
-     * place, as at its removal; a failed one keeps that version current */
-    if (prev && prev.deactivate && before !== c.version && (a.otherSource || semverCmp(c.version, before) < 0) && !moved) {
+     * place, as at its removal; a failed one keeps that version current.
+     * Firmware-moved, it is recorded as deactivated instead, so no later
+     * install runs it. */
+    var replaces = !!prev && !!prev.deactivate && before !== c.version && (a.otherSource || semverCmp(c.version, before) < 0);
+    if (replaces && moved) noteHook(state, c.id, before, 'deactivate');
+    if (replaces && !moved) {
         tx.deactivated = true;
         var dr = runHook(c.id, path.join(versions, before), prev, 'deactivate', state);
         if (!dr.ok) throw refuse(c.id + ' ' + before + ': deactivate ' + dr.why + '; ' + before + ' stays current');
@@ -2726,11 +2730,13 @@ function installTool(a, state, tx) {
      * removal. A failed install activates the version it replaces again.
      * Any install of the tool after a firmware update, before a hook of it
      * ran on this firmware (toolMoved; a.firmwareMoved, the kept copy laid
-     * again: the firmware put the patched files back), leaves them, kept;
+     * again: the firmware put the patched files back), leaves them kept and
+     * records them as deactivated, so no later install runs them;
      * laying it again for another reason runs them, and one that fails
      * stays kept and owed while the current version is laid again. */
     var due = before ? deactivateDue(state, c.id, root, before).filter(function (v) { return v !== c.version; }) : [];
     tx.keep = moved ? due : [];
+    if (moved) due.forEach(function (v) { noteHook(state, c.id, v, 'deactivate'); });
     (moved ? [] : due).forEach(function (v) {
         var vc = readJsonOrNull(path.join(versions, v, 'component.json'));
         if (!vc || vc.id !== c.id || !vc.deactivate) return;

@@ -7588,6 +7588,26 @@ function testToolsAfterFirmwareSetup() {
         r.status === 0 && !hooks(root).slice(n).some((l) => /^deactivate 3\.0\.0/.test(l)) && hooks(root).slice(n).some((l) => /^activate 3\.0\.1/.test(l)) &&
         tool(root).needs_setup === null, `${r.out}\n${hooks(root).slice(n).join('\n')}`);
 
+    // a downgrade after a firmware move, then another install: the replaced 3.0.1's deactivate runs in neither
+    root = setUp();
+    r = root.run(['install', '--artifact', hookArtifact('3.0.1'), '--yes']);
+    if (r.status !== 0) throw new Error(r.out);
+    firmwareUpdate(root, 'BMW MGU P18_24w07 mgu-high');
+    n = hooks(root).length;
+    r = root.run(['install', '--artifact', hookArtifact('3.0.0'), '--yes']);
+    const r2 = root.run(['install', '--artifact', hookArtifact('3.0.0'), '--yes']);
+    check('tools after firmware, with an install step: a downgrade after a firmware move, and the install after it, run no deactivate of the version replaced',
+        r.status === 0 && r2.status === 0 && !hooks(root).slice(n).some((l) => /^deactivate/.test(l)) &&
+        hooks(root).slice(n).filter((l) => /^activate 3\.0\.0/.test(l)).length === 2,
+        `${r.out}\n${r2.out}\n${hooks(root).slice(n).join('\n')}`);
+    // the same from another source
+    root = setUp();
+    n = hooks(root).length;
+    r = root.run(['install', '--artifact', hookArtifact('3.0.1'), '--other-source', '--yes']);
+    const r3 = root.run(['install', '--artifact', hookArtifact('3.0.2'), '--yes']);
+    check('tools after firmware, with an install step: an install from another source after a firmware move, and the update after it, run no deactivate of 3.0.0',
+        r.status === 0 && r3.status === 0 && !hooks(root).slice(n).some((l) => /^deactivate 3\.0\.0/.test(l)), `${r.out}\n${r3.out}\n${hooks(root).slice(n).join('\n')}`);
+
     // a refusal inside the work after files were laid again: exit 1, saying what was laid
     root = setUp();
     r = root.run(['install', '--artifact', namedHookTool('other-hook', '1.0.0'), '--yes']);

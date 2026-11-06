@@ -982,9 +982,11 @@ them (below).
   before removing it: one that fails refuses the install (exit 2), naming
   it, and stays kept and owed, and the current version's `activate` runs
   again; a failure after it activates the version it replaces again too.
-  Laying the current version again after a firmware update (the firmware
-  recorded with the tool, `state.json` `tools`, differs from the unit's)
-  leaves such versions kept, for a later install or the removal; laying it
+  Any install of the tool after a firmware update (the firmware recorded
+  with the tool, `state.json` `tools`, differs from the unit's, or the
+  tool needs setup since) leaves such versions kept and records them as
+  deactivated, as it does the version a downgrade or an install from
+  another source replaces, so no later install runs them; laying it
   again for another reason (a unit missing) runs them first, and one that
   fails stays kept and owed while the current version is laid again. A
   unit, link or drop-in another installed tool lists is never stopped or
