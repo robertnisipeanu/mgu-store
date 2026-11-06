@@ -91,6 +91,12 @@ function sha256(buf) {
     return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
+function rmIfThere(p) {
+    try {
+        fs.unlinkSync(p);
+    } catch (e) { /* not there */ }
+}
+
 function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
@@ -4276,6 +4282,128 @@ function testSelfRepair() {
         });
 }
 
+/* A tool a firmware update left not working, or whose install step waits:
+ * updated from its source when the source lists a newer version and the
+ * unit is online; else its files laid again by the deploy tool (relay),
+ * its step left, and the row needsSetup until Set up (the setup op) or an
+ * install; an update that fails falls back to the files. */
+function testFirmwareSetup() {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'fwsetup');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const cat = path.join(M, 'cat');
+    [M, opt, oap, cat, path.join(M, 'shm'), path.join(M, 'media')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog });
+    delete process.env.FAKE_LEASE;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    const tool = (id, version) => {
+        mkdirp(path.join(opt, id, 'versions', version));
+        fs.writeFileSync(path.join(opt, id, 'versions', version, 'component.json'), JSON.stringify({ id, kind: 'tool', version }));
+        rmIfThere(path.join(opt, id, 'current'));
+        fs.symlinkSync(`versions/${version}`, path.join(opt, id, 'current'));
+    };
+    tool('mgu-deploy', '0.9.0');
+    tool('mgu-updater', '0.9.0');
+    tool('fw_tool', '1.0.0');
+    const listing = (v) => publish(cat, [entry(toolKit(cat, 'fw_tool', v, {}), 'tool', 'Firmware tool'),
+        entry(toolKit(cat, 'mgu-deploy', '0.9.0', {}), 'tool', 'Deploy tool'), entry(toolKit(cat, 'mgu-updater', '0.9.0', {}), 'tool', 'Updater')], { schema: 2 });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: cat, builtin: true }] }));
+    const bootFile = path.join(M, 'boot_id');
+    fs.writeFileSync(bootFile, 'boot-1\n');
+    const lease = path.join(M, 'lease.json');
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: path.join(M, 'state'), tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease, ca_file: '', boot_id: bootFile,
+        github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD, github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    fs.writeFileSync(conf.mounts, 'proc /proc proc rw 0 0\n');
+    const calls = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^(install|relay|setup) /.test(l));
+    const stale = () => fs.writeFileSync(`${deployLog}.stale`, JSON.stringify({ fw_tool: { why: 'installed under firmware old', kept: true } }));
+    const online = (on) => (on ? fs.writeFileSync(lease, '{"dns":[]}') : rmIfThere(lease));
+    let u = null;
+    const comp = () => u.state().components.find((c) => c.id === 'fw_tool') || {};
+    const idle = (what) => until(() => u.busy || u.queue.length, (b) => !b, 30000, what);
+    const fresh = () => {
+        if (u) u.server.close();
+        u = new Updater(conf);
+        return u.serve().then(() => u.refresh()).then(() => u.check()).then(() => idle('repairs'));
+    };
+    // C: a newer version listed, online
+    listing('1.1.0');
+    stale();
+    online(true);
+    return fresh()
+        .then(() => {
+            ok('firmware: a stale tool its source lists newer, online, is updated from it, no files laid again',
+                calls().length === 1 && /^install --artifact .*fw_tool@1\.1\.0\.tgz --yes$/.test(calls()[0]) && comp().installed === '1.1.0' &&
+                !comp().needsSetup, calls().join('\n'));
+            // B: no newer version listed
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.0.0');
+            stale();
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: with no newer version its files are laid again (relay), no install, and the row needs setup',
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup === 'installed under firmware old',
+                `${calls().join('\n')} ${JSON.stringify(comp())}`);
+            return ask(conf.socket, { op: 'setup', id: 'fw_tool' }).then((e1) => ask(conf.socket, { op: 'setup', id: 'fw_tool', secret: u.secret })
+                .then((e2) => [e1, e2]));
+        })
+        .then((errs) => idle('set up').then(() => errs))
+        .then((errs) => {
+            ok('firmware: Set up needs the secret, then runs the deploy tool\'s setup, and the row needs it no more',
+                errs[0] === 'forbidden' && errs[1] === null && calls()[calls().length - 1] === 'setup fw_tool --yes' && !comp().needsSetup,
+                `${JSON.stringify(errs)} ${calls().join('\n')}`);
+            // offline with a newer version listed: files only
+            fs.writeFileSync(deployLog, '');
+            listing('1.1.0');
+            stale();
+            online(false);
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: offline, a stale tool its source lists newer has its files laid again, no download',
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup, calls().join('\n'));
+            // a tool that needs setup, its source then lists a newer version, online: updated
+            fs.writeFileSync(deployLog, '');
+            online(true);
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: a tool that needs setup is updated once its source lists a newer version and the unit is online',
+                calls().length === 1 && /fw_tool@1\.1\.0\.tgz/.test(calls()[0]) && !comp().needsSetup, calls().join('\n'));
+            // the update fails: its files are laid again
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.1.0');
+            stale();
+            fs.writeFileSync(`${deployLog}.fail`, '1');
+            return fresh();
+        })
+        .then(() => {
+            const c = calls();
+            ok('firmware: an update that fails falls back to laying its files again',
+                c.length === 2 && /fw_tool@1\.1\.0\.tgz/.test(c[0]) && c[1] === 'relay fw_tool --yes' && comp().needsSetup, c.join('\n'));
+            ['fail', 'stale', 'setup'].forEach((x) => rmIfThere(`${deployLog}.${x}`));
+            u.server.close();
+        }, (e) => {
+            if (u) u.server.close();
+            throw e;
+        });
+}
+
 /* Undo update: what offers it (the deploy tool keeps the version before,
  * nothing strands), the rollback op, the last start's failed check, and
  * the Store's update undone when the new Store starts but never says hello. */
@@ -6208,6 +6336,7 @@ function main() {
             .then(() => testIcons().catch((e) => ok('icons scenario', false, e.stack)))
             .then(() => testAppRemove().catch((e) => ok('app remove scenario', false, e.stack)))
             .then(() => testSelfRepair().catch((e) => ok('self-repair scenario', false, e.stack)))
+            .then(() => testFirmwareSetup().catch((e) => ok('firmware setup scenario', false, e.stack)))
             .then(() => testUndo().catch((e) => ok('undo scenario', false, e.stack)))
             .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
             .then(() => testProxyLease().catch((e) => ok('build proxy lease scenario', false, e.stack)))

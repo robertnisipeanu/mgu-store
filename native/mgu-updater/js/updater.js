@@ -464,6 +464,18 @@ function staleOf(st) {
     return out;
 }
 
+/* The tools whose install step the deploy tool left for their next install
+ * or Set up (status --json needs_setup), by id: why. */
+function setupOf(st) {
+    const out = {};
+    ((st && st.components) || []).forEach((c) => {
+        if (c && typeof c.id === 'string' && c.kind === 'tool' && typeof c.needs_setup === 'string' && c.needs_setup) {
+            out[c.id] = c.needs_setup.slice(0, 200);
+        }
+    });
+    return out;
+}
+
 function pendingOf(st) {
     return ((st && st.pending_reboot) || []).map((p) => (p && p.id) || p);
 }
@@ -841,7 +853,7 @@ function under(entry, id) {
 }
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
-const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
+const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
     'uplink-prefer', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
@@ -1044,6 +1056,10 @@ class Updater {
         } catch (e) { /* off */ }
         // the components the deploy tool says are not working, by id: { why, kept }
         this.stale = {};
+        // the tools whose install step waits for their next install or Set up, by id: why
+        this.setup = {};
+        // the stale tools whose update from their source falls back to laying their files again
+        this.relayOnFail = {};
         // the reinstalls of them asked of a source since the updater started, by id: the why each was asked for
         this.repairs = {};
         // apps of ours MainApp's registry lost, their package kept (lostOf); the deploy tool's
@@ -1534,6 +1550,8 @@ class Updater {
                 problem: row.installed ? (entry.kind === 'tool' && toolProblem(this.conf, unit)) || this.repairWhy(unit, ours) : null,
                 // why the installed component does not work until it is set up again (the deploy tool's stale)
                 repair: row.installed && ours && this.stale[unit] ? this.stale[unit].why : null,
+                // why the installed tool's install step waits for its next install or Set up
+                needsSetup: row.installed && ours && this.setup[unit] ? this.setup[unit] : null,
                 nextStart: (ours && this.nextStart[unit]) || (placed ? 'install' : null),
                 queued: this.queue.some((q) => q.id === row.id),
                 // the version Undo update returns to, only where it is offered
@@ -2125,6 +2143,53 @@ class Updater {
     }
 
     /* Queues id's return to its version before (undoTo). */
+    /* Set up: the deploy tool lays the tool again from its kept copy with
+     * its install step (setup), for a tool that needs it. */
+    requestSetup(id) {
+        if (this.rebooting) {
+            return 'the head unit is restarting';
+        }
+        const r = this.resolved().get(id);
+        const unit = r ? r.entry.installAs || id : id;
+        if (!this.setup[unit]) {
+            return `${id} needs no setup`;
+        }
+        const refused = this.enqueue(Object.assign({ op: 'setup', id }, unit !== id ? { unit } : {}));
+        if (refused) {
+            return refused;
+        }
+        this.changed();
+        if (!this.busy) {
+            this.next();
+        }
+        return null;
+    }
+
+    /* The deploy tool's relay (a stale tool's files laid again, its install
+     * step left) or setup (laid again with it). */
+    setUpTool(item) {
+        const id = item.unit || item.id;
+        this.busy = { id: item.id, op: item.op, phase: 'install' };
+        this.changed();
+        console.log(`${id}: ${item.op === 'setup' ? 'set up from the copy the deploy tool keeps' : 'its files laid again'}`);
+        return this.deployTool([item.op, id, '--yes'])
+            .then((code) => {
+                if (code !== 0 && code !== GUARD_STOPPED) {
+                    throw new Error(`${item.op === 'setup' ? 'setup' : 'laying it again'} failed${this.deployError ? ': ' + this.deployError : ''}`);
+                }
+            })
+            .catch((err) => {
+                console.log(`${id}: ${err.message}`);
+                this.errors[item.id] = err.message;
+            })
+            .then(() => this.refresh())
+            .then(() => {
+                this.busy = null;
+                this.changed();
+                return false;
+            });
+    }
+
     requestRollback(id) {
         if (this.rebooting) {
             return 'the head unit is restarting';
@@ -2543,6 +2608,7 @@ class Updater {
             return;
         }
         (item.op === 'uninstall' ? this.uninstall(item) : item.op === 'rollback' ? this.rollback(item) :
+            item.op === 'relay' || item.op === 'setup' ? this.setUpTool(item) :
             item.op === 'adopt' ? this.adopt() : item.op === 'restore' ? this.restore(item) : this.install(item)).then((handover) => {
             if (handover) {
                 this.handover();
@@ -2769,6 +2835,10 @@ class Updater {
                 if (fs.existsSync(verified)) {
                     fs.unlinkSync(verified);
                 }
+                if (this.relayOnFail[id] && this.errors[key]) {
+                    this.queue.push({ op: 'relay', id });
+                }
+                delete this.relayOnFail[id];
                 return this.refresh().then(() => {
                     this.noteHiddenTiles(bounceBefore);
                     this.writeSecrets();
@@ -2919,6 +2989,7 @@ class Updater {
                 this.appmanager = st.appmanager && typeof st.appmanager === 'object' ? st.appmanager : null;
                 this.idrive7 = st.idrive7 && Array.isArray(st.idrive7.apps) ? st.idrive7.apps : [];
                 this.stale = staleOf(st);
+                this.setup = setupOf(st);
                 this.own = ownInstalled(this.conf, st);
                 this.lost = lostOf(st);
                 this.guard = typeof st.mainapp_guard === 'string' && st.mainapp_guard ? st.mainapp_guard : null;
@@ -3035,21 +3106,47 @@ class Updater {
     }
 
     /* A component the deploy tool says is not working (a firmware update
-     * took what it set up outside /var/opt) and cannot set up again itself
-     * from a copy it keeps: its source installs it again (its version
-     * there, which may be newer), once for each reason while the updater
-     * runs, so a reinstall that does not help is made again only after the
-     * next start. Not the updater itself (its reinstall restarts it, and
+     * took what it set up outside /var/opt), or a tool whose install step
+     * waits (needs setup), once for each reason while the updater runs: a
+     * tool its source lists newer, while online, is updated from it, which
+     * runs the step of that version; else a tool with a copy kept has its
+     * files laid again (relay, its step left for its next install or Set
+     * up), and one without has its source install it again (its version
+     * there). Not the updater itself (its reinstall restarts it, and
      * first-install installs it), nor an app on iDrive 8, whose deploy tool
      * installs no current app afresh. */
     repairStale() {
-        Object.keys(this.stale).forEach((id) => {
-            const s = this.stale[id];
-            if (s.kept || id === SELF || this.repairs[id] === s.why || (this.own || []).indexOf(id) < 0 || !this.resolved().get(id) ||
+        const online = readLease(this.conf).online;
+        const ids = Object.keys(this.stale).concat(Object.keys(this.setup).filter((id) => !this.stale[id]));
+        ids.forEach((id) => {
+            const s = this.stale[id] || { why: `setup: ${this.setup[id]}`, kept: true, kind: 'tool', setup: true };
+            if (id === SELF || this.repairs[id] === s.why || (this.own || []).indexOf(id) < 0 ||
                 (s.kind === 'app' && this.unit && this.unit.hmi === 'ID8')) {
                 return;
             }
-            if (this.request(id) === null) {
+            const r = this.resolved().get(id);
+            const have = this.installedVersion(id, s.kind);
+            const newer = !!r && online && s.kind === 'tool' && !r.entry.blocked && !r.entry.unlisted && !!have &&
+                catalogLib.compareVersions(r.entry.version, have) > 0 && catalogLib.compat(r.entry.mguHmi, this.unit && this.unit.hmi) !== 'no';
+            // a stale one whose update fails has its files laid again
+            if (newer && s.kept && !s.setup) {
+                this.relayOnFail[id] = true;
+            }
+            if (newer && this.request(id) === null) {
+                console.log(`${id}: ${s.setup ? 'needs setup' : `not working (${s.why})`}: updated to ${r.entry.version} from its source`);
+                this.repairs[id] = s.why;
+            } else if (s.kind === 'tool' && s.kept) {
+                if (s.setup) {
+                    this.repairs[id] = s.why;
+                    return;
+                }
+                console.log(`${id}: not working (${s.why}): its files laid again from the copy the deploy tool keeps`);
+                this.repairs[id] = s.why;
+                this.enqueue({ op: 'relay', id });
+                if (!this.busy) {
+                    this.next();
+                }
+            } else if (!s.kept && r && !s.setup && this.request(id) === null) {
                 console.log(`${id}: not working (${s.why}): installed again from its source`);
                 this.repairs[id] = s.why;
             }
@@ -3747,6 +3844,7 @@ class Updater {
         case 'reboot': return this.reboot(this.authorized(req.secret));
         case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id, req.tools) : 'uninstall needs an id';
         case 'rollback': return typeof req.id === 'string' ? this.requestRollback(req.id) : 'rollback needs an id';
+        case 'setup': return typeof req.id === 'string' ? this.requestSetup(req.id) : 'setup needs an id';
         case 'hello': this.storeHello(req); return undefined;
         case 'source-add': return this.sourceAdd(req);
         case 'source-probe': return this.sourceProbe(req, reply);
@@ -3776,7 +3874,7 @@ class Updater {
             items = readJson(file);
         } catch (e) { /* none */ }
         rmIfThere(file);
-        (Array.isArray(items) ? items : []).filter((q) => q && ID.test(String(q.id)) && ['install', 'uninstall', 'rollback', 'adopt', 'restore'].indexOf(q.op) >= 0)
+        (Array.isArray(items) ? items : []).filter((q) => q && ID.test(String(q.id)) && ['install', 'uninstall', 'rollback', 'adopt', 'restore', 'relay', 'setup'].indexOf(q.op) >= 0)
             .forEach((q) => this.enqueue(q));
     }
 
