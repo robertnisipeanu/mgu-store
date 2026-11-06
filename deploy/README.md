@@ -1672,8 +1672,14 @@ our boot units) sets every component up again:
   next install (an update, the same version again) or `setup <id> --yes`,
   which lays it again from its copy, step included (the Store's Set up);
   the stock-file fix follows each step as at any install. `relay [<id>...]
-  --yes` lays the files only, without an install (the updater, when no
-  newer version is reachable). A tool installed before copies were kept
+  --yes` lays the files again without an install (the updater, when no
+  newer version is reachable): only for the tools named, files only for
+  one with an install step, whole for one without. Until a hook of the
+  tool has run on the new firmware, no install of it runs a hook of a
+  version it replaces (a due deactivate, the deactivate of a downgrade or
+  of an install from another source, or the activate of the version a
+  failed install goes back to, which then needs setup). An install that a
+  refusal stops after it laid tools' files again exits 1, naming them. A tool installed before copies were kept
   says so; its source installs it again (the updater, `repair`).
   `mgu-install.js first-install` installs the release's tools as usual and
   leaves the others (from other sources) to files only, so no other

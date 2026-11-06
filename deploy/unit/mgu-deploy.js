@@ -2708,10 +2708,13 @@ function installTool(a, state, tx) {
     var i7 = i7Takeover(a);
     tx.root = root; tx.before = before; tx.rootExisted = fs.existsSync(root);
     tx.versionExisted = fs.existsSync(dest); tx.socketsActive = {};
+    /* set up under another firmware, no hook of it run on this one: no hook
+     * of a version it replaces runs (the firmware put back what they set up) */
+    var moved = tx.moved = a.firmwareMoved || toolMoved(state, c.id);
     /* an older version, or one from another source (a.otherSource): the
      * version it replaces runs its deactivate first, with all of it in
      * place, as at its removal; a failed one keeps that version current */
-    if (prev && prev.deactivate && before !== c.version && (a.otherSource || semverCmp(c.version, before) < 0)) {
+    if (prev && prev.deactivate && before !== c.version && (a.otherSource || semverCmp(c.version, before) < 0) && !moved) {
         tx.deactivated = true;
         var dr = runHook(c.id, path.join(versions, before), prev, 'deactivate', state);
         if (!dr.ok) throw refuse(c.id + ' ' + before + ': deactivate ' + dr.why + '; ' + before + ' stays current');
@@ -2727,7 +2730,6 @@ function installTool(a, state, tx) {
      * laying it again for another reason runs them, and one that fails
      * stays kept and owed while the current version is laid again. */
     var due = before ? deactivateDue(state, c.id, root, before).filter(function (v) { return v !== c.version; }) : [];
-    var moved = a.firmwareMoved || toolMoved(state, c.id);
     tx.keep = moved ? due : [];
     (moved ? [] : due).forEach(function (v) {
         var vc = readJsonOrNull(path.join(versions, v, 'component.json'));
@@ -3301,9 +3303,17 @@ function rollbackTool(a, tx, backup, e, state) {
         e.activate.forEach(function (u) { if (again.indexOf(u) < 0) { systemctl(['stop', u]); say('stopped ' + u); } });
         restartAgain(again, was || c.id);
     }
-    /* the version it replaces again; the same version again only when its activate did not run */
-    if (tx.activated || tx.deactivated) {
-        reactivate(c.id, tx.before && (tx.before !== c.version || !tx.activated) ? path.join(tx.root, 'versions', tx.before) : null, state);
+    /* the version it replaces again; the same version again only when its
+     * activate did not run. Firmware-moved (tx.moved), its files only: it
+     * needs setup, as after relayFiles. */
+    var back = tx.before && (tx.before !== c.version || !tx.activated) ? path.join(tx.root, 'versions', tx.before) : null;
+    if (tx.moved && back && fs.existsSync(path.join(back, 'component.json')) && hasInstallStep(readJson(path.join(back, 'component.json')))) {
+        recordTool(state, c.id, tx.before);
+        state.tools[c.id].needsSetup = 'the install of ' + c.version + ' failed after a firmware update';
+        state.tools[c.id].afterFirmware = true;
+        say(c.id + ' ' + tx.before + ': its files are back, its install step waits for its next install or Set up');
+    } else if (tx.activated || tx.deactivated) {
+        reactivate(c.id, back, state);
     }
 }
 /* Runs the activate of the version in dir again, after a change that ran
@@ -6639,7 +6649,8 @@ function installRun(args, afresh) {
          * sets it up */
         var relaid = [];
         installedTools().forEach(function (t) {
-            if (t.id === 'mgu-deploy' || validated.some(function (a) { return a.id === t.id; }) || leaveIds.indexOf(t.id) >= 0) return;
+            if (t.id === 'mgu-deploy' || validated.some(function (a) { return a.id === t.id; }) || leaveIds.indexOf(t.id) >= 0 ||
+                (args.setup && args.setup.indexOf(t.id) < 0)) return;
             var setup = (args.setup || []).indexOf(t.id) >= 0;
             var why = toolStale(t, state) || (setup ? needsSetup(state, t.id) : null), kept = why ? keptToolArtifact(t) : null;
             if (!why) {
@@ -6770,10 +6781,9 @@ function installRun(args, afresh) {
                 } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
                 /* a tool laid again from its copy: the rest goes on */
                 if (a.repair && (args.setup || []).indexOf(a.id) < 0) { warn(a.id + ' ' + a.version + ' is not laid again: ' + e.message); return; }
-                if (done.length) {
-                    say('installed before this failure, and kept: ' + done.join(', '));
-                    if (e.code === 2) e.code = 1;
-                }
+                if (done.length) say('installed before this failure, and kept: ' + done.join(', '));
+                if (relaid.length) say('laid again before this failure, files only, and kept: ' + relaid.join(', '));
+                if ((done.length || relaid.length) && e.code === 2) e.code = 1;
                 throw e;
             }
         });

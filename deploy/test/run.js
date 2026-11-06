@@ -7566,6 +7566,57 @@ function testToolsAfterFirmwareSetup() {
     check('tools after firmware, with an install step: an install refused before it changes anything lays no tool again',
         r.status === 2 && !lstatOrNullT(sys(root, PIECES[0])) && tool(root).needs_setup === null && !r.out.includes('its files are laid again'), r.out);
 
+    // an update after a firmware move whose activate fails: no activate of the version it replaces, files only, needs setup, exit 1
+    [['relayed first', true], ['stale', false]].forEach(([what, relayed]) => {
+        root = setUp();
+        if (relayed) root.run(['relay', '--yes']);
+        n = hooks(root).length;
+        r = root.run(['install', '--artifact', hookArtifact('3.0.1'), '--yes'], { FAKE_HOOK_FAIL: 'activate@3.0.1' });
+        const ran = hooks(root).slice(n);
+        check(`tools after firmware, with an install step (${what}): an update whose activate fails exits 1, rolled back to its files only, ` +
+            'no activate of the version it replaces, needing setup',
+            r.status === 1 && ran.some((l) => /^activate 3\.0\.1/.test(l)) && !ran.some((l) => /^activate 3\.0\.0/.test(l)) &&
+            fs.readlinkSync(root.p('var/opt/fixture-tool/current')) === 'versions/3.0.0' && /failed after a firmware update$/.test(tool(root).needs_setup) &&
+            r.out.includes('fixture-tool 3.0.0: its files are back, its install step waits for its next install or Set up'), `${r.out}\n${ran.join('\n')}`);
+    });
+
+    // from another source after a firmware move: the deactivate of the version it replaces does not run
+    root = setUp();
+    n = hooks(root).length;
+    r = root.run(['install', '--artifact', hookArtifact('3.0.1'), '--other-source', '--yes']);
+    check('tools after firmware, with an install step: an install from another source after a firmware move runs no deactivate of the version it replaces',
+        r.status === 0 && !hooks(root).slice(n).some((l) => /^deactivate 3\.0\.0/.test(l)) && hooks(root).slice(n).some((l) => /^activate 3\.0\.1/.test(l)) &&
+        tool(root).needs_setup === null, `${r.out}\n${hooks(root).slice(n).join('\n')}`);
+
+    // a refusal inside the work after files were laid again: exit 1, saying what was laid
+    root = setUp();
+    r = root.run(['install', '--artifact', namedHookTool('other-hook', '1.0.0'), '--yes']);
+    if (r.status !== 0) throw new Error(r.out);
+    firmwareUpdate(root, 'BMW MGU P18_24w07 mgu-high');
+    // other-hook was set up under this firmware's predecessor too: put its record on this one, so its downgrade runs the deactivate
+    const st0 = stateOf(root);
+    st0.tools['other-hook'].firmware = 'BMW MGU P18_24w07 mgu-high';
+    write(root.p('var/opt/mgu-deploy/state.json'), JSON.stringify(st0));
+    r = root.run(['install', '--artifact', namedHookTool('other-hook', '0.9.0'), '--yes'], { FAKE_HOOK_FAIL: 'deactivate@1.0.0' });
+    check('tools after firmware, with an install step: a refusal after files were laid again exits 1, naming what was laid',
+        r.status === 1 && r.out.includes('deactivate exited 3') && r.out.includes('laid again before this failure, files only, and kept: fixture-tool') &&
+        PIECES.every((rel) => lstatOrNullT(sys(root, rel))) && /missing$/.test(tool(root).needs_setup), r.out);
+
+    // relay <id> and setup <id>: that tool only
+    root = setUp();
+    r = root.run(['install', '--artifact', namedHookTool('other-hook', '1.0.0', (c) => { c.units = [{ name: 'other-hook.service', from: 'systemd/fixture-tool.service' }]; }), '--yes']);
+    if (r.status !== 0) throw new Error(r.out);
+    // both stale: fixture-tool's pieces gone again, other-hook's unit gone
+    firmwareUpdate(root, 'BMW MGU P18_24w07 mgu-high');
+    fs.rmSync(sys(root, 'other-hook.service'), { force: true });
+    const others = () => root.status().components.find((c) => c.id === 'other-hook');
+    r = root.run(['relay', 'fixture-tool', '--yes']);
+    check('tools after firmware: relay <id> lays only that tool again', r.status === 0 && /missing$/.test(tool(root).needs_setup) &&
+        others().stale !== null && others().needs_setup === null && !lstatOrNullT(sys(root, 'other-hook.service')), r.out);
+    r = root.run(['setup', 'fixture-tool', '--yes']);
+    check('tools after firmware: setup <id> sets up only that tool', r.status === 0 && tool(root).needs_setup === null &&
+        others().stale !== null && others().needs_setup === null && !lstatOrNullT(sys(root, 'other-hook.service')), r.out);
+
     // relay: the files only, asked for
     root = setUp();
     n = hooks(root).length;
@@ -7589,6 +7640,30 @@ function testToolsAfterFirmwareSetup() {
     r = root.run(['install', '--artifact', hookArtifact('3.0.1'), '--yes']);
     check('tools after firmware, with an install step: an install of a newer version runs its activate, nothing needs setup',
         r.status === 0 && hooks(root).slice(n).some((l) => /^activate 3\.0\.1/.test(l)) && tool(root).needs_setup === null, r.out);
+}
+
+/* A tool of id with fake_hook.js as its activate and deactivate. */
+function namedHookTool(id, version, edit) {
+    const dir = fixtureCopy(version, (c) => {
+        c.id = id;
+        c.units = [];
+        c.enable = [];
+        c.recmgr = [];
+        c.restart = [];
+        c.files.push({ path: 'hook.js', from: 'hook.js', mode: '0644' });
+        c.activate = ['node', 'hook.js', 'activate'];
+        c.deactivate = ['node', 'hook.js', 'deactivate'];
+        if (edit) {
+            edit(c);
+        }
+    });
+    fs.copyFileSync(path.join(HERE, 'fake_hook.js'), path.join(dir, 'hook.js'));
+    const out = fs.mkdtempSync(path.join(T, 'art-'));
+    const r = hu(['artifact', dir, '--out', out]);
+    if (r.status !== 0) {
+        throw new Error(`deploy/hu artifact failed: ${r.stderr}`);
+    }
+    return path.join(out, `${id}@${version}.tgz`);
 }
 
 /* A tool's drop-in for a unit it does not own: installed into a folder it
