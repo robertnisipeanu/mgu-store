@@ -113,6 +113,8 @@
     "Restart head unit?": "Znova zaženi enoto?",
     "Restart now": "Znova zaženi zdaj",
     "Restart pending": "Čaka na ponovni zagon",
+    "Restart head unit to show {0}": "Znova zaženite enoto za prikaz {0}",
+    "Restart head unit to install apps": "Znova zaženite enoto za namestitev aplikacij",
     "Not working": "Ne deluje",
     "Restart the head unit to finish setup": "Za dokončanje nastavitve znova zaženite glavno enoto",
     "Restarting": "Ponovni zagon",

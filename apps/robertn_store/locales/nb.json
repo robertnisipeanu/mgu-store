@@ -113,6 +113,8 @@
     "Restart head unit?": "Starte hovedenheten på nytt?",
     "Restart now": "Start på nytt nå",
     "Restart pending": "Venter på omstart",
+    "Restart head unit to show {0}": "Start på nytt for å vise {0}",
+    "Restart head unit to install apps": "Start på nytt for å installere apper",
     "Not working": "Fungerer ikke",
     "Restart the head unit to finish setup": "Start hovedenheten på nytt for å fullføre oppsettet",
     "Restarting": "Starter på nytt",

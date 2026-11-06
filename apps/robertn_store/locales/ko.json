@@ -113,6 +113,8 @@
     "Restart head unit?": "헤드 유닛을 재시작할까요?",
     "Restart now": "지금 재시작",
     "Restart pending": "재시작 대기 중",
+    "Restart head unit to show {0}": "{0}을(를) 표시하려면 헤드 유닛을 재시작하세요",
+    "Restart head unit to install apps": "앱을 설치하려면 헤드 유닛을 재시작하세요",
     "Not working": "작동 안 함",
     "Restart the head unit to finish setup": "설정을 완료하려면 헤드 유닛을 재시작하세요",
     "Restarting": "재시작 중",

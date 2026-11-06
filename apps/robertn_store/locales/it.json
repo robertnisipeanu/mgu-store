@@ -113,6 +113,8 @@
     "Restart head unit?": "Riavviare il sistema?",
     "Restart now": "Riavvia ora",
     "Restart pending": "Riavvio in sospeso",
+    "Restart head unit to show {0}": "Riavvia il sistema per mostrare {0}",
+    "Restart head unit to install apps": "Riavvia il sistema per installare app",
     "Not working": "Non funzionante",
     "Restart the head unit to finish setup": "Riavviare il sistema per completare la configurazione",
     "Restarting": "Riavvio",

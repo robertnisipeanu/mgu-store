@@ -113,6 +113,8 @@
     "Restart head unit?": "¿Reiniciar unidad principal?",
     "Restart now": "Reiniciar ahora",
     "Restart pending": "Reinicio pendiente",
+    "Restart head unit to show {0}": "Reinicia la unidad para mostrar {0}",
+    "Restart head unit to install apps": "Reinicia la unidad para instalar apps",
     "Not working": "No funciona",
     "Restart the head unit to finish setup": "Reinicia la unidad principal para terminar",
     "Restarting": "Reiniciando",

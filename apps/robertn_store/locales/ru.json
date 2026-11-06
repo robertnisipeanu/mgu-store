@@ -113,6 +113,8 @@
     "Restart head unit?": "Перезапустить устройство?",
     "Restart now": "Перезапустить",
     "Restart pending": "Нужен перезапуск",
+    "Restart head unit to show {0}": "Перезапустите, чтобы показать {0}",
+    "Restart head unit to install apps": "Перезапустите, чтобы устанавливать приложения",
     "Not working": "Не работает",
     "Restart the head unit to finish setup": "Перезапустите головное устройство для завершения настройки",
     "Restarting": "Перезапуск",

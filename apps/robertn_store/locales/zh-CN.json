@@ -117,6 +117,8 @@
     "Restart head unit?": "重启主机？",
     "Restart now": "立即重启",
     "Restart pending": "等待重启",
+    "Restart head unit to show {0}": "重启主机以显示 {0}",
+    "Restart head unit to install apps": "重启主机以安装应用",
     "Not working": "无法使用",
     "Restart the head unit to finish setup": "请重启主机以完成设置",
     "Restarting": "重启中",

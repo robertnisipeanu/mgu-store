@@ -113,6 +113,8 @@
     "Restart head unit?": "Ana ünite yeniden başlatılsın mı?",
     "Restart now": "Şimdi yeniden başlat",
     "Restart pending": "Yeniden başlatma bekliyor",
+    "Restart head unit to show {0}": "{0} uygulamasını göstermek için yeniden başlatın",
+    "Restart head unit to install apps": "Uygulama yüklemek için yeniden başlatın",
     "Not working": "Çalışmıyor",
     "Restart the head unit to finish setup": "Kurulumu tamamlamak için ana üniteyi yeniden başlatın",
     "Restarting": "Yeniden başlatılıyor",

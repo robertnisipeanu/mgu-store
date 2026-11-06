@@ -113,6 +113,8 @@
     "Restart head unit?": "ヘッドユニットを再起動しますか？",
     "Restart now": "今すぐ再起動",
     "Restart pending": "再起動待ち",
+    "Restart head unit to show {0}": "{0} を表示するには再起動してください",
+    "Restart head unit to install apps": "アプリをインストールするには再起動してください",
     "Not working": "動作していません",
     "Restart the head unit to finish setup": "セットアップを完了するにはヘッドユニットを再起動してください",
     "Restarting": "再起動中",

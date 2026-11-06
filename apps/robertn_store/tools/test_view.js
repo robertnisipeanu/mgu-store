@@ -277,6 +277,14 @@ const cases = [
     [statusLine(st({ privacy: 'restart-needed', components: [row({})] }), true), 'App privacy patch not in effect'],
     [statusLine(st({ privacy: 'unknown', components: [row({})] }), true), 'App privacy patch not in effect'],
     [statusLine(st({ privacy: 'patched', components: [row({})] }), true), '1 update, checked 14:02'],
+    // the deploy tool's MainApp guard holds app changes until the next start
+    [statusLine(st({ mainappGuard: 'the app manager stopped 12s after mgu-deploy restarted it', components: [row({ tileHidden: true })] }), true),
+        'Restart head unit to install apps'],
+    // an app of ours whose tile an install that restarted the app manager left hidden
+    [statusLine(st({ components: [row({ status: 'installed', tileHidden: true }), row({ id: 'vc' })] }), true), 'Restart head unit to show DOOM'],
+    [statusLine(st({ components: [row({ status: 'available', installed: null, tileHidden: true })] }), true), 'Up to date, checked 14:02'],
+    // an install error comes before both
+    [statusLine(st({ mainappGuard: 'x', components: [row({ tileHidden: true, error: 'install failed' })] }), true), 'DOOM: install failed'],
     [statusLine(st({ rebooting: true, components: [row({ error: 'x' })] }), true), 'Restarting'],
     [statusLine(st({ rebootError: 'the head unit did not restart', components: [row({})] }), true),
         'Restart failed: the head unit did not restart'],

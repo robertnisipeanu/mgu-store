@@ -113,6 +113,8 @@
     "Restart head unit?": "Επανεκκίνηση μονάδας;",
     "Restart now": "Επανεκκίνηση τώρα",
     "Restart pending": "Απαιτείται επανεκκίνηση",
+    "Restart head unit to show {0}": "Επανεκκινήστε για να εμφανιστεί το {0}",
+    "Restart head unit to install apps": "Επανεκκινήστε για εγκατάσταση εφαρμογών",
     "Not working": "Δεν λειτουργεί",
     "Restart the head unit to finish setup": "Επανεκκινήστε την κεντρική μονάδα για ολοκλήρωση",
     "Restarting": "Επανεκκίνηση",

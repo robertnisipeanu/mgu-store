@@ -113,6 +113,8 @@
     "Restart head unit?": "รีสตาร์ทเฮดยูนิต?",
     "Restart now": "รีสตาร์ทเลย",
     "Restart pending": "รอรีสตาร์ท",
+    "Restart head unit to show {0}": "รีสตาร์ทเฮดยูนิตเพื่อแสดง {0}",
+    "Restart head unit to install apps": "รีสตาร์ทเฮดยูนิตเพื่อติดตั้งแอป",
     "Not working": "ใช้งานไม่ได้",
     "Restart the head unit to finish setup": "รีสตาร์ทเฮดยูนิตเพื่อตั้งค่าให้เสร็จ",
     "Restarting": "กำลังรีสตาร์ท",

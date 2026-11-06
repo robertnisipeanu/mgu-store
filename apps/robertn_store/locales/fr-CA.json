@@ -113,6 +113,8 @@
     "Restart head unit?": "Redémarrer le système?",
     "Restart now": "Redémarrer maintenant",
     "Restart pending": "Redémarrage requis",
+    "Restart head unit to show {0}": "Redémarrez pour afficher {0}",
+    "Restart head unit to install apps": "Redémarrez pour installer des apps",
     "Not working": "Ne fonctionne pas",
     "Restart the head unit to finish setup": "Redémarrez le système pour terminer l'installation",
     "Restarting": "Redémarrage",

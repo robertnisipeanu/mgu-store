@@ -199,6 +199,13 @@ function statusLine(st, connected, secret) {
     if (st.rebootError && !st.busy) {
         return tr("Restart failed: {0}", st.rebootError);
     }
+    if (st.mainappGuard) {
+        return tr("Restart head unit to install apps");
+    }
+    const hidden = st.components.find((c) => c.tileHidden && c.installed);
+    if (hidden) {
+        return tr("Restart head unit to show {0}", hidden.title);
+    }
     if (st.catalog.checking) {
         return tr("Checking for updates");
     }

@@ -113,6 +113,8 @@
     "Restart head unit?": "Genstart hovedenhed?",
     "Restart now": "Genstart nu",
     "Restart pending": "Afventer genstart",
+    "Restart head unit to show {0}": "Genstart hovedenheden for at vise {0}",
+    "Restart head unit to install apps": "Genstart hovedenheden for at installere apps",
     "Not working": "Virker ikke",
     "Restart the head unit to finish setup": "Genstart hovedenheden for at fuldføre opsætningen",
     "Restarting": "Genstarter",

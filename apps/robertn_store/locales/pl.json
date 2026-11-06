@@ -113,6 +113,8 @@
     "Restart head unit?": "Uruchomić ponownie jednostkę główną?",
     "Restart now": "Uruchom ponownie teraz",
     "Restart pending": "Oczekuje na restart",
+    "Restart head unit to show {0}": "Uruchom ponownie, aby wyświetlić {0}",
+    "Restart head unit to install apps": "Uruchom ponownie, aby instalować aplikacje",
     "Not working": "Nie działa",
     "Restart the head unit to finish setup": "Uruchom ponownie jednostkę główną, aby zakończyć konfigurację",
     "Restarting": "Ponowne uruchamianie",

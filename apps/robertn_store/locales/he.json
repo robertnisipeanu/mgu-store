@@ -113,6 +113,8 @@
     "Restart head unit?": "להפעיל מחדש את המערכת?",
     "Restart now": "הפעלה מחדש עכשיו",
     "Restart pending": "ממתין להפעלה מחדש",
+    "Restart head unit to show {0}": "יש להפעיל מחדש את המערכת כדי להציג את {0}",
+    "Restart head unit to install apps": "יש להפעיל מחדש את המערכת כדי להתקין אפליקציות",
     "Not working": "לא פועל",
     "Restart the head unit to finish setup": "הפעל מחדש את המערכת כדי לסיים את ההגדרה",
     "Restarting": "מופעל מחדש",

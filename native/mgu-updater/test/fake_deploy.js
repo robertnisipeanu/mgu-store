@@ -28,7 +28,8 @@
  * pending_reboot, whose service counts as not restarted; $FAKE_PENDING
  * more, comma-separated, each `id` or `id=reason`; $FAKE_LAST_APPLY is
  * the JSON status --json gives as last_apply;
- * while $FAKE_DEPLOY_LOG.rollbackfail exists, rollback exits 1.
+ * while $FAKE_DEPLOY_LOG.rollbackfail exists, rollback exits 1, and while
+ * $FAKE_DEPLOY_LOG.rollbackexit exists, with the status it holds.
  * $FAKE_DEPLOY_LOG.previous holds { <app id>: <version> }: the app's kept
  * older package, status --json's previous, which its rollback installs (a
  * tool's previous is its other version kept); $FAKE_LAST_VERIFY is the
@@ -40,6 +41,14 @@
  * mguProvides) and every app MainApp's registry names. A root-service package (package.json with mguService) is
  * installed as the tool of its name, providing its kind; providers of one
  * capability install side by side.
+ * $FAKE_DEPLOY_LOG.lost holds [{ id, version, package }]: the apps MainApp's
+ * registry lost while their package is kept, status --json's lost_apps
+ * while the app is not registered; $FAKE_DEPLOY_LOG.guard the MainApp
+ * guard's reason (mainapp_guard); while $FAKE_DEPLOY_LOG.bounces exists an
+ * app install restarts the app manager (last_bounce_at), and
+ * $FAKE_DEPLOY_LOG.tiles ({ <app id>: false | "withheld" }) names the apps
+ * whose tile does not show (tile_visible), "withheld" by provisioning's own
+ * section (tile_withheld).
  * mgu-uplink stands for the internet: once its current version runs, the
  * lease at $FAKE_LEASE exists ($FAKE_LEASE.good copied) unless that
  * version's component.json says "test_broken": true.
@@ -100,6 +109,9 @@ function readPrevious() {
 if (cmd === 'rollback') {
     if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.rollbackfail`)) {
         process.exit(1);
+    }
+    if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.rollbackexit`)) {
+        process.exit(Number(fs.readFileSync(`${process.env.FAKE_DEPLOY_LOG}.rollbackexit`, 'utf8')));
     }
     const prev = readPrevious();
     const reg = path.join(process.env.OAP_ROOT, 'oap_12201', 'data', 'apps', `${process.argv[3]}.json`);
@@ -169,6 +181,13 @@ if (cmd === 'uninstall') {
     console.log(`${id} removed`);
     process.exit(0);
 }
+function readOr(ext, dflt) {
+    try {
+        return JSON.parse(fs.readFileSync(`${process.env.FAKE_DEPLOY_LOG}.${ext}`, 'utf8'));
+    } catch (e) {
+        return dflt;
+    }
+}
 /* Every app MainApp's registry names, as the deploy tool's status lists them. */
 function apps() {
     const dir = path.join(process.env.OAP_ROOT, 'oap_12201', 'data', 'apps');
@@ -176,7 +195,8 @@ function apps() {
         try {
             const uid = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).userId;
             const p = JSON.parse(fs.readFileSync(path.join(process.env.OAP_ROOT, `oap_${uid}`, 'source', 'package.json'), 'utf8'));
-            return { id: p.name, kind: 'app', version: p.version, uid, previous: readPrevious()[p.name] || null };
+            return { id: p.name, kind: 'app', version: p.version, uid, previous: readPrevious()[p.name] || null,
+                tile_visible: [false, 'withheld'].indexOf(readOr('tiles', {})[p.name]) < 0, tile_withheld: readOr('tiles', {})[p.name] === 'withheld' };
         } catch (e) {
             return null;
         }
@@ -214,7 +234,10 @@ if (cmd === 'status') {
         pending_reboot: pending.map((p) => ({ id: p.split('=')[0], reason: p.split('=')[1] || 'test' })), appmanager: readAm(),
         last_apply: process.env.FAKE_LAST_APPLY ? JSON.parse(process.env.FAKE_LAST_APPLY) : null,
         last_verify: process.env.FAKE_LAST_VERIFY ? JSON.parse(process.env.FAKE_LAST_VERIFY) : null,
-        idrive7: { apps: fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.idrive7`) ? JSON.parse(fs.readFileSync(`${process.env.FAKE_DEPLOY_LOG}.idrive7`, 'utf8')) : [] } }));
+        idrive7: { apps: fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.idrive7`) ? JSON.parse(fs.readFileSync(`${process.env.FAKE_DEPLOY_LOG}.idrive7`, 'utf8')) : [] },
+        lost_apps: readOr('lost', []).filter((a) => !apps().some((x) => x.id === a.id)),
+        mainapp_guard: fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.guard`) ? fs.readFileSync(`${process.env.FAKE_DEPLOY_LOG}.guard`, 'utf8').trim() : null,
+        last_bounce_at: readOr('bounce-at', null) }));
     process.exit(0);
 }
 if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.fail`)) {
@@ -284,5 +307,8 @@ if (fs.existsSync(path.join(tmp, 'component.json'))) {
         }
     }
     unstale(pkg.name);
+    if (fs.existsSync(`${process.env.FAKE_DEPLOY_LOG}.bounces`)) {
+        fs.writeFileSync(`${process.env.FAKE_DEPLOY_LOG}.bounce-at`, String(Date.now() / 1000));
+    }
     console.log(`${pkg.name} ${pkg.version} installed`);
 }

@@ -513,16 +513,29 @@ first change to the sources, writes it.
   `oap_<uid>/source/package.json` its version). Tools from
   `/var/opt/<id>/current/component.json`. Only components a source lists
   are looked at.
-- **Installing.** On request only, one at a time (later requests queue;
-  the Store's own install waits for all the others, the updater's own
-  update included, since it closes the Store). The service runs at
-  `Nice=10`, below the HMI. Nothing is installed on its own: an app
-  install restarts every running OAP app, which must not happen unasked.
-  The artifact is downloaded (or packed, or built), copied root-only
-  and checked, then handed to the deploy tool's `install --artifact`,
-  the one install path every app and tool takes on the unit. Exit 0 is done (a tool whose service cannot
+- **Installing.** On request, one at a time (later requests queue; the
+  Store's own install waits for all the others, the updater's own update
+  included, since it closes the Store); on its own only to set up again
+  what does not work (`repair`, "The socket") and to put back a lost app
+  (below): an app install restarts every running OAP app, which must not
+  happen unasked. The service runs at `Nice=10`, below the HMI. The
+  artifact is downloaded (or packed, or built), copied root-only and
+  checked, then handed to the deploy tool's `install --artifact`, the one
+  install path every app and tool takes on the unit. Exit 0 is done (a tool whose service cannot
   restart yet reports "takes effect after reboot", shown as *Restart
-  pending*), 1 failed and rolled back, 2 refused by preflight.
+  pending*), 1 failed and rolled back, 2 refused by preflight, 3 stopped by
+  the deploy tool's MainApp guard: what it changed stays for the next start
+  of the head unit, nothing is checked, rolled back or tried again, and the
+  state's `mainappGuard` says why.
+- **Lost apps.** An app of ours MainApp's registry no longer has while the
+  deploy tool keeps its package (its `status --json` `lost_apps`: what
+  oapcontroller's wipe of every app leaves) is installed again from that
+  package, the Store first, once per start of the head unit
+  (`state/boot.json`, by `boot_id`), and not while the deploy tool's
+  MainApp guard holds app changes back. Our installed apps are looked at
+  every 15 s, so the Store comes back without a computer. An app removed
+  through the Store, the deploy tool's uninstall or its restore has no
+  kept package and stays removed.
 
 ## Downloads: apps-only internet
 
@@ -806,7 +819,7 @@ updates. Keys: `sources`, `credentials_dir`, `builtin_repo`, `default_sources`,
 `build_max_bytes`, `python`, `fetch_uid`, `fetch_gid`, `lease`, `deploy`,
 `deploy_timeout_s` (5400: a deploy tool run still going then is stopped with
 what it started, and fails), `deploy_tool`, `uplink_tool`, `bootstrap_check_s`, `privacy_tool`,
-`state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `store_app`,
+`state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `boot_id`, `store_app`,
 `reboot`, `log_file`, `socket`, `socket_group`, `web_uid`, `web_gid`,
 `web_port`, `web_iface`, `web_secret`, `uplink_status`, `uplink_ctl`,
 `uplink_poll_s` ("The uplink"), `proxy` ("Through a proxy"). Relative paths are relative to
@@ -900,6 +913,11 @@ each request, and whenever it changes (at most every 250 ms):
   one the deploy tool does not set up again itself is installed again from
   its source (its version there), once for each reason while the updater
   runs; not the updater itself, nor an app on iDrive 8.
+  `tileHidden`: an installed app of ours whose tile does not show (the
+  deploy tool's `tile_visible`, not one provisioning's own section hides,
+  `tile_withheld`) after an install that restarted the app
+  manager (its `last_bounce_at` moved), until the next start of the head
+  unit; else false.
   `previous`: the version Undo update returns to (the deploy tool's
   `rollback`, from the version it keeps), else null: never for the
   updater, the deploy tool, the Store or what the updater requires, nor
@@ -947,6 +965,8 @@ each request, and whenever it changes (at most every 250 ms):
   uplink does not run.
 - `catalog`: the sources as one line, for the Store 0.3: `checking` while
   any is read, `error` the first source that failed (`<label>: <error>`).
+- `mainappGuard`: why app changes wait for the next start of the head unit
+  (the deploy tool's MainApp guard, `mainapp_guard`), else null.
 - `privacy` is the app-privacy patch's state from `patch_mainapp.js check
   --json` (`native/app-privacy`), read at start, with every check and after
   each install: `patched` (in effect), `restart-needed` (patched, MainApp
@@ -1153,6 +1173,11 @@ files), with
   default source) lists given it as origin (with its update) once it is
   read, one it does not list imported, kept over a restart; with that
   source removed, imported, the source not added again;
+- lost apps: after a simulated wipe the Store and another app of ours
+  installed again from their kept packages, the Store first, an app
+  removed on purpose left alone, once per start, none while the guard is
+  off; the tile line after an install that restarted the app manager, and
+  gone at the next start;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a
