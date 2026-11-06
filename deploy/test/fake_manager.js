@@ -26,6 +26,10 @@
  * provisioning pass (startupPass) on its own, as MainApp does once
  * provisioning reaches it.
  * With $FAKE_MGR_STAY_DOWN_AT set to n, the n-th kill respawns nothing.
+ * With $FAKE_MGR_CRASH_MS set, the child the first kill respawns (the
+ * $FAKE_MGR_CRASH_AT-th kill, counted from the first, when set) dies that
+ * many ms after its start and oapcontroller starts another (the next pid),
+ * logged as "crash <pid> <time in ms>".
  * With $FAKE_MGR_REJECT set, a fresh install is rejected (a manifest naming
  * an interface the unit does not have) and leaves nothing.
  * With $FAKE_MGR_UID_ONLY set, a fresh install stops after its uids.txt
@@ -214,6 +218,11 @@ function bounce() {
     write(path.join(env.MGU_DEPLOY_PROC, String(pid), 'stat'),
         `${pid} (node) S 1 ${pid} ${pid} 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${ticks} 0 0\n`);
     fs.writeFileSync(env.FAKE_MGR_PIDFILE, String(pid));
+    const crashed = `${env.FAKE_MGR_PIDFILE}.crashed`;
+    if (env.FAKE_MGR_CRASH_MS && !fs.existsSync(crashed) && (!env.FAKE_MGR_CRASH_AT || killsBefore() === Number(env.FAKE_MGR_CRASH_AT))) {
+        fs.writeFileSync(crashed, '');
+        cp.spawn(process.execPath, [__filename, '--crash', String(pid)], { detached: true, stdio: 'ignore' }).unref();
+    }
 
     entries().forEach(({ id, file, entry }) => {
         if (!entry || !entry.userId) return;
@@ -269,4 +278,20 @@ function bounce() {
 }
 
 module.exports = { install, update, uninstall, rejectedUpdate, startupPass, log };
-if (require.main === module) bounce();
+/* The child pid dies $FAKE_MGR_CRASH_MS after it started; the next pid is respawned. */
+function crash(pid) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(env.FAKE_MGR_CRASH_MS));
+    if (fs.readFileSync(env.FAKE_MGR_PIDFILE, 'utf8') !== String(pid)) {
+        return;
+    }
+    const btime = Number(/btime (\d+)/.exec(fs.readFileSync(env.MGU_DEPLOY_PROC_STAT, 'utf8'))[1]);
+    write(path.join(env.MGU_DEPLOY_PROC, String(pid + 1), 'stat'),
+        `${pid + 1} (node) S 1 ${pid + 1} ${pid + 1} 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((Date.now() / 1000 - btime) * 100)} 0 0\n`);
+    fs.writeFileSync(env.FAKE_MGR_PIDFILE, String(pid + 1));
+    log(`crash ${pid} ${Date.now()}`);
+}
+
+if (require.main === module) {
+    if (process.argv[2] === '--crash') crash(Number(process.argv[3]));
+    else bounce();
+}

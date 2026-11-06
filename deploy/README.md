@@ -147,7 +147,8 @@ deploy/hu status --host 127.0.0.1 --port 2225 \
 ```
 
 Exit status everywhere: 0 done, 1 failed (rolled back where it applies),
-2 refused before anything changed (and bad usage).
+2 refused before anything changed (and bad usage), 3 stopped by the MainApp
+guard (iDrive 7, "Bouncing the app manager"): what it changed stays.
 
 ### The updater's sources and tokens
 
@@ -506,7 +507,7 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /var/opt/public/oap/oap_12201/data/apps/<id>.json   an app's registry entry
 /var/opt/public/oap/oap_12201/data/custom_apps.json the apps the fallback lists
 /var/opt/public/oap/oap_12201/data/mgu-deploy-inplace.json the manager's in-place hook and its last answer
-/var/opt/public/oap/oap_12201/data/mgu-deploy-guard.json   iDrive 8: the copy's guard for this boot
+/var/opt/public/oap/oap_12201/data/mgu-deploy-guard.json   the MainApp guard for this boot (iDrive 7: the bounces' watch; iDrive 8: the copy's)
 /var/opt/public/oap/oap_<uid>/           an app's home (source/, data/, security/, someipInterfaces/, ...)
 ```
 
@@ -1075,6 +1076,16 @@ app install keeps its package, and that of the version it replaces (from
 newest older one stay, and an uninstall removes them. `status --json`
 gives an app's `previous` (null on iDrive 8, where it is refused).
 
+`status --json` lists as `lost_apps` the apps this tool installed
+(`state.json` `apps`) that MainApp's registry no longer has while the
+installed version's package is kept, as oapcontroller's wipe leaves them;
+none while another run holds the lock. The updater installs them again
+from that package. An uninstall (also one the MainApp guard stopped) and a
+restore that removes an app (once its bounce is done or stopped) drop
+both the app's record and its kept packages, so an app removed on purpose
+is never one. An uninstall that
+fails and is rolled back keeps both, and its registry entry is back.
+
 ### app-privacy
 
 The `app-privacy` tool must be in effect before the manager sees an app
@@ -1141,6 +1152,65 @@ manager again (a respawned child restarts the wait). With no manager
 running there is no bounce and no wait. This is why an install can pause for
 up to 60 s. The rule lives only here: the updater adds no timer of its own
 and gets the spacing by calling this tool.
+
+**The MainApp guard (iDrive 7).** After every bounce the respawned child
+is watched until it has been up 60 s (`MGU_DEPLOY_GUARD_WATCH_S`), so a
+manager that crashes right after a bounce never reaches the third death.
+One that dies before turns the guard off for the rest of the boot:
+
+- the run stops where it is (exit 3, `… stopped here: what this run
+  changed stays`). Nothing is rolled back: that would write `/`, the
+  registry, `custom_apps.json` and app folders while the next manager
+  starts. What it placed and listed is taken up at the next start of the
+  head unit. Only this tool's own records follow what the run did: an app
+  install stopped once its package is placed records that version and keeps
+  its package; an app removal or a restore's removal stopped counts as done
+  (the app's record and kept packages go); a reinstall stopped (an app
+  rollback, an install afresh) keeps the app's record at the version of the
+  install under way (its fallback install's, when that one was), with that
+  package, and its data folder: put into the app's home when the app is
+  installed, else recorded in `state.json` (`data_stash`, below); a
+  `remove-all` stopped prints its result, what it removed and what is
+  left; a boot check (`verify`) stopped records its outcome, reports the
+  tool it was rolling back as that tool is now, keeps the tools it had not
+  checked due for the next start, and exits 0. An unmount that fails is
+  said and the run still stops. A hook's stock-file fix runs right after
+  the hook, before any bounce, and never bounces;
+- `main.js` and `CertificateManager.js` are unbound, so the next manager
+  starts on the files under them as they are. Until the next start nothing
+  binds them again, nothing bounces, and app-privacy is not applied: an
+  apply is left to `app-privacy.service` at the next start (app-privacy
+  reported pending). The fallback's boot unit binds the copy again then;
+- app installs, removals, rollbacks, `fallback migrate`, `restore` and the
+  removal of app-privacy or IterioDev's App Manager are refused (exit 2,
+  `… waits for the next start of the head unit: <why>`); `remove-all`
+  removes nothing and its result names everything as left, with a
+  restart (exit 1). Other tools still install.
+
+Every data folder a reinstall sets aside (`.mgu-deploy-data-<id>-<pid>`
+beside the homes) and does not put back, stopped or failed, is recorded in
+`data_stash`. It goes into the app's home once the app is registered again,
+whoever installed it (the updater's reinstall, an install from the Store,
+or the app manager by itself at its start): by that install, else by the
+next changing run or `status` run as root (not while the guard is off),
+and only while the app has no data folder or an empty one, the home and
+data folder never followed through a link. An app with data of its own
+keeps it, and the folder stays recorded, said once. Only an explicit
+removal of the app removes it: an uninstall, a restore that removes the
+app, `remove-all`. A folder no record names is left as it is.
+
+The guard file (`oap_12201/data/mgu-deploy-guard.json`, `{boot, bounce,
+watch, off}`) is written before the bounce and when the watch starts. A
+run cut short while it watched leaves its watch there: once a manager runs
+again, the next changing run, or `status` run as root (under the lock, when
+free), finds the watched manager gone and the running one started before
+the watch would have ended, and turns the guard off. The fallback copy reads the file as it loads: a load whose
+process started within the watch of the first manager after the bounce, or
+of the one this tool watched, runs as the stock file for the rest of the
+boot (no provisioning fallback, in-place hook or queue order; its hook's
+status file says `off`), which covers the manager oapcontroller starts
+before this tool sees the death. `status --json` gives the reason as
+`mainapp_guard`. oapcontroller is never restarted.
 
 ### Apps
 
@@ -1771,7 +1841,8 @@ fallback copy (`fallback.manager_runs_copy`); otherwise, or with no manager
 running, its tile is reported hidden (with the retired installer's leftovers,
 which list apps by themselves, the cached flags stand). Provisioning's own section for an app's
 id wins over the fallback: when it disallows the app the tile stays hidden
-(`tile_visible: false`), and the install says so.
+(`tile_visible: false`, and `tile_withheld: true`: the flags the manager
+keeps hide it, so a restart does not show it), and the install says so.
 
 ### The retired installer's leftovers
 
@@ -1844,14 +1915,16 @@ stdout, read-only, taking no lock, of this shape:
   "components": [{ "id", "kind": "tool", "version", "units": [{ "name", "enabled", "active", "journal" }], "provides",
                    "stale": "<what it lacks>"|null, "kept": true },
                  { "id", "kind": "app", "version", "uid", "installationSource", "running",
-                   "tile_provisioned", "tile_fallback", "tile_visible", "stale": "<why>"|null }],
+                   "tile_provisioned", "tile_fallback", "tile_visible", "tile_withheld", "stale": "<why>"|null }],
   "pending_reboot": [{ "id", "reason" }],
   "last_apply": { "at", "results": [{ "id", "action", "version", "ok", "error"?, "log", "rejected"? }] } | null,   (iDrive 8;
                  action "restore": version put back in place of the rejected one)
   "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],   (display-bridge)
   "fallback": { ... }, "backups": 3, "stock_backup": true, "updater_tokens": 1,
   "retired_leftovers": ["/usr/lib/oap-mainapp/src/main.js.capbak"],
-  "appmanager": { "present", "version", "app", "daemon", "record" } | null }
+  "appmanager": { "present", "version", "app", "daemon", "record" } | null,
+  "mainapp_guard": "<why app changes wait for the next start>" | null, "last_bounce_at": <epoch s> | null,   (iDrive 7)
+  "lost_apps": [{ "id", "version", "package" }] }
 ```
 
 ## Tests
@@ -1871,7 +1944,24 @@ app-privacy are the stand-ins in `deploy/test/`): reproducible artifacts
 unchanged, tool layout, pruning and idempotence, pending reboots, restarts
 with their health check and the rollback after a crash loop, `rollback`,
 app-privacy as a tool, the fresh-install and update flows through the
-simulated manager, bounce spacing, per-artifact transactions, the stock
+simulated manager, bounce spacing, the MainApp guard (a manager that dies within the watch
+after a bounce: the run stops with exit 3, an install, an update and an
+uninstall through the sh window keeping what they did with no rootfs write
+after the death and their records following it, a rollback stopped in its
+removal or its install keeping the record, kept package and data that the
+next install completes, a restore stopped or failing, an unmount that
+fails, a boot check stopped, no further bounce, app change or app-privacy apply, main.js unbound,
+until the next start; one that dies after it: nothing; a watch a killed
+run left, judged at the next status; the copy's guard loaded once per
+start; a data folder set aside taken by its app registered again with an
+empty data folder, kept recorded beside one with data, never through a
+link, kept through status and later commands after a failed reinstall, and
+gone after a removal, a restore or remove-all; a fallback install stopped
+recording its version; the records of a stopped app-privacy install, update
+and rollback, restore and fallback on and off matching the finished ones; a stopped boot
+check keeping the rest due; a hook's stock-file fix before a stopped
+bounce and with the guard off; remove-all while the guard is off); a
+restore that removes an app dropping its record, per-artifact transactions, the stock
 restore, `status --json`, the fallback, the in-place install, update and
 uninstall (the copy built from `fixtures/main.js`, its hook run by
 `fake_inplace.js` as the running manager: installs, updates and uninstalls
