@@ -399,7 +399,7 @@ function appView(m, page) {
         v.primary = button(c.error ? tr("Try again") : c.status === 'update' ? tr("Update to {0}", target(c)) : tr("Install"), { do: 'install', id: c.id },
             { vicon: c.error ? 'refresh' : 'arrowDown', style: 'primary', color: BLUE });
     } else if (action === 'setup') {
-        v.primary = button(tr("Set up"), { do: 'setup', id: c.id }, { vicon: 'refresh', style: 'primary', color: BLUE });
+        v.primary = button(c.error ? tr("Try again") : tr("Set up"), { do: 'setup', id: c.id }, { vicon: 'refresh', style: 'primary', color: BLUE });
     } else if (c.pendingReboot && canRestart(m)) {
         v.primary = button(tr("Restart head unit"), { do: 'open', page: { name: 'confirm', kind: 'restart' } },
             { vicon: 'refresh', style: 'primary', color: BLUE });

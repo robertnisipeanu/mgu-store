@@ -139,6 +139,10 @@ function rowAction(row, busy) {
     if (row.error && row.applyFailed === 'remove') {
         return removable(row, busy) ? 'remove' : null;
     }
+    /* a failed Set up, with no update offered: tried again from the kept copy */
+    if (row.error && setupable(Object.assign({}, row, { error: null }), busy)) {
+        return 'setup';
+    }
     if (!notForUnit(row) && !row.blocked && (((row.status === 'update' || row.status === 'available') && !startPending(row)) || row.error)) {
         return 'install';
     }
