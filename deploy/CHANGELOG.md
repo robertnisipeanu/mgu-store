@@ -4,6 +4,7 @@
 
 - An install that finds an installed tool it does not install set up under another firmware, or missing a unit, an enablement link or a drop-in, lays a tool with an install step of its own (`activate`, `postInstall`) again files only: its units, enablement links and drop-ins, their recmgr names and limits, and the restart units laid started under recmgr's rules. Its step does not run from the copy kept here, which may be an old version from another source. Its record keeps `needsSetup` (`status --json` `needs_setup`), and the run's last line names such tools. A tool with no install step is laid again whole, as before.
 - The step runs at the tool's next install (an update or the same version again) or with `setup <id> --yes`, which lays the tool again from its kept copy with its step, the stock-file fix after it. `relay [<id>...] --yes` lays a stale tool's files only, without an install.
+- `install --leave <id>` leaves that tool to a later install of the caller: no install of the run, an app's afresh included, lays it again. `mgu-install.js first-install` passes the renderer and the uplink it installs after the rest, so only tools from other sources get files only.
 
 ## 0.8.3
 
