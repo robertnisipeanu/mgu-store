@@ -445,7 +445,7 @@ and the stick's other files stay. A root-service package of another
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--leave <id>...] [--yes]
 mgu-deploy.sh status [--json]
 mgu-deploy.sh relay [<id>...] --yes           # a stale tool's files from the copy kept here, no install step
 mgu-deploy.sh setup <id> --yes                # a tool laid again from that copy, its install step included

@@ -6624,7 +6624,8 @@ function installRun(args, afresh) {
          * sets it up */
         var relaid = [];
         installedTools().forEach(function (t) {
-            if (t.id === 'mgu-deploy' || validated.some(function (a) { return a.id === t.id; })) return;
+            if (t.id === 'mgu-deploy' || validated.some(function (a) { return a.id === t.id; }) ||
+                (args.leave || []).indexOf(t.id) >= 0) return;
             var setup = (args.setup || []).indexOf(t.id) >= 0;
             var why = toolStale(t, state) || (setup ? needsSetup(state, t.id) : null), kept = why ? keptToolArtifact(t) : null;
             if (!why) {
@@ -7606,7 +7607,7 @@ var HELP = [
     'mgu-deploy ' + VERSION,
     'usage: mgu-deploy.sh <command> ...',
     '  check [--artifact <file>...]     read-only checks; exits 2 on a hard problem',
-    '  install [--artifact <file>...] [--skip-older] [--yes]',
+    '  install [--artifact <file>...] [--skip-older] [--leave <id>...] [--yes]',
     '                                    install tools/apps (default: ./artifacts/*.tgz)',
     '  status [--json]                  installed components and pending reboots',
     '  relay [<id>...] --yes            lay a stale tool\'s files again from the copy kept here, without its install step',
@@ -7644,6 +7645,7 @@ function parseArgs(argv) {
         else if (argv[i] === '--yes') out.yes = true;
         else if (argv[i] === '--remove') out.remove = argv[++i] || '';
         else if (argv[i] === '--list') out.list = true;
+        else if (argv[i] === '--leave') (out.leave = out.leave || []).push(argv[++i]);
         else out.positional.push(argv[i]);
     }
     return out;
