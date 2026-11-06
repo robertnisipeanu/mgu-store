@@ -693,7 +693,7 @@ function wifiView(m) {
         info: { text: [w.ip && `IP ${w.ip}`, dbm].filter(Boolean).join(' · ') },
         note: { text: String(m.uplinkNote || w.error || bandNote(w)).slice(0, 160) },
         // Allow 5 GHz, with an uplink that has it (mgu-uplink 0.7.6's wifi.allow5ghz)
-        allow5: { items: !waiting && w.enabled && typeof w.allow5ghz === 'boolean' ? [{ id: 'allow5', title: tr("Allow 5 GHz"), plain: true,
+        allow5: { items: !waiting && w.enabled && typeof w.allow5ghz === 'boolean' ? [{ id: 'allow5', title: tr("Allow 5 GHz"), sub: tr("May cause CarPlay issues"), subColor: DIM, plain: true,
             vicon: 'wifi', iconColor: 'text', right: `toggle:${w.allow5ghz ? 'on' : 'off'}`, act: { do: 'wifi-5ghz' } }] : [] },
         power: w.enabled ? button(tr("Don't use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'outline' })
             : button(tr("Use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'primary', color: GREEN, disabled: waiting }),

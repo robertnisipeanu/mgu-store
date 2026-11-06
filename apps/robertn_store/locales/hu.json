@@ -52,7 +52,7 @@
     "Connecting": "Csatlakozás…",
     "Connecting{0}": "Csatlakozás…{0}",
     "Default branch": "Alapértelmezett ág",
-    "Don't use Wi-Fi": "Wi-Fi nélkül",
+    "Don't use Wi-Fi": "Wi-Fi kikapcsolása",
     "Downloading": "Letöltés…",
     "Downloading {0} %": "Letöltés: {0} %",
     "Error": "Hiba",
@@ -141,7 +141,7 @@
     "Update {0}": "{0} frissítése",
     "Updater not running": "A frissítő nem fut",
     "Updater {0}": "Frissítő {0}",
-    "Use Wi-Fi": "Wi-Fi használata",
+    "Use Wi-Fi": "Wi-Fi bekapcsolása",
     "Verifying": "Hitelesítés…",
     "Version {0}": "Verzió: {0}",
     "Waiting": "Várakozás…",
@@ -186,6 +186,7 @@
     "2.4 GHz": "2,4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "5 GHz engedélyezése",
+    "May cause CarPlay issues": "CarPlay-problémákat okozhat",
     "On the iPhone, turn on Maximize Compatibility": "Az iPhone-on kapcsolja be: Kompatibilitás maximalizálása",
     "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat"
   }

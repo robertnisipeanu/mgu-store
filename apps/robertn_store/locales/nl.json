@@ -54,7 +54,7 @@
     "Connecting": "Verbinding maken",
     "Connecting{0}": "Verbinding maken{0}",
     "Default branch": "Standaardbranch",
-    "Don't use Wi-Fi": "Wi-Fi niet gebruiken",
+    "Don't use Wi-Fi": "Wi-Fi uitschakelen",
     "Downloading": "Downloaden",
     "Downloading {0} %": "Downloaden {0} %",
     "Error": "Fout",
@@ -143,7 +143,7 @@
     "Update {0}": "{0} bijwerken",
     "Updater not running": "Updater draait niet",
     "Updater {0}": "Updater {0}",
-    "Use Wi-Fi": "Wi-Fi gebruiken",
+    "Use Wi-Fi": "Wi-Fi inschakelen",
     "Verifying": "Verifiëren",
     "Version {0}": "Versie {0}",
     "Waiting": "Wachten",
@@ -188,6 +188,7 @@
     "2.4 GHz": "2,4 GHz",
     "5 GHz": "5 GHz",
     "Allow 5 GHz": "5 GHz toestaan",
+    "May cause CarPlay issues": "Kan problemen met CarPlay geven",
     "On the iPhone, turn on Maximize Compatibility": "Zet op de iPhone Maximaliseer compatibiliteit aan",
     "This network is 5 GHz only: CarPlay audio may drop": "Dit netwerk is alleen 5 GHz: CarPlay-audio kan wegvallen"
   }
