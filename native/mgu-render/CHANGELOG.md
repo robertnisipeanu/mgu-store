@@ -1,5 +1,9 @@
 # mgu-render changelog
 
+## 0.6.12
+
+- The foreground gate maps an RHMI uuid that more than one `oap_<uid>` folder claims (an earlier install's folder left behind) to the install the app manager has registered (`oap_12201/data/apps/<id>.json`), when exactly one of them is registered; otherwise the uuid stays unmapped, so an app still cannot take another app's uuid. A left-behind folder of the Store kept it out of front for good, and its page stayed black under the HMI's title.
+
 ## 0.6.11
 
 - iDrive 7: `touch_area = auto` is 84,0,1836,720, the title strip included. With 84,76,1836,644 a tap on an app's own header tab (the idrive7-apps kit draws its tabs there) went to the HMI, which closed the app: black screen. Apps never claim the status icons, so they still reach the HMI.
