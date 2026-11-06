@@ -7,6 +7,7 @@ package main
 //
 //	{"op": "prefer", "kind": "phone"}                  the group tried first: wifi, usb, phone ("": none), kept in settings_conf
 //	{"op": "wifi-enable", "on": true}                  Wi-Fi on or off, kept in settings_conf
+//	{"op": "wifi-5ghz", "on": true}                    joins use 5 GHz too, kept in settings_conf
 //	{"op": "wifi-scan"}                                scan; status.json's wifi.networks follow
 //	{"op": "wifi-connect", "ssid": "…", "psk": "…"}    join; saved once joined (psk "": a saved or an open network)
 //	{"op": "wifi-forget", "ssid": "…"}                 forget a saved network
@@ -121,6 +122,20 @@ func (s *service) request(r ctlRequest) error {
 			return err
 		}
 		w.setEnabled(*r.On)
+		return nil
+	case "wifi-5ghz":
+		switch {
+		case r.On == nil:
+			return errors.New("wifi-5ghz needs on: true or false")
+		case w == nil:
+			return errNoWiFi
+		}
+		s.ctlMu.Lock()
+		defer s.ctlMu.Unlock()
+		if err := setSetting(s.cfg.Settings, "wifi_5ghz", onOff(*r.On)); err != nil {
+			return err
+		}
+		w.setAllow5(*r.On)
 		return nil
 	case "wifi-scan", "wifi-connect", "wifi-forget":
 		if w == nil {

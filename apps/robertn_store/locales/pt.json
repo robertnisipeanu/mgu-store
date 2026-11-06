@@ -54,7 +54,7 @@
     "Connecting": "A ligar",
     "Connecting{0}": "A ligar{0}",
     "Default branch": "Ramo predefinido",
-    "Don't use Wi-Fi": "Não usar Wi-Fi",
+    "Don't use Wi-Fi": "Desativar Wi-Fi",
     "Downloading": "A transferir",
     "Downloading {0} %": "A transferir {0} %",
     "Error": "Erro",
@@ -119,7 +119,11 @@
     "Restart head unit?": "Reiniciar unidade principal?",
     "Restart now": "Reiniciar agora",
     "Restart pending": "Reinício pendente",
+    "Restart head unit to show {0}": "Reinicie a unidade para mostrar {0}",
+    "Restart head unit to install apps": "Reinicie a unidade para instalar apps",
     "Not working": "Não funciona",
+    "Needs setup": "Requer configuração",
+    "Set up": "Configurar",
     "Restart the head unit to finish setup": "Reinicie a unidade principal para concluir",
     "Restarting": "A reiniciar",
     "Saved": "Guardada",
@@ -147,7 +151,7 @@
     "Update {0}": "Atualizar {0}",
     "Updater not running": "Atualizador não está ativo",
     "Updater {0}": "Atualizador {0}",
-    "Use Wi-Fi": "Usar Wi-Fi",
+    "Use Wi-Fi": "Ativar Wi-Fi",
     "Verifying": "A verificar",
     "Version {0}": "Versão {0}",
     "Waiting": "A aguardar",
@@ -190,6 +194,10 @@
     "Use http://host:port or socks5://host:port": "Utilize http://host:port ou socks5://host:port",
     "Paused for wireless {0}": "Em pausa: {0} sem fios",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Permitir 5 GHz",
+    "May cause CarPlay issues": "Pode causar problemas no CarPlay",
+    "On the iPhone, turn on Maximize Compatibility": "No iPhone, ative Maximizar compatibilidade",
+    "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar"
   }
 }

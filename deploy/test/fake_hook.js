@@ -39,7 +39,7 @@ const unit = fs.existsSync(path.join(env.MGU_DEPLOY_SYSTEMD, 'fixture-tool.servi
 fs.appendFileSync(env.FAKE_HOOK_LOG, which + ' ' + version + ' cwd=' + path.relative(varOpt, fs.realpathSync(process.cwd())) +
     ' current=' + current + ' unit=' + unit + ' active=' + active + '\n');
 if (listed(env.FAKE_HOOK_SLOW)) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000);
+    require('child_process').spawnSync('sleep', ['5'], { stdio: 'ignore' });
 }
 const ours = (v) => JSON.parse(v || '[]').filter((e) => e[0] === which);
 if (env.FAKE_HOOK_UMASK) {

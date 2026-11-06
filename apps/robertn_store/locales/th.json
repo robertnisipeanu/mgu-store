@@ -54,7 +54,7 @@
     "Connecting": "กำลังเชื่อมต่อ",
     "Connecting{0}": "กำลังเชื่อมต่อ{0}",
     "Default branch": "Branch เริ่มต้น",
-    "Don't use Wi-Fi": "ไม่ใช้ Wi-Fi",
+    "Don't use Wi-Fi": "ปิด Wi-Fi",
     "Downloading": "กำลังดาวน์โหลด",
     "Downloading {0} %": "กำลังดาวน์โหลด {0} %",
     "Error": "ข้อผิดพลาด",
@@ -119,7 +119,11 @@
     "Restart head unit?": "รีสตาร์ทเฮดยูนิต?",
     "Restart now": "รีสตาร์ทเลย",
     "Restart pending": "รอรีสตาร์ท",
+    "Restart head unit to show {0}": "รีสตาร์ทเฮดยูนิตเพื่อแสดง {0}",
+    "Restart head unit to install apps": "รีสตาร์ทเฮดยูนิตเพื่อติดตั้งแอป",
     "Not working": "ใช้งานไม่ได้",
+    "Needs setup": "ต้องตั้งค่า",
+    "Set up": "ตั้งค่า",
     "Restart the head unit to finish setup": "รีสตาร์ทเฮดยูนิตเพื่อตั้งค่าให้เสร็จ",
     "Restarting": "กำลังรีสตาร์ท",
     "Saved": "บันทึกแล้ว",
@@ -147,7 +151,7 @@
     "Update {0}": "อัปเดต {0}",
     "Updater not running": "ตัวอัปเดตไม่ทำงาน",
     "Updater {0}": "ตัวอัปเดต {0}",
-    "Use Wi-Fi": "ใช้ Wi-Fi",
+    "Use Wi-Fi": "เปิด Wi-Fi",
     "Verifying": "กำลังยืนยัน",
     "Version {0}": "เวอร์ชัน {0}",
     "Waiting": "กำลังรอ",
@@ -190,6 +194,10 @@
     "Use http://host:port or socks5://host:port": "ใช้ http://host:port หรือ socks5://host:port",
     "Paused for wireless {0}": "หยุดชั่วคราวขณะใช้ {0} ไร้สาย",
     "2.4 GHz": "2.4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "อนุญาต 5 GHz",
+    "May cause CarPlay issues": "อาจทำให้ CarPlay มีปัญหา",
+    "On the iPhone, turn on Maximize Compatibility": "เปิด เพิ่มความเข้ากันได้สูงสุด บน iPhone",
+    "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย"
   }
 }

@@ -54,7 +54,7 @@
     "Connecting": "Kobler til",
     "Connecting{0}": "Kobler til{0}",
     "Default branch": "Standardgren",
-    "Don't use Wi-Fi": "Ikke bruk Wi-Fi",
+    "Don't use Wi-Fi": "Slå av Wi-Fi",
     "Downloading": "Laster ned",
     "Downloading {0} %": "Laster ned {0} %",
     "Error": "Feil",
@@ -119,7 +119,11 @@
     "Restart head unit?": "Starte hovedenheten på nytt?",
     "Restart now": "Start på nytt nå",
     "Restart pending": "Venter på omstart",
+    "Restart head unit to show {0}": "Start på nytt for å vise {0}",
+    "Restart head unit to install apps": "Start på nytt for å installere apper",
     "Not working": "Fungerer ikke",
+    "Needs setup": "Må settes opp",
+    "Set up": "Sett opp",
     "Restart the head unit to finish setup": "Start hovedenheten på nytt for å fullføre oppsettet",
     "Restarting": "Starter på nytt",
     "Saved": "Lagret",
@@ -147,7 +151,7 @@
     "Update {0}": "Oppdater {0}",
     "Updater not running": "Oppdateringstjenesten kjører ikke",
     "Updater {0}": "Oppdatering {0}",
-    "Use Wi-Fi": "Bruk Wi-Fi",
+    "Use Wi-Fi": "Slå på Wi-Fi",
     "Verifying": "Verifiserer",
     "Version {0}": "Versjon {0}",
     "Waiting": "Venter",
@@ -190,6 +194,10 @@
     "Use http://host:port or socks5://host:port": "Bruk http://host:port eller socks5://host:port",
     "Paused for wireless {0}": "På pause: trådløs {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Tillat 5 GHz",
+    "May cause CarPlay issues": "Kan gi problemer med CarPlay",
+    "On the iPhone, turn on Maximize Compatibility": "Slå på Maksimer kompatibilitet på iPhone",
+    "This network is 5 GHz only: CarPlay audio may drop": "Dette nettverket er bare 5 GHz: CarPlay-lyden kan falle ut"
   }
 }

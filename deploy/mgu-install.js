@@ -809,14 +809,16 @@ const WITH = [
 ];
 
 /* On the unit, in the staging folder: the release's deploy tool installs
- * every artifact (itself among them; newer installed ones kept) and seeds
- * the updater's sources when it has none; then each of WITH on its own, so
+ * every artifact (itself among them; newer installed ones kept), leaving
+ * WITH's tools, installed after, to their own install, and seeds the
+ * updater's sources when it has none; then each of WITH on its own, so
  * one it refuses (exit 2) is left out and the
  * rest stays; one that fails fails the run. */
 const RUN_SH = `set -e
 S=$(cd "$(dirname "$0")" && pwd)
 set --
 for f in "$S"/artifacts/*.tgz; do set -- "$@" --artifact "$f"; done
+for f in "$S"/with/*.tgz; do [ -e "$f" ] && set -- "$@" --leave "$(basename "$f" | sed 's/@.*//')"; done
 sh "$S/mgu-deploy.sh" install "$@" --skip-older --yes
 sh "$S/mgu-deploy.sh" updater-sources < "$S/sources.json"
 for f in "$S"/with/*.tgz; do

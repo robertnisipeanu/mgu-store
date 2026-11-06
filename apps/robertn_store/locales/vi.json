@@ -54,7 +54,7 @@
     "Connecting": "Đang kết nối",
     "Connecting{0}": "Đang kết nối{0}",
     "Default branch": "Nhánh mặc định",
-    "Don't use Wi-Fi": "Không dùng Wi-Fi",
+    "Don't use Wi-Fi": "Tắt Wi-Fi",
     "Downloading": "Đang tải xuống",
     "Downloading {0} %": "Đang tải xuống {0} %",
     "Error": "Lỗi",
@@ -119,7 +119,11 @@
     "Restart head unit?": "Khởi động lại hệ thống?",
     "Restart now": "Khởi động lại ngay",
     "Restart pending": "Chờ khởi động lại",
+    "Restart head unit to show {0}": "Khởi động lại để hiển thị {0}",
+    "Restart head unit to install apps": "Khởi động lại để cài đặt ứng dụng",
     "Not working": "Không hoạt động",
+    "Needs setup": "Cần thiết lập",
+    "Set up": "Thiết lập",
     "Restart the head unit to finish setup": "Khởi động lại hệ thống để hoàn tất cài đặt",
     "Restarting": "Đang khởi động lại",
     "Saved": "Đã lưu",
@@ -147,7 +151,7 @@
     "Update {0}": "Cập nhật {0}",
     "Updater not running": "Trình cập nhật không chạy",
     "Updater {0}": "Trình cập nhật {0}",
-    "Use Wi-Fi": "Dùng Wi-Fi",
+    "Use Wi-Fi": "Bật Wi-Fi",
     "Verifying": "Đang xác minh",
     "Version {0}": "Phiên bản {0}",
     "Waiting": "Đang chờ",
@@ -190,6 +194,10 @@
     "Use http://host:port or socks5://host:port": "Dùng http://host:port hoặc socks5://host:port",
     "Paused for wireless {0}": "Tạm dừng vì {0} không dây",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Cho phép 5 GHz",
+    "May cause CarPlay issues": "Có thể gây lỗi CarPlay",
+    "On the iPhone, turn on Maximize Compatibility": "Trên iPhone, bật Tối đa hóa tương thích",
+    "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt"
   }
 }

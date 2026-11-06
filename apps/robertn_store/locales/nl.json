@@ -56,7 +56,7 @@
     "Connecting": "Verbinding maken",
     "Connecting{0}": "Verbinding maken{0}",
     "Default branch": "Standaardbranch",
-    "Don't use Wi-Fi": "Wi-Fi niet gebruiken",
+    "Don't use Wi-Fi": "Wi-Fi uitschakelen",
     "Downloading": "Downloaden",
     "Downloading {0} %": "Downloaden {0} %",
     "Error": "Fout",
@@ -121,7 +121,11 @@
     "Restart head unit?": "Headunit herstarten?",
     "Restart now": "Nu herstarten",
     "Restart pending": "Wacht op herstart",
+    "Restart head unit to show {0}": "Herstart de headunit om {0} te tonen",
+    "Restart head unit to install apps": "Herstart de headunit om apps te installeren",
     "Not working": "Werkt niet",
+    "Needs setup": "Instellen nodig",
+    "Set up": "Instellen",
     "Restart the head unit to finish setup": "Herstart de headunit om de installatie te voltooien",
     "Restarting": "Herstarten",
     "Saved": "Opgeslagen",
@@ -149,7 +153,7 @@
     "Update {0}": "{0} bijwerken",
     "Updater not running": "Updater draait niet",
     "Updater {0}": "Updater {0}",
-    "Use Wi-Fi": "Wi-Fi gebruiken",
+    "Use Wi-Fi": "Wi-Fi inschakelen",
     "Verifying": "Verifiëren",
     "Version {0}": "Versie {0}",
     "Waiting": "Wachten",
@@ -192,6 +196,10 @@
     "Use http://host:port or socks5://host:port": "Gebruik http://host:port of socks5://host:port",
     "Paused for wireless {0}": "Gepauzeerd: draadloze {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "5 GHz toestaan",
+    "May cause CarPlay issues": "Kan problemen met CarPlay geven",
+    "On the iPhone, turn on Maximize Compatibility": "Zet op de iPhone Maximaliseer compatibiliteit aan",
+    "This network is 5 GHz only: CarPlay audio may drop": "Dit netwerk is alleen 5 GHz: CarPlay-audio kan wegvallen"
   }
 }

@@ -54,7 +54,7 @@
     "Connecting": "מתחבר",
     "Connecting{0}": "מתחבר{0}",
     "Default branch": "ענף ברירת מחדל",
-    "Don't use Wi-Fi": "ללא Wi-Fi",
+    "Don't use Wi-Fi": "כבה Wi-Fi",
     "Downloading": "מוריד",
     "Downloading {0} %": "מוריד {0} %",
     "Error": "שגיאה",
@@ -119,7 +119,11 @@
     "Restart head unit?": "להפעיל מחדש את המערכת?",
     "Restart now": "הפעלה מחדש עכשיו",
     "Restart pending": "ממתין להפעלה מחדש",
+    "Restart head unit to show {0}": "יש להפעיל מחדש את המערכת כדי להציג את {0}",
+    "Restart head unit to install apps": "יש להפעיל מחדש את המערכת כדי להתקין אפליקציות",
     "Not working": "לא פועל",
+    "Needs setup": "דורש הגדרה",
+    "Set up": "הגדרה",
     "Restart the head unit to finish setup": "הפעל מחדש את המערכת כדי לסיים את ההגדרה",
     "Restarting": "מופעל מחדש",
     "Saved": "שמורה",
@@ -147,7 +151,7 @@
     "Update {0}": "עדכון {0}",
     "Updater not running": "שירות העדכון אינו פועל",
     "Updater {0}": "שירות העדכון {0}",
-    "Use Wi-Fi": "שימוש ב-Wi-Fi",
+    "Use Wi-Fi": "הפעל Wi-Fi",
     "Verifying": "מאמת",
     "Version {0}": "גרסה {0}",
     "Waiting": "ממתין",
@@ -190,6 +194,10 @@
     "Use http://host:port or socks5://host:port": "יש להשתמש ב-http://host:port או socks5://host:port",
     "Paused for wireless {0}": "מושהה עבור {0} אלחוטי",
     "2.4 GHz": "2.4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "אפשר 5 GHz",
+    "May cause CarPlay issues": "עלול לגרום לבעיות ב-CarPlay",
+    "On the iPhone, turn on Maximize Compatibility": "ב-iPhone, הפעל את הגדלת התאימות",
+    "This network is 5 GHz only: CarPlay audio may drop": "רשת זו היא 5 GHz בלבד: השמע של CarPlay עלול להיקטע"
   }
 }

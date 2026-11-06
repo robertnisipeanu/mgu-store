@@ -1,11 +1,45 @@
 # Changelog
 
-## 0.9.25
+## 0.9.29
 
 - Settings, Sources: each source but the Store's own and a stick has a switch that turns it on or off, shown at once. An off source stays listed as Disabled, is not read, and none of its components are listed.
 - Store tab: a Sources drop-down (Sources selected number/total number) with a checkbox for each source, Select all and Uncheck all; open, it covers the tiles
 - Store tab: the All/Apps/Tools tabs are replaced by Show (each press: all, installed, not installed) and the Apps and Tools buttons, each on or off.
 - Fixed issue: An app page's notes (why it cannot be installed, restart pending, for another head unit) wrap over several lines in place of one cut line
+
+## 0.9.28
+
+A tool whose install step waits after a firmware update (mgu-updater
+0.8.31's `needsSetup`) shows **Needs setup**, and its page has **Set up**,
+which runs the step; a press on its row on the widget screens does the
+same, and after a Set up that failed, Try again sets it up again. Both in
+every language.
+
+## 0.9.27
+
+The status line says **Restart head unit to install apps** while the
+deploy tool holds app changes until the next start (mgu-updater 0.8.30's
+`mainappGuard`), and **Restart head unit to show** an app whose tile an
+install that restarted the app manager left hidden (`tileHidden`), in
+every language, after any install or restart error.
+
+## 0.9.26
+
+On the Wi-Fi page, **Allow 5 GHz** has the note `May cause CarPlay
+issues` under it, and the button that switches Wi-Fi on or off reads as an
+action in every language (Romanian `Activează Wi-Fi` / `Dezactivează
+Wi-Fi`). Clearer words on the Wi-Fi page in Finnish, Japanese, Polish,
+Romanian and Slovenian.
+
+## 0.9.25
+
+The Wi-Fi page has **Allow 5 GHz** (mgu-uplink 0.7.6), off by default:
+the uplink then joins a network seen on 2.4 GHz there only, which keeps
+5 GHz to wireless CarPlay and Android Auto. Joined on 5 GHz to a network
+without 2.4 GHz, the page says `This network is 5 GHz only: CarPlay
+audio may drop`, or for an iPhone's hotspot `On the iPhone, turn on
+Maximize Compatibility`. Requires mgu-updater 0.8.28, which relays the
+setting.
 
 ## 0.9.24
 

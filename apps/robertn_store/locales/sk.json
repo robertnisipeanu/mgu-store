@@ -54,7 +54,7 @@
     "Connecting": "Pripája sa",
     "Connecting{0}": "Pripája sa{0}",
     "Default branch": "Predvolená vetva",
-    "Don't use Wi-Fi": "Nepoužívať Wi-Fi",
+    "Don't use Wi-Fi": "Vypnúť Wi-Fi",
     "Downloading": "Sťahuje sa",
     "Downloading {0} %": "Sťahuje sa {0} %",
     "Error": "Chyba",
@@ -119,7 +119,11 @@
     "Restart head unit?": "Reštartovať jednotku?",
     "Restart now": "Reštartovať teraz",
     "Restart pending": "Čaká na reštart",
+    "Restart head unit to show {0}": "Reštartujte jednotku na zobrazenie {0}",
+    "Restart head unit to install apps": "Reštartujte jednotku na inštaláciu aplikácií",
     "Not working": "Nefunguje",
+    "Needs setup": "Vyžaduje nastavenie",
+    "Set up": "Nastaviť",
     "Restart the head unit to finish setup": "Na dokončenie nastavenia reštartujte hlavnú jednotku",
     "Restarting": "Reštartuje sa",
     "Saved": "Uložené",
@@ -147,7 +151,7 @@
     "Update {0}": "Aktualizovať {0}",
     "Updater not running": "Aktualizátor nebeží",
     "Updater {0}": "Aktualizátor {0}",
-    "Use Wi-Fi": "Používať Wi-Fi",
+    "Use Wi-Fi": "Zapnúť Wi-Fi",
     "Verifying": "Overuje sa",
     "Version {0}": "Verzia {0}",
     "Waiting": "Čaká sa",
@@ -190,6 +194,10 @@
     "Use http://host:port or socks5://host:port": "Použite http://host:port alebo socks5://host:port",
     "Paused for wireless {0}": "Pozastavené: bezdrôtové {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "Povoliť 5 GHz",
+    "May cause CarPlay issues": "Môže spôsobiť problémy s CarPlay",
+    "On the iPhone, turn on Maximize Compatibility": "Na iPhone zapnite Maximalizovať kompatibilitu",
+    "This network is 5 GHz only: CarPlay audio may drop": "Táto sieť je len 5 GHz: zvuk CarPlay môže vypadávať"
   }
 }

@@ -72,6 +72,7 @@ type wifiNetwork struct {
 	Secure  bool   `json:"secure"`
 	Saved   bool   `json:"saved"`
 	Current bool   `json:"current"`
+	bands   int    // bandBit of its access points in the scan
 }
 
 // wifiStatus is status.json's "wifi" (devstatus.go). link: off,
@@ -88,9 +89,11 @@ type wifiStatus struct {
 	Saved    []string      `json:"saved"`
 	Scanning bool          `json:"scanning"`
 	Error    *string       `json:"error"`
-	Backend  string        `json:"backend,omitempty"` // mgu-wpa, car-supplicant: what joins
-	Paused   string        `json:"paused,omitempty"`  // carplay, android-auto: no automatic scans during that wireless session
-	Freq     int           `json:"freq,omitempty"`    // MHz of the access point joined, while it can be read
+	Backend  string        `json:"backend,omitempty"`  // mgu-wpa, car-supplicant: what joins
+	Paused   string        `json:"paused,omitempty"`   // carplay, android-auto: no automatic scans during that wireless session
+	Freq     int           `json:"freq,omitempty"`     // MHz of the access point joined, while it can be read
+	Allow5   bool          `json:"allow5ghz"`          // joins use 5 GHz too (wifiband.go)
+	FiveOnly bool          `json:"fiveOnly,omitempty"` // joined on 5 GHz to a network not seen on 2.4 GHz, 5 GHz not allowed
 }
 
 // wifiRecord is what the provider changed on the interface, kept in the
@@ -114,8 +117,11 @@ type wifiBackend interface {
 	signal() (int, bool)
 	scan() error
 	saved() map[string]int
-	networks() ([]wifiNetwork, []string)
-	join(ssid, psk string, open bool) error
+	networks() ([]wifiNetwork, []string, map[string]int) // and each name's bands (bit24, bit5) in the scan
+	join(ssid, psk string, open, limit24 bool) error
+	widen() error                             // the join under way on every band
+	limited() map[string]bool                 // the saved networks on 2.4 GHz only
+	limit(ssid string, on bool) (bool, error) // a saved network on 2.4 GHz only or on every band; true: on 2.4 GHz only
 	joined() error
 	reload() error
 	forget(ssid string) error
@@ -165,6 +171,11 @@ type wifiProvider struct {
 	freqs       map[string]int // the session's P2P interfaces' frequencies, read once a session (reqMu)
 	sessKind    string         // the session the last tick found (reqMu)
 	joinedOn    string         // the network and frequency last logged (reqMu)
+	// the band joins use (wifiband.go), with reqMu held
+	bands      map[string]int  // each name's bands in the latest scan
+	dropped    map[string]bool // on every band after a join on 2.4 GHz did not work
+	stuckSince time.Time
+	bandScanAt time.Time
 
 	wake  chan struct{}
 	stopc chan struct{}
@@ -189,6 +200,9 @@ type wifiProvider struct {
 	st        wifiStatus
 	joining   string
 	joinNew   bool // joining a network that was not saved
+	joinLimit bool // the join keeps to 2.4 GHz
+	allow5    bool // joins use 5 GHz too
+	bandReset bool // setAllow5 ran: the tick ends what failed joins set
 	joinedAt  time.Time
 	scanUntil time.Time
 	fails     int       // failures in a row to take the interface or run the supplicant
@@ -206,13 +220,13 @@ func newWiFiProvider(c config, bin string) *wifiProvider {
 	car := newCarSupplicant(carIfname, c.wpaConf(), c.wpaCtrl())
 	return &wifiProvider{
 		ownIf: c.WiFiIf, carIf: carIfname, bcmdhd: "/sys/module/bcmdhd",
-		proj: newProjection(), groupFreq: car.groupFreq, freqs: map[string]int{},
+		proj: newProjection(), groupFreq: car.groupFreq, freqs: map[string]int{}, bands: map[string]int{}, dropped: map[string]bool{},
 		iface: c.WiFiIf, sys: sysClassNet, proc: "/proc", record: c.wifiFile(), linkUp: wifiLinkUp,
 		iftype: nl80211Iftype, dbusHas: dbusSupplicantHas, connmanConf: "/etc/connman/main.conf",
 		mgu: mgu, car: car, wpa: mgu,
 		wake: make(chan struct{}, 1), stopc: make(chan struct{}), done: make(chan struct{}),
-		enabled: c.WiFi,
-		st:      wifiStatus{Enabled: c.WiFi, Link: "off", Networks: []wifiNetwork{}, Saved: []string{}},
+		enabled: c.WiFi, allow5: c.WiFi5,
+		st: wifiStatus{Enabled: c.WiFi, Allow5: c.WiFi5, Link: "off", Networks: []wifiNetwork{}, Saved: []string{}},
 	}
 }
 
@@ -293,7 +307,7 @@ func (p *wifiProvider) tick() {
 		}
 	}()
 	p.mu.Lock()
-	st := wifiStatus{Enabled: p.enabled, Networks: []wifiNetwork{}, Saved: []string{}}
+	st := wifiStatus{Enabled: p.enabled, Allow5: p.allow5, Networks: []wifiNetwork{}, Saved: []string{}}
 	p.mu.Unlock()
 	switch {
 	case !st.Enabled:
@@ -387,7 +401,7 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		}
 		return
 	}
-	st.Networks, st.Saved = p.wpa.networks()
+	st.Networks, st.Saved, p.bands = p.wpa.networks()
 	switch ws["wpa_state"] {
 	case "COMPLETED":
 		st.Link = "connected"
@@ -404,7 +418,7 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	now := time.Now()
 	p.mu.Lock()
 	st.Scanning = now.Before(p.scanUntil)
-	joining, joinNew, joinedAt := p.joining, p.joinNew, p.joinedAt
+	joining, joinNew, joinedAt, joinLimit := p.joining, p.joinNew, p.joinedAt, p.joinLimit
 	p.mu.Unlock()
 	if joining != "" {
 		switch {
@@ -414,6 +428,17 @@ func (p *wifiProvider) up(st *wifiStatus) {
 			}
 			logf("wifi: joined %q", joining)
 			joining = ""
+		case joinLimit && now.Sub(joinedAt) > joinTimeout/2:
+			// not joined on 2.4 GHz: the same network on every band, for a whole joinTimeout
+			logf("wifi: %q not joined on 2.4 GHz: trying every band", joining)
+			if err := p.wpa.widen(); err != nil {
+				logf("wifi: %v", err)
+			}
+			p.dropped[joining] = true
+			p.mu.Lock()
+			p.joinLimit, p.joinedAt = false, now
+			p.mu.Unlock()
+			st.Link, st.SSID = "connecting", joining
 		case now.Sub(joinedAt) > joinTimeout:
 			p.wpa.reload()
 			p.mu.Lock()
@@ -451,9 +476,11 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		if h.session != "" && p.wpa == wifiBackend(p.car) {
 			h.band = p.phoneBand(sess)
 		}
-		if p.wpa.hold(h) && h.session != "" {
+		held := p.wpa.hold(h)
+		if held && h.session != "" {
 			st.Paused = h.session
 		}
+		p.reviewBands(st, ws, sess, held)
 	}
 	for i := range st.Networks {
 		st.Networks[i].Saved = slices.Contains(st.Saved, st.Networks[i].SSID)
@@ -464,6 +491,7 @@ func (p *wifiProvider) up(st *wifiStatus) {
 			st.Signal = &sig
 		}
 		st.Freq = p.wpa.freq()
+		st.FiveOnly = p.fiveOnly(st)
 	}
 	p.logBand(st)
 }
@@ -925,14 +953,19 @@ func (p *wifiProvider) connect(ssid, psk string) error {
 		}
 	}
 	_, had := p.wpa.saved()[ssid]
-	if err := p.wpa.join(ssid, psk, open); err != nil {
+	limit := p.limit24(ssid)
+	if err := p.wpa.join(ssid, psk, open, limit); err != nil {
 		p.wpa.reload()
 		return err
 	}
 	p.mu.Lock()
-	p.joining, p.joinNew, p.joinedAt = ssid, !had, time.Now()
+	p.joining, p.joinNew, p.joinedAt, p.joinLimit = ssid, !had, time.Now(), limit
 	p.mu.Unlock()
-	logf("wifi: joining %q", ssid)
+	if limit {
+		logf("wifi: joining %q on 2.4 GHz", ssid)
+	} else {
+		logf("wifi: joining %q", ssid)
+	}
 	p.poke()
 	return nil
 }

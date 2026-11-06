@@ -128,6 +128,20 @@ const cases = [
     [rowState(row({ status: 'update', repair: 'mgu-x.service missing' }), null), 'Update 1.0.1'],
     [rowState(row({ status: 'installed', repair: 'x', pendingReboot: true }), null), 'Not working'],
     [rowState(row({ status: 'installed', repair: 'x', queued: true }), null), 'Waiting'],
+    // a tool whose install step waits after a firmware update (the updater's needsSetup): a press sets it up; an update offered wins
+    [rowState(row({ status: 'installed', needsSetup: 'installed under firmware old' }), null), 'Needs setup'],
+    [rowAction(row({ status: 'installed', needsSetup: 'x' }), null), 'setup'],
+    [rowAction(row({ status: 'update', needsSetup: 'x' }), null), 'install'],
+    [rowState(row({ status: 'update', needsSetup: 'x' }), null), 'Update 1.0.1'],
+    [rowAction(row({ status: 'installed', needsSetup: 'x' }), { id: 'doom', phase: 'install' }), null],
+    // not for one blocked or for another head unit
+    [rowAction(row({ status: 'installed', needsSetup: 'x', blocked: 'doom is already installed from o/r' }), null), null],
+    [rowState(row({ status: 'installed', needsSetup: 'x', blocked: 'doom is already installed from o/r' }), null), 'Installed 1.0.0'],
+    [rowAction(row({ status: 'installed', needsSetup: 'x', compat: 'no' }), null), null],
+    // a failed Set up is tried again as Set up; a failed update with one offered, as an install
+    [rowAction(row({ status: 'installed', needsSetup: 'x', error: 'setup failed: activate exited 3' }), null), 'setup'],
+    [rowState(row({ status: 'installed', needsSetup: 'x', error: 'setup failed' }), null), 'Failed, retry'],
+    [rowAction(row({ status: 'update', needsSetup: 'x', error: 'no connection' }), null), 'install'],
     [rowState(row({ kind: 'tool', status: 'installed', pendingReboot: true }), null), 'Restart pending'],
     [rowState(row({ kind: 'tool', status: 'update', pendingReboot: true }), null), 'Update 1.0.1'],
     // an app install queued for the next start (iDrive 8): not offered again
@@ -281,6 +295,14 @@ const cases = [
     [statusLine(st({ privacy: 'restart-needed', components: [row({})] }), true), 'App privacy patch not in effect'],
     [statusLine(st({ privacy: 'unknown', components: [row({})] }), true), 'App privacy patch not in effect'],
     [statusLine(st({ privacy: 'patched', components: [row({})] }), true), '1 update, checked 14:02'],
+    // the deploy tool's MainApp guard holds app changes until the next start
+    [statusLine(st({ mainappGuard: 'the app manager stopped 12s after mgu-deploy restarted it', components: [row({ tileHidden: true })] }), true),
+        'Restart head unit to install apps'],
+    // an app of ours whose tile an install that restarted the app manager left hidden
+    [statusLine(st({ components: [row({ status: 'installed', tileHidden: true }), row({ id: 'vc' })] }), true), 'Restart head unit to show DOOM'],
+    [statusLine(st({ components: [row({ status: 'available', installed: null, tileHidden: true })] }), true), 'Up to date, checked 14:02'],
+    // an install error comes before both
+    [statusLine(st({ mainappGuard: 'x', components: [row({ tileHidden: true, error: 'install failed' })] }), true), 'DOOM: install failed'],
     [statusLine(st({ rebooting: true, components: [row({ error: 'x' })] }), true), 'Restarting'],
     [statusLine(st({ rebootError: 'the head unit did not restart', components: [row({})] }), true),
         'Restart failed: the head unit did not restart'],

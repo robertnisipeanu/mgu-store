@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -49,7 +50,7 @@ type fakeBSS struct {
 	ssid   string
 	signal int16
 	psk    string // "" open
-	freq   uint16 // MHz; 0: not reported
+	freq   uint16 // MHz; 0: not reported (2437 for a freq_list)
 }
 
 func (f *fakeCar) bssPath(i int) objPath { return objPath(fmt.Sprintf("%s/BSSs/%d", f.path, i)) }
@@ -110,6 +111,15 @@ func (f *fakeCar) inRange(n map[string]string) int {
 	for i, b := range f.bss {
 		if b.ssid != string(ssid) {
 			continue
+		}
+		if fl := n["freq_list"]; fl != "" {
+			freq := b.freq
+			if freq == 0 {
+				freq = 2437
+			}
+			if !slices.Contains(strings.Fields(fl), fmt.Sprint(freq)) {
+				continue
+			}
 		}
 		if b.psk == "" && n["key_mgmt"] == "NONE" || b.psk != "" && n["psk"] == `"`+b.psk+`"` {
 			return i
@@ -199,11 +209,15 @@ func (f *fakeCar) reply(m dbusMsg) (string, string, []any) {
 		}
 		for i, b := range f.bss {
 			if m.path == f.bssPath(i) {
-				return "", "a{sv}", []any{dbusProps{
+				props := dbusProps{
 					{"SSID", dbusVariant{"ay", []byte(b.ssid)}},
 					{"Signal", dbusVariant{"n", b.signal}},
 					{"Privacy", dbusVariant{"b", b.psk != ""}},
-				}}
+				}
+				if b.freq != 0 {
+					props = append(props, dbusProp{"Frequency", dbusVariant{"q", b.freq}})
+				}
+				return "", "a{sv}", []any{props}
 			}
 		}
 		return unknown()
@@ -250,6 +264,9 @@ func (f *fakeCar) reply(m dbusMsg) (string, string, []any) {
 		}
 		return unknown()
 	case "AddNetwork":
+		if _, ok := m.body[0].(map[string]any)[f.refuse]; ok {
+			return wpaDBus + ".InvalidArgs", "", nil
+		}
 		return "", "o", []any{f.add(m.body[0].(map[string]any))}
 	case "RemoveNetwork":
 		p := m.body[0].(objPath)

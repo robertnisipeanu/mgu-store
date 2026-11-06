@@ -123,7 +123,11 @@
     "Restart head unit?": "重启主机？",
     "Restart now": "立即重启",
     "Restart pending": "等待重启",
+    "Restart head unit to show {0}": "重启主机以显示 {0}",
+    "Restart head unit to install apps": "重启主机以安装应用",
     "Not working": "无法使用",
+    "Needs setup": "待设置",
+    "Set up": "设置",
     "Restart the head unit to finish setup": "请重启主机以完成设置",
     "Restarting": "重启中",
     "Saved": "已保存",
@@ -192,6 +196,10 @@
     "Use http://host:port or socks5://host:port": "请使用 http://host:port 或 socks5://host:port",
     "Paused for wireless {0}": "因无线{0}已暂停",
     "2.4 GHz": "2.4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "允许 5 GHz",
+    "May cause CarPlay issues": "可能导致 CarPlay 出现问题",
+    "On the iPhone, turn on Maximize Compatibility": "请在 iPhone 上打开“最大兼容性”",
+    "This network is 5 GHz only: CarPlay audio may drop": "此网络仅支持 5 GHz：CarPlay 音频可能中断"
   }
 }

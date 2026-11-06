@@ -517,16 +517,29 @@ first change to the sources, writes it.
   `oap_<uid>/source/package.json` its version). Tools from
   `/var/opt/<id>/current/component.json`. Only components a source lists
   are looked at.
-- **Installing.** On request only, one at a time (later requests queue;
-  the Store's own install waits for all the others, the updater's own
-  update included, since it closes the Store). The service runs at
-  `Nice=10`, below the HMI. Nothing is installed on its own: an app
-  install restarts every running OAP app, which must not happen unasked.
-  The artifact is downloaded (or packed, or built), copied root-only
-  and checked, then handed to the deploy tool's `install --artifact`,
-  the one install path every app and tool takes on the unit. Exit 0 is done (a tool whose service cannot
+- **Installing.** On request, one at a time (later requests queue; the
+  Store's own install waits for all the others, the updater's own update
+  included, since it closes the Store); on its own only to set up again
+  what does not work (`repair`, "The socket") and to put back a lost app
+  (below): an app install restarts every running OAP app, which must not
+  happen unasked. The service runs at `Nice=10`, below the HMI. The
+  artifact is downloaded (or packed, or built), copied root-only and
+  checked, then handed to the deploy tool's `install --artifact`, the one
+  install path every app and tool takes on the unit. Exit 0 is done (a tool whose service cannot
   restart yet reports "takes effect after reboot", shown as *Restart
-  pending*), 1 failed and rolled back, 2 refused by preflight.
+  pending*), 1 failed and rolled back, 2 refused by preflight, 3 stopped by
+  the deploy tool's MainApp guard: what it changed stays for the next start
+  of the head unit, nothing is checked, rolled back or tried again, and the
+  state's `mainappGuard` says why.
+- **Lost apps.** An app of ours MainApp's registry no longer has while the
+  deploy tool keeps its package (its `status --json` `lost_apps`: what
+  oapcontroller's wipe of every app leaves) is installed again from that
+  package, the Store first, once per start of the head unit
+  (`state/boot.json`, by `boot_id`), and not while the deploy tool's
+  MainApp guard holds app changes back. Our installed apps are looked at
+  every 15 s, so the Store comes back without a computer. An app removed
+  through the Store, the deploy tool's uninstall or its restore has no
+  kept package and stays removed.
 
 ## Downloads: apps-only internet
 
@@ -810,7 +823,7 @@ updates. Keys: `sources`, `credentials_dir`, `builtin_repo`, `default_sources`,
 `build_max_bytes`, `python`, `fetch_uid`, `fetch_gid`, `lease`, `deploy`,
 `deploy_timeout_s` (5400: a deploy tool run still going then is stopped with
 what it started, and fails), `deploy_tool`, `uplink_tool`, `bootstrap_check_s`, `privacy_tool`,
-`state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `store_app`,
+`state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `boot_id`, `store_app`,
 `reboot`, `log_file`, `socket`, `socket_group`, `web_uid`, `web_gid`,
 `web_port`, `web_iface`, `web_secret`, `uplink_status`, `uplink_ctl`,
 `uplink_poll_s` ("The uplink"), `proxy` ("Through a proxy"). Relative paths are relative to
@@ -900,10 +913,24 @@ each request, and whenever it changes (at most every 250 ms):
   `/var/opt/<id>/status.json` (mgu-render's page template), else for an
   installed component that does not work `Not working: <repair>`, else null.
   `repair`: why an installed component does not work until it is set up
-  again (the deploy tool's `stale`, after a firmware update), else null;
-  one the deploy tool does not set up again itself is installed again from
-  its source (its version there), once for each reason while the updater
-  runs; not the updater itself, nor an app on iDrive 8.
+  again (the deploy tool's `stale`, after a firmware update), else null.
+  At each check (not the updater itself, nor an app on iDrive 8), a tool
+  its source lists newer, while online, is updated from it, each newer
+  version once while the updater runs. Otherwise, once for each reason, a
+  tool the deploy tool keeps a copy of has its files laid again (`relay`;
+  also when that update fails): files only for one with an install step,
+  which is left; else the component is installed again from its source
+  (its version there). `needsSetup`: why the installed tool's install step
+  (`activate`, `postInstall`) waits after a firmware update (the deploy
+  tool's `needs_setup`), else null; such a tool is updated at the first
+  check that finds its source listing a newer version while online, and
+  Set up (`setup`) runs its step from the copy kept, a failure its row's
+  `error`.
+  `tileHidden`: an installed app of ours whose tile does not show (the
+  deploy tool's `tile_visible`, not one provisioning's own section hides,
+  `tile_withheld`) after an install that restarted the app
+  manager (its `last_bounce_at` moved), until the next start of the head
+  unit; else false.
   `previous`: the version Undo update returns to (the deploy tool's
   `rollback`, from the version it keeps), else null: never for the
   updater, the deploy tool, the Store or what the updater requires, nor
@@ -951,6 +978,8 @@ each request, and whenever it changes (at most every 250 ms):
   uplink does not run.
 - `catalog`: the sources as one line, for the Store 0.3: `checking` while
   any is read, `error` the first source that failed (`<label>: <error>`).
+- `mainappGuard`: why app changes wait for the next start of the head unit
+  (the deploy tool's MainApp guard, `mainapp_guard`), else null.
 - `privacy` is the app-privacy patch's state from `patch_mainapp.js check
   --json` (`native/app-privacy`), read at start, with every check and after
   each install: `patched` (in effect), `restart-needed` (patched, MainApp
@@ -968,6 +997,7 @@ Store says it at each connection (below, "The Store's update").
 |---|---|
 | `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"): at once with the secret; without it while a Store older than 0.9.16 is installed, within the restart limits |
 | `{"op":"uninstall","id","tools"?}` | removes an `uninstallable` component (every app but the Store); then each of `tools`, which must be among the app row's `requiredAlone` (else nothing is queued), a tool before those it requires. A tool whose turn comes while something installed still requires it (the app's removal failed) stays; an app whose removal waits for the next start (iDrive 8) requires none |
+| `{"op":"setup","id"}` | Set up: a tool whose row has `needsSetup` laid again by the deploy tool from its kept copy with its install step (`mgu-deploy.sh setup <id> --yes`) |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A repo that is already a source is refused |
@@ -980,7 +1010,7 @@ Store says it at each connection (below, "The Store's update").
 | `{"op":"web","enable":true\|false}` | the phone page on or off, kept across restarts (`state/web.json`) |
 | `{"op":"logs","unit","lines"}` | `{"type":"logs","unit","text"}`: a journal for the phone page |
 | `{"op":"uplink-prefer","kind"}` | the uplink's preferred connection: `wifi`, `usb`, `phone` (`""` for none), relayed as its `prefer` ("The uplink") |
-| `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi, relayed as they are ("The uplink") |
+| `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-5ghz","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi, relayed as they are ("The uplink") |
 
 A refused request gets `{"type":"error","op",…,"error"}`; one without the
 right secret, `"error":"forbidden"`. The direct answer to a request
@@ -1021,8 +1051,8 @@ requests take the secret as `opts.secret` or `setSecret()`).
 
 The Store talks to the updater only; the uplink's requests socket
 (`uplink_ctl`, `/run/mgu-uplink/ctl.sock`, root only, mgu-uplink 0.7.0)
-is the updater's to reach. `uplink-prefer`, `wifi-enable`, `wifi-scan`,
-`wifi-connect` and `wifi-forget` (privileged) are checked here (a kind of
+is the updater's to reach. `uplink-prefer`, `wifi-enable`, `wifi-5ghz` (mgu-uplink 0.7.6),
+`wifi-scan`, `wifi-connect` and `wifi-forget` (privileged) are checked here (a kind of
 up to 16 lower-case letters, a network name of 1 to 32 bytes, a password
 of 8 to 63 printable ASCII characters or none, `on` true or false), then
 sent on as one request on a new connection, `uplink-prefer` as `prefer`,
@@ -1061,7 +1091,7 @@ js/web.js                the phone page
 updater.conf             defaults
 systemd/mgu-updater.service
 component.json           the tool component (deploy tool format)
-test/                    offline tests (test/run.sh: Node 8.16.2 in Docker)
+test/                    offline tests (test/run.sh: Node 8.16.2 in Docker; MGU_TEST_NODE_VERSION=8.9.4 for the 2019 MGU's)
 ```
 
 ## Tests
@@ -1158,6 +1188,11 @@ files), with
   default source) lists given it as origin (with its update) once it is
   read, one it does not list imported, kept over a restart; with that
   source removed, imported, the source not added again;
+- lost apps: after a simulated wipe the Store and another app of ours
+  installed again from their kept packages, the Store first, an app
+  removed on purpose left alone, once per start, none while the guard is
+  off; the tile line after an install that restarted the app manager, and
+  gone at the next start;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a

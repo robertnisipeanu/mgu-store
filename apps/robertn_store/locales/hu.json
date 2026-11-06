@@ -54,7 +54,7 @@
     "Connecting": "Csatlakozás…",
     "Connecting{0}": "Csatlakozás…{0}",
     "Default branch": "Alapértelmezett ág",
-    "Don't use Wi-Fi": "Wi-Fi nélkül",
+    "Don't use Wi-Fi": "Wi-Fi kikapcsolása",
     "Downloading": "Letöltés…",
     "Downloading {0} %": "Letöltés: {0} %",
     "Error": "Hiba",
@@ -119,7 +119,11 @@
     "Restart head unit?": "Újraindítja a fejegységet?",
     "Restart now": "Újraindítás most",
     "Restart pending": "Újraindításra vár",
+    "Restart head unit to show {0}": "Indítsa újra a(z) {0} megjelenítéséhez",
+    "Restart head unit to install apps": "Indítsa újra az alkalmazások telepítéséhez",
     "Not working": "Nem működik",
+    "Needs setup": "Beállítás szükséges",
+    "Set up": "Beállítás",
     "Restart the head unit to finish setup": "A beállítás befejezéséhez indítsa újra a fejegységet",
     "Restarting": "Újraindítás…",
     "Saved": "Mentve",
@@ -147,7 +151,7 @@
     "Update {0}": "{0} frissítése",
     "Updater not running": "A frissítő nem fut",
     "Updater {0}": "Frissítő {0}",
-    "Use Wi-Fi": "Wi-Fi használata",
+    "Use Wi-Fi": "Wi-Fi bekapcsolása",
     "Verifying": "Hitelesítés…",
     "Version {0}": "Verzió: {0}",
     "Waiting": "Várakozás…",
@@ -190,6 +194,10 @@
     "Use http://host:port or socks5://host:port": "Használja a http://host:port vagy socks5://host:port formát",
     "Paused for wireless {0}": "Szünetel: vezeték nélküli {0}",
     "2.4 GHz": "2,4 GHz",
-    "5 GHz": "5 GHz"
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "5 GHz engedélyezése",
+    "May cause CarPlay issues": "CarPlay-problémákat okozhat",
+    "On the iPhone, turn on Maximize Compatibility": "Az iPhone-on kapcsolja be: Kompatibilitás maximalizálása",
+    "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat"
   }
 }

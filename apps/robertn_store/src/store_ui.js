@@ -31,7 +31,7 @@ const { t: tr } = require('./i18n.js');
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
  * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
  * { do: 'pick', channel }, { do: 'pick-retry' }, { do: 'pick-add-token' }, { do: 'key', key } (typeKey),
- * { do: 'wifi-power' }, { do: 'wifi-scan' }, { do: 'wifi-join', ssid }, { do: 'wifi-password', ssid },
+ * { do: 'wifi-power' }, { do: 'wifi-5ghz' }, { do: 'wifi-scan' }, { do: 'wifi-join', ssid }, { do: 'wifi-password', ssid },
  * { do: 'wifi-forget', ssid }, { do: 'uplink-prefer', kind }, { do: 'proxy-toggle' }, { do: 'proxy-edit' }.
  *
  * The type page ({ name: 'type', title, text, shift, sym, layout, symbols,
@@ -51,7 +51,7 @@ const { t: tr } = require('./i18n.js');
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    notForUnit, removable, requiredAlone, undoable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
+    notForUnit, removable, requiredAlone, undoable, setupable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -172,6 +172,9 @@ function tileState(c, busy) {
     if (c.installed && c.repair) {
         return { sub: tr("Not working"), subColor: AMBER, badge: 'installed', progress: -1 };
     }
+    if (setupable(c, busy)) {
+        return { sub: tr("Needs setup"), subColor: AMBER, badge: 'installed', progress: -1 };
+    }
     if (c.status === 'available') {
         return { sub: [c.version, size(c.size)].filter(Boolean).join(' · '), subColor: DIM, badge: '', progress: -1 };
     }
@@ -182,13 +185,13 @@ function tileState(c, busy) {
 }
 
 /* Whether something runs or waits on the component, as tileState tells it:
- * its install or removal, a queued one, a failure, a restart pending or an
- * update. */
+ * its install or removal, a queued one, a failure, a restart pending, an
+ * update, or its setup. */
 function pending(c, busy) {
     if ((busy && busy.id === c.id) || c.queued) {
         return true;
     }
-    return !notForUnit(c) && !c.blocked && !!(c.error || startPending(c) || c.status === 'update' || c.pendingReboot);
+    return !notForUnit(c) && !c.blocked && !!(c.error || startPending(c) || c.status === 'update' || c.pendingReboot || setupable(c, busy));
 }
 
 /* A tile; name: its screen's sourceNames. */
@@ -393,7 +396,9 @@ function appView(m, page) {
     if (c.blocked) {
         notes.push([c.blocked, AMBER]);
     }
-    if (c.pendingReboot) {
+    if (setupable(c, busy)) {
+        notes.push([tr("Needs setup"), AMBER]);
+    } else if (c.pendingReboot) {
         notes.push([tr("Restart pending"), AMBER]);
         const failed = restartFailed(m);
         if (failed) {
@@ -414,6 +419,8 @@ function appView(m, page) {
     } else if (action === 'install') {
         v.primary = button(c.error ? tr("Try again") : c.status === 'update' ? tr("Update to {0}", target(c)) : tr("Install"), { do: 'install', id: c.id },
             { vicon: c.error ? 'refresh' : 'arrowDown', style: 'primary', color: BLUE });
+    } else if (action === 'setup') {
+        v.primary = button(c.error ? tr("Try again") : tr("Set up"), { do: 'setup', id: c.id }, { vicon: 'refresh', style: 'primary', color: BLUE });
     } else if (c.pendingReboot && canRestart(m)) {
         v.primary = button(tr("Restart head unit"), { do: 'open', page: { name: 'confirm', kind: 'restart' } },
             { vicon: 'refresh', style: 'primary', color: BLUE });
@@ -652,6 +659,14 @@ function bandOf(w) {
     }
     return f >= 2400 && f < 2500 ? tr("2.4 GHz") : f >= 4900 && f < 5900 ? tr("5 GHz") : '';
 }
+/* Joined on 5 GHz to a network not seen on 2.4 GHz, with Allow 5 GHz off
+ * (mgu-uplink 0.7.6's wifi.fiveOnly): what to do about it; '' otherwise. */
+function bandNote(w) {
+    if (!w.fiveOnly || ['online', 'connected'].indexOf(w.link) < 0) {
+        return '';
+    }
+    return /iphone/i.test(w.ssid || '') ? tr("On the iPhone, turn on Maximize Compatibility") : tr("This network is 5 GHz only: CarPlay audio may drop");
+}
 const strength = (dbm) => (typeof dbm !== 'number' ? null : dbm >= -60 ? [tr("Strong"), GREEN] : dbm >= -72 ? [tr("Good"), BLUE] : [tr("Weak"), AMBER]);
 const scanningOf = (w) => !!(w.scanning || w.link === 'scanning');
 
@@ -704,7 +719,10 @@ function wifiView(m) {
         icon: { vicon: 'wifi', kind: 'service', colors: LIT[s[1]] || '#7a808a,#3a3f47' },
         state: { text: s[0], color: s[1] },
         info: { text: [w.ip && `IP ${w.ip}`, dbm].filter(Boolean).join(' · ') },
-        note: { text: String(m.uplinkNote || w.error || '').slice(0, 160) },
+        note: { text: String(m.uplinkNote || w.error || bandNote(w)).slice(0, 160) },
+        // Allow 5 GHz, with an uplink that has it (mgu-uplink 0.7.6's wifi.allow5ghz)
+        allow5: { items: !waiting && w.enabled && typeof w.allow5ghz === 'boolean' ? [{ id: 'allow5', title: tr("Allow 5 GHz"), sub: tr("May cause CarPlay issues"), subColor: DIM, plain: true,
+            vicon: 'wifi', iconColor: 'text', right: `toggle:${w.allow5ghz ? 'on' : 'off'}`, act: { do: 'wifi-5ghz' } }] : [] },
         power: w.enabled ? button(tr("Don't use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'outline' })
             : button(tr("Use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'primary', color: GREEN, disabled: waiting }),
         scan: button(scanning ? tr("Scanning") : tr("Scan"), { do: 'wifi-scan' }, { vicon: 'refresh', style: 'outline',

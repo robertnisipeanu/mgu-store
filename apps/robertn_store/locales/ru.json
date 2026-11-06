@@ -54,7 +54,7 @@
     "Connecting": "Подключение",
     "Connecting{0}": "Подключение{0}",
     "Default branch": "Ветка по умолчанию",
-    "Don't use Wi-Fi": "Отключить Wi-Fi",
+    "Don't use Wi-Fi": "Выключить Wi-Fi",
     "Downloading": "Загрузка",
     "Downloading {0} %": "Загрузка {0} %",
     "Error": "Ошибка",
@@ -119,7 +119,11 @@
     "Restart head unit?": "Перезапустить устройство?",
     "Restart now": "Перезапустить",
     "Restart pending": "Нужен перезапуск",
+    "Restart head unit to show {0}": "Перезапустите, чтобы показать {0}",
+    "Restart head unit to install apps": "Перезапустите, чтобы устанавливать приложения",
     "Not working": "Не работает",
+    "Needs setup": "Нужна настройка",
+    "Set up": "Настроить",
     "Restart the head unit to finish setup": "Перезапустите головное устройство для завершения настройки",
     "Restarting": "Перезапуск",
     "Saved": "Сохранена",
@@ -190,6 +194,10 @@
     "Use http://host:port or socks5://host:port": "Используйте http://host:port или socks5://host:port",
     "Paused for wireless {0}": "Пауза: беспроводной {0}",
     "2.4 GHz": "2,4 ГГц",
-    "5 GHz": "5 ГГц"
+    "5 GHz": "5 ГГц",
+    "Allow 5 GHz": "Разрешить 5 ГГц",
+    "May cause CarPlay issues": "Возможны проблемы с CarPlay",
+    "On the iPhone, turn on Maximize Compatibility": "На iPhone включите «Максимальная совместимость»",
+    "This network is 5 GHz only: CarPlay audio may drop": "Эта сеть только 5 ГГц: звук CarPlay может прерываться"
   }
 }
