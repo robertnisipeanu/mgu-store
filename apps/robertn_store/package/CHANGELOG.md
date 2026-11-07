@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.31
+
 The package's files are in `package/` in the repository, and the Store's fonts folder is found there through `mgu-app.json` when it runs from the repository. Nothing changes on the head unit.
 
 ## 0.9.30
