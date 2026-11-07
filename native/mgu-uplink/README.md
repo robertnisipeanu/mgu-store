@@ -125,11 +125,12 @@ whether Personal Hotspot is on or not. With phones over USB switched off
 (`usb_phone = off`, or the Store through `usb-phone`), the uplink leaves
 every phone alone: no Android phone's USB tethering is used, and no iPhone
 is taken from the media daemon, switched to configuration 4 or paired, so
-the car keeps it for media, iAP2 and wired CarPlay. USB adapters, sticks
-and Wi-Fi are used as before. Switched off while the uplink runs on a
-phone, that link ends at once as an unplug ends it (an iPhone goes back to
-the media daemon) and the uplink goes on with the next device; switched on
-again, a phone plugged in is taken at the next scan.
+the car keeps it for media, iAP2 and wired CarPlay. USB Ethernet
+adapters, CDC-ECM sticks and Wi-Fi are used; a stick that presents RNDIS
+or NCM counts as a phone and is left alone too. Switched off while the
+uplink runs on a phone, that link ends at once as an unplug ends it (an
+iPhone goes back to the media daemon) and the uplink goes on with the next
+device; switched on again, a phone plugged in is taken at the next scan.
 
 ### Wi-Fi
 

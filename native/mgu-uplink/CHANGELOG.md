@@ -2,7 +2,7 @@
 
 ## 0.7.7
 
-- Phones over USB can be switched off (`usb_phone = off`; the `usb-phone` request; shipped on). Off, the uplink leaves every phone alone: no Android phone's USB tethering is used, and no iPhone is taken from the media daemon, switched to its tethering configuration or paired, so USB audio keeps playing and the phone does not ask "Trust This Computer?". USB adapters, sticks and Wi-Fi are used as before. Switched off while the uplink runs on a phone, the link ends as an unplug ends it and the uplink goes on with the next device; switched on, a phone is taken again at the next scan.
+- Phones over USB can be switched off (`usb_phone = off`; the `usb-phone` request; shipped on). Off, the uplink leaves every phone alone: no Android phone's USB tethering is used, and no iPhone is taken from the media daemon, switched to its tethering configuration or paired, so USB audio keeps playing and the phone does not ask "Trust This Computer?". USB Ethernet adapters, CDC-ECM sticks and Wi-Fi are used; a stick presenting RNDIS or NCM counts as a phone and is left alone too. Switched off while the uplink runs on a phone, the link ends as an unplug ends it and the uplink goes on with the next device; switched on, a phone is taken again at the next scan.
 - `status.json` adds `usbPhone` (with `uplink = auto`); `mgu-uplink status` shows it.
 
 ## 0.7.6

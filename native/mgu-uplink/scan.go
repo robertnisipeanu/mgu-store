@@ -397,8 +397,6 @@ type preferLink struct {
 	err  error
 }
 
-// watchPreferred also ends a phone's link once phones over USB are switched
-// off.
 func (u *scanUplink) watchPreferred(l Link, cur candidate) Link {
 	p := &preferLink{Link: l, done: make(chan struct{}), stop: make(chan struct{})}
 	var phoneOff <-chan struct{} // nil: never, for a device that is no phone
