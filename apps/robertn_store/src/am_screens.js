@@ -925,7 +925,7 @@ module.exports = {
      "x": 1880,
      "y": 412,
      "w": 920,
-     "h": 260,
+     "h": 360,
      "opts": {
       "items": [],
       "rowH": 120
@@ -935,15 +935,15 @@ module.exports = {
      "name": "unit",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 1880,
-     "y": 668,
-     "w": 920,
-     "h": 40,
+     "x": 2293,
+     "y": 374,
+     "w": 507,
+     "h": 30,
      "opts": {
       "text": "",
-      "size": 32,
+      "size": 22,
       "font": "bold",
-      "align": "left",
+      "align": "right",
       "color": "text"
      }
     },
@@ -952,14 +952,14 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1880,
-     "y": 714,
+     "y": 341,
      "w": 920,
-     "h": 38,
+     "h": 28,
      "opts": {
       "text": "",
-      "size": 28,
+      "size": 22,
       "font": "label",
-      "align": "left",
+      "align": "right",
       "color": "dim"
      }
     },
@@ -1958,21 +1958,6 @@ module.exports = {
       "style": "outline"
      },
      "onTap": "event:scan"
-    },
-    {
-     "name": "prefer",
-     "rtype": "gpu",
-     "gpu": "vbutton",
-     "x": 2140,
-     "y": 720,
-     "w": 660,
-     "h": 96,
-     "opts": {
-      "text": "",
-      "vicon": "route",
-      "style": "outline"
-     },
-     "onTap": "event:prefer"
     }
    ]
   },
@@ -2050,7 +2035,21 @@ module.exports = {
      "x": 610,
      "y": 292,
      "w": 1500,
-     "h": 540,
+     "h": 432,
+     "opts": {
+      "items": [],
+      "rowH": 108,
+      "empty": ""
+     }
+    },
+    {
+     "name": "usbPhone",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 610,
+     "y": 732,
+     "w": 1500,
+     "h": 108,
      "opts": {
       "items": [],
       "rowH": 108,

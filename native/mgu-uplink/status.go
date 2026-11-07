@@ -32,6 +32,9 @@ func status(c config) {
 			if st.Preferred != "" {
 				fmt.Printf("preferred: %s\n", st.Preferred)
 			}
+			if st.USBPhone != nil {
+				fmt.Printf("phones over USB: %s\n", onOff(*st.USBPhone))
+			}
 			if w := st.WiFi; w != nil {
 				line = fmt.Sprintf("wifi: %s", w.Link)
 				if w.SSID != "" {

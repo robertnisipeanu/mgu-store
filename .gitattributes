@@ -1,0 +1,6 @@
+# A release-time component's pull request adds its lines under
+# "## Unreleased"; two of them merge with both sets of lines kept.
+native/app-privacy/CHANGELOG.md merge=union
+native/mgu-python/CHANGELOG.md merge=union
+native/mgu-render/CHANGELOG.md merge=union
+native/mgu-uplink/CHANGELOG.md merge=union

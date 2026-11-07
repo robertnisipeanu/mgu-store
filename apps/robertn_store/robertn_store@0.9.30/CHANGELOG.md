@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.30
+
+**Preferred connection** is a row in Settings, below Accounts, showing the
+connection tried first; it opens the Preferred connection page. The
+Access card shows Wi-Fi, Accounts and Preferred connection at once: on
+iDrive 7 the head unit and version lines sit below them, on iDrive 8 in
+the card's header beside ACCESS. The page
+has **Phone over USB**, a switch for whether the uplink uses phones
+plugged in over USB (mgu-uplink 0.7.7, through mgu-updater 0.8.32); off,
+a plugged-in phone keeps playing audio and is not asked to trust the car.
+The switch shows only while the uplink and updater have it. The Wi-Fi
+page has no Preferred button: Settings' row is the way in. In every
+language.
+
+## 0.9.29
+
+The Store's tile keeps its name in the Apps menu after the app manager
+stops the Store: the tile shows the name and icon the app manager gives it.
+
 ## 0.9.28
 
 A tool whose install step waits after a firmware update (mgu-updater

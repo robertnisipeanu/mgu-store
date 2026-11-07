@@ -5969,8 +5969,14 @@ function testUplink() {
     fs.writeFileSync(status, JSON.stringify({ device: { kind: 'usbecm', name: 'HUAWEI' }, state: 'online', error: null, preferred: '', wifi }));
     ok('uplink: no freq without one (a USB uplink, an older uplink)', u.readUplink() === true && !('freq' in u.state().uplink.wifi),
         JSON.stringify(u.state().uplink));
+    // phones over USB (mgu-uplink 0.7.7): in the state when the uplink says it, left out otherwise
+    fs.writeFileSync(status, JSON.stringify({ device: null, state: 'searching', error: null, usbPhone: false, wifi }));
+    ok('uplink: usbPhone in the state', u.readUplink() === true && u.state().uplink.usbPhone === false, JSON.stringify(u.state().uplink));
+    fs.writeFileSync(status, JSON.stringify({ device: null, state: 'searching', error: null, usbPhone: 'no', wifi }));
+    ok('uplink: no usbPhone that is not true or false', u.readUplink() === true && !('usbPhone' in u.state().uplink), JSON.stringify(u.state().uplink));
     fs.writeFileSync(status, JSON.stringify({ device: { kind: 'wifi', name: 'Car "Hotspot"' }, state: 'online', error: null, preferred: 'wifi', wifi }));
     u.readUplink();
+    ok('uplink: no usbPhone from an uplink without it', !('usbPhone' in u.state().uplink), JSON.stringify(u.state().uplink));
     const got = [];
     let answer = { ok: true };
     const server = net.createServer((s) => {
@@ -6004,7 +6010,7 @@ function testUplink() {
             ok('uplink: needs mgu-uplink 0.7.0 running (no ctl.sock)', r.type === 'error' && r.op === 'wifi-connect' && /0\.7\.0/.test(r.error), JSON.stringify(r));
             return new Promise((resolve) => server.listen(ctl, resolve));
         })
-        .then(() => Promise.all(['wifi-connect', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-forget', 'uplink-prefer'].map((op) => send({ op, ssid: 'x', psk }))))
+        .then(() => Promise.all(['wifi-connect', 'wifi-enable', 'wifi-5ghz', 'usb-phone', 'wifi-scan', 'wifi-forget', 'uplink-prefer'].map((op) => send({ op, ssid: 'x', psk }))))
         .then((rs) => {
             ok('uplink: every request needs the secret', rs.every((r) => r.error === 'forbidden') && got.length === 0, JSON.stringify(rs));
             return send({ op: 'wifi-connect', ssid: 'Cafe', psk, secret: u.secret, extra: 'no' });
@@ -6018,17 +6024,18 @@ function testUplink() {
         })
         .then(() => send({ op: 'wifi-enable', on: false, secret: u.secret }))
         .then(() => send({ op: 'wifi-5ghz', on: true, secret: u.secret }))
+        .then(() => send({ op: 'usb-phone', on: false, secret: u.secret }))
         .then(() => send({ op: 'wifi-scan', secret: u.secret }))
         .then(() => send({ op: 'wifi-forget', ssid: 'Cafe', secret: u.secret }))
         .then(() => send({ op: 'uplink-prefer', kind: 'iphone', secret: u.secret }))
         .then(() => send({ op: 'uplink-prefer', kind: '', secret: u.secret }))
         .then(() => {
             ok('uplink: each request as the uplink takes it', JSON.stringify(got) === JSON.stringify([{ op: 'wifi-connect', ssid: 'Saved one' },
-                { op: 'wifi-enable', on: false }, { op: 'wifi-5ghz', on: true }, { op: 'wifi-scan' }, { op: 'wifi-forget', ssid: 'Cafe' }, { op: 'prefer', kind: 'iphone' },
+                { op: 'wifi-enable', on: false }, { op: 'wifi-5ghz', on: true }, { op: 'usb-phone', on: false }, { op: 'wifi-scan' }, { op: 'wifi-forget', ssid: 'Cafe' }, { op: 'prefer', kind: 'iphone' },
                 { op: 'prefer', kind: '' }]), JSON.stringify(got));
             got.length = 0;
             return Promise.all([{ op: 'wifi-connect', ssid: 'Cafe', psk: 'short' }, { op: 'wifi-connect', ssid: 'Cafe', psk: `${psk}\n` },
-                { op: 'wifi-connect', ssid: 'x'.repeat(33), psk }, { op: 'wifi-connect', psk }, { op: 'wifi-enable', on: 'yes' }, { op: 'wifi-5ghz' },
+                { op: 'wifi-connect', ssid: 'x'.repeat(33), psk }, { op: 'wifi-connect', psk }, { op: 'wifi-enable', on: 'yes' }, { op: 'wifi-5ghz' }, { op: 'usb-phone', on: 1 },
                 { op: 'uplink-prefer', kind: 'Wi-Fi' }, { op: 'uplink-prefer' }, { op: 'wifi-forget', ssid: '' }]
                 .map((req) => send(Object.assign(req, { secret: u.secret }))));
         })

@@ -116,6 +116,22 @@ CARRIER_CHECK, CLEAR_HALT on both bulk endpoints) follow IterioDev's
 at once: the unit has `Conflicts=ipheth-tether.service`, and the Store does
 not install the tether (deploy/README.md, "IterioDev's App Manager").
 
+#### Phones over USB switched off
+
+Taking a phone has a cost: an iPhone taken for its hotspot is no media
+device, so USB audio from it stops, and each time it is plugged in while
+it does not trust the unit, it asks "Trust This Computer?". It is taken
+whether Personal Hotspot is on or not. With phones over USB switched off
+(`usb_phone = off`, or the Store through `usb-phone`), the uplink leaves
+every phone alone: no Android phone's USB tethering is used, and no iPhone
+is taken from the media daemon, switched to configuration 4 or paired, so
+the car keeps it for media, iAP2 and wired CarPlay. USB Ethernet
+adapters, CDC-ECM sticks and Wi-Fi are used; a stick that presents RNDIS
+or NCM counts as a phone and is left alone too. Switched off while the
+uplink runs on a phone, that link ends at once as an unplug ends it (an
+iPhone goes back to the media daemon) and the uplink goes on with the next
+device; switched on again, a phone plugged in is taken at the next scan.
+
 ### Wi-Fi
 
 The unit joins a saved Wi-Fi network (a phone's hotspot, an access point)
@@ -277,11 +293,12 @@ the Store and the phone page:
   "state": "trust-needed", "error": "Tap Trust on the iPhone and enter its passcode" }
 ```
 
-with `uplink = auto`, also `wifi`, and `preferred` while a group is preferred:
+with `uplink = auto`, also `wifi`, `usbPhone` (whether phones over USB are
+taken), and `preferred` while a group is preferred:
 
 ```json
 { "device": { "kind": "wifi", "name": "iPhone - Mario" }, "state": "online", "error": null,
-  "preferred": "wifi",
+  "preferred": "wifi", "usbPhone": true,
   "wifi": { "enabled": true, "link": "online", "ssid": "iPhone - Mario", "ip": "172.20.10.2", "signal": -45,
     "networks": [ { "ssid": "iPhone - Mario", "signal": -40, "secure": true, "saved": true, "current": true } ],
     "saved": [ "iPhone - Mario" ], "scanning": false, "error": null } }
@@ -334,12 +351,13 @@ updater only, which relays these; `status.json` shows the results.
 | `{"op": "prefer", "kind": "phone"}` | the group tried first (`wifi`, `usb`, `phone`; `""` for none); takes effect within 5 s |
 | `{"op": "wifi-enable", "on": true}` | Wi-Fi on or off |
 | `{"op": "wifi-5ghz", "on": true}` | Allow 5 GHz: joins on either band (The band, above) |
+| `{"op": "usb-phone", "on": false}` | phones over USB taken or left alone (Phones over USB switched off, above) |
 | `{"op": "wifi-scan"}` | scan now |
 | `{"op": "wifi-connect", "ssid": "…", "psk": "…"}` | join a network, with its password; saved once joined. Without `psk`: a saved network, or an open one |
 | `{"op": "wifi-forget", "ssid": "…"}` | forget a saved network |
 
 The reply is `{"ok": true}` or `{"ok": false, "error": "…"}`. `prefer`,
-`wifi-enable` and `wifi-5ghz` are kept in `settings_conf`. A password goes to wpa_supplicant
+`wifi-enable`, `wifi-5ghz` and `usb-phone` are kept in `settings_conf`. A password goes to wpa_supplicant
 only: no log line, reply or status names it.
 
 ## Config
@@ -350,7 +368,7 @@ replaced by every update. The unit's own settings go in
 replaces the shipped value, except `uids`, which adds to it), which updates keep.
 What the Store sets through requests goes in
 `/var/opt/mgu-uplink/mgu-uplink.settings.conf`, read after the local conf
-and kept by updates. Only `preferred`, `wifi` and `wifi_5ghz` are read from it; any other
+and kept by updates. Only `preferred`, `wifi`, `wifi_5ghz` and `usb_phone` are read from it; any other
 line, or a value this version does not know, is logged and skipped, so an
 older version still starts after a rollback.
 
@@ -362,6 +380,7 @@ older version still starts after a rollback.
 | `preferred` | `wifi`, `usb` or `phone`, tried first; empty (shipped) for the order above; any other value is logged and ignored |
 | `wifi` | `on` or `off` (shipped) |
 | `wifi_5ghz` | `on`: Wi-Fi joins on either band; `off` (shipped): on 2.4 GHz only where a network is seen there |
+| `usb_phone` | `on` (shipped): phones over USB are used; `off`: left alone |
 | `table`, `rule_pref` | routing table (110) and first rule priority (1100) |
 
 Components that need the internet add themselves without touching the
@@ -378,7 +397,7 @@ local conf is ignored, and the start logs it: the uplink takes whatever is
 plugged in.
 
 `uplink`, `table` and the other keys take effect at the next service
-restart; `preferred`, `wifi` and `wifi_5ghz` set by a request take effect at once.
+restart; `preferred`, `wifi`, `wifi_5ghz` and `usb_phone` set by a request take effect at once.
 
 ## Build, install, update
 

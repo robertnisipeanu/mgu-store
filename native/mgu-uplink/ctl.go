@@ -8,6 +8,7 @@ package main
 //	{"op": "prefer", "kind": "phone"}                  the group tried first: wifi, usb, phone ("": none), kept in settings_conf
 //	{"op": "wifi-enable", "on": true}                  Wi-Fi on or off, kept in settings_conf
 //	{"op": "wifi-5ghz", "on": true}                    joins use 5 GHz too, kept in settings_conf
+//	{"op": "usb-phone", "on": false}                   phones over USB taken or left alone, kept in settings_conf
 //	{"op": "wifi-scan"}                                scan; status.json's wifi.networks follow
 //	{"op": "wifi-connect", "ssid": "…", "psk": "…"}    join; saved once joined (psk "": a saved or an open network)
 //	{"op": "wifi-forget", "ssid": "…"}                 forget a saved network
@@ -136,6 +137,23 @@ func (s *service) request(r ctlRequest) error {
 			return err
 		}
 		w.setAllow5(*r.On)
+		return nil
+	case "usb-phone":
+		su, ok := s.up.(*scanUplink)
+		switch {
+		case r.On == nil:
+			return errors.New("usb-phone needs on: true or false")
+		case !ok:
+			return errors.New("phones over USB need uplink = auto")
+		}
+		s.ctlMu.Lock()
+		defer s.ctlMu.Unlock()
+		if err := setSetting(s.cfg.Settings, "usb_phone", onOff(*r.On)); err != nil {
+			return err
+		}
+		su.setUSBPhone(*r.On)
+		setStatusUSBPhone(r.On)
+		logf("phones over USB: %s", onOff(*r.On))
 		return nil
 	case "wifi-scan", "wifi-connect", "wifi-forget":
 		if w == nil {

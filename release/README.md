@@ -12,10 +12,14 @@ besides this one: [`docs/PUBLISHING.md`](../docs/PUBLISHING.md).
 node release/release.js list                    # components, versions, publish state
 node release/release.js build [<id>...]         # reproducible build of HEAD into release/out/ + catalog.json
 node release/release.js check [<id>...]         # build twice, compare the artifacts byte for byte
-node release/release.js bump <id> <x.y.z>       # set a component's version
-node release/release.js publish [--dry-run]     # (GitHub Actions) upload the new versions, then the catalog
+node release/release.js bump <id> <x.y.z>       # set a hand-versioned component's version
+node release/release.js versions <base>         # a pull request's version checks against its base
+node release/release.js stamp [<id>...]         # (the Release workflow) next versions, the release commit
+node release/release.js publish --stamped [--dry-run]  # (the Release workflow) upload the new versions, then the catalog
 tools/emu-gate <id>...                          # (this Mac) the emulator gate for mgu-render / robertn_store
 ```
+
+Contributors: [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## Components
 
@@ -62,16 +66,20 @@ after it passed in the head-unit emulator, which runs on the owner's Mac:
 
 ```sh
 tools/emu-gate mgu-render          # 4 to 8 min a component
-git add release/gate/mgu-render.json && git commit -m "mgu-render x.y.z: emulator gate"
+git add release/gate/mgu-render.json && git commit -m "mgu-render: emulator gate"
 ```
 
-It installs this commit's build on its own over the published release and
+It installs this commit's build on its own over the published release (a
+release-time component built at the version the release would give it, a
+patch) and
 checks that the Store's picture stays on the screen when other programs
 change the screen's layers and when the renderer and head unit restart
 (the cases: `tools/emu-gate`). Passing, it writes `release/gate/<id>.json`
 for that version and build; `release.js publish` refuses a new version
 without one, so any later change to what the component ships needs the gate
-again. It needs Docker, `gh` signed in and the mgu-emulator checkout
+again. A release-time component's record holds for the version the release
+gives that source: the release commit, which only writes the version,
+leaves the source as it was (`release.js` `sourceCommit`). It needs Docker, `gh` signed in and the mgu-emulator checkout
 (`MGU_EMULATOR`, default `~/workspaces/personal/mgu-emulator`).
 
 ## Versions
@@ -81,14 +89,44 @@ before it can be published again: publishing refuses a version that is
 already published with other bytes, and a version older than the published
 one.
 
-`bump` does the bookkeeping. For an app it renames the staged tree
+**Release-time versions** (every tool but those in `release.js`
+`HAND_VERSIONED`: `app-privacy`, `mgu-python`, `mgu-render`, `mgu-uplink`). Pull requests leave the
+version alone, and `versions` (the Versions workflow, on every pull
+request) fails one that changes it, or that changes such a component with a
+CHANGELOG without lines under `## Unreleased`. The Release workflow's
+`stamp`:
+
+- takes each one changed since its last release (its `<id>@<version>` tag;
+  a change is a file it ships), or named in the workflow's input;
+- gives it the next version: a patch, or minor/major when a merged pull
+  request that changed it carries the label `release:minor` or
+  `release:major`; a named component with no change gets a patch;
+- writes it into `component.json` and its `versionFiles`, moves the
+  CHANGELOG's `## Unreleased` lines under `## <version>` and leaves an empty
+  `## Unreleased` above;
+- writes the version of each `"requires": {"<id>": "next"}`, and brings that
+  component along when it was not chosen;
+- commits `release: <id>@<version>, …` to `main`.
+
+A version stamped but never published (no tag) keeps its number at the next
+run; new Unreleased lines join its section.
+
+**Hand-versioned** (apps, whose staged tree is named `<id>@<version>`, and
+the tools in `HAND_VERSIONED`: `mgu-deploy`, `mgu-updater`). The pull request sets the version with `bump`, and adds its
+CHANGELOG entry under it. For an app `bump` renames the staged tree
 (`git mv apps/<id>/<id>@<old> … @<new>`), rewrites every `<id>@<old>` in the
 repo's text files (build scripts, validators, READMEs; not
 `docs/investigations/`), and sets the version in `package.json`,
 `npm-shrinkwrap.json` and `rhmiData/application.json`. Add the CHANGELOG
 entry, rebuild, commit. For a tool it sets `component.json`'s version, and
 `VERSION = 'x.y.z'` in each file its optional `versionFiles` lists (relative
-to the tool's folder; the deploy tool's `unit/mgu-deploy.js`).
+to the tool's folder; the deploy tool's `unit/mgu-deploy.js`). Their
+`"requires"` may also name `"next"`; `stamp` resolves it without changing
+their version.
+
+`mgu-repo.json` lists hand-versioned components only (`versions` checks):
+a branch channel lists what the branch holds, so it would offer a
+release-time component's merged change before a release gives it a version.
 
 ## Reproducible builds
 
@@ -167,21 +205,31 @@ Schema 2 adds, per entry:
 
 ## Publishing
 
-Publishing runs in GitHub Actions only (`.github/workflows/release.yml`):
+Publishing runs in GitHub Actions only (`.github/workflows/release.yml`),
+by hand, on `main`. Run it as a dry run first (the default), then again
+without:
 
 ```sh
-git tag v2026.10.22 && git push origin v2026.10.22      # every component
-gh workflow run release.yml -f components="mgu-deploy robertn_store"  # some components
+gh workflow run release.yml                                    # dry run: every changed component
+gh workflow run release.yml -f dry_run=false                   # release them
+gh workflow run release.yml -f components="mgu-python" -f dry_run=false   # some components
 ```
 
-The workflow checks out the tagged (or chosen) commit with its history,
-installs the build toolchain (Node 22.12.0; Go 1.27.2 for `mgu-uplink`;
-the runner's Docker builds `mgu-render` and `mgu-uplink`'s wpa_supplicant),
-and runs `release.js publish` with the workflow's own `GITHUB_TOKEN`
-(contents: write). No other token, and no developer machine, is involved.
-`publish` to GitHub refuses to run outside Actions; `--dry-run` runs
-anywhere. The workflow runs on `main` and `v*` tags only, with every action
-pinned to a commit.
+The workflow checks out `main` with its history and tags, installs the
+build toolchain (Node 22.12.0; Go 1.27.2 for `mgu-uplink`; the runner's
+Docker builds `mgu-render` and `mgu-uplink`'s wpa_supplicant), runs
+`stamp` (Versions, above) and pushes the release commit to `main`, then
+`release.js publish --stamped` with the workflow's own `GITHUB_TOKEN`
+(contents: write). `--stamped` publishes what `stamp` chose: the stamped
+release-time components, the hand-versioned ones selected (all of them
+with no input; those whose version is published publish nothing), and any
+version tagged but missing from the catalog (a publish that stopped
+part-way). Each is built twice from the release commit and published only
+when both builds give the same bytes. A dry run stamps and builds without
+pushing or publishing. The push fails when `main` moved since the
+checkout: run the workflow again. No other token, and no developer machine,
+is involved. `publish` to GitHub refuses to run outside Actions;
+`--dry-run` runs anywhere. Every action is pinned to a commit.
 
 The releases are GitHub Releases of `robertnisipeanu/mgu-store`, which
 the car reads like any public repository.

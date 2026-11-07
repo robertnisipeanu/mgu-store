@@ -95,7 +95,6 @@
     "Phone access": "Truy cập từ điện thoại",
     "Preferred connection": "Kết nối ưu tiên",
     "Preferred": "Ưu tiên",
-    "Preferred: {0}": "Ưu tiên: {0}",
     "Rejected": "Bị từ chối",
     "Releases": "Bản phát hành",
     "Remove": "Xóa",
@@ -192,6 +191,7 @@
     "Allow 5 GHz": "Cho phép 5 GHz",
     "May cause CarPlay issues": "Có thể gây lỗi CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Trên iPhone, bật Tối đa hóa tương thích",
-    "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt"
+    "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt",
+    "Phone over USB": "Điện thoại qua USB"
   }
 }
