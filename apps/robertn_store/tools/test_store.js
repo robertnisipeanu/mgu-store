@@ -1132,7 +1132,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.28', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.29', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1850,7 +1850,29 @@ function runAbsentContext() {
     });
 }
 
-run().then(runWidgetsExtra).then(runLanguage).then(runAbsentContext).then(runDrawn).then(runTiming).then(() => {
+/* The tile keeps the name and icon the app manager gave it: the app maps its
+ * state and enables it, and never points it at the app's own bundles. */
+function runEntryPoint() {
+    const calls = [];
+    const record = (name) => (v) => { calls.push(v === undefined ? name : `${name} ${v}`); return Promise.resolve(); };
+    const description = { name: 'robertn_store', uuid: 'tile-uuid', textId: 'SID_STORE_TITLE', icon: 'store_icon.png' };
+    const tile = {
+        getDescription: () => description,
+        init: record('init'),
+        setAvailability: record('availability'),
+        entryPoint: { setText: record('text'), setIcon: record('icon') }
+    };
+    app.appDescription = { application: { entryPoints: [description] } };
+    app.getEntryPoints = () => [tile];
+    states.length = 0;
+    return app._registerEntryPoints().then(() => {
+        eq(calls, ['init', 'availability ENABLED'], 'the tile: enabled, its name and icon left to the app manager');
+        eq(states.length, 1, 'the tile opens the root screen');
+        eq(app._entryUuid, 'tile-uuid', 'the tile is remembered');
+    });
+}
+
+run().then(runWidgetsExtra).then(runLanguage).then(runAbsentContext).then(runEntryPoint).then(runDrawn).then(runTiming).then(() => {
     cleanUp();
     console.log(`store: ${checks} checks pass`);
     process.exit(0);

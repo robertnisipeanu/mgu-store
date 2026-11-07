@@ -1399,8 +1399,11 @@ class Store extends OnlineApp {
         }
     }
 
-    /* The app manager inserts the public tile from application.json and hands
-     * it to the app at start; the SDK emits 'entryPointExecute' on a tap. */
+    /* The app manager inserts the public tile from application.json, with its
+     * name and icon from the manager's own bundles, and hands it to the app at
+     * start; the SDK emits 'entryPointExecute' on a tap. The app leaves the
+     * name and icon alone: its own bundles end with its process, and a tile
+     * pointing at them shows no name once the manager stops the app. */
     _registerEntryPoints() {
         const descriptions = (this.appDescription &&
             this.appDescription.application.entryPoints) || [];
@@ -1413,10 +1416,6 @@ class Store extends OnlineApp {
         return ours.init()
             .then(() => this.rhmiApplication.mapEntryState(description.uuid, this._states[ROOTS[this._ui]]))
             .then(() => { this._entryUuid = description.uuid; })
-            .then(() => Promise.resolve()
-                .then(() => ours.entryPoint.setText(description.textId))
-                .then(() => (description.icon ? ours.entryPoint.setIcon(description.icon) : undefined))
-                .catch((err) => logger.warn(`entry point text/icon: ${err && err.message}`)))
             .then(() => ours.setAvailability('ENABLED'))
             .then(() => logger.info(`entry point ${description.name} ENABLED`));
     }
