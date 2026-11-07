@@ -258,7 +258,7 @@ function sourceEpoch(c) {
  * packer: its source, as the emulator gate tested it. A merge commit that
  * brings the change in unaltered keeps it (history simplification follows the
  * parent it came from). An app's build may write files it ships (copies, generated
- * files) only as they are committed (buildApp), so what it ships is that
+ * files) only as they are committed (buildIn), so what it ships is that
  * commit's. A release commit that only wrote the component's version and
  * resolved its "requires" (stamp) is passed over: the gate tests what the
  * component does, built at the version it would get. */
@@ -438,9 +438,9 @@ function buildIn(c, exportDir, env) {
             throw new Error(`${c.id}: build "${c.release.build}" failed (${r.error ? r.error.message : r.signal || `exit ${r.status}`})`);
         }
         const after = shippedFiles(c, exportDir);
-        const changed = [...before.keys()].filter((f) => before.get(f) !== after.get(f));
+        const changed = [...new Set([...before.keys(), ...after.keys()])].filter((f) => before.get(f) !== after.get(f));
         if (changed.length) {
-            throw new Error(`${c.id}: the build rewrote ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}: ` +
+            throw new Error(`${c.id}: the build wrote ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}: ` +
                 'build it in the repository and commit what it writes');
         }
         artifact = path.join(exportDir, c.artifact);

@@ -78,10 +78,12 @@ any later change to what the component ships needs the gate again. The
 record holds for the version the release gives that source: the release
 commit, which only writes the version, resolves `"next"` and moves a shipped
 CHANGELOG's Unreleased lines, leaves the source as it was (`release.js`
-`sourceCommit`). An app's release build may not rewrite a file the app ships
-(a copy from another folder, a generated file): commit what its build writes,
-so the source the record names is what ships. It needs Docker, `gh` signed in and the mgu-emulator checkout
+`sourceCommit`). The gate needs Docker, `gh` signed in and the mgu-emulator checkout
 (`MGU_EMULATOR`, default `~/workspaces/personal/mgu-emulator`).
+
+An app's release build may not write a file the app ships (a copy from
+another folder, a generated file) other than as it is committed: commit what
+its build writes, so the source the record names is what ships.
 
 ## Versions
 

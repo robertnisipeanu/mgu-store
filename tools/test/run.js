@@ -691,8 +691,10 @@ function testReleaseVersions() {
     };
     check('versions: an app\'s release build may write what it does not ship, under its staged tree named with its version',
         built('touch robertn_x@0.4.2.src.tgz && test -f robertn_x@0.4.2/package.json && grep -q \'"tree": "robertn_x@0.4.2"\' mgu-app.json') === true);
+    check('versions: an app\'s release build that adds a file where it ships is refused',
+        /the build wrote apps\/robertn_x\/robertn_x@0\.4\.2\/new\.json/.test(String(built('echo 1 > robertn_x@0.4.2/new.json && touch robertn_x@0.4.2.src.tgz'))));
     check('versions: an app\'s release build that rewrites a file it ships is refused',
-        /the build rewrote apps\/robertn_x\/src\/x\.js/.test(String(built('echo 3 > src/x.js && touch robertn_x@0.4.2.src.tgz'))));
+        /the build wrote apps\/robertn_x\/src\/x\.js/.test(String(built('echo 3 > src/x.js && touch robertn_x@0.4.2.src.tgz'))));
     fs.renameSync(path.join(r.root, 'apps/robertn_x/package'), path.join(r.root, 'apps/robertn_x/robertn_x@0.4.2'));
     fs.writeFileSync(path.join(r.root, 'apps/robertn_x/mgu-app.json'), appFile('mgu-app.json').replace('"package"', '"robertn_x@0.4.2"'));
     check('versions: an app\'s tree with its version in its name is still read', x().version === '0.4.2' && x().tree === 'robertn_x@0.4.2');
