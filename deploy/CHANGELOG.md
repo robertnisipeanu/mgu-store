@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+No changes.
+
 ## 0.8.5
 
 No changes.
