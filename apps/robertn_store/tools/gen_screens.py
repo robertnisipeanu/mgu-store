@@ -61,7 +61,7 @@ drop(st, 'tetherIcon', 'tetherName', 'tetherState', 'tether', 'checkNow', 'lastC
 st['components'] += [
     comp('access', 'appList', 1880, 412, 920, 360, {'items': [], 'rowH': 120}),
     # the head unit on ACCESS's line after its longest translation, the versions above
-    text('unit', 2228, 373, 572, 30, '', 24, 'bold', align='right'),
+    text('unit', 2293, 374, 507, 30, '', 22, 'bold', align='right'),
     text('versions', 1880, 341, 920, 28, '', 22, 'label', 'dim', align='right'),
     comp('checkNow', 'vbutton', 1880, 764, 440, 56, {'text': 'Check now', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:checkNow'),
     comp('restart', 'vbutton', 2340, 764, 460, 56, {'text': 'Restart head unit', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:restart'),

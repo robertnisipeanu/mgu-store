@@ -383,16 +383,44 @@ eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 
     'Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access', 'Check now']);
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
 // iDrive 8: the head unit's line, on the Access card's label's line, starts after the label in every language
+// (drawn in each language, ACCESS with rows and HEAD UNIT without)
 {
+    const i18n = require(path.join(__dirname, '..', 'src', 'i18n.js'));
     const { Recorder } = require(path.join(__dirname, '..', 'src', 'kit_record.js'));
     const set = SCREENS.screens.find((x) => x.name === 'settings').components;
-    const at = (n) => set.find((c) => c.name === n);
-    const lab = at('connLabel');
-    const rec = new Recorder(1, 1);
-    const widest = Math.max(...[{ words: {} }].concat(require(path.join(__dirname, '..', 'src', 'locales.js')))
-        .map((l) => Math.max(...['ACCESS', 'HEAD UNIT'].map((k) => rec.textWidth(l.words[k] || k, lab.opts.size, { font: lab.opts.font })))));
-    ok(lab.x + widest + 16 <= at('unit').x && at('unit').y < lab.y + lab.h && at('versions').y + at('versions').h <= at('unit').y,
-        `iDrive 8: the label (up to ${Math.round(widest)} px) clear of the head unit's line`);
+    const unit = set.find((c) => c.name === 'unit');
+    const versions = set.find((c) => c.name === 'versions');
+    const lab = set.find((c) => c.name === 'connLabel');
+    const draw = Recorder.prototype.text;
+    let end = 0, widest = '';
+    Recorder.prototype.text = function (str, x, y, size, color, opts) {
+        if (x === lab.x && Math.abs(y - (lab.y + lab.opts.size * 0.8)) < 1) {
+            const e = x + this.textWidth(String(str), size, opts);
+            if (e > end) {
+                end = e;
+                widest = String(str);
+            }
+        }
+        return draw.call(this, str, x, y, size, color, opts);
+    };
+    const m0 = fixture.screens().find((x) => x[0] === 'settings')[1];
+    try {
+        [null].concat(require(path.join(__dirname, '..', 'src', 'locales.js')).filter((l) => l.drawn !== false)).forEach((l) => {
+            i18n.setHmiLanguage(l ? l.hmiLanguages[0] : null);
+            i18n.useDrawn(true);
+            [{}, { uplink: null, web: null, proxy: null, tokens: null }].forEach((over) => {
+                const m = fixture.model(m0, Object.assign(fixture.state(), over));
+                m.language = i18n.language();
+                frame(m, { textScale: I8.scale, scroll: {}, layout: I8.layout });
+            });
+        });
+    } finally {
+        Recorder.prototype.text = draw;
+        i18n.useDrawn(false);
+        i18n.setHmiLanguage(null);
+    }
+    ok(end > lab.x && end + 16 <= unit.x && versions.y + versions.h <= unit.y,
+        `iDrive 8: the label (widest "${widest}", to x ${Math.round(end)}) clear of the head unit's line at ${unit.x}`);
 }
 // the Access card shows three rows: the controller's focus on each later row scrolls it into view, in order, on every unit
 Object.keys(UNITS).forEach((u) => {

@@ -935,13 +935,13 @@ module.exports = {
      "name": "unit",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 2228,
-     "y": 373,
-     "w": 572,
+     "x": 2293,
+     "y": 374,
+     "w": 507,
      "h": 30,
      "opts": {
       "text": "",
-      "size": 24,
+      "size": 22,
       "font": "bold",
       "align": "right",
       "color": "text"
