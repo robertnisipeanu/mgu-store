@@ -1680,7 +1680,6 @@ class Updater {
         const attempt = (i) => {
             const text = cands[i] ? this.tokens.text(cands[i]) : '';
             const reader = sourcesLib.reader(rt.def, Object.assign({}, this.ctx, { tokenFor: () => text,
-                // a branch's content is read for components installed from it at a commit
                 needContent: () => Object.keys(this.origins).some((k) => this.origins[k].source === this.originOf(rt.def.id) && !!this.origins[k].commit),
                 reuse: (key) => (rt.memo && rt.memo.key === key ? JSON.parse(JSON.stringify(rt.memo.cat)) : null) }));
             return reader.catalog().then((cat) => {
@@ -1762,25 +1761,33 @@ class Updater {
         return rt.checking;
     }
 
-    /* The content (sourcesLib.contentOf) of each component installed from
+    /* The content (sourcesLib.contentThen) of each component installed from
      * this source's branch at a commit whose content its origin does not
-     * record yet, read from that commit's tree. Unread ones are tried at the
-     * next check, and compared by commit until then. */
+     * record, from that commit's tree (read once for all of them). One that
+     * cannot be read is tried at the next check, and compared by commit
+     * until then; a commit GitHub does not have gets '-'. */
     recordContents(id, rt) {
         const origin = this.originOf(id);
+        const trees = {};
         const todo = rt.components.filter((c) => c.contentSpec && c.content).map((c) => {
-            const unit = this.aliases[`${origin}:${c.id}`] || c.id;
-            const o = this.origins[unit];
+            const o = this.origins[this.aliases[`${origin}:${c.id}`] || c.id];
             return o && o.source === origin && o.commit && !o.content ? { c, o } : null;
         }).filter(Boolean);
-        return todo.reduce((p, t) => p.then(() => (t.o.commit === t.c.commit ? Promise.resolve(t.c.content) : rt.reader.contentAt
-            ? rt.reader.contentAt(t.o.commit, t.c.contentSpec) : Promise.resolve(null))
-            .then((content) => {
-                if (content) {
-                    t.o.content = content;
-                    this.saveOrigins();
+        return todo.reduce((p, t) => p.then(() => {
+            if (t.o.commit === t.c.commit) {
+                return t.c.content;
+            }
+            trees[t.o.commit] = trees[t.o.commit] || rt.reader.treeAt(t.o.commit);
+            return trees[t.o.commit].then((tree) => sourcesLib.contentThen(tree, t.c.contentSpec), (err) => {
+                if (err.status === 404 || err.status === 422 || err.permanent) {
+                    return '-';
                 }
-            }, (err) => console.log(`source ${id}: ${t.c.id} at ${t.o.commit.slice(0, 7)}: no content: ${err.message}`))), Promise.resolve());
+                throw err;
+            });
+        }).then((content) => {
+            t.o.content = content;
+            this.saveOrigins();
+        }, (err) => console.log(`source ${id}: ${t.c.id} at ${t.o.commit.slice(0, 7)}: no content: ${err.message}`)), Promise.resolve());
     }
 
     /* Where an entry's icon is kept: <state_dir>/icons/<sha256>.png, named by

@@ -222,13 +222,17 @@ commit). Without one: `releases` when the repo has a release, else
   changes the component: a row's `revision` is the short commit it would
   install, and `state/origins.json` records the commit installed and the
   component's content there. The content is the git ids, from the commit's
-  tree (`/git/trees/<sha>?recursive=1`, an API request for each new commit
-  while something is installed from the branch), of the component's folder
-  and its `mgu-repo.json` entry; for an app a build script makes, also the
-  paths its `build.shared` names and the script, or, without
-  `build.shared`, the whole repo but the other apps' folders. An install
-  recorded with its commit alone gets its content from that commit's tree.
-  While a content cannot be read, a new commit is an update.
+  tree (`/git/trees/<sha>?recursive=1`), of the component's folder,
+  leaving out other components' folders or files inside it, and its
+  `mgu-repo.json` entry. A service or preload tool is the one file it packs.
+  For an app a build script makes, it is also the paths its `build.shared`
+  names and the script, or, without `build.shared`, the whole repo but the
+  other apps' folders. The tree is read, one API request, for each new head
+  commit while something is installed from the branch, and once for each
+  older commit an install is recorded with alone (its content is then that
+  commit's, while `mgu-repo.json` is the same file there, else `-`, which
+  matches nothing). While a content cannot be read, a new commit is an
+  update.
 
 **Building on the unit.** `build.node` runs under this Node, and
 `build.python` under `python` (`/var/opt/mgu-python/current/bin/python3`,

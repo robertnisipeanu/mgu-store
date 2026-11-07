@@ -185,6 +185,20 @@ function ghRepo(name, opts) {
 }
 
 /* A commit of files ({ path: content | [content, mode] }); returns its sha. */
+/* A git-like tree of files ({ path: bytes }) as GitHub's recursive
+ * listing gives it: a file's id from its bytes, a folder's from its entries'. */
+function gitTree(files) {
+    const ids = {};
+    Object.keys(files).forEach((rel) => {
+        ids[rel] = sha256(files[rel]).slice(0, 40);
+    });
+    const folders = new Set();
+    Object.keys(files).forEach((rel) => rel.split('/').slice(0, -1).forEach((x, i, a) => folders.add(a.slice(0, i + 1).join('/'))));
+    const idOf = (dir) => sha256(Object.keys(ids).filter((k) => k.indexOf(dir ? `${dir}/` : '') === 0).sort()
+        .map((k) => `${k} ${ids[k]}`).join('\n')).slice(0, 40);
+    return { sha: idOf(''), entries: Object.keys(ids).map((k) => ({ path: k, sha: ids[k] })).concat(Array.from(folders).map((d) => ({ path: d, sha: idOf(d) }))) };
+}
+
 function ghCommit(repo, files) {
     const tree = {};
     Object.keys(files).forEach((p) => {
@@ -427,22 +441,17 @@ function ghApi(req, res, auth) {
         const rawWanted = /^application\/vnd\.github(\.v3)?\.raw/.test(req.headers.accept || '');
         send(f ? 200 : 404, !f ? { message: 'Not Found' } : rawWanted ? f[0] : { type: 'file', encoding: 'base64', content: f[0].toString('base64') });
     } else if (rest.indexOf('/git/trees/') === 0) {
-        // git's recursive listing: a file's id from its bytes, a folder's from its entries'
         const tree = repo.trees[rest.slice('/git/trees/'.length)];
         if (!tree || u.searchParams.get('recursive') !== '1') {
             send(404, { message: 'Not Found' });
             return;
         }
-        const ids = {};
+        const files = {};
         Object.keys(tree).forEach((rel) => {
-            ids[rel] = sha256(tree[rel][0]).slice(0, 40);
+            files[rel] = tree[rel][0];
         });
-        const folders = new Set();
-        Object.keys(tree).forEach((rel) => rel.split('/').slice(0, -1).forEach((x, i, a) => folders.add(a.slice(0, i + 1).join('/'))));
-        const idOf = (dir) => sha256(Object.keys(ids).filter((k) => k.indexOf(dir ? `${dir}/` : '') === 0).sort()
-            .map((k) => `${k} ${ids[k]}`).join('\n')).slice(0, 40);
-        send(200, { sha: idOf(''), truncated: false, tree: Object.keys(ids).map((k) => ({ path: k, type: 'blob', sha: ids[k] }))
-            .concat(Array.from(folders).map((d) => ({ path: d, type: 'tree', sha: idOf(d) }))) });
+        const t = gitTree(files);
+        send(200, { sha: t.sha, truncated: false, tree: t.entries });
     } else if (rest.indexOf('/tarball/') === 0) {
         const sha = rest.slice('/tarball/'.length);
         // GitHub refuses a tarball request that accepts only application/octet-stream
@@ -6401,17 +6410,8 @@ function testCarApps(certs) {
 
 /* contentOf: what a repo-tree component is made of, from a commit's tree. */
 function testContent() {
-    const tree = (files) => {
-        const ids = {};
-        Object.keys(files).forEach((p) => {
-            ids[p] = sha256(files[p]).slice(0, 40);
-        });
-        const dirs = new Set();
-        Object.keys(files).forEach((p) => p.split('/').slice(0, -1).forEach((x, i, a) => dirs.add(a.slice(0, i + 1).join('/'))));
-        const idOf = (d) => sha256(Object.keys(ids).filter((k) => k.indexOf(d ? `${d}/` : '') === 0).sort().map((k) => `${k} ${ids[k]}`).join('\n')).slice(0, 40);
-        return { sha: idOf(''), entries: Object.keys(ids).map((k) => ({ path: k, sha: ids[k] })).concat(Array.from(dirs).map((d) => ({ path: d, sha: idOf(d) }))) };
-    };
-    const base = { 'README.md': 'r', 'apps/a/app.json': 'a', 'apps/b/app.json': 'b', 'kit/runtime/x.js': 'x', 'kit/tools/build.py': 'p', 'apps/a/sub/y': 'y' };
+    const tree = gitTree;
+    const base = { 'mgu-repo.json': 'm', 'README.md': 'r', 'apps/a/app.json': 'a', 'apps/b/app.json': 'b', 'kit/runtime/x.js': 'x', 'kit/tools/build.py': 'p', 'apps/a/sub/y': 'y' };
     const was = tree(base);
     const at = (more) => tree(Object.assign({}, base, more));
     const own = { paths: ['apps/a'], skip: [], listing: 'l' };
@@ -6438,6 +6438,31 @@ function testContent() {
         JSON.stringify(spec().paths) === '["apps/a"]' && JSON.stringify(spec({ python: 'kit/tools/build.py' }).paths) === '[""]' &&
         JSON.stringify(spec({ python: 'kit/tools/build.py', shared: ['kit/runtime', 'oap-sdk'] }).paths) === '["apps/a","kit/runtime","oap-sdk","kit/tools/build.py"]' &&
         JSON.stringify(spec({ python: 'b.py', shared: ['../x'] }).paths) === '[""]');
+    ok('content: a service or preload tool is the one file it packs', JSON.stringify(sourcesLib.contentSpec({ id: 's', kind: 'tool', path: 'kit/p',
+        service: { exec: 'd' } }, null).paths) === '["kit/p/d"]' && JSON.stringify(sourcesLib.contentSpec({ id: 'g', kind: 'tool', path: 'kit/p',
+        preload: { library: 'g.so' } }, null).paths) === '["kit/p/g.so"]');
+    const head = Object.assign({}, own, { repoId: tree(base).entries.find((e) => e.path === 'mgu-repo.json').sha });
+    ok('content: an older commit\'s, while mgu-repo.json is the same file, is its content with the newer listing; else \'-\'',
+        sourcesLib.contentThen(at({ 'README.md': 'old' }), head) === contentOf(was, own) && sourcesLib.contentThen(at({ 'apps/a/app.json': 'old' }), head) !== contentOf(was, own) &&
+        sourcesLib.contentThen(at({ 'mgu-repo.json': 'old' }), head) === '-' && sourcesLib.contentThen(tree({ 'mgu-repo.json': 'm' }), head) === '-' &&
+        sourcesLib.contentThen(was, own) === '-');
+    // two tools in one folder (idrive7-apps' kit/renderd/prebuilt): a tool kit and a preload tool
+    const doc = { schema: 1, components: [{ id: 'kit_tool', kind: 'tool', path: 'kit/p' }, { id: 'gate', kind: 'tool', path: 'kit/p', version: '1.0.0',
+        preload: { library: 'g.so', unit: 'hmi.service', process: 'HmiMain3D', strikes: 2, checkAfterSeconds: 120, healthySeconds: 60 } }] };
+    const files = { 'mgu-repo.json': JSON.stringify(doc), 'kit/p/component.json': JSON.stringify({ id: 'kit_tool', kind: 'tool', version: '1.0.0', files: [] }),
+        'kit/p/d': 'd', 'kit/p/g.so': 'g' };
+    const listed = (more) => {
+        const f = Object.assign({}, files, more);
+        return sourcesLib.repoCatalog((rel) => (f[rel] !== undefined ? Promise.resolve(Buffer.from(f[rel])) : Promise.reject(Object.assign(new Error('no'), { missing: true }))),
+            'a'.repeat(40), 'aaaaaaa', null, () => Promise.resolve(tree(f))).then((cat) => {
+            const of = (id) => (cat.components.find((c) => c.id === id) || {}).content;
+            return [of('kit_tool'), of('gate')];
+        });
+    };
+    return Promise.all([listed({}), listed({ 'kit/p/d': 'd2' }), listed({ 'kit/p/g.so': 'g2' })]).then(([a, b, c]) => {
+        ok('content: of two tools in one folder, a change to one\'s files is no change of the other',
+            a[0] && a[1] && b[0] !== a[0] && b[1] === a[1] && c[0] === a[0] && c[1] !== a[1], JSON.stringify([a, b, c]));
+    });
 }
 
 function main() {
@@ -6449,8 +6474,8 @@ function main() {
     testCollect();
     testFileLog();
     testRequiredAlone();
-    testContent();
-    return testTar()
+    return testContent()
+        .then(() => testTar())
         .then(() => testDeployTimeout())
         .then(() => testIndexV1Cache().catch((e) => ok('index v1 cache scenario', false, e.stack)))
         .then(() => testBuildDisk().catch((e) => ok('build folders scenario', false, e.stack)))
