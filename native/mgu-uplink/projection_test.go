@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -337,6 +338,31 @@ func TestCarWiFiSession(t *testing.T) {
 			t.Errorf("calls that could start the car's supplicant: %v", f.autoStart)
 		}
 	})
+}
+
+// With Allow 5 GHz the scans during wireless CarPlay also cover the phone's
+// own channel: a station there shares it (an access point on the group's
+// channel is found, not only one on the other band); without, as before.
+func TestCarWiFiSessionAllow5(t *testing.T) {
+	p, f, phone := carSession(t)
+	p.setAllow5(true)
+	p.setEnabled(true)
+	p.start()
+	defer p.stop()
+	waitWiFi(t, p, "scanning for Home", func(st wifiStatus) bool { return st.Link == "scanning" && oursAre(f, "scan_freq", "", true)(st) })
+
+	phone(true, "p2p-wlanc0-0")
+	waitWiFi(t, p, "2.4 GHz and 5785", oursAre(f, "scan_freq", freqList(append(slices.Clone(freqs24), 5785)), true))
+	phone(true, "p2p-wlanc0-1")
+	waitWiFi(t, p, "5 GHz and 2462", oursAre(f, "scan_freq", freqList(append(slices.Clone(freqs5), 2462)), true))
+
+	p.setAllow5(false)
+	waitWiFi(t, p, "5 GHz only", oursAre(f, "scan_freq", freqList(freqs5), true))
+	if len(freqs5) != 25 || len(freqs24) != 13 {
+		t.Fatalf("the band lists changed: %d %d", len(freqs5), len(freqs24))
+	}
+	phone(false)
+	waitWiFi(t, p, "every channel", func(st wifiStatus) bool { return st.Paused == "" && oursAre(f, "scan_freq", "", true)(st) })
 }
 
 // A call to the car's supplicant never starts it (NO_AUTO_START); others
