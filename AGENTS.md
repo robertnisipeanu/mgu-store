@@ -36,10 +36,10 @@ every release has to be safe whichever component is updated first:
   deploy tool, renderer, uplink, Python) in ways that depend on each other,
   test it in the emulator before publishing: start from the published
   release (`./emu.py up --preset store`), publish every component of the
-  branch to a folder (`MGU_PUBLISH=dir:<folder> node release/release.js
-  publish`; first, in a scratch checkout of the branch, `MGU_RELEASE_LABELS=off
-  node release/release.js stamp`, so the release-time components carry their
-  next versions and every `"next"` is resolved), give the emulator that
+  branch to a folder from a scratch checkout of it (`MGU_RELEASE_LABELS=off
+  node release/release.js stamp`, so the release-time components carry
+  their next versions and every `"next"` is resolved, then
+  `MGU_PUBLISH=dir:<folder> node release/release.js publish` there), give the emulator that
   folder as a USB stick, and update ONLY
   the changed component from it in the Store (its requirements come along).
   Restart when asked, and check that the updater runs, the Store opens with
