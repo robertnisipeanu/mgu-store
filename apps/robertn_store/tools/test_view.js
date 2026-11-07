@@ -329,47 +329,46 @@ cases.forEach(([got, want], i) => assert.strictEqual(got, want, `case ${i}: ${JS
 const NOW = Date.UTC(2026, 10, 7, 23, 22, 40);
 const show = (o) => Object.assign({ displayHour: 1, displayMinute: 22, displaySecond: 41, displayDateDay: 8,
     displayDateWeekDay: 'SONNTAG', displayDateMonth: 11, displayDateYear: 2026, statusDisplayClockTimeDate: 1 }, o);
-const at = (ms) => clock(ms);
 const local = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const CHECKED = Date.UTC(2026, 10, 7, 23, 2);
 const clockCases = [
     // no cluster time yet: the system's time zone
-    () => [at(CHECKED), local(CHECKED)],
-    // UTC+2 across midnight: the next day on the cluster
+    () => [clock(CHECKED), local(CHECKED)],
+    // UTC+2 across midnight
     () => [setClusterTime(show({}), NOW), true],
-    () => [at(CHECKED), '01:02'],
+    () => [clock(CHECKED), '01:02'],
     () => [statusLine(st({ catalog: { checking: false, error: null, checkedAt: CHECKED } }), true), 'Up to date, checked 01:02'],
     () => [statusLine(st({ online: false, catalog: { checking: false, error: null, checkedAt: CHECKED } }), true), 'Offline, checked 01:02'],
     // the same offset again: no change
     () => [setClusterTime(show({ displayMinute: 23, displaySecond: 40 }), NOW + 60000), false],
     // the cluster's reading a few seconds behind still gives whole quarter hours
     () => [setClusterTime(show({ displayMinute: 22, displaySecond: 30 }), NOW), false],
-    // UTC-3:30 the day before (Newfoundland), UTC+5:45 (Kathmandu), UTC+13 (New Zealand summer)
+    // UTC-3:30 (Newfoundland), UTC+5:45 (Kathmandu), UTC+13 (New Zealand summer)
     () => [setClusterTime(show({ displayHour: 19, displayMinute: 52, displayDateDay: 7 }), NOW), true],
-    () => [at(CHECKED), '19:32'],
+    () => [clock(CHECKED), '19:32'],
     () => [setClusterTime(show({ displayHour: 5, displayMinute: 7, displayDateDay: 8 }), NOW), true],
-    () => [at(CHECKED), '04:47'],
+    () => [clock(CHECKED), '04:47'],
     () => [setClusterTime(show({ displayHour: 12, displayMinute: 22, displayDateDay: 8 }), NOW), true],
-    () => [at(CHECKED), '12:02'],
+    () => [clock(CHECKED), '12:02'],
     // UTC: offset 0, formatted in UTC
     () => [setClusterTime(show({ displayHour: 23, displayDateDay: 7 }), NOW), true],
-    () => [at(CHECKED), '23:02'],
-    // no valid date: the time of day alone, the nearest offset
+    () => [clock(CHECKED), '23:02'],
+    // no valid date: the time of day is enough
     () => [setClusterTime(show({ displayHour: 1, displayDateDay: 255, displayDateMonth: 15, displayDateYear: 65535 }), NOW), true],
-    () => [at(CHECKED), '01:02'],
+    () => [clock(CHECKED), '01:02'],
     // unfilled (15): the clock stays as it is
     () => [setClusterTime(show({ displayHour: 9, statusDisplayClockTimeDate: 15 }), NOW), false],
-    () => [at(CHECKED), '01:02'],
+    () => [clock(CHECKED), '01:02'],
     // an odd status shows the time, an even one does not (the HMI shows --:--): the system's time zone
     () => [setClusterTime(show({ displayHour: 3, statusDisplayClockTimeDate: 3 }), NOW), true],
-    () => [at(CHECKED), '03:02'],
+    () => [clock(CHECKED), '03:02'],
     () => [setClusterTime(show({ statusDisplayClockTimeDate: 0 }), NOW), true],
-    () => [at(CHECKED), local(CHECKED)],
+    () => [clock(CHECKED), local(CHECKED)],
     // out of range fields: none
     () => [setClusterTime(show({ displayHour: 255 }), NOW), false],
     () => [setClusterTime(show({ displayMinute: 60 }), NOW), false],
     () => [setClusterTime(null, NOW), false],
-    () => [at(CHECKED), local(CHECKED)]
+    () => [clock(CHECKED), local(CHECKED)]
 ];
 clockCases.forEach((f, i) => {
     const [got, want] = f();
