@@ -95,7 +95,6 @@
     "Phone access": "الوصول من الهاتف",
     "Preferred connection": "الاتصال المفضل",
     "Preferred": "مفضل",
-    "Preferred: {0}": "المفضل: {0}",
     "Rejected": "مرفوض",
     "Releases": "الإصدارات",
     "Remove": "إزالة",
@@ -192,6 +191,7 @@
     "Allow 5 GHz": "السماح بـ 5 GHz",
     "May cause CarPlay issues": "قد يسبب مشاكل في CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "على iPhone، شغّل «تعظيم التوافق»",
-    "This network is 5 GHz only: CarPlay audio may drop": "هذه الشبكة 5 GHz فقط: قد ينقطع صوت CarPlay"
+    "This network is 5 GHz only: CarPlay audio may drop": "هذه الشبكة 5 GHz فقط: قد ينقطع صوت CarPlay",
+    "Phone over USB": "الهاتف عبر USB"
   }
 }

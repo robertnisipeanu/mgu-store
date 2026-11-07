@@ -360,13 +360,19 @@ the HMI's speller. The password goes to the updater in that request and
 is kept nowhere, logged nowhere. A saved network has **Forget** (a confirm
 step, `wifi-forget`). The panel shows the state, address and signal, the
 uplink's error (a join that failed) or the refusal of the last request,
-and **Use Wi-Fi** / **Don't use Wi-Fi** (`wifi-enable`: whether the uplink uses Wi-Fi; Use Wi-Fi unblocks a soft-blocked radio and leaves it on), **Scan** (`wifi-scan`, also
-asked when the page opens) and **Preferred: <kind>**, which opens the
-preferred connection: Automatic, Wi-Fi, USB (adapters and LTE sticks),
+and **Use Wi-Fi** / **Don't use Wi-Fi** (`wifi-enable`: whether the uplink uses Wi-Fi; Use Wi-Fi unblocks a soft-blocked radio and leaves it on) and **Scan** (`wifi-scan`, also
+asked when the page opens).
+
+Settings' access card has **Preferred connection** below Accounts, while
+the Wi-Fi row is there. It shows the group the uplink tries first and
+opens its page: Automatic, Wi-Fi, USB (adapters and LTE sticks),
 Phone (Android and iPhone tethering): the uplink's `preferred` values
 `wifi`, `usb`, `phone`; the one preferred marked, the one in use said so; a press makes it the one the uplink tries first
-(`uplink-prefer`), the others staying fallbacks. The widget screens have
-none of this.
+(`uplink-prefer`), the others staying fallbacks. Below them, while the
+uplink has it (mgu-uplink 0.7.7, `usbPhone`, through mgu-updater 0.8.32),
+**Phone over USB** is a switch (`usb-phone`): off, the uplink leaves phones
+plugged in over USB alone, so they keep playing audio and are not asked to
+trust the car. The widget screens have none of this.
 
 An app installs or updates in place when the running MainApp can do it:
 only that app stops and starts. Otherwise the installer restarts MainApp's
@@ -418,15 +424,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.29/       staged package tree (no javascript/: the build writes it)
+robertn_store@0.9.30/       staged package tree (no javascript/: the build writes it)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.29.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.29.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@0.9.30.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.30.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

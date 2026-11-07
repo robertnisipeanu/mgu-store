@@ -1132,7 +1132,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.29', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.30', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1422,7 +1422,7 @@ function runDrawn() {
         eq(logged.filter((l) => l.indexOf('w0rd') >= 0), [], 'no password in the log');
         // joined and saved: Forget asks first; Don't use Wi-Fi, Scan
         app._client.emit('state', Object.assign({}, st, { uplink: { device: { kind: 'wifi', name: 'Home' }, state: 'online', error: null, preferred: '',
-            wifi: Object.assign({}, WIFI, { link: 'online', ssid: 'Home', ip: '172.20.10.2', saved: ['Home'],
+            usbPhone: true, wifi: Object.assign({}, WIFI, { link: 'online', ssid: 'Home', ip: '172.20.10.2', saved: ['Home'],
                 networks: [Object.assign({}, WIFI.networks[0], { saved: true, current: true }), WIFI.networks[1]] }) } }));
         reset();
         tap('Forget');
@@ -1438,16 +1438,23 @@ function runDrawn() {
         // the uplink's refusal shows on the page
         app._client.emit('reply-error', 'Wi-Fi needs uplink = auto', 'wifi-scan');
         eq(app._drawnModel().uplinkNote, 'Wi-Fi needs uplink = auto');
-        // the preferred connection
-        reset();
-        tap('Preferred: Automatic');
-        eq([states, drawn.top().name], [[`open ${host(3)}`], 'prefer']);
-        app._states[host(3)].emit('visible', { visible: true });
-        tap('USB');
-        eq(sent.map(secretless), [{ op: 'uplink-prefer', kind: 'usb' }]);
-        // back to Settings
+        // back to Settings; its Preferred connection row, the Access card's third, in view, opens that page
         drawn.pop();
-        app._states[host(3)].emit('visible', { visible: false });
+        app._states[host(2)].emit('visible', { visible: false });
+        app._states[host(1)].emit('focus', { focus: true });
+        reset();
+        const row = drawn.items.find((i) => i.label === 'Preferred connection');
+        eq(!row.reveal, true, 'Preferred connection: in view');
+        tap('Preferred connection');
+        eq([states, drawn.top().name, app._drawnModel().uplinkNote], [[`open ${host(2)}`], 'prefer', null],
+            'the page opens without the Wi-Fi page\'s refusal');
+        app._states[host(1)].emit('focus', { focus: false });
+        app._states[host(2)].emit('visible', { visible: true });
+        app._states[host(2)].emit('focus', { focus: true });
+        tap('USB');
+        tap('Phone over USB');
+        eq(sent.map(secretless), [{ op: 'uplink-prefer', kind: 'usb' }, { op: 'usb-phone', on: false }]);
+        // back to Settings
         drawn.pop();
         app._states[host(2)].emit('visible', { visible: false });
         app._states[host(1)].emit('focus', { focus: true });

@@ -97,7 +97,6 @@
     "Phone access": "手机访问",
     "Preferred connection": "首选连接",
     "Preferred": "首选",
-    "Preferred: {0}": "首选：{0}",
     "Rejected": "已拒绝",
     "Releases": "发布版本",
     "Remove": "移除",
@@ -194,6 +193,7 @@
     "Allow 5 GHz": "允许 5 GHz",
     "May cause CarPlay issues": "可能导致 CarPlay 出现问题",
     "On the iPhone, turn on Maximize Compatibility": "请在 iPhone 上打开“最大兼容性”",
-    "This network is 5 GHz only: CarPlay audio may drop": "此网络仅支持 5 GHz：CarPlay 音频可能中断"
+    "This network is 5 GHz only: CarPlay audio may drop": "此网络仅支持 5 GHz：CarPlay 音频可能中断",
+    "Phone over USB": "通过 USB 连接手机"
   }
 }

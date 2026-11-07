@@ -95,7 +95,6 @@
     "Phone access": "スマホからアクセス",
     "Preferred connection": "優先接続",
     "Preferred": "優先",
-    "Preferred: {0}": "優先：{0}",
     "Rejected": "拒否されました",
     "Releases": "リリース",
     "Remove": "削除",
@@ -192,6 +191,7 @@
     "Allow 5 GHz": "5 GHzを許可",
     "May cause CarPlay issues": "CarPlayで問題が起きる場合があります",
     "On the iPhone, turn on Maximize Compatibility": "iPhoneで「互換性を優先」をオン",
-    "This network is 5 GHz only: CarPlay audio may drop": "5 GHz 専用：CarPlay の音声が途切れる場合があります"
+    "This network is 5 GHz only: CarPlay audio may drop": "5 GHz 専用：CarPlay の音声が途切れる場合があります",
+    "Phone over USB": "USB接続のスマートフォン"
   }
 }

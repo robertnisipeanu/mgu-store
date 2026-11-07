@@ -95,7 +95,6 @@
     "Phone access": "Telefontilgang",
     "Preferred connection": "Foretrukket tilkobling",
     "Preferred": "Foretrukket",
-    "Preferred: {0}": "Foretrukket: {0}",
     "Rejected": "Avvist",
     "Releases": "Utgivelser",
     "Remove": "Fjern",
@@ -192,6 +191,7 @@
     "Allow 5 GHz": "Tillat 5 GHz",
     "May cause CarPlay issues": "Kan gi problemer med CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Slå på Maksimer kompatibilitet på iPhone",
-    "This network is 5 GHz only: CarPlay audio may drop": "Dette nettverket er bare 5 GHz: CarPlay-lyden kan falle ut"
+    "This network is 5 GHz only: CarPlay audio may drop": "Dette nettverket er bare 5 GHz: CarPlay-lyden kan falle ut",
+    "Phone over USB": "Telefon via USB"
   }
 }

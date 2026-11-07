@@ -22,10 +22,11 @@
  * sign-in, which adds an account), "web" (Phone access on or off), and the
  * ones the updater relays to mgu-uplink: "wifi-enable", "wifi-5ghz" (Allow 5 GHz), "wifi-scan",
  * "wifi-connect" (with the password typed for a secured network not saved
- * yet), "wifi-forget" (once confirmed) and "uplink-prefer" (the preferred
- * connection). On the drawn screens, Settings has Wi-Fi while the uplink
- * reports it (state.uplink.wifi): the networks, Allow 5 GHz, Use Wi-Fi, Scan and the
- * preferred connection; the widget screens have none of it.
+ * yet), "wifi-forget" (once confirmed), "uplink-prefer" (the preferred
+ * connection) and "usb-phone" (Phone over USB). On the drawn screens, Settings has Wi-Fi and
+ * Preferred connection while the uplink reports its Wi-Fi (state.uplink.wifi): the networks,
+ * Allow 5 GHz, Use Wi-Fi and Scan; the group tried first and Phone over USB; the widget screens
+ * have none of it.
  *
  * The start screen has the status line, Check for updates, the progress of
  * the running install, the rows Apps and Head-unit tools, which open their
@@ -103,7 +104,7 @@ const IF_FRONTCCU = 'de.bmw.infotainment.controlelements.FrontCCU';
 /* The HMI's context, by the instance of the CID: iDrive 7's HMI offers the first, iDrive 8's the second. */
 const HMI_CONTEXTS = [['de.bmw.infotainment.hmi.hmicontext.HMIContext', 'HMI_CID'],
     ['de.bmw.infotainment.hmi.hmicontext2.HMIContext2', '1']];
-const UPLINK_OPS = ['uplink-prefer', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget'];
+const UPLINK_OPS = ['uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget'];
 
 /* The drawn screens' host states and their proxies (tools/gen_rhmi.js). */
 const PROXIES = [48, 24, 12];
@@ -687,6 +688,8 @@ class Store extends OnlineApp {
                 this._undoId = act.page.id;
             } else if (act.page.name === 'proxy') {
                 this._proxyNote = null;
+            } else if (act.page.name === 'prefer') {
+                this._uplinkNote = null;
             } else if (act.page.name === 'wifi') {
                 const w = wifiOf({ connected: this._connected, st: this._st });
                 this._uplinkNote = null;
@@ -741,6 +744,13 @@ class Store extends OnlineApp {
             this._uplink({ op: 'wifi-forget', ssid: act.ssid });
             break;
         case 'uplink-prefer': this._uplink({ op: 'uplink-prefer', kind: act.kind }); break;
+        case 'usb-phone': {
+            const u = this._connected && this._st && this._st.uplink;
+            if (u && typeof u.usbPhone === 'boolean') {
+                this._uplink({ op: 'usb-phone', on: !u.usbPhone });
+            }
+            break;
+        }
         case 'proxy-toggle': {
             const p = proxyOf({ connected: this._connected, st: this._st });
             if (p && p.on) {

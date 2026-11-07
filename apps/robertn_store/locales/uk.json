@@ -95,7 +95,6 @@
     "Phone access": "Доступ із телефона",
     "Preferred connection": "Пріоритетне з'єднання",
     "Preferred": "Пріоритет",
-    "Preferred: {0}": "Пріоритет: {0}",
     "Rejected": "Відхилено",
     "Releases": "Релізи",
     "Remove": "Видалити",
@@ -192,6 +191,7 @@
     "Allow 5 GHz": "Дозволити 5 ГГц",
     "May cause CarPlay issues": "Можливі проблеми з CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "На iPhone увімкніть «Максимальна сумісність»",
-    "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися"
+    "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися",
+    "Phone over USB": "Телефон через USB"
   }
 }
