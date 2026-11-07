@@ -234,7 +234,8 @@ function compact(W, H) {
         back(),
         title('Preferred connection', titleX),
         status('status', R - 420, 420),
-        list('list', X, HEAD + 14, Math.min(1100, CW), B - HEAD - 14, { empty: '' })
+        list('list', X, HEAD + 14, Math.min(1100, CW), 4 * LIST.rowH, { empty: '' }),
+        list('usbPhone', X, HEAD + 14 + 4 * LIST.rowH + 8, Math.min(1100, CW), LIST.rowH)
     ]);
     const proxyW = Math.min(1100, CW);
     const proxy = screen('proxy', 3, [

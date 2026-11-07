@@ -2050,11 +2050,24 @@ module.exports = {
      "x": 610,
      "y": 292,
      "w": 1500,
-     "h": 540,
+     "h": 432,
      "opts": {
       "items": [],
       "rowH": 108,
       "empty": ""
+     }
+    },
+    {
+     "name": "usbPhone",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 610,
+     "y": 732,
+     "w": 1500,
+     "h": 108,
+     "opts": {
+      "items": [],
+      "rowH": 108
      }
     }
    ]

@@ -192,6 +192,7 @@
     "Allow 5 GHz": "Να επιτρέπονται 5 GHz",
     "May cause CarPlay issues": "Μπορεί να προκαλέσει προβλήματα στο CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Στο iPhone, ενεργοποιήστε τη Μεγιστοποίηση συμβατότητας",
-    "This network is 5 GHz only: CarPlay audio may drop": "Δίκτυο μόνο 5 GHz: ο ήχος του CarPlay μπορεί να διακόπτεται"
+    "This network is 5 GHz only: CarPlay audio may drop": "Δίκτυο μόνο 5 GHz: ο ήχος του CarPlay μπορεί να διακόπτεται",
+    "Phone over USB": "Τηλέφωνο μέσω USB"
   }
 }

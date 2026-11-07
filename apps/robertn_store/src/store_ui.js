@@ -29,7 +29,7 @@ const { t: tr } = require('./i18n.js');
  * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
  * { do: 'pick', channel }, { do: 'pick-retry' }, { do: 'pick-add-token' }, { do: 'key', key } (typeKey),
  * { do: 'wifi-power' }, { do: 'wifi-5ghz' }, { do: 'wifi-scan' }, { do: 'wifi-join', ssid }, { do: 'wifi-password', ssid },
- * { do: 'wifi-forget', ssid }, { do: 'uplink-prefer', kind }, { do: 'proxy-toggle' }, { do: 'proxy-edit' }.
+ * { do: 'wifi-forget', ssid }, { do: 'uplink-prefer', kind }, { do: 'usb-phone' }, { do: 'proxy-toggle' }, { do: 'proxy-edit' }.
  *
  * The type page ({ name: 'type', title, text, shift, sym, layout, symbols,
  * go, secret, max, min, label }) is text typed on the drawn keyboard: layout 'url'
@@ -722,7 +722,10 @@ function preferView(m) {
         list: { items: GROUPS.map(([group, label]) => ({ id: group || 'auto', title: tr(label), sub: group && group === using ? tr("In use") : '', plain: true,
             vicon: { '': 'route', usb: 'usb', wifi: 'wifi' }[group] || 'phone', iconColor: 'text',
             right: group === preferred ? 'chip:' + tr('Preferred') : '', chipColor: GREEN,
-            act: group === preferred ? null : { do: 'uplink-prefer', kind: group } })), empty: '' }
+            act: group === preferred ? null : { do: 'uplink-prefer', kind: group } })), empty: '' },
+        // Phone over USB, with an uplink that has it (mgu-uplink 0.7.7's usbPhone)
+        usbPhone: { items: typeof u.usbPhone === 'boolean' ? [{ id: 'usbPhone', title: tr("Phone over USB"), plain: true,
+            vicon: 'usb', iconColor: 'text', right: `toggle:${u.usbPhone ? 'on' : 'off'}`, act: { do: 'usb-phone' } }] : [] }
     };
 }
 

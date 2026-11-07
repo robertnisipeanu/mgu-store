@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.30
+
+The Preferred connection page has **Phone over USB**, a switch for whether
+the uplink uses phones plugged in over USB (mgu-uplink 0.7.7, through
+mgu-updater 0.8.32); off, a plugged-in phone keeps playing audio and is
+not asked to trust the car. Shown only while the uplink and updater have
+it. In every language.
+
 ## 0.9.29
 
 The Store's tile keeps its name in the Apps menu after the app manager

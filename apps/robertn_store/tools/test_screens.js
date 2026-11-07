@@ -618,11 +618,18 @@ f = screen('confirm-wifi-forget');
 eq([f.labels, text(f, 'title'), text(f, 'text'), f.items[1].act], [['Cancel', 'Forget'], 'Forget network?', 'Home', { do: 'wifi-forget', ssid: 'Home' }]);
 // the preferred connection: Automatic and the uplink's three groups; the preferred one marked, the others a tap away
 f = screen('prefer');
-eq(own(f), ['Automatic', 'USB', 'Phone', 'Back']);
+eq(own(f), ['Automatic', 'USB', 'Phone', 'Phone over USB', 'Back']);
 eq([text(f, 'status'), f.values.list.items[1].right, f.values.list.items[1].sub], ['Online through Wi-Fi', 'chip:Preferred', 'In use']);
 eq([f.items[0].act, f.items[2].act], [{ do: 'uplink-prefer', kind: '' }, { do: 'uplink-prefer', kind: 'phone' }]);
 f = screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { device: { kind: 'iphone', name: 'iPhone' }, preferred: 'usb' }) });
 eq([text(f, 'status'), f.values.list.items[3].sub, f.values.list.items[2].right], ['Online through Phone', 'In use', 'chip:Preferred']);
+// Phone over USB: a switch below the groups, with an uplink and updater that report it (mgu-uplink 0.7.7, mgu-updater 0.8.32)
+f = screen('prefer');
+eq([f.values.usbPhone.items.map((i) => [i.title, i.right]), f.items[3].act], [[['Phone over USB', 'toggle:on']], { do: 'usb-phone' }]);
+eq(screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { usbPhone: false }) }).values.usbPhone.items[0].right, 'toggle:off');
+eq(screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { usbPhone: undefined }) }).values.usbPhone.items, [],
+    'no Phone over USB with an uplink or updater without it');
+eq(screen('prefer', {}, { uplink: null }).values.usbPhone.items, [], 'no Phone over USB while the uplink does not run');
 // unavailable: the reason shown, no Scan
 f = screen('wifi', {}, { uplink: Object.assign({}, fixture.state().uplink, { wifi: { enabled: true, link: 'unavailable', networks: [], saved: [],
     scanning: false, error: 'wlan1 is in access point mode' } }) });
