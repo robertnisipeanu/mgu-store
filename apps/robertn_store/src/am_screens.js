@@ -2067,7 +2067,8 @@ module.exports = {
      "h": 108,
      "opts": {
       "items": [],
-      "rowH": 108
+      "rowH": 108,
+      "empty": ""
      }
     }
    ]

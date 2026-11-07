@@ -630,6 +630,9 @@ eq(screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { us
 eq(screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { usbPhone: undefined }) }).values.usbPhone.items, [],
     'no Phone over USB with an uplink or updater without it');
 eq(screen('prefer', {}, { uplink: null }).values.usbPhone.items, [], 'no Phone over USB while the uplink does not run');
+eq(SCREENS.screens.concat(require(path.join(__dirname, '..', 'src', 'store_compact.js')).compact(1796, 632).screens)
+    .filter((s) => s.name === 'prefer').map((s) => s.components.find((c) => c.name === 'usbPhone').opts.empty), ['', ''],
+    'hidden, the row leaves no empty-list text');
 // unavailable: the reason shown, no Scan
 f = screen('wifi', {}, { uplink: Object.assign({}, fixture.state().uplink, { wifi: { enabled: true, link: 'unavailable', networks: [], saved: [],
     scanning: false, error: 'wlan1 is in access point mode' } }) });
