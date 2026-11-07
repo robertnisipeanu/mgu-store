@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The car-test kit refuses a branch that requires the next release of a component the kit does not install.
+- The car-test kit refuses a branch that requires the next release of a component the kit does not install, and builds a changed mgu-render at the version its release gives it.
 
 ## 0.6.12
 
