@@ -3,6 +3,7 @@
 ## 0.8.32
 
 - `{"op":"uplink-iphone","on":true|false}` (privileged) is relayed to the uplink as its `iphone`: whether it takes an iPhone (mgu-uplink 0.7.7).
+- The state's `uplink` has `iphone` from the uplink's `status.json`, when it says.
 
 ## 0.8.31
 

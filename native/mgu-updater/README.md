@@ -969,9 +969,10 @@ each request, and whenever it changes (at most every 250 ms):
   password, never shown), and `error`: what is wrong with the setting, else
   the last download's failure at the proxy until one gets through.
 - `uplink`: the uplink's `status.json` ("The uplink"): its `device`,
-  `state`, `error`, `preferred` (`""`: none) and `wifi` (null without it:
-  an uplink before 0.7.0, or not on `uplink = auto`); null while the
-  uplink does not run.
+  `state`, `error`, `preferred` (`""`: none), `wifi` (null without it:
+  an uplink before 0.7.0, or not on `uplink = auto`) and `iphone`
+  (whether it takes an iPhone; only from an uplink that says, 0.7.7);
+  null while the uplink does not run.
 - `catalog`: the sources as one line, for the Store 0.3: `checking` while
   any is read, `error` the first source that failed (`<label>: <error>`).
 - `mainappGuard`: why app changes wait for the next start of the head unit

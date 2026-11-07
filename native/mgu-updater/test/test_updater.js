@@ -5969,6 +5969,9 @@ function testUplink() {
     fs.writeFileSync(status, JSON.stringify({ device: { kind: 'usbecm', name: 'HUAWEI' }, state: 'online', error: null, preferred: '', wifi }));
     ok('uplink: no freq without one (a USB uplink, an older uplink)', u.readUplink() === true && !('freq' in u.state().uplink.wifi),
         JSON.stringify(u.state().uplink));
+    ok('uplink: no iphone from an uplink that does not say', !('iphone' in u.state().uplink), JSON.stringify(u.state().uplink));
+    fs.writeFileSync(status, JSON.stringify({ device: null, state: 'searching', error: null, iphone: false, wifi }));
+    ok('uplink: iphone in the state', u.readUplink() === true && u.state().uplink.iphone === false, JSON.stringify(u.state().uplink));
     fs.writeFileSync(status, JSON.stringify({ device: { kind: 'wifi', name: 'Car "Hotspot"' }, state: 'online', error: null, preferred: 'wifi', wifi }));
     u.readUplink();
     const got = [];

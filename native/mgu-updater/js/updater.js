@@ -3767,7 +3767,7 @@ class Updater {
     }
 
     /* Reads the uplink's status.json (uplink_status): { device, state, error,
-     * preferred, wifi }, null without one. True when it changed. One that
+     * preferred, wifi, iphone }, null without one. True when it changed. One that
      * does not parse is read again next time. */
     readUplink() {
         let text = '';
@@ -3786,6 +3786,9 @@ class Updater {
         this.uplinkText = text;
         this.uplink = st && typeof st === 'object' ? { device: st.device || null, state: st.state || null, error: st.error || null,
             preferred: st.preferred || '', wifi: st.wifi && typeof st.wifi === 'object' ? st.wifi : null } : null;
+        if (this.uplink && typeof st.iphone === 'boolean') {
+            this.uplink.iphone = st.iphone;
+        }
         return true;
     }
 
