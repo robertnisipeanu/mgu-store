@@ -1,17 +1,17 @@
 {
   "id": "robertn_store",
   "version": "0.9.30",
-  "source": "f9464228b618cd9399f2a0cbc5b967eeb7f7df1a",
+  "source": "8fa37d57d2642fc8355a3cc32d084e02967463fa",
   "result": "pass",
   "unit": "id7",
   "emulator": "deb756780bddf43178501ea43b40b952e04d7df2",
-  "artifactSha256": "e2ba7a645ca429c473933ff164a9f9ccf6410c9307d88a532a642a4b5ba72860",
-  "minutes": 6.5,
+  "artifactSha256": "8f9cf8ee6ea38688ca2f4e3975316a4cbbaea6594c661b701b1000da37c76f85",
+  "minutes": 6.9,
   "cases": [
     {
       "name": "installed on its own over the published release",
       "ok": true,
-      "detail": "robertn_store 0.9.30 updated in place by the app manager (pid 877) as uid 12204 (source PREINSTALLED)"
+      "detail": "robertn_store 0.9.30 updated in place by the app manager (pid 884) as uid 12204 (source PREINSTALLED)"
     },
     {
       "name": "after the head-unit restart, the Store in its page (embed)",
