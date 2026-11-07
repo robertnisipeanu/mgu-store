@@ -682,6 +682,17 @@ function testReleaseVersions() {
         got.join() === 'robertn_x@0.4.2,a@1.0.1' && appLog().startsWith('# Changelog\n\n## Unreleased\n\n## 0.4.2\n\nNo changes.\n\n## 0.4.1\n') &&
         r.log().startsWith('# Changelog\n\n## Unreleased\n\n## 1.0.1\n\nNo changes.\n\n## 1.0.0\n'), appLog() + r.log());
     check('versions: a release of the same content is not the source either', sourceCommit(x(), r.root) === appSource);
+    // a build that rewrites a file the app ships (a copy or a generated file not committed) is refused
+    const built = (cmd) => {
+        const exp = tmp('export');
+        cp.execFileSync('sh', ['-c', 'git archive HEAD | tar -x -C "$1"', 'sh', exp], { cwd: r.root });
+        const c = Object.assign(x(), { release: { build: cmd } });
+        return throws(() => r.rel.buildIn(c, exp, process.env)) || fs.existsSync(path.join(exp, 'apps/robertn_x/robertn_x@0.4.2'));
+    };
+    check('versions: an app\'s release build may write what it does not ship, under its staged tree named with its version',
+        built('touch robertn_x@0.4.2.src.tgz && test -f robertn_x@0.4.2/package.json && grep -q \'"tree": "robertn_x@0.4.2"\' mgu-app.json') === true);
+    check('versions: an app\'s release build that rewrites a file it ships is refused',
+        /the build rewrote apps\/robertn_x\/src\/x\.js/.test(String(built('echo 3 > src/x.js && touch robertn_x@0.4.2.src.tgz'))));
     fs.renameSync(path.join(r.root, 'apps/robertn_x/package'), path.join(r.root, 'apps/robertn_x/robertn_x@0.4.2'));
     fs.writeFileSync(path.join(r.root, 'apps/robertn_x/mgu-app.json'), appFile('mgu-app.json').replace('"package"', '"robertn_x@0.4.2"'));
     check('versions: an app\'s tree with its version in its name is still read', x().version === '0.4.2' && x().tree === 'robertn_x@0.4.2');

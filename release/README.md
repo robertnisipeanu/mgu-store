@@ -78,7 +78,9 @@ any later change to what the component ships needs the gate again. The
 record holds for the version the release gives that source: the release
 commit, which only writes the version, resolves `"next"` and moves a shipped
 CHANGELOG's Unreleased lines, leaves the source as it was (`release.js`
-`sourceCommit`). It needs Docker, `gh` signed in and the mgu-emulator checkout
+`sourceCommit`). An app's release build may not rewrite a file the app ships
+(a copy from another folder, a generated file): commit what its build writes,
+so the source the record names is what ships. It needs Docker, `gh` signed in and the mgu-emulator checkout
 (`MGU_EMULATOR`, default `~/workspaces/personal/mgu-emulator`).
 
 ## Versions
@@ -113,9 +115,9 @@ folder name. The Release workflow's `stamp`:
 A version stamped but never published (no tag) keeps its number at the next
 run; new Unreleased lines join its section.
 
-`mgu-repo.json` lists the Store for the branch channel. The branch holds
-released versions only; a merged change waiting for its release shows there
-as the same version at a new commit.
+`mgu-repo.json` lists the Store for the branch channel. Its version on the
+branch is the one the last release commit wrote; a merged change waiting
+for its release shows there as the same version at a new commit.
 
 ## Reproducible builds
 
