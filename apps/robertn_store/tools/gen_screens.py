@@ -153,7 +153,8 @@ st = base('prefer')
 st['components'] += [copy.deepcopy(BACK),
     text('title', 610, 138, 1600, 90, 'Preferred connection', 72, 'bold'),
     text('status', 610, 227, 1600, 43, '', 34, 'label', 'dim'),
-    comp('list', 'appList', 610, 292, 1500, 540, {'items': [], 'rowH': 108, 'empty': ''}),
+    comp('list', 'appList', 610, 292, 1500, 432, {'items': [], 'rowH': 108, 'empty': ''}),
+    comp('usbPhone', 'appList', 610, 732, 1500, 108, {'items': [], 'rowH': 108, 'empty': ''}),
 ]
 screens.append(st)
 # the proxy downloads go through: on or off, and its address
