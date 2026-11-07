@@ -60,8 +60,9 @@ get(st, 'connLabel')['opts']['text'] = 'ACCESS'
 drop(st, 'tetherIcon', 'tetherName', 'tetherState', 'tether', 'checkNow', 'lastCheck', 'versions', 'subtitle')
 st['components'] += [
     comp('access', 'appList', 1880, 412, 920, 360, {'items': [], 'rowH': 120}),
-    text('unit', 2040, 342, 760, 30, '', 24, 'bold', align='right'),
-    text('versions', 2040, 374, 760, 30, '', 22, 'label', 'dim', align='right'),
+    # the head unit on ACCESS's line after its longest translation, the versions above
+    text('unit', 2228, 373, 572, 30, '', 24, 'bold', align='right'),
+    text('versions', 1880, 341, 920, 28, '', 22, 'label', 'dim', align='right'),
     comp('checkNow', 'vbutton', 1880, 764, 440, 56, {'text': 'Check now', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:checkNow'),
     comp('restart', 'vbutton', 2340, 764, 460, 56, {'text': 'Restart head unit', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:restart'),
     text('note', 480, 227, 1300, 43, '', 34, 'label', '#ffb020'),
