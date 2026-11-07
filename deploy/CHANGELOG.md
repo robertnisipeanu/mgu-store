@@ -1,5 +1,11 @@
 # Deploy tool changelog
 
+## Unreleased
+
+## 0.8.5
+
+No changes.
+
 ## 0.8.4
 
 - An install that finds an installed tool it does not install set up under another firmware, or missing a unit, an enablement link or a drop-in, lays a tool with an install step of its own (`activate`, `postInstall`) again files only: its units, enablement links and drop-ins, their recmgr names and limits, and the restart units laid started under recmgr's rules. Its step does not run from the copy kept here, which may be an old version from another source. Its record keeps `needsSetup` (`status --json` `needs_setup`), and the run's last line names such tools. A tool with no install step is laid again whole, as before.
