@@ -389,7 +389,8 @@ Object.keys(UNITS).forEach((u) => {
     const rows = ['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'];
     const rest = frame(m, { textScale: UNITS[u].scale, scroll: {}, layout: UNITS[u].layout }).items;
     const at = rest.map((i) => i.label);
-    ok(!!rest[at.indexOf('Phone access')].reveal, `${u}: Phone access starts out of view`);
+    eq(['Wi-Fi', 'Accounts', 'Preferred connection', 'Phone access'].map((l) => !rest[at.indexOf(l)].reveal), [true, true, false, false],
+        `${u}: Wi-Fi and Accounts in view at first, the rows after them scrolled to`);
     const shown = rows.map((l) => {
         const g = frame(m, { textScale: UNITS[u].scale, focus: at.indexOf(l), scroll, layout: UNITS[u].layout });
         const it = g.items[at.indexOf(l)];
