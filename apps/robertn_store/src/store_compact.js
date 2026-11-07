@@ -94,9 +94,9 @@ function compact(W, H) {
         button('addRepo', X, B - SET_H, leftW, SET_H, 'Add source', 'tinted', 25, { vicon: 'plus', color: BLUE }),
         el('connPanel', 'rect', rx, HEAD + 4, rw, B - HEAD - 4, { color: 'panelTop', radius: 20 }),
         label('connLabel', rx + 18, HEAD + 18, 'ACCESS'),
-        list('access', rx + 12, HEAD + 52, rw - 24, 2 * LIST.rowH),
-        text('unit', rx + 18, HEAD + 60 + 2 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
-        text('versions', rx + 18, HEAD + 100 + 2 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
+        list('access', rx + 12, HEAD + 52, rw - 24, 3 * LIST.rowH),
+        text('unit', rx + 18, HEAD + 60 + 3 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
+        text('versions', rx + 18, HEAD + 100 + 3 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
         button('checkNow', rx + 16, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Check now', 'outline', 25, { vicon: 'refresh' }),
         button('restart', rx + 28 + (rw - 44) / 2, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Restart head unit', 'outline', 25,
             { vicon: 'refresh' })
@@ -214,7 +214,7 @@ function compact(W, H) {
         el('keyboard', 'keyboard', X, keysY, CW, B - keysY, { shift: false })
     ]);
     // Wi-Fi: the networks on the left, the state and its buttons in the panel on the right
-    const wbY = (k) => B - 14 - (2 - k) * BTN_H - (1 - k) * 12;      // the panel's k-th button (0, 1)
+    const wbY = (k) => B - 14 - (3 - k) * BTN_H - (2 - k) * 12;      // the panel's k-th button slot (0, 1, 2; 2 is empty)
     const wifi = screen('wifi', 3, [
         back(),
         title('Wi-Fi', titleX),

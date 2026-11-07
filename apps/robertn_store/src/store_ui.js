@@ -307,7 +307,6 @@ function settingsView(m) {
         access.push({ id: 'accounts', title: tr("Accounts"), sub: accountsState(toks), plain: true, vicon: 'lock', iconColor: 'text',
             right: 'chevron', act: { do: 'open', page: { name: 'accounts' } } });
     }
-    // below Accounts: the card shows two rows
     if (prefer) {
         access.push(prefer);
     }

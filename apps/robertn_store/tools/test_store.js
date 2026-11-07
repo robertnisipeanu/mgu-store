@@ -1438,14 +1438,14 @@ function runDrawn() {
         // the uplink's refusal shows on the page
         app._client.emit('reply-error', 'Wi-Fi needs uplink = auto', 'wifi-scan');
         eq(app._drawnModel().uplinkNote, 'Wi-Fi needs uplink = auto');
-        // back to Settings; its Preferred connection row, the Access card's third, opens that page
+        // back to Settings; its Preferred connection row, the Access card's third, in view, opens that page
         drawn.pop();
         app._states[host(2)].emit('visible', { visible: false });
         app._states[host(1)].emit('focus', { focus: true });
         reset();
         const row = drawn.items.find((i) => i.label === 'Preferred connection');
-        eq(!!row.reveal, true, 'Preferred connection: below the two rows shown');
-        app._act(row.act);
+        eq(!row.reveal, true, 'Preferred connection: in view');
+        tap('Preferred connection');
         eq([states, drawn.top().name, app._drawnModel().uplinkNote], [[`open ${host(2)}`], 'prefer', null],
             'the page opens without the Wi-Fi page\'s refusal');
         app._states[host(1)].emit('focus', { focus: false });

@@ -382,15 +382,15 @@ f = screen('settings');
 eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source',
     'Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access', 'Check now']);
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
-// the Access card shows two rows: the controller's focus on each later row scrolls it into view, in order, on every unit
+// the Access card shows three rows: the controller's focus on each later row scrolls it into view, in order, on every unit
 Object.keys(UNITS).forEach((u) => {
     const m = fixture.model(fixture.screens().find((x) => x[0] === 'settings')[1]);
     const scroll = {};
     const rows = ['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'];
     const rest = frame(m, { textScale: UNITS[u].scale, scroll: {}, layout: UNITS[u].layout }).items;
     const at = rest.map((i) => i.label);
-    eq(['Wi-Fi', 'Accounts', 'Preferred connection', 'Phone access'].map((l) => !rest[at.indexOf(l)].reveal), [true, true, false, false],
-        `${u}: Wi-Fi and Accounts in view at first, the rows after them scrolled to`);
+    eq(['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'].map((l) => !rest[at.indexOf(l)].reveal), [true, true, true, false, false],
+        `${u}: Wi-Fi, Accounts and Preferred connection in view at first, the rows after them scrolled to`);
     const shown = rows.map((l) => {
         const g = frame(m, { textScale: UNITS[u].scale, focus: at.indexOf(l), scroll, layout: UNITS[u].layout });
         const it = g.items[at.indexOf(l)];

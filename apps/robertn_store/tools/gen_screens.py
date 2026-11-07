@@ -59,9 +59,9 @@ get(st, 'addRepo')['opts']['text'] = 'Add source'
 get(st, 'connLabel')['opts']['text'] = 'ACCESS'
 drop(st, 'tetherIcon', 'tetherName', 'tetherState', 'tether', 'checkNow', 'lastCheck', 'versions', 'subtitle')
 st['components'] += [
-    comp('access', 'appList', 1880, 412, 920, 260, {'items': [], 'rowH': 120}),
-    text('unit', 1880, 668, 920, 40, '', 32, 'bold'),
-    text('versions', 1880, 714, 920, 38, '', 28, 'label', 'dim'),
+    comp('access', 'appList', 1880, 412, 920, 360, {'items': [], 'rowH': 120}),
+    text('unit', 2040, 342, 760, 30, '', 24, 'bold', align='right'),
+    text('versions', 2040, 374, 760, 30, '', 22, 'label', 'dim', align='right'),
     comp('checkNow', 'vbutton', 1880, 764, 440, 56, {'text': 'Check now', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:checkNow'),
     comp('restart', 'vbutton', 2340, 764, 460, 56, {'text': 'Restart head unit', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:restart'),
     text('note', 480, 227, 1300, 43, '', 34, 'label', '#ffb020'),
@@ -142,9 +142,9 @@ st['components'] += [copy.deepcopy(BACK),
     comp('icon', 'appIcon', 2140, 176, 120, 120, {'vicon': 'wifi', 'kind': 'service', 'colors': '#7a808a,#3a3f47'}),
     text('state', 2290, 192, 510, 48, '', 38, 'bold'),
     text('info', 2290, 248, 510, 40, '', 30, 'label', 'dim'),
-    text('note', 2140, 336, 660, 242, '', 32, 'label', '#ffb020', wrap=True),
-    comp('power', 'vbutton', 2140, 608, 660, 96, {'text': '', 'vicon': 'wifi', 'style': 'outline'}, 'event:power'),
-    comp('scan', 'vbutton', 2140, 720, 660, 96, {'text': 'Scan', 'vicon': 'refresh', 'style': 'outline'}, 'event:scan'),
+    text('note', 2140, 336, 660, 130, '', 32, 'label', '#ffb020', wrap=True),
+    comp('power', 'vbutton', 2140, 496, 660, 96, {'text': '', 'vicon': 'wifi', 'style': 'outline'}, 'event:power'),
+    comp('scan', 'vbutton', 2140, 608, 660, 96, {'text': 'Scan', 'vicon': 'refresh', 'style': 'outline'}, 'event:scan'),
 ]
 screens.append(st)
 # the uplink's preferred connection

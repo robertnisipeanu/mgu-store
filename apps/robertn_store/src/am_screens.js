@@ -925,7 +925,7 @@ module.exports = {
      "x": 1880,
      "y": 412,
      "w": 920,
-     "h": 260,
+     "h": 360,
      "opts": {
       "items": [],
       "rowH": 120
@@ -935,15 +935,15 @@ module.exports = {
      "name": "unit",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 1880,
-     "y": 668,
-     "w": 920,
-     "h": 40,
+     "x": 2040,
+     "y": 342,
+     "w": 760,
+     "h": 30,
      "opts": {
       "text": "",
-      "size": 32,
+      "size": 24,
       "font": "bold",
-      "align": "left",
+      "align": "right",
       "color": "text"
      }
     },
@@ -951,15 +951,15 @@ module.exports = {
      "name": "versions",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 1880,
-     "y": 714,
-     "w": 920,
-     "h": 38,
+     "x": 2040,
+     "y": 374,
+     "w": 760,
+     "h": 30,
      "opts": {
       "text": "",
-      "size": 28,
+      "size": 22,
       "font": "label",
-      "align": "left",
+      "align": "right",
       "color": "dim"
      }
     },
@@ -1919,7 +1919,7 @@ module.exports = {
      "x": 2140,
      "y": 336,
      "w": 660,
-     "h": 242,
+     "h": 130,
      "opts": {
       "text": "",
       "size": 32,
@@ -1934,7 +1934,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 2140,
-     "y": 608,
+     "y": 496,
      "w": 660,
      "h": 96,
      "opts": {
@@ -1949,7 +1949,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 2140,
-     "y": 720,
+     "y": 608,
      "w": 660,
      "h": 96,
      "opts": {
