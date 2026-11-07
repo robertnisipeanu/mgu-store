@@ -43,9 +43,7 @@ const REPO = path.resolve(__dirname, '..');
 const OUT = path.join(__dirname, 'out');
 // what draws an app's picture: published only after tools/emu-gate passed on its source
 const GATED = ['mgu-render', 'robertn_store'];
-// tools whose pull requests set their versions, as every app's do: a broken
-// release of these is repaired through the Store, so they move to release-time
-// versions one at a time
+// tools whose pull requests set their versions, as every app's do (release/README.md, "Versions")
 const HAND_VERSIONED = ['mgu-deploy', 'mgu-render', 'mgu-updater', 'mgu-uplink'];
 const DEPLOY = path.join('deploy', 'hu');
 const publishTarget = require('./publish');
@@ -269,34 +267,50 @@ function sourceEpoch(c) {
 function sourceCommit(c, repo = REPO) {
     const paths = c.shipped.concat(c.kind === 'tool' ? ['deploy/hu', 'tools/oap_pack.js'] : []);
     const commits = git(['log', '--format=%H', 'HEAD', '--'].concat(paths), { cwd: repo }).split('\n').filter(Boolean);
-    return commits.find((sha) => !(c.stamped && stampOnly(c, sha, paths, repo))) || '';
+    return commits.find((sha) => !stampOnly(c, sha, paths, repo)) || '';
 }
 
 /* Whether a commit is a release commit that changes nothing of what c ships
  * but its version (component.json "version", each versionFiles' VERSION) and
- * a "requires" of "next" turned into a version. */
+ * a "requires" of "next" turned into a version: each changed line is the line
+ * before with only those values replaced. */
 function stampOnly(c, sha, paths, repo) {
     const [subject, parents] = git(['show', '-s', '--format=%s%n%P', sha], { cwd: repo }).split('\n');
     if (!subject.startsWith('release: ') || parents.split(' ').length !== 1) {
         return false;
     }
-    const files = [`${c.dir}/component.json`].concat(c.versionFiles.map((f) => `${c.dir}/${f}`));
-    const v = '\\d+\\.\\d+\\.\\d+';
-    const lines = [
-        new RegExp(`^[-+]\\s*"version": "${v}",?$`),
-        new RegExp(`^[-+].*\\bVERSION = '${v}'`),
-        new RegExp(`^-\\s*"[A-Za-z0-9_.-]+": "${NEXT}",?$`),
-        new RegExp(`^\\+\\s*"[A-Za-z0-9_.-]+": "${v}",?$`)
-    ];
-    return git(['diff', '-U0', '--no-renames', `${sha}^`, sha, '--'].concat(paths), { cwd: repo }).split('\n').every((l) => {
-        if (/^(diff --git |index |--- a\/|@@ |\\ )/.test(l)) {
-            return true;
+    const files = [`${c.dir}/component.json`].concat((c.versionFiles || []).map((f) => `${c.dir}/${f}`));
+    const VALUE = /("(?:next|\d+\.\d+\.\d+)"|'\d+\.\d+\.\d+')/;
+    const same = (was, now) => {
+        const a = was.split(VALUE);
+        const b = now.split(VALUE);
+        const version = /"version"\s*:|\bVERSION = /.test(was);
+        return a.length === b.length && a.every((part, i) => part === b[i] ||
+            (i % 2 === 1 && (version || (part === `"${NEXT}"` && /^"\d/.test(b[i])))));
+    };
+    let removed = [];
+    let added = [];
+    const hunkOk = () => removed.length === added.length && removed.every((l, i) => same(l, added[i]));
+    const lines = git(['diff', '-U0', '--no-renames', `${sha}^`, sha, '--'].concat(paths), { cwd: repo }).split('\n');
+    for (const l of lines) {
+        if (/^(diff --git |index |--- a\/|\\ )/.test(l) || l === '') {
+            continue;
         }
-        if (l.startsWith('+++ ')) {
-            return files.includes(l.slice('+++ b/'.length));
+        if (l.startsWith('+++ ') || l.startsWith('@@ ')) {
+            if (!hunkOk() || (l.startsWith('+++ ') && !files.includes(l.slice('+++ b/'.length)))) {
+                return false;
+            }
+            removed = [];
+            added = [];
+        } else if (l[0] === '-') {
+            removed.push(l.slice(1));
+        } else if (l[0] === '+') {
+            added.push(l.slice(1));
+        } else {
+            return false;
         }
-        return lines.some((re) => re.test(l));
-    });
+    }
+    return hunkOk();
 }
 
 /* Why a gated component's version may not be published: no gate record, or
@@ -818,7 +832,9 @@ function cmdStamp(ids) {
     if (!steps.some((p) => p.c.stamped)) {
         console.log('no release-time component changed since its last release');
     }
-    const hand = select(all, ids).filter((c) => !c.stamped).map((c) => c.id);
+    // and the hand-versioned components a "next" names, published with them
+    const hand = select(all, ids).filter((c) => !c.stamped).map((c) => c.id)
+        .concat(...steps.map((p) => Object.keys(p.resolved).filter((id) => !all.find((x) => x.id === id).stamped)));
     fs.mkdirSync(OUT, { recursive: true });
     fs.writeFileSync(STAMPED, [...new Set(steps.map((p) => p.c.id).concat(hand))].join(' ') + '\n');
     writePlan(REPO, steps);
@@ -850,6 +866,12 @@ function cmdVersions(base) {
             if (was && was !== c.version) {
                 problems.push(`${c.id}: the release sets its version; keep ${was}`);
             }
+            c.versionFiles.forEach((rel) => {
+                const text = fs.readFileSync(path.join(REPO, c.dir, rel), 'utf8');
+                if (text.split(`VERSION = '${c.version}'`).length !== 2) {
+                    problems.push(`${c.dir}/${rel}: the release sets its version; keep VERSION = '${c.version}' (once)`);
+                }
+            });
             const changed = !was || cp.spawnSync('git', ['diff', '--quiet', base, 'HEAD', '--'].concat(c.shipped),
                 { cwd: REPO }).status !== 0;
             const log = path.join(REPO, c.changelog);

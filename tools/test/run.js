@@ -691,6 +691,20 @@ function testReleaseVersions() {
     const mixed = r.change('native/a/component.json', JSON.stringify(Object.assign(r.json('a'), { version: '1.0.2', title: 'A' }), null, 2) + '\n',
         null, 'release: a@1.0.2');
     check('versions: a commit named as a release that changes more than the version is the source', sourceCommit(a(), r.root) === mixed);
+    // "requires" on one line, as the repository writes it; a hand-versioned tool's "next" resolved
+    const oneLine = (id, version, req) => `{\n  "id": "${id}",\n  "kind": "tool",\n  "version": "${version}",\n  "title": "${id}",\n` +
+        `  "requires": { "a": "${req}", "c": "1.0.0" },\n  "files": []\n}\n`;
+    r.change('native/b/component.json', oneLine('b', '2.0.0', 'next'));
+    const hand = r.change('native/mgu-updater/component.json', oneLine('mgu-updater', '0.8.1', 'next'));
+    r.stamp(['b', 'mgu-updater']);
+    const b = components(r.root).find((c) => c.id === 'b');
+    const updater = components(r.root).find((c) => c.id === 'mgu-updater');
+    check('versions: "next" resolved in a one-line "requires" is no source change',
+        b.version === '2.0.1' && b.requires.a === '1.0.2' && sourceCommit(b, r.root) !== r.g(['rev-parse', 'HEAD']), JSON.stringify(b.requires));
+    check('versions: a hand-versioned tool\'s resolved "next" is no source change', sourceCommit(updater, r.root) === hand);
+    const raised = r.change('native/b/component.json', oneLine('b', '2.0.1', '1.0.2').replace('"c": "1.0.0"', '"c": "1.1.0"'),
+        null, 'release: b@2.0.1');
+    check('versions: a release commit raising another requirement is the source', sourceCommit(b, r.root) === raised);
 }
 
 try {
