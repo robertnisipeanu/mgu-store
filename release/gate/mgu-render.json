@@ -1,17 +1,17 @@
 {
   "id": "mgu-render",
-  "version": "0.6.13",
-  "source": "5b0f747d0179efeda9ba7069538459b3b4a4e26b",
+  "version": "0.6.14",
+  "source": "61ceee95497d28639b1cfef5cc8ead3101141179",
   "result": "pass",
   "unit": "id7",
   "emulator": "deb756780bddf43178501ea43b40b952e04d7df2",
-  "artifactSha256": "de99756aa91a490e2582eb9127cff7244156646dae80a35393b3940e3be933df",
+  "artifactSha256": "f92df4ee3ffeee59bb122c8f5e5bc3c19ae65e02c5b26ea3f59de7f886c1fe2f",
   "minutes": 5.8,
   "cases": [
     {
       "name": "installed on its own over the published release",
       "ok": true,
-      "detail": "mgu-render 0.6.13 installed"
+      "detail": "mgu-render 0.6.14 installed"
     },
     {
       "name": "after the head-unit restart, the Store in its page (embed)",
@@ -21,17 +21,17 @@
     {
       "name": "renderer restarted, the Store on its own layer",
       "ok": true,
-      "detail": "in front, 683 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 132 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "another program sets the screen's layers without ours while shown",
       "ok": true,
-      "detail": "in front, 683 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 132 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "the Store opened again",
       "ok": true,
-      "detail": "in front, 684 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 683 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "a client open since before adds its layer while shown; ours back, its layer kept",

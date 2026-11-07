@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The touch divert rule goes to nft in a file (`/tmp/mgu-render-nft-*`), and a load counts only when `nft list table ip mgu_render` finds the table afterwards; otherwise the journal says `touch: loading the nft rule failed, touch stays the HMI's` and the load is tried again 5 s later. nftables 0.7 on iDrive 7 units (MainApp 8.2.0; also reported on MainApp 6.5.5) reads a script given as `-` as a file of that name, fails and exits 0: the journal said `touch: diverted`, the table was never there, and no touch reached the Store or its apps.
+
 ## 0.6.13
 
 - The car-test kit refuses a branch that requires the next release of a component the kit does not install, and builds a changed mgu-render at the version its release gives it.
