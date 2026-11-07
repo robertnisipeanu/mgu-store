@@ -1526,8 +1526,10 @@ class Updater {
             const ours = !!row.installed || (rec ? rec.source === this.originOf(resolved[i].source) : row.id === unit);
             const placed = ours && !row.installed && this.placed(unit, entry.kind);
             const o = this.origins[row.id];
-            // a branch's new commit of the same version
-            if (row.status === 'installed' && entry.revision && o && o.source === row.source && o.commit && o.commit !== entry.commit) {
+            // a branch's new commit of the same version that changed what the component is made of
+            // (its content; the commit when either content is unknown)
+            if (row.status === 'installed' && entry.revision && o && o.source === row.source && o.commit && o.commit !== entry.commit &&
+                !(entry.content && o.content === entry.content)) {
                 row.status = 'update';
             }
             const icon = entry.icon ? this.iconFile(resolved[i].source, entry) : null;
@@ -1678,6 +1680,7 @@ class Updater {
         const attempt = (i) => {
             const text = cands[i] ? this.tokens.text(cands[i]) : '';
             const reader = sourcesLib.reader(rt.def, Object.assign({}, this.ctx, { tokenFor: () => text,
+                needContent: () => Object.keys(this.origins).some((k) => this.origins[k].source === this.originOf(rt.def.id) && !!this.origins[k].commit),
                 reuse: (key) => (rt.memo && rt.memo.key === key ? JSON.parse(JSON.stringify(rt.memo.cat)) : null) }));
             return reader.catalog().then((cat) => {
                 rt.tokenId = cands[i];
@@ -1736,6 +1739,7 @@ class Updater {
                     `${cat.apiRequests !== undefined ? `; ${cat.apiRequests} GitHub API requests` : ''}`);
                 // in the background: a slow icon host holds up no check
                 this.fetchIcons(rt);
+                return this.recordContents(id, rt);
             }, (err) => {
                 rt.status = err.auth ? 'auth-needed' : 'error';
                 rt.error = err.message;
@@ -1755,6 +1759,35 @@ class Updater {
                 }
             });
         return rt.checking;
+    }
+
+    /* The content (sourcesLib.contentThen) of each component installed from
+     * this source's branch at a commit whose content its origin does not
+     * record, from that commit's tree (read once for all of them). One that
+     * cannot be read is tried at the next check, and compared by commit
+     * until then; a commit GitHub does not have gets '-'. */
+    recordContents(id, rt) {
+        const origin = this.originOf(id);
+        const trees = {};
+        const todo = rt.components.filter((c) => c.contentSpec && c.content).map((c) => {
+            const o = this.origins[this.aliases[`${origin}:${c.id}`] || c.id];
+            return o && o.source === origin && o.commit && !o.content ? { c, o } : null;
+        }).filter(Boolean);
+        return todo.reduce((p, t) => p.then(() => {
+            if (t.o.commit === t.c.commit) {
+                return t.c.content;
+            }
+            trees[t.o.commit] = trees[t.o.commit] || rt.reader.treeAt(t.o.commit);
+            return trees[t.o.commit].then((tree) => sourcesLib.contentThen(tree, t.c.contentSpec), (err) => {
+                if (err.status === 404 || err.status === 422 || err.permanent) {
+                    return '-';
+                }
+                throw err;
+            });
+        }).then((content) => {
+            t.o.content = content;
+            this.saveOrigins();
+        }, (err) => console.log(`source ${id}: ${t.c.id} at ${t.o.commit.slice(0, 7)}: no content: ${err.message}`)), Promise.resolve());
     }
 
     /* Where an entry's icon is kept: <state_dir>/icons/<sha256>.png, named by
@@ -2812,7 +2845,7 @@ class Updater {
                 console.log(stopped ? `${id}@${entry.version}: the deploy tool's MainApp guard stopped it; what it did stays until the next start`
                     : `installed ${id}@${entry.version}`);
                 // installed from a stick's copy of a source: that source is its origin
-                this.origins[id] = { source: this.originOf(item.source), commit: entry.commit || null };
+                this.origins[id] = { source: this.originOf(item.source), commit: entry.commit || null, content: entry.content || null };
                 this.saveOrigins();
                 if (entry.listedId) {
                     this.aliases[`${this.originOf(item.source)}:${entry.listedId}`] = id;
