@@ -1,5 +1,10 @@
 # Updater changelog
 
+## 0.8.32
+
+- `{"op":"usb-phone","on":true|false}` (privileged) is relayed to the uplink as it is: phones over USB used or left alone (mgu-uplink 0.7.7).
+- The state's `uplink` has `usbPhone` while the uplink's `status.json` says it.
+
 ## 0.8.31
 
 - A tool a firmware update left not working, or whose install step waits (the deploy tool's `needs_setup`), is updated from its source at the first check that finds the source listing a newer version while the unit is online, each newer version once while the updater runs. Otherwise, or when that update fails, a tool the deploy tool keeps a copy of has its files laid again (`relay`), once for each reason.

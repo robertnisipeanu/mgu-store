@@ -854,7 +854,7 @@ function under(entry, id) {
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
 const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
-    'uplink-prefer', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
+    'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
  * the updater (README.md, "The uplink"): each one's ctl.sock request, built
@@ -865,6 +865,7 @@ const UPLINK_OPS = {
         : 'uplink-prefer needs a kind ("" for none)'),
     'wifi-enable': (r) => (typeof r.on === 'boolean' ? { op: 'wifi-enable', on: r.on } : 'wifi-enable needs on: true or false'),
     'wifi-5ghz': (r) => (typeof r.on === 'boolean' ? { op: 'wifi-5ghz', on: r.on } : 'wifi-5ghz needs on: true or false'),
+    'usb-phone': (r) => (typeof r.on === 'boolean' ? { op: 'usb-phone', on: r.on } : 'usb-phone needs on: true or false'),
     'wifi-scan': () => ({ op: 'wifi-scan' }),
     'wifi-connect': (r) => (!SSID_OK(r.ssid) ? 'a network name is 1 to 32 bytes'
         // a WPA passphrase: 8 to 63 printable ASCII characters; none for a saved or an open network
@@ -3766,7 +3767,7 @@ class Updater {
     }
 
     /* Reads the uplink's status.json (uplink_status): { device, state, error,
-     * preferred, wifi }, null without one. True when it changed. One that
+     * preferred, usbPhone (mgu-uplink 0.7.7; left out before), wifi }, null without one. True when it changed. One that
      * does not parse is read again next time. */
     readUplink() {
         let text = '';
@@ -3785,6 +3786,9 @@ class Updater {
         this.uplinkText = text;
         this.uplink = st && typeof st === 'object' ? { device: st.device || null, state: st.state || null, error: st.error || null,
             preferred: st.preferred || '', wifi: st.wifi && typeof st.wifi === 'object' ? st.wifi : null } : null;
+        if (this.uplink && typeof st.usbPhone === 'boolean') {
+            this.uplink.usbPhone = st.usbPhone;
+        }
         return true;
     }
 
@@ -3874,6 +3878,7 @@ class Updater {
         case 'uplink-prefer':
         case 'wifi-enable':
         case 'wifi-5ghz':
+        case 'usb-phone':
         case 'wifi-scan':
         case 'wifi-connect':
         case 'wifi-forget': return this.uplinkRequest(req, reply);
