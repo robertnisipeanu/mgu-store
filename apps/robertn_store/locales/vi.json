@@ -192,6 +192,8 @@
     "Allow 5 GHz": "Cho phép 5 GHz",
     "May cause CarPlay issues": "Có thể gây lỗi CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Trên iPhone, bật Tối đa hóa tương thích",
-    "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt"
+    "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt",
+    "iPhone tethering": "Chia sẻ mạng từ iPhone",
+    "Stops the iPhone's USB music": "Dừng nhạc USB từ iPhone"
   }
 }

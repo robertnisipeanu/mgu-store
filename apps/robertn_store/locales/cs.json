@@ -192,6 +192,8 @@
     "Allow 5 GHz": "Povolit 5 GHz",
     "May cause CarPlay issues": "Může způsobit potíže s CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Na iPhonu zapněte Maximalizovat kompatibilitu",
-    "This network is 5 GHz only: CarPlay audio may drop": "Tato síť je jen 5 GHz: zvuk CarPlay může vypadávat"
+    "This network is 5 GHz only: CarPlay audio may drop": "Tato síť je jen 5 GHz: zvuk CarPlay může vypadávat",
+    "iPhone tethering": "Sdílení připojení z iPhonu",
+    "Stops the iPhone's USB music": "Zastaví hudbu z iPhonu přes USB"
   }
 }

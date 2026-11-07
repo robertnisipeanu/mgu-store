@@ -196,7 +196,9 @@ module.exports = [
    "Allow 5 GHz": "السماح بـ 5 GHz",
    "May cause CarPlay issues": "قد يسبب مشاكل في CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "على iPhone، شغّل «تعظيم التوافق»",
-   "This network is 5 GHz only: CarPlay audio may drop": "هذه الشبكة 5 GHz فقط: قد ينقطع صوت CarPlay"
+   "This network is 5 GHz only: CarPlay audio may drop": "هذه الشبكة 5 GHz فقط: قد ينقطع صوت CarPlay",
+   "iPhone tethering": "ربط الإنترنت عبر iPhone",
+   "Stops the iPhone's USB music": "يوقف صوت USB من iPhone"
   }
  },
  {
@@ -394,7 +396,9 @@ module.exports = [
    "Allow 5 GHz": "Povolit 5 GHz",
    "May cause CarPlay issues": "Může způsobit potíže s CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Na iPhonu zapněte Maximalizovat kompatibilitu",
-   "This network is 5 GHz only: CarPlay audio may drop": "Tato síť je jen 5 GHz: zvuk CarPlay může vypadávat"
+   "This network is 5 GHz only: CarPlay audio may drop": "Tato síť je jen 5 GHz: zvuk CarPlay může vypadávat",
+   "iPhone tethering": "Sdílení připojení z iPhonu",
+   "Stops the iPhone's USB music": "Zastaví hudbu z iPhonu přes USB"
   }
  },
  {
@@ -592,7 +596,9 @@ module.exports = [
    "Allow 5 GHz": "Tillad 5 GHz",
    "May cause CarPlay issues": "Kan give problemer med CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Slå Maksimer kompatibilitet til på iPhone",
-   "This network is 5 GHz only: CarPlay audio may drop": "Dette netværk er kun 5 GHz: CarPlay-lyd kan falde ud"
+   "This network is 5 GHz only: CarPlay audio may drop": "Dette netværk er kun 5 GHz: CarPlay-lyd kan falde ud",
+   "iPhone tethering": "Internetdeling fra iPhone",
+   "Stops the iPhone's USB music": "Stopper iPhonens USB-musik"
   }
  },
  {
@@ -790,7 +796,9 @@ module.exports = [
    "Allow 5 GHz": "5 GHz zulassen",
    "May cause CarPlay issues": "Kann CarPlay stören",
    "On the iPhone, turn on Maximize Compatibility": "Auf dem iPhone „Kompatibilität maximieren“ einschalten",
-   "This network is 5 GHz only: CarPlay audio may drop": "Dieses Netz ist nur 5 GHz: CarPlay-Ton kann aussetzen"
+   "This network is 5 GHz only: CarPlay audio may drop": "Dieses Netz ist nur 5 GHz: CarPlay-Ton kann aussetzen",
+   "iPhone tethering": "iPhone-Tethering",
+   "Stops the iPhone's USB music": "Stoppt die USB-Musik des iPhone"
   }
  },
  {
@@ -988,7 +996,9 @@ module.exports = [
    "Allow 5 GHz": "Να επιτρέπονται 5 GHz",
    "May cause CarPlay issues": "Μπορεί να προκαλέσει προβλήματα στο CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Στο iPhone, ενεργοποιήστε τη Μεγιστοποίηση συμβατότητας",
-   "This network is 5 GHz only: CarPlay audio may drop": "Δίκτυο μόνο 5 GHz: ο ήχος του CarPlay μπορεί να διακόπτεται"
+   "This network is 5 GHz only: CarPlay audio may drop": "Δίκτυο μόνο 5 GHz: ο ήχος του CarPlay μπορεί να διακόπτεται",
+   "iPhone tethering": "Σύνδεση μέσω iPhone",
+   "Stops the iPhone's USB music": "Σταματά τη μουσική USB του iPhone"
   }
  },
  {
@@ -1186,7 +1196,9 @@ module.exports = [
    "Allow 5 GHz": "Permitir 5 GHz",
    "May cause CarPlay issues": "Puede causar problemas con CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "En el iPhone, activa Maximizar compatibilidad",
-   "This network is 5 GHz only: CarPlay audio may drop": "Esta red es solo de 5 GHz: el audio de CarPlay puede cortarse"
+   "This network is 5 GHz only: CarPlay audio may drop": "Esta red es solo de 5 GHz: el audio de CarPlay puede cortarse",
+   "iPhone tethering": "Compartir internet del iPhone",
+   "Stops the iPhone's USB music": "Detiene la música USB del iPhone"
   }
  },
  {
@@ -1384,7 +1396,9 @@ module.exports = [
    "Allow 5 GHz": "Permitir 5 GHz",
    "May cause CarPlay issues": "Puede causar problemas con CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "En el iPhone, activa Maximizar compatibilidad",
-   "This network is 5 GHz only: CarPlay audio may drop": "Esta red es solo de 5 GHz: el audio de CarPlay puede cortarse"
+   "This network is 5 GHz only: CarPlay audio may drop": "Esta red es solo de 5 GHz: el audio de CarPlay puede cortarse",
+   "iPhone tethering": "Compartir internet del iPhone",
+   "Stops the iPhone's USB music": "Detiene la música USB del iPhone"
   }
  },
  {
@@ -1582,7 +1596,9 @@ module.exports = [
    "Allow 5 GHz": "Salli 5 GHz",
    "May cause CarPlay issues": "Voi aiheuttaa ongelmia CarPlayssa",
    "On the iPhone, turn on Maximize Compatibility": "Laita iPhonessa päälle Maksimoi yhteensopivuus",
-   "This network is 5 GHz only: CarPlay audio may drop": "Tämä verkko on vain 5 GHz: CarPlayn ääni voi katkeilla"
+   "This network is 5 GHz only: CarPlay audio may drop": "Tämä verkko on vain 5 GHz: CarPlayn ääni voi katkeilla",
+   "iPhone tethering": "iPhonen yhteyden jakaminen",
+   "Stops the iPhone's USB music": "Pysäyttää iPhonen USB-musiikin"
   }
  },
  {
@@ -1780,7 +1796,9 @@ module.exports = [
    "Allow 5 GHz": "Autoriser 5 GHz",
    "May cause CarPlay issues": "Peut perturber CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Sur l'iPhone, activez Optimiser la compatibilité",
-   "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper"
+   "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper",
+   "iPhone tethering": "Partage de connexion de l'iPhone",
+   "Stops the iPhone's USB music": "Arrête la musique USB de l'iPhone"
   }
  },
  {
@@ -1978,7 +1996,9 @@ module.exports = [
    "Allow 5 GHz": "Autoriser 5 GHz",
    "May cause CarPlay issues": "Peut perturber CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Sur l'iPhone, activez Optimiser la compatibilité",
-   "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper"
+   "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper",
+   "iPhone tethering": "Partage de connexion de l'iPhone",
+   "Stops the iPhone's USB music": "Arrête la musique USB de l'iPhone"
   }
  },
  {
@@ -2176,7 +2196,9 @@ module.exports = [
    "Allow 5 GHz": "אפשר 5 GHz",
    "May cause CarPlay issues": "עלול לגרום לבעיות ב-CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "ב-iPhone, הפעל את הגדלת התאימות",
-   "This network is 5 GHz only: CarPlay audio may drop": "רשת זו היא 5 GHz בלבד: השמע של CarPlay עלול להיקטע"
+   "This network is 5 GHz only: CarPlay audio may drop": "רשת זו היא 5 GHz בלבד: השמע של CarPlay עלול להיקטע",
+   "iPhone tethering": "שיתוף אינטרנט מ-iPhone",
+   "Stops the iPhone's USB music": "עוצר את מוזיקת ה-USB של ה-iPhone"
   }
  },
  {
@@ -2374,7 +2396,9 @@ module.exports = [
    "Allow 5 GHz": "5 GHz engedélyezése",
    "May cause CarPlay issues": "CarPlay-problémákat okozhat",
    "On the iPhone, turn on Maximize Compatibility": "Az iPhone-on kapcsolja be: Kompatibilitás maximalizálása",
-   "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat"
+   "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat",
+   "iPhone tethering": "iPhone internetmegosztás",
+   "Stops the iPhone's USB music": "Leállítja az iPhone USB-s zenéjét"
   }
  },
  {
@@ -2572,7 +2596,9 @@ module.exports = [
    "Allow 5 GHz": "Izinkan 5 GHz",
    "May cause CarPlay issues": "Dapat menimbulkan masalah CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Di iPhone, nyalakan Maksimalkan Kompatibilitas",
-   "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus"
+   "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus",
+   "iPhone tethering": "Tethering iPhone",
+   "Stops the iPhone's USB music": "Menghentikan musik USB iPhone"
   }
  },
  {
@@ -2770,7 +2796,9 @@ module.exports = [
    "Allow 5 GHz": "Consenti 5 GHz",
    "May cause CarPlay issues": "Può causare problemi con CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Sull'iPhone, attiva Massimizza compatibilità",
-   "This network is 5 GHz only: CarPlay audio may drop": "Questa rete è solo a 5 GHz: l'audio di CarPlay può interrompersi"
+   "This network is 5 GHz only: CarPlay audio may drop": "Questa rete è solo a 5 GHz: l'audio di CarPlay può interrompersi",
+   "iPhone tethering": "Tethering iPhone",
+   "Stops the iPhone's USB music": "Ferma la musica USB dell'iPhone"
   }
  },
  {
@@ -2968,7 +2996,9 @@ module.exports = [
    "Allow 5 GHz": "5 GHzを許可",
    "May cause CarPlay issues": "CarPlayで問題が起きる場合があります",
    "On the iPhone, turn on Maximize Compatibility": "iPhoneで「互換性を優先」をオン",
-   "This network is 5 GHz only: CarPlay audio may drop": "5 GHz 専用：CarPlay の音声が途切れる場合があります"
+   "This network is 5 GHz only: CarPlay audio may drop": "5 GHz 専用：CarPlay の音声が途切れる場合があります",
+   "iPhone tethering": "iPhoneテザリング",
+   "Stops the iPhone's USB music": "iPhoneのUSB音声が停止します"
   }
  },
  {
@@ -3166,7 +3196,9 @@ module.exports = [
    "Allow 5 GHz": "5 GHz 허용",
    "May cause CarPlay issues": "CarPlay에 문제가 생길 수 있습니다",
    "On the iPhone, turn on Maximize Compatibility": "iPhone에서 호환성 최대화를 켜세요",
-   "This network is 5 GHz only: CarPlay audio may drop": "이 네트워크는 5 GHz 전용입니다: CarPlay 오디오가 끊길 수 있습니다"
+   "This network is 5 GHz only: CarPlay audio may drop": "이 네트워크는 5 GHz 전용입니다: CarPlay 오디오가 끊길 수 있습니다",
+   "iPhone tethering": "iPhone 테더링",
+   "Stops the iPhone's USB music": "iPhone의 USB 오디오가 중지됨"
   }
  },
  {
@@ -3364,7 +3396,9 @@ module.exports = [
    "Allow 5 GHz": "Tillat 5 GHz",
    "May cause CarPlay issues": "Kan gi problemer med CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Slå på Maksimer kompatibilitet på iPhone",
-   "This network is 5 GHz only: CarPlay audio may drop": "Dette nettverket er bare 5 GHz: CarPlay-lyden kan falle ut"
+   "This network is 5 GHz only: CarPlay audio may drop": "Dette nettverket er bare 5 GHz: CarPlay-lyden kan falle ut",
+   "iPhone tethering": "Internettdeling fra iPhone",
+   "Stops the iPhone's USB music": "Stopper USB-musikken fra iPhone"
   }
  },
  {
@@ -3564,7 +3598,9 @@ module.exports = [
    "Allow 5 GHz": "5 GHz toestaan",
    "May cause CarPlay issues": "Kan problemen met CarPlay geven",
    "On the iPhone, turn on Maximize Compatibility": "Zet op de iPhone Maximaliseer compatibiliteit aan",
-   "This network is 5 GHz only: CarPlay audio may drop": "Dit netwerk is alleen 5 GHz: CarPlay-audio kan wegvallen"
+   "This network is 5 GHz only: CarPlay audio may drop": "Dit netwerk is alleen 5 GHz: CarPlay-audio kan wegvallen",
+   "iPhone tethering": "iPhone-tethering",
+   "Stops the iPhone's USB music": "Stopt de USB-muziek van de iPhone"
   }
  },
  {
@@ -3762,7 +3798,9 @@ module.exports = [
    "Allow 5 GHz": "Zezwalaj na 5 GHz",
    "May cause CarPlay issues": "Może powodować problemy z CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Na iPhonie włącz Maksymalizuj zgodność",
-   "This network is 5 GHz only: CarPlay audio may drop": "Ta sieć działa tylko w 5 GHz: dźwięk CarPlay może zanikać"
+   "This network is 5 GHz only: CarPlay audio may drop": "Ta sieć działa tylko w 5 GHz: dźwięk CarPlay może zanikać",
+   "iPhone tethering": "Tethering iPhone'a",
+   "Stops the iPhone's USB music": "Zatrzymuje muzykę USB z iPhone'a"
   }
  },
  {
@@ -3960,7 +3998,9 @@ module.exports = [
    "Allow 5 GHz": "Permitir 5 GHz",
    "May cause CarPlay issues": "Pode causar problemas no CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "No iPhone, ative Maximizar Compatibilidade",
-   "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar"
+   "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar",
+   "iPhone tethering": "Roteamento do iPhone",
+   "Stops the iPhone's USB music": "Para a música USB do iPhone"
   }
  },
  {
@@ -4158,7 +4198,9 @@ module.exports = [
    "Allow 5 GHz": "Permitir 5 GHz",
    "May cause CarPlay issues": "Pode causar problemas no CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "No iPhone, ative Maximizar compatibilidade",
-   "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar"
+   "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar",
+   "iPhone tethering": "Partilha de ligação do iPhone",
+   "Stops the iPhone's USB music": "Para a música USB do iPhone"
   }
  },
  {
@@ -4356,7 +4398,9 @@ module.exports = [
    "Allow 5 GHz": "Permite 5 GHz",
    "May cause CarPlay issues": "Poate cauza probleme cu CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Pe iPhone, activați Maximizare compatibilitate",
-   "This network is 5 GHz only: CarPlay audio may drop": "Această rețea este doar 5 GHz: sunetul CarPlay se poate întrerupe"
+   "This network is 5 GHz only: CarPlay audio may drop": "Această rețea este doar 5 GHz: sunetul CarPlay se poate întrerupe",
+   "iPhone tethering": "Tethering iPhone",
+   "Stops the iPhone's USB music": "Oprește muzica USB de pe iPhone"
   }
  },
  {
@@ -4554,7 +4598,9 @@ module.exports = [
    "Allow 5 GHz": "Разрешить 5 ГГц",
    "May cause CarPlay issues": "Возможны проблемы с CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "На iPhone включите «Максимальная совместимость»",
-   "This network is 5 GHz only: CarPlay audio may drop": "Эта сеть только 5 ГГц: звук CarPlay может прерываться"
+   "This network is 5 GHz only: CarPlay audio may drop": "Эта сеть только 5 ГГц: звук CarPlay может прерываться",
+   "iPhone tethering": "Режим модема iPhone",
+   "Stops the iPhone's USB music": "Останавливает музыку iPhone по USB"
   }
  },
  {
@@ -4752,7 +4798,9 @@ module.exports = [
    "Allow 5 GHz": "Povoliť 5 GHz",
    "May cause CarPlay issues": "Môže spôsobiť problémy s CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Na iPhone zapnite Maximalizovať kompatibilitu",
-   "This network is 5 GHz only: CarPlay audio may drop": "Táto sieť je len 5 GHz: zvuk CarPlay môže vypadávať"
+   "This network is 5 GHz only: CarPlay audio may drop": "Táto sieť je len 5 GHz: zvuk CarPlay môže vypadávať",
+   "iPhone tethering": "Zdieľanie pripojenia z iPhonu",
+   "Stops the iPhone's USB music": "Zastaví hudbu z iPhonu cez USB"
   }
  },
  {
@@ -4950,7 +4998,9 @@ module.exports = [
    "Allow 5 GHz": "Dovoli 5 GHz",
    "May cause CarPlay issues": "Lahko povzroči težave s CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "V iPhonu vklopite Maksimiraj združljivost",
-   "This network is 5 GHz only: CarPlay audio may drop": "To omrežje je samo 5 GHz: zvok CarPlay se lahko prekinja"
+   "This network is 5 GHz only: CarPlay audio may drop": "To omrežje je samo 5 GHz: zvok CarPlay se lahko prekinja",
+   "iPhone tethering": "Deljenje povezave iPhona",
+   "Stops the iPhone's USB music": "Ustavi glasbo iz iPhona prek USB"
   }
  },
  {
@@ -5148,7 +5198,9 @@ module.exports = [
    "Allow 5 GHz": "Tillåt 5 GHz",
    "May cause CarPlay issues": "Kan orsaka problem med CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Slå på Maximera kompatibilitet på iPhone",
-   "This network is 5 GHz only: CarPlay audio may drop": "Nätverket är bara 5 GHz: CarPlay-ljudet kan avbrytas"
+   "This network is 5 GHz only: CarPlay audio may drop": "Nätverket är bara 5 GHz: CarPlay-ljudet kan avbrytas",
+   "iPhone tethering": "Internetdelning från iPhone",
+   "Stops the iPhone's USB music": "Stoppar iPhonens USB-musik"
   }
  },
  {
@@ -5346,7 +5398,9 @@ module.exports = [
    "Allow 5 GHz": "อนุญาต 5 GHz",
    "May cause CarPlay issues": "อาจทำให้ CarPlay มีปัญหา",
    "On the iPhone, turn on Maximize Compatibility": "เปิด เพิ่มความเข้ากันได้สูงสุด บน iPhone",
-   "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย"
+   "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย",
+   "iPhone tethering": "แชร์อินเทอร์เน็ตจาก iPhone",
+   "Stops the iPhone's USB music": "หยุดเพลง USB จาก iPhone"
   }
  },
  {
@@ -5544,7 +5598,9 @@ module.exports = [
    "Allow 5 GHz": "5 GHz'e izin ver",
    "May cause CarPlay issues": "CarPlay'de sorunlara yol açabilir",
    "On the iPhone, turn on Maximize Compatibility": "iPhone'da Uyumluluğu Artır'ı açın",
-   "This network is 5 GHz only: CarPlay audio may drop": "Bu ağ yalnızca 5 GHz: CarPlay sesi kesilebilir"
+   "This network is 5 GHz only: CarPlay audio may drop": "Bu ağ yalnızca 5 GHz: CarPlay sesi kesilebilir",
+   "iPhone tethering": "iPhone internet paylaşımı",
+   "Stops the iPhone's USB music": "iPhone'un USB müziğini durdurur"
   }
  },
  {
@@ -5742,7 +5798,9 @@ module.exports = [
    "Allow 5 GHz": "Дозволити 5 ГГц",
    "May cause CarPlay issues": "Можливі проблеми з CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "На iPhone увімкніть «Максимальна сумісність»",
-   "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися"
+   "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися",
+   "iPhone tethering": "Режим модема iPhone",
+   "Stops the iPhone's USB music": "Зупиняє музику iPhone через USB"
   }
  },
  {
@@ -5940,7 +5998,9 @@ module.exports = [
    "Allow 5 GHz": "Cho phép 5 GHz",
    "May cause CarPlay issues": "Có thể gây lỗi CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Trên iPhone, bật Tối đa hóa tương thích",
-   "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt"
+   "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt",
+   "iPhone tethering": "Chia sẻ mạng từ iPhone",
+   "Stops the iPhone's USB music": "Dừng nhạc USB từ iPhone"
   }
  },
  {
@@ -6140,7 +6200,9 @@ module.exports = [
    "Allow 5 GHz": "允许 5 GHz",
    "May cause CarPlay issues": "可能导致 CarPlay 出现问题",
    "On the iPhone, turn on Maximize Compatibility": "请在 iPhone 上打开“最大兼容性”",
-   "This network is 5 GHz only: CarPlay audio may drop": "此网络仅支持 5 GHz：CarPlay 音频可能中断"
+   "This network is 5 GHz only: CarPlay audio may drop": "此网络仅支持 5 GHz：CarPlay 音频可能中断",
+   "iPhone tethering": "iPhone 网络共享",
+   "Stops the iPhone's USB music": "会暂停 iPhone 的 USB 音频"
   }
  },
  {
@@ -6340,7 +6402,9 @@ module.exports = [
    "Allow 5 GHz": "允許 5 GHz",
    "May cause CarPlay issues": "可能導致 CarPlay 出現問題",
    "On the iPhone, turn on Maximize Compatibility": "請在 iPhone 上開啟「最大相容性」",
-   "This network is 5 GHz only: CarPlay audio may drop": "此網路僅支援 5 GHz：CarPlay 音訊可能中斷"
+   "This network is 5 GHz only: CarPlay audio may drop": "此網路僅支援 5 GHz：CarPlay 音訊可能中斷",
+   "iPhone tethering": "iPhone 網路共用",
+   "Stops the iPhone's USB music": "會暫停 iPhone 的 USB 音訊"
   }
  }
 ];

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.30
+
+The preferred connection's page has **iPhone tethering**, a switch, with
+an uplink that reports it (mgu-uplink 0.7.7's `iphone`, sent as
+`uplink-iphone` through mgu-updater 0.8.32, which the Store requires):
+off, the uplink leaves a plugged-in iPhone to the car, so its USB music
+plays. In every language.
+
 ## 0.9.29
 
 The Store's tile keeps its name in the Apps menu after the app manager

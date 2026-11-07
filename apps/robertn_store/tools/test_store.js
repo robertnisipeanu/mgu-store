@@ -1132,7 +1132,7 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 120);
         drawn.pop();
         // a new page with a picture not decoded yet: its first frame waits for it
-        const pic = path.join(__dirname, '..', 'robertn_store@0.9.29', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
+        const pic = path.join(__dirname, '..', 'robertn_store@0.9.30', 'rhmiData', 'variantGroups', 'Common', 'images', 'store_icon.png');
         const extra = Array.from({ length: 30 }, (_, i) => comp({ id: `x${i}`, title: `Extra ${i}`, version: '1.0.0', installed: null, status: 'available' }));
         app._client.emit('state', Object.assign({}, st, { components: st.components.concat(extra, [comp({ id: 'pictured', title: 'Pictured',
             version: '1.0.0', installed: null, status: 'available', icon: pic })]) }));
@@ -1445,6 +1445,10 @@ function runDrawn() {
         app._states[host(3)].emit('visible', { visible: true });
         tap('USB');
         eq(sent.map(secretless), [{ op: 'uplink-prefer', kind: 'usb' }]);
+        reset();
+        app._client.emit('state', Object.assign({}, app._st, { uplink: Object.assign({}, app._st.uplink, { iphone: true }) }));
+        tap('iPhone tethering');
+        eq(sent.map(secretless), [{ op: 'uplink-iphone', on: false }], 'iPhone tethering switched off');
         // back to Settings
         drawn.pop();
         app._states[host(3)].emit('visible', { visible: false });
