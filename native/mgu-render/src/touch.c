@@ -79,7 +79,8 @@ static int rule_in(void)
         "chain pre {\ntype filter hook prerouting priority -300; policy accept;\n%s\n}\n}\n", rule);
     return nft(s) == 0 && system("nft list table " TABLE " >/dev/null 2>&1") == 0 ? 0 : -1;
 }
-static void rule_out(void) { nft("table " TABLE "\ndelete table " TABLE "\n"); }
+/* no file: taking the rule out must work with /tmp full; an absent table is not an error here */
+static void rule_out(void) { if (system("nft delete table " TABLE " >/dev/null 2>&1")) {} }
 
 /* The guard: beats are '0' (no rule) / '1' (rule in). Dead renderer (pipe closed) -> rule out; hung with the
  * rule in -> rule out + kill it. A hang without the rule (start-up, nothing claimed) touches nobody's input. */
