@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.29
+
+The Store's tile keeps its name in the Apps menu after the app manager
+stops the Store: the tile shows the name and icon the app manager gives it.
+
 ## 0.9.28
 
 A tool whose install step waits after a firmware update (mgu-updater
