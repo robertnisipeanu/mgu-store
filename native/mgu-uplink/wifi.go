@@ -483,7 +483,9 @@ func (p *wifiProvider) up(st *wifiStatus) {
 			p.mu.Unlock()
 			if h.band != 0 && allow5 {
 				for _, ifname := range sess.ifaces {
-					h.same = append(h.same, p.freqs[ifname])
+					if f := p.freqs[ifname]; !slices.Contains(h.same, f) {
+						h.same = append(h.same, f)
+					}
 				}
 			}
 		}

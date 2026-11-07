@@ -363,6 +363,12 @@ func TestCarWiFiSessionAllow5(t *testing.T) {
 	}
 	phone(false)
 	waitWiFi(t, p, "every channel", func(st wifiStatus) bool { return st.Paused == "" && oursAre(f, "scan_freq", "", true)(st) })
+
+	// both groups on one channel: it is listed once
+	f.do(func() { f.groups["p2p-wlanc0-1"] = fakeGroup{"/fi/w1/wpa_supplicant1/Interfaces/21", 5785} })
+	p.setAllow5(true)
+	phone(true, "p2p-wlanc0-0", "p2p-wlanc0-1")
+	waitWiFi(t, p, "2.4 GHz and 5785 once", oursAre(f, "scan_freq", freqList(append(slices.Clone(freqs24), 5785)), true))
 }
 
 // A call to the car's supplicant never starts it (NO_AUTO_START); others
