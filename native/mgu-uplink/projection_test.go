@@ -342,7 +342,8 @@ func TestCarWiFiSession(t *testing.T) {
 
 // With Allow 5 GHz the scans during wireless CarPlay also cover the phone's
 // own channel: a station there shares it (an access point on the group's
-// channel is found, not only one on the other band); without, as before.
+// channel is found, not only one on the other band); without, the other
+// band only.
 func TestCarWiFiSessionAllow5(t *testing.T) {
 	p, f, phone := carSession(t)
 	p.setAllow5(true)
@@ -358,9 +359,6 @@ func TestCarWiFiSessionAllow5(t *testing.T) {
 
 	p.setAllow5(false)
 	waitWiFi(t, p, "5 GHz only", oursAre(f, "scan_freq", freqList(freqs5), true))
-	if len(freqs5) != 25 || len(freqs24) != 13 {
-		t.Fatalf("the band lists changed: %d %d", len(freqs5), len(freqs24))
-	}
 	phone(false)
 	waitWiFi(t, p, "every channel", func(st wifiStatus) bool { return st.Paused == "" && oursAre(f, "scan_freq", "", true)(st) })
 

@@ -252,8 +252,9 @@ association): a joined network stays as it is until it is left.
 A station scan takes the radio off the channel the phone projects on. So
 while wireless CarPlay or Android Auto is connected, the supplicant's own
 scans (looking for a saved network, or joining one again) keep off the
-phone's band; a `wifi-scan` request and a `wifi-connect` still cover every
-channel, at any time, and a joined network stays joined.
+phone's band (with Allow 5 GHz, all but the phone's own channel); a
+`wifi-scan` request and a `wifi-connect` still cover every channel, at any
+time, and a joined network stays joined.
 
 A session is the projection daemon connected to an address that is not a
 loopback one (`/proc/net/tcp`, `tcp6`: uid 13002 for CarPlay, `carplay`;

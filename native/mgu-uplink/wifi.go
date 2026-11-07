@@ -467,8 +467,9 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	// of wireless CarPlay and Android Auto. While the uplink is online on a
 	// device Wi-Fi can't take over from, and during a wireless session, the
 	// supplicant's own scans stop or keep to the band the phone is not on
-	// (scanHold); they go on as usual as soon as neither is so, for a scan
-	// request, and never under a join the owner asked for.
+	// (with Allow 5 GHz, and the phone's own channel; scanHold); they go on
+	// as usual as soon as neither is so, for a scan request, and never under
+	// a join the owner asked for.
 	sess := p.session()
 	if joining == "" {
 		p.mu.Lock()
