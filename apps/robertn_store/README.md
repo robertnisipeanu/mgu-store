@@ -363,8 +363,8 @@ uplink's error (a join that failed) or the refusal of the last request,
 and **Use Wi-Fi** / **Don't use Wi-Fi** (`wifi-enable`: whether the uplink uses Wi-Fi; Use Wi-Fi unblocks a soft-blocked radio and leaves it on) and **Scan** (`wifi-scan`, also
 asked when the page opens).
 
-Settings' access card has **Preferred connection** below the Wi-Fi row,
-while that row is there. It shows the group the uplink tries first and
+Settings' access card has **Preferred connection** below Accounts, while
+the Wi-Fi row is there. It shows the group the uplink tries first and
 opens its page: Automatic, Wi-Fi, USB (adapters and LTE sticks),
 Phone (Android and iPhone tethering): the uplink's `preferred` values
 `wifi`, `usb`, `phone`; the one preferred marked, the one in use said so; a press makes it the one the uplink tries first

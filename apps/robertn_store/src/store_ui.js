@@ -293,18 +293,23 @@ function settingsView(m) {
     const web = m.connected && st && st.web && typeof st.web === 'object' ? st.web : null;
     const access = [];
     const w = wifiOf(m);
+    let prefer = null;
     if (w) {
         const s = wifiState(w);
         const paused = pausedLine(w);
         const sub = paused || [s[0], bandOf(w)].filter(Boolean).join(' · ');
         access.push({ id: 'wifi', title: 'Wi-Fi', sub, subColor: paused ? DIM : s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
             right: 'chevron', act: { do: 'open', page: { name: 'wifi' } } });
-        access.push({ id: 'prefer', title: tr("Preferred connection"), sub: groupLabel(m.st.uplink.preferred || ''), plain: true, vicon: 'route',
-            iconColor: 'text', right: 'chevron', act: { do: 'open', page: { name: 'prefer' } } });
+        prefer = { id: 'prefer', title: tr("Preferred connection"), sub: groupLabel(m.st.uplink.preferred || ''), plain: true, vicon: 'route',
+            iconColor: 'text', right: 'chevron', act: { do: 'open', page: { name: 'prefer' } } };
     }
     if (toks) {
         access.push({ id: 'accounts', title: tr("Accounts"), sub: accountsState(toks), plain: true, vicon: 'lock', iconColor: 'text',
             right: 'chevron', act: { do: 'open', page: { name: 'accounts' } } });
+    }
+    // below Accounts: the card shows two rows, Wi-Fi and Accounts first
+    if (prefer) {
+        access.push(prefer);
     }
     const px = proxyOf(m);
     if (px) {

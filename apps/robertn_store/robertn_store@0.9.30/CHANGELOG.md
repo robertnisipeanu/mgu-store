@@ -2,7 +2,7 @@
 
 ## 0.9.30
 
-**Preferred connection** is a row in Settings, below Wi-Fi, showing the
+**Preferred connection** is a row in Settings, below Accounts, showing the
 connection tried first; it opens the Preferred connection page. The page
 has **Phone over USB**, a switch for whether the uplink uses phones
 plugged in over USB (mgu-uplink 0.7.7, through mgu-updater 0.8.32); off,

@@ -377,16 +377,16 @@ f = screen('usb');
 eq(f.labels.slice(4), ['Drive Recorder', 'GPU renderer'], 'not the one for another head unit only');
 eq(text(f, 'subtitle'), 'USB STICK · 2 packages');
 
-// Settings: sources, Add source, Wi-Fi, Preferred connection, Accounts, Phone access, the unit; no restart while busy
+// Settings: sources, Add source, Wi-Fi, Accounts, Preferred connection, Phone access, the unit; no restart while busy
 f = screen('settings');
 eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source',
-    'Wi-Fi', 'Preferred connection', 'Accounts', 'Proxy', 'Phone access', 'Check now']);
+    'Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access', 'Check now']);
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
 // the Access card shows two rows: the controller's focus on each later row scrolls it into view, in order, on every unit
 Object.keys(UNITS).forEach((u) => {
     const m = fixture.model(fixture.screens().find((x) => x[0] === 'settings')[1]);
     const scroll = {};
-    const rows = ['Wi-Fi', 'Preferred connection', 'Accounts', 'Proxy', 'Phone access'];
+    const rows = ['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'];
     const rest = frame(m, { textScale: UNITS[u].scale, scroll: {}, layout: UNITS[u].layout }).items;
     const at = rest.map((i) => i.label);
     ok(!!rest[at.indexOf('Phone access')].reveal, `${u}: Phone access starts out of view`);
@@ -553,11 +553,11 @@ eq(f.items.find((i) => i.label === 'Wi-Fi').act, { do: 'open', page: { name: 'wi
 ok(screen('settings', {}, { uplink: null }).labels.indexOf('Wi-Fi') < 0, 'no Wi-Fi without the uplink (an updater before 0.8.0)');
 ok(screen('settings', {}, { uplink: { device: null, state: 'searching', error: null, preferred: '', wifi: null } }).labels.indexOf('Wi-Fi') < 0,
     'nor with an uplink without Wi-Fi (before 0.7.0, or not on auto)');
-// Preferred connection: Settings' row with the group tried first, beside Wi-Fi and only with it (an uplink that takes prefer)
-eq([f.values.access.items[1].title, f.values.access.items[1].sub, f.items.find((i) => i.label === 'Preferred connection').act],
+// Preferred connection: Settings' row with the group tried first, below Accounts, and only with Wi-Fi (an uplink that takes prefer)
+eq([f.values.access.items[2].title, f.values.access.items[2].sub, f.items.find((i) => i.label === 'Preferred connection').act],
     ['Preferred connection', 'Wi-Fi', { do: 'open', page: { name: 'prefer' } }]);
 eq(['', 'wifi', 'usb', 'phone'].map((p) => screen('settings', {}, { uplink: Object.assign({}, fixture.state().uplink, { preferred: p }) })
-    .values.access.items[1].sub), ['Automatic', 'Wi-Fi', 'USB', 'Phone']);
+    .values.access.items[2].sub), ['Automatic', 'Wi-Fi', 'USB', 'Phone']);
 ok(['Preferred connection', 'Wi-Fi'].every((l) => screen('settings', {}, { uplink: { device: null, state: 'searching', error: null, preferred: '',
     wifi: null } }).labels.indexOf(l) < 0) && screen('settings', {}, { uplink: null }).labels.indexOf('Preferred connection') < 0,
 'no Preferred connection without the uplink, or with one that has no Wi-Fi (before 0.7.0, or not on auto)');
@@ -666,7 +666,7 @@ eq([text(f, 'state'), text(f, 'note'), f.values.networks.empty, f.values.scan.di
 
 // the proxy (an updater from 0.8.27): a row in Settings' access card; its page turns it on or off and sets its address
 f = screen('settings');
-eq(f.values.access.items.map((i) => [i.title, i.sub]), [['Wi-Fi', 'Online · Mario iPhone'], ['Preferred connection', 'Wi-Fi'], ['Accounts', '2 accounts'], ['Proxy', 'Off'],
+eq(f.values.access.items.map((i) => [i.title, i.sub]), [['Wi-Fi', 'Online · Mario iPhone'], ['Accounts', '2 accounts'], ['Preferred connection', 'Wi-Fi'], ['Proxy', 'Off'],
     ['Phone access', 'Off']]);
 eq(f.items.find((i) => i.label === 'Proxy').act, { do: 'open', page: { name: 'proxy' } });
 ok(screen('settings', {}, { proxy: undefined }).labels.indexOf('Proxy') < 0, 'no Proxy row with an updater before 0.8.27');
