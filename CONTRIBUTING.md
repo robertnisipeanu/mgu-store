@@ -4,14 +4,14 @@
 
 Two kinds of components, with different rules:
 
-- **Release-time versions:** `app-privacy` and `mgu-python`. Leave their
-  version numbers alone. The release gives each one it publishes its next
-  version and writes it into the tree. CI fails a pull request that changes
-  their `"version"` in `component.json`.
-- **Hand-versioned:** the Store (`robertn_store`), `mgu-updater`,
-  `mgu-deploy`, `mgu-render` and `mgu-uplink`. A pull request that changes
-  one of these raises its version itself (`node release/release.js bump
-  <id> <x.y.z>`) and adds the CHANGELOG entry under that version.
+- **Release-time versions:** `app-privacy`, `mgu-python`, `mgu-render` and
+  `mgu-uplink`. Leave their version numbers alone. The release gives each
+  one it publishes its next version and writes it into the tree. CI fails a
+  pull request that changes their `"version"` in `component.json`.
+- **Hand-versioned:** the Store (`robertn_store`), `mgu-updater` and
+  `mgu-deploy`. A pull request that changes one of these raises its version
+  itself (`node release/release.js bump <id> <x.y.z>`) and adds the
+  CHANGELOG entry under that version.
 
 For release-time components:
 
@@ -22,7 +22,7 @@ For release-time components:
 
 ## CHANGELOG
 
-A release-time component with a CHANGELOG (`native/app-privacy/CHANGELOG.md`)
+A release-time component with a CHANGELOG (`native/<id>/CHANGELOG.md`)
 lists what your pull request changes under `## Unreleased` at the top:
 
 ```md

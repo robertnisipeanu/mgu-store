@@ -66,7 +66,7 @@ after it passed in the head-unit emulator, which runs on the owner's Mac:
 
 ```sh
 tools/emu-gate mgu-render          # 4 to 8 min a component
-git add release/gate/mgu-render.json && git commit -m "mgu-render x.y.z: emulator gate"
+git add release/gate/mgu-render.json && git commit -m "mgu-render: emulator gate"
 ```
 
 It installs this commit's build on its own over the published release (a
@@ -90,7 +90,7 @@ already published with other bytes, and a version older than the published
 one.
 
 **Release-time versions** (every tool but those in `release.js`
-`HAND_VERSIONED`: `app-privacy`, `mgu-python`). Pull requests leave the
+`HAND_VERSIONED`: `app-privacy`, `mgu-python`, `mgu-render`, `mgu-uplink`). Pull requests leave the
 version alone, and `versions` (the Versions workflow, on every pull
 request) fails one that changes it, or that changes such a component with a
 CHANGELOG without lines under `## Unreleased`. The Release workflow's
@@ -112,8 +112,7 @@ A version stamped but never published (no tag) keeps its number at the next
 run; new Unreleased lines join its section.
 
 **Hand-versioned** (apps, whose staged tree is named `<id>@<version>`, and
-the tools in `HAND_VERSIONED`: `mgu-deploy`, `mgu-render`, `mgu-updater`,
-`mgu-uplink`). The pull request sets the version with `bump`, and adds its
+the tools in `HAND_VERSIONED`: `mgu-deploy`, `mgu-updater`). The pull request sets the version with `bump`, and adds its
 CHANGELOG entry under it. For an app `bump` renames the staged tree
 (`git mv apps/<id>/<id>@<old> … @<new>`), rewrites every `<id>@<old>` in the
 repo's text files (build scripts, validators, READMEs; not
