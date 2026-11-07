@@ -95,7 +95,7 @@ static EGLConfig ecfg;
 static EGLContext ectx;
 static EGLSurface init_es = EGL_NO_SURFACE;
 static int screen_w = 1920, screen_h = 720, refresh_mhz;
-/* the centre display of iDrive 8 (iDrive 7: 1920x720); overlays and the picture check on yield surfaces are for it only */
+/* the centre display of iDrive 8 (iDrive 7: 1920x720); overlays are for it only */
 static int idrive8(void) { return screen_w == 2880 && screen_h == 960; }
 
 /* yield surfaces (camera, video): layer mode hides while one shows a picture (visible, with a buffer) */
@@ -179,11 +179,12 @@ static void c_screen(void *d, struct ivi_controller *c, uint32_t id, struct ivi_
 static void c_layer(void *d, struct ivi_controller *c, uint32_t id) { (void)d, (void)c, (void)id; }
 
 static void update_all(void);
-/* iDrive 8: visible alone is not a picture: on a G82 (2026-11-01) the HMI keeps cameraplayer's SID_VIDEO_DIGITAL_HU
- * 0x198 visible from boot with no buffer (configuration 0x0), which hid every layer app for good. iDrive 7: visible. */
+/* Visible alone is not a picture: the HMI keeps SID_VIDEO_DIGITAL_HU 0x198 visible from boot with no buffer
+ * (configuration 0x0), which hid every layer app for good: cameraplayer on a G82 (iDrive 8, 2026-11-01), dasvideo on a
+ * G05 (iDrive 7, 2026-11-07; ivi-control scene: visibility 1, size 0x0, frames 0). */
 static void y_update(int i) {
     int any = 0;
-    for (int k = 0; k < nyield; k++) any |= yield[k].visible && (!idrive8() || (yield[k].w > 0 && yield[k].h > 0));
+    for (int k = 0; k < nyield; k++) any |= yield[k].visible && yield[k].w > 0 && yield[k].h > 0;
     if (any != yielding) {
         yielding = any;
         log_info(any ? "surface %#x shows a picture: layer apps yield the screen" : "surface %#x shows no picture: layer apps may show", yield[i].id);
@@ -221,6 +222,18 @@ static void y_destroyed(void *d, struct ivi_controller_surface *s) {
 static const struct ivi_controller_surface_listener yield_listener = {
     y_visibility, y_opacity, y_rect, y_rect, y_config, y_int, y_int, y_layer, y_stats, y_destroyed, y_int,
 };
+/* A size change of a surface already watched is not shown to reach us on every compositor (no G05 log has one at a
+ * camera start), but a new proxy gets the current properties at once. So while a yield surface is visible with no
+ * buffer it is asked again every second: at worst the layer apps cover a camera picture for 1 s as it starts. */
+static void y_reprobe(void) {
+    for (int k = 0; k < nyield; k++) {
+        if (!yield[k].s || !yield[k].visible || (yield[k].w > 0 && yield[k].h > 0)) continue;
+        struct ivi_controller_surface *old = yield[k].s;
+        yield[k].s = ivi_controller_surface_create(ictl, yield[k].id);
+        ivi_controller_surface_add_listener(yield[k].s, &yield_listener, (void *)(intptr_t)k);
+        ivi_controller_surface_destroy(old, 0);     /* our proxy only: 0 leaves the HMI's surface alone */
+    }
+}
 
 static void c_surface(void *d, struct ivi_controller *c, uint32_t id) {
     (void)d;
@@ -1584,7 +1597,7 @@ int main(int argc, char **argv) {
     if (cfg.embed) embed_connect(cfg.hmi_display, cfg.embed_surface_id, cfg.embed_area[2], cfg.embed_area[3], cfg.embed_zero_copy);
     share_tick();
 
-    uint64_t gate_retry = 0, embed_retry = 0, share_next = 0;
+    uint64_t gate_retry = 0, embed_retry = 0, share_next = 0, reprobe_next = 0;
     while (!quit) {
         uint64_t tnow = now_us();
         int video_on = 0;
@@ -1607,6 +1620,7 @@ int main(int argc, char **argv) {
         if (touch_on) touch_tick(any_claim());
         trace_check(now_us());
         if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); }
+        if (tnow >= reprobe_next) { reprobe_next = tnow + 1000000; y_reprobe(); }
         if (cfg.foreground_gate[0] && !gate_unavailable() && gate_fd() < 0 && tnow > gate_retry) {
             gate_retry = tnow + 5000000;
             gate_start(cfg.foreground_gate);
