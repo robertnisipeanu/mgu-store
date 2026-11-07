@@ -1,5 +1,9 @@
 # mgu-uplink changelog
 
+## 0.7.7
+
+- `iphone = off` (the `iphone` request, kept in `settings_conf`) leaves every iPhone to the media daemon, so its USB music keeps playing; an iPhone held or being taken when it is switched off is handed back within 5 s. `on` is shipped. `status.json` adds `iphone` with `uplink = auto`.
+
 ## 0.7.6
 
 - Wi-Fi prefers 2.4 GHz: with Allow 5 GHz off (`wifi_5ghz = off`, the default; the `wifi-5ghz` request), a network seen on 2.4 GHz is joined there only, through a `freq_list` and `scan_freq` of the 2.4 GHz channels (car's supplicant: `AddNetwork` properties; `wlan1`: `SET_NETWORK`), kept in `wpa.conf`. A network seen on 5 GHz only is joined there (`wifi.fiveOnly`). A join on 2.4 GHz that has not joined after 20 s goes on on every band; a saved network in range on 2.4 GHz but not joined for 40 s is on every band until a restart or a switch of the setting; a supplicant that refuses `freq_list` costs one retry and is not asked again; a saved network on 2.4 GHz only that is out of range is looked for on every channel every 2 min (not during wireless CarPlay or Android Auto). Networks saved before keep joining on any band until seen on 2.4 GHz. A joined network's band changes only once it is left.

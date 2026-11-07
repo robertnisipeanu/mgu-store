@@ -90,6 +90,7 @@ func runService(c config, up Uplink) error {
 	setStatus(nil, stateSearching, "")
 	setStatusPreferred(c.Preferred)
 	if su, ok := up.(*scanUplink); ok {
+		setStatusIPhone(c.IPhone)
 		s.wifi = newWiFiProvider(c, filepath.Join(filepath.Dir(self), wpaBin))
 		s.wifi.notify = s.kickReconcile
 		s.wifi.outranks = func(kind string) bool { return su.rank(kind) < su.rank(kindWiFi) }
@@ -109,8 +110,8 @@ func runService(c config, up Uplink) error {
 	if ctl, err = listenCtl(c.ctlSocket(), s.request); err != nil {
 		return fmt.Errorf("control socket: %v", err)
 	}
-	logf("mgu-uplink %s: uplink %s, preferred %q, wifi %s, apps %v, uids %v, table %d, rules %d-%d",
-		version, up, c.Preferred, onOff(c.WiFi), c.Apps, c.UIDs, c.Table, c.Pref, c.Pref+rulePrefs-1)
+	logf("mgu-uplink %s: uplink %s, preferred %q, wifi %s, iphone %s, apps %v, uids %v, table %d, rules %d-%d",
+		version, up, c.Preferred, onOff(c.WiFi), onOff(c.IPhone), c.Apps, c.UIDs, c.Table, c.Pref, c.Pref+rulePrefs-1)
 	s.reconcile(true)
 
 	ctx, cancel := context.WithCancel(context.Background())

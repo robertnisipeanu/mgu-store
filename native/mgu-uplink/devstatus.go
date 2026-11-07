@@ -7,6 +7,7 @@ package main
 //	 "state": "searching|connecting|trust-needed|busy|online|error",
 //	 "error": null | "Tap Trust on the iPhone" | ...,
 //	 "preferred": "phone",      only while a group is preferred
+//	 "iphone": true,            whether an iPhone is taken, only with uplink = auto
 //	 "wifi": {...}}             the Wi-Fi provider (wifi.go), only with uplink = auto
 //
 // searching: no usable device. connecting: a device is being set up or
@@ -40,6 +41,7 @@ type uplinkStatus struct {
 	State     string        `json:"state"`
 	Error     *string       `json:"error"`
 	Preferred string        `json:"preferred,omitempty"`
+	IPhone    *bool         `json:"iphone,omitempty"`
 	WiFi      *wifiStatus   `json:"wifi,omitempty"`
 }
 
@@ -81,12 +83,19 @@ func setStatus(dev *statusDevice, state, msg string) {
 	writeStatus()
 }
 
-// setStatusPreferred and setStatusWiFi set the preferred group and the
-// Wi-Fi provider's state.
+// setStatusPreferred, setStatusIPhone and setStatusWiFi set the preferred
+// group, whether an iPhone is taken and the Wi-Fi provider's state.
 func setStatusPreferred(kind string) {
 	ustat.Lock()
 	defer ustat.Unlock()
 	ustat.cur.Preferred = kind
+	writeStatus()
+}
+
+func setStatusIPhone(on bool) {
+	ustat.Lock()
+	defer ustat.Unlock()
+	ustat.cur.IPhone = &on
 	writeStatus()
 }
 

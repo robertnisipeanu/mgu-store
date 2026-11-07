@@ -841,6 +841,8 @@ func TestControlRequests(t *testing.T) {
 		{`{"op":"prefer"}`, "needs a kind"},
 		{`{"op":"wifi-enable"}`, "on: true or false"},
 		{`{"op":"wifi-enable","on":true}`, ""},
+		{`{"op":"iphone"}`, "on: true or false"},
+		{`{"op":"iphone","on":false}`, ""},
 		{`{"op":"wifi-scan"}`, "Wi-Fi is starting"},
 		{`{"op":"wifi-connect","ssid":"Home","psk":"short"}`, "8 to 63"},
 		{`{"op":"wifi-forget","ssid":""}`, "1 to 32"},
@@ -853,13 +855,13 @@ func TestControlRequests(t *testing.T) {
 			t.Errorf("%.60s: %+v, want error %q", tc.req, r, tc.err)
 		}
 	}
-	if b, _ := os.ReadFile(c.Settings); string(b) != "# the Store's\npreferred = wifi\nwifi = on\n" {
+	if b, _ := os.ReadFile(c.Settings); string(b) != "# the Store's\npreferred = wifi\nwifi = on\niphone = off\n" {
 		t.Fatalf("settings_conf:\n%s", b)
 	}
-	if u := su.rank(kindWiFi); u != 0 || su.rank(kindUSB) != len(autoKinds)+1 || !p.enabled {
-		t.Fatalf("rank %d enabled %v", u, p.enabled)
+	if u := su.rank(kindWiFi); u != 0 || su.rank(kindUSB) != len(autoKinds)+1 || !p.enabled || su.iphoneOn() {
+		t.Fatalf("rank %d enabled %v iphone %v", u, p.enabled, su.iphoneOn())
 	}
-	if b, _ := os.ReadFile(c.statusFile()); !strings.Contains(string(b), `"preferred": "wifi"`) {
+	if b, _ := os.ReadFile(c.statusFile()); !strings.Contains(string(b), `"preferred": "wifi"`) || !strings.Contains(string(b), `"iphone": false`) {
 		t.Fatalf("status.json: %s", b)
 	}
 	if r := ask(`{"op":"prefer","kind":""}`); !r.OK {
@@ -872,7 +874,8 @@ func TestControlRequests(t *testing.T) {
 	// With a named interface (netdev:) there is no Wi-Fi and no order.
 	s = &service{cfg: c, up: &netdevUplink{name: "eth1"}}
 	kind := "wifi"
-	for _, r := range []ctlRequest{{Op: "wifi-scan"}, {Op: "wifi-connect", SSID: "x"}, {Op: "prefer", Kind: &kind}} {
+	off := false
+	for _, r := range []ctlRequest{{Op: "wifi-scan"}, {Op: "wifi-connect", SSID: "x"}, {Op: "prefer", Kind: &kind}, {Op: "iphone", On: &off}} {
 		if err := s.request(r); err == nil {
 			t.Errorf("%s accepted with uplink netdev:", r.Op)
 		}
