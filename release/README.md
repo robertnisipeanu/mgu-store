@@ -12,7 +12,6 @@ besides this one: [`docs/PUBLISHING.md`](../docs/PUBLISHING.md).
 node release/release.js list                    # components, versions, publish state
 node release/release.js build [<id>...]         # reproducible build of HEAD into release/out/ + catalog.json
 node release/release.js check [<id>...]         # build twice, compare the artifacts byte for byte
-node release/release.js bump <id> <x.y.z>       # set a hand-versioned component's version
 node release/release.js versions <base>         # a pull request's version checks against its base
 node release/release.js stamp [<id>...]         # (the Release workflow) next versions, the release commit
 node release/release.js publish --stamped [--dry-run]  # (the Release workflow) upload the new versions, then the catalog
@@ -25,12 +24,12 @@ Contributors: [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 | Kind | Where | Version | Artifact |
 |---|---|---|---|
-| app | `apps/<id>/release.json` marks it releasable | the staged tree `apps/<id>/<id>@<version>/` (its `package.json`) | with `apps/<id>/mgu-app.json`: the source package its build packs (`<id>@<version>.src.tgz`), built on the unit; else the app's own flat OAP tgz |
+| app | `apps/<id>/release.json` marks it releasable | the staged tree `apps/<id>/package/` (its `package.json`; the build names it `<id>@<version>` in the package) | with `apps/<id>/mgu-app.json`: the source package its build packs (`<id>@<version>.src.tgz`), built on the unit; else the app's own flat OAP tgz |
 | tool | `native/<id>/component.json` | `component.json` `version` | a component kit tgz, packed by the deploy tool (`deploy/hu artifact native/<id>`) |
 | tool | `deploy/component.json` (`mgu-deploy`, the deploy tool itself) | `component.json` `version` | the same, from `deploy/unit/` (`deploy/hu artifact deploy`) |
 
 **Adding an app** to the catalog is one file, `apps/<id>/release.json`. An
-app's id (its folder, staged tree and `package.json` name) starts with
+app's id (its folder and `package.json` name) starts with
 `robertn_`: the head unit's provisioning knows apps by id, and its own section
 for an id we also use (BMW has one named `store`) wins over the provisioning
 fallback and can hide our tile. `release.js` refuses an id without the
@@ -69,18 +68,22 @@ tools/emu-gate mgu-render          # 4 to 8 min a component
 git add release/gate/mgu-render.json && git commit -m "mgu-render: emulator gate"
 ```
 
-It installs this commit's build on its own over the published release (a
-release-time component built at the version the release would give it, a
-patch) and
+It installs this commit's build on its own over the published release (built
+at the version the release would give it, a patch) and
 checks that the Store's picture stays on the screen when other programs
 change the screen's layers and when the renderer and head unit restart
 (the cases: `tools/emu-gate`). Passing, it writes `release/gate/<id>.json`
-for that version and build; `release.js publish` refuses a new version
-without one, so any later change to what the component ships needs the gate
-again. A release-time component's record holds for the version the release
-gives that source: the release commit, which only writes the version,
-leaves the source as it was (`release.js` `sourceCommit`). It needs Docker, `gh` signed in and the mgu-emulator checkout
-(`MGU_EMULATOR`, default `~/workspaces/personal/mgu-emulator`).
+for that source; `release.js publish` refuses a new version without one, so
+any later change to what the component ships needs the gate again. The
+record holds for the version the release gives that source: the release
+commit, which only writes the version, resolves `"next"` and moves a shipped
+CHANGELOG's Unreleased lines, leaves the source as it was (`release.js`
+`sourceCommit`). The gate needs Docker, `gh` signed in and the mgu-emulator
+checkout (`MGU_EMULATOR`, default `~/workspaces/personal/mgu-emulator`).
+
+An app's release build may not write a file the app ships (a copy from
+another folder, a generated file) other than as it is committed: commit what
+its build writes, so the source the record names is what ships.
 
 ## Versions
 
@@ -89,21 +92,24 @@ before it can be published again: publishing refuses a version that is
 already published with other bytes, and a version older than the published
 one.
 
-**Release-time versions** (every tool but those in `release.js`
-`HAND_VERSIONED`: `app-privacy`, `mgu-python`, `mgu-render`, `mgu-uplink`). Pull requests leave the
-version alone, and `versions` (the Versions workflow, on every pull
-request) fails one that changes it, or that changes such a component with a
-CHANGELOG without lines under `## Unreleased`. The Release workflow's
-`stamp`:
+Every component's version is set at release time. Pull requests leave it
+alone, and `versions` (the Versions workflow, on every pull request) fails
+one that changes it, that changes a component with a CHANGELOG without
+lines under `## Unreleased`, or whose app's staged tree has a version in its
+folder name. The Release workflow's `stamp`:
 
 - takes each one changed since its last release (its `<id>@<version>` tag;
   a change is a file it ships), or named in the workflow's input;
 - gives it the next version: a patch, or minor/major when a merged pull
   request that changed it carries the label `release:minor` or
-  `release:major`; a named component with no change gets a patch;
-- writes it into `component.json` and its `versionFiles`, moves the
-  CHANGELOG's `## Unreleased` lines under `## <version>` and leaves an empty
-  `## Unreleased` above;
+  `release:major`; a named component with no change gets a patch, with
+  "No changes." in its CHANGELOG;
+- writes it into a tool's `component.json` and its `versionFiles`
+  (`VERSION = 'x.y.z'`, relative to the tool's folder; the deploy tool's
+  `unit/mgu-deploy.js`), or an app's `mgu-app.json` and its `package/`'s
+  `package.json`, `npm-shrinkwrap.json` and `rhmiData/application.json`;
+  moves the CHANGELOG's `## Unreleased` lines under `## <version>` and
+  leaves an empty `## Unreleased` above;
 - writes the version of each `"requires": {"<id>": "next"}`, and brings that
   component along when it was not chosen;
 - commits `release: <id>@<version>, …` to `main`.
@@ -111,29 +117,16 @@ CHANGELOG without lines under `## Unreleased`. The Release workflow's
 A version stamped but never published (no tag) keeps its number at the next
 run; new Unreleased lines join its section.
 
-**Hand-versioned** (apps, whose staged tree is named `<id>@<version>`, and
-the tools in `HAND_VERSIONED`: `mgu-deploy`, `mgu-updater`). The pull request sets the version with `bump`, and adds its
-CHANGELOG entry under it. For an app `bump` renames the staged tree
-(`git mv apps/<id>/<id>@<old> … @<new>`), rewrites every `<id>@<old>` in the
-repo's text files (build scripts, validators, READMEs; not
-`docs/investigations/`), and sets the version in `package.json`,
-`npm-shrinkwrap.json` and `rhmiData/application.json`. Add the CHANGELOG
-entry, rebuild, commit. For a tool it sets `component.json`'s version, and
-`VERSION = 'x.y.z'` in each file its optional `versionFiles` lists (relative
-to the tool's folder; the deploy tool's `unit/mgu-deploy.js`). Their
-`"requires"` may also name `"next"`; `stamp` resolves it without changing
-their version.
-
-`mgu-repo.json` lists hand-versioned components only (`versions` checks):
-a branch channel lists what the branch holds, so it would offer a
-release-time component's merged change before a release gives it a version.
+`mgu-repo.json` lists the Store for the branch channel. Its version on the
+branch is the one the last release commit wrote; a merged change waiting
+for its release shows there as the same version at a new commit.
 
 ## Reproducible builds
 
 `build`, `check` and `publish` build a clean `git archive HEAD` export, never
 the working tree, with `SOURCE_DATE_EPOCH` set to the time of the last
 commit that touched what the component ships (an app's staged tree
-`<id>@<version>/`, with `mgu-app.json` and its modules; a tool's folder
+`package/`, with `mgu-app.json` and its modules; a tool's folder
 without its notes; the deploy tool's `deploy/unit/` and the linker and
 packer in `tools/`) and a private `TMPDIR`. The app builds take their `build.json` timestamp from it, and
 `tools/oap_pack.js` writes sorted members with fixed owner, mode, mtime and
@@ -220,9 +213,7 @@ build toolchain (Node 22.12.0; Go 1.27.2 for `mgu-uplink`; the runner's
 Docker builds `mgu-render` and `mgu-uplink`'s wpa_supplicant), runs
 `stamp` (Versions, above) and pushes the release commit to `main`, then
 `release.js publish --stamped` with the workflow's own `GITHUB_TOKEN`
-(contents: write). `--stamped` publishes what `stamp` chose: the stamped
-release-time components, the hand-versioned ones selected (all of them
-with no input; those whose version is published publish nothing), and any
+(contents: write). `--stamped` publishes what `stamp` chose, and any
 version tagged but missing from the catalog (a publish that stopped
 part-way). Each is built twice from the release commit and published only
 when both builds give the same bytes. A dry run stamps and builds without

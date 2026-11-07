@@ -35,7 +35,7 @@ import bake_fonts
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, '..')
 # the staged tree's fonts folder: what the Store reads a language's font from
-FONT_DIR = os.path.join(APP, [n for n in os.listdir(APP) if n.startswith('robertn_store@') and os.path.isdir(os.path.join(APP, n))][0], 'fonts')
+FONT_DIR = os.path.join(APP, json.load(open(os.path.join(APP, 'mgu-app.json')))['tree'], 'fonts')
 WEIGHT = 500
 PUNCTUATION = '，。：；？！（）、“”‘’《》【】—…·'
 

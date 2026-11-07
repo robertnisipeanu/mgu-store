@@ -403,7 +403,7 @@ src/locales.js             the languages, written by tools/gen_locales.js
 src/kit_*.js               the kit: record, canvas, vicons, png, themes (MIT, src/LICENSE-kit.txt);
                            kit_fonts.js maps its families onto Inter, and a language's font onto its own atlases
 src/font_regular.js, src/font_semibold.js   Inter glyph atlases (tools/bake_fonts.py)
-robertn_store@<version>/fonts/<font>.json   a language's glyph atlases (tools/bake_inter.py, tools/bake_cjk.py)
+package/fonts/<font>.json   a language's glyph atlases (tools/bake_inter.py, tools/bake_cjk.py)
 lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
 tools/gen_locales.js       src/locales.js from locales/*.json
 tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table, and the RHMI texts
@@ -424,15 +424,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.30/       staged package tree (no javascript/: the build writes it)
+package/       staged package tree (no javascript/: the build writes it; the release names it robertn_store@<version>)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.30.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.30.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@<version>.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@<version>.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

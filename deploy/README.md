@@ -811,11 +811,11 @@ no answer, renames `current` back itself.
 `remove-all`, with everything it installed ("Removing the Store setup").
 `restore` puts back what the tool changed and keeps the tool.
 
-**Version rule.** Bump `deploy/component.json`'s version, and `VERSION` with
-it (`node release/release.js bump mgu-deploy <x.y.z>` sets both), whenever a
-file under `deploy/unit/`, `tools/oap_link.js` or `tools/oap_pack.js`
-changes; `deploy/hu`, `mgu-install.js`, the tests and this README are not part
-of the artifact.
+**Version rule.** The release sets `deploy/component.json`'s version and
+`VERSION` with it (release/README.md, "Versions"). A change to a file under
+`deploy/unit/`, `tools/oap_link.js` or `tools/oap_pack.js` adds its line
+under `## Unreleased` in `deploy/CHANGELOG.md`; `deploy/hu`, `mgu-install.js`,
+the tests and this README are not part of the artifact.
 
 ### Tools
 
