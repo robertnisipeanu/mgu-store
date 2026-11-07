@@ -203,7 +203,7 @@ script. Version and title come from it and the staged tree:
 
 ```json
 { "schema": 1, "id": "robertn_store", "version": "0.4.0",
-  "tree": "robertn_store@0.4.0",
+  "tree": "package",
   "modules": ["src/store.js", "src/store_view.js", "lib/client.js"],
   "sdk": ["oap-sdk/src/core/OnlineApp.js", "oap-sdk/src/logging/logging"] }
 ```

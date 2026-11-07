@@ -1,8 +1,7 @@
 # Releases what changed on main (release/README.md): gives each changed
-# release-time component its next version, commits that to main as
-# "release: ...", then publishes the new versions, and the hand-versioned
-# components whose pull requests raised theirs, to this repository's GitHub
-# Releases with the catalog.json the car's updater reads. Run it by hand
+# component its next version, commits that to main as "release: ...", then
+# publishes the new versions to this repository's GitHub Releases with the
+# catalog.json the car's updater reads. Run it by hand
 # (Actions, Release), with the component ids to release or none for every
 # changed one; a dry run shows the versions and builds them without pushing
 # or publishing.

@@ -545,23 +545,21 @@ function testReleaseGate() {
     check('release gate: a passing record for this version and source lets it publish', gateProblem(c, record({}), src) === null);
     check('release gate: no record refuses it', /no emulator gate record/.test(gateProblem(c, null, src)));
     check('release gate: a record for another source refuses it', /not this source/.test(gateProblem(c, record({}), 'b'.repeat(40))));
-    check('release gate: a record for another version refuses it', /not this source/.test(gateProblem(c, record({ version: '0.6.7' }), src)));
+    check('release gate: a record for another component refuses it', /not this source/.test(gateProblem(c, record({ id: 'mgu-updater' }), src)));
     check('release gate: a record that did not pass refuses it', /did not pass/.test(gateProblem(c, record({ result: 'fail' }), src)));
-    const app = { id: 'robertn_store', kind: 'app', version: '0.9.14' };
-    const appRecord = (o) => Object.assign({ id: 'robertn_store', version: '0.9.14', source: src, result: 'pass', artifactSha256: 'f'.repeat(64) }, o);
-    check('release gate: an app with the tested artifact publishes', gateProblem(app, appRecord({}), src, 'f'.repeat(64)) === null);
-    check('release gate: an app whose artifact differs from the tested one is refused',
-        /the gate tested the artifact f{12}, this build is e{12}/.test(gateProblem(app, appRecord({}), src, 'e'.repeat(64))));
-    const stamped = Object.assign({ stamped: true }, c, { version: '0.6.9' });
-    check('release gate: a release-time component\'s record names its source; the release picks the version',
-        gateProblem(stamped, record({}), src) === null && /not this source/.test(gateProblem(stamped, record({}), 'b'.repeat(40))));
+    check('release gate: the record names the source; the release picks the version',
+        gateProblem(Object.assign({}, c, { version: '0.6.9' }), record({}), src) === null);
+    const app = { id: 'robertn_store', kind: 'app', version: '0.9.15' };
+    check('release gate: an app\'s record names its source too, whatever artifact the gate built',
+        gateProblem(app, { id: 'robertn_store', version: '0.9.14', source: src, result: 'pass', artifactSha256: 'f'.repeat(64) }, src) === null);
     check('release gate: a component outside the gate needs no record',
         gateProblem({ id: 'mgu-updater', version: '0.8.7' }, null, src) === null);
 }
 
-/* A git repository with release-time tools a (1.0.0, with a CHANGELOG) and b
- * (2.0.0, requiring a 1.0.0), and the hand-versioned mgu-updater (0.8.0),
- * each released (tagged). */
+/* A git repository with tools a (1.0.0, with a CHANGELOG) and b (2.0.0,
+ * requiring a 1.0.0), mgu-updater (0.8.0) and the app robertn_x (0.4.0, a
+ * source package in package/ with a CHANGELOG there), each released
+ * (tagged). */
 function versionRepo() {
     const root = tmp('versions');
     const g = (args) => cp.execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
@@ -574,10 +572,19 @@ function versionRepo() {
     write(path.join(root, 'native', 'a', 'CHANGELOG.md'), '# Changelog\n\n## 1.0.0\n\nFirst.\n');
     tool('b', '2.0.0', { requires: { a: '1.0.0' } });
     tool('mgu-updater', '0.8.0');
+    const app = path.join(root, 'apps', 'robertn_x');
+    write(path.join(app, 'release.json'), JSON.stringify({ build: 'true', requires: { 'mgu-updater': '0.8.0' } }, null, 2) + '\n');
+    write(path.join(app, 'mgu-app.json'), JSON.stringify({ schema: 1, id: 'robertn_x', version: '0.4.0', tree: 'package', modules: ['src/x.js'] }, null, 2) + '\n');
+    write(path.join(app, 'src', 'x.js'), 'module.exports = 1;\n');
+    write(path.join(app, 'package', 'package.json'), JSON.stringify({ name: 'robertn_x', version: '0.4.0', mguLocalOnly: true }, null, 2) + '\n');
+    write(path.join(app, 'package', 'npm-shrinkwrap.json'), JSON.stringify({ name: 'robertn_x', version: '0.4.0', lockfileVersion: 1 }, null, 2) + '\n');
+    write(path.join(app, 'package', 'rhmiData', 'application.json'), JSON.stringify({ application: { name: 'robertn_x', version: '0.4.0',
+        entryPoints: [] } }, null, 2) + '\n');
+    write(path.join(app, 'package', 'CHANGELOG.md'), '# Changelog\n\n## 0.4.0\n\nFirst.\n');
     g(['init', '-q']);
     g(['add', '.']);
     g(['commit', '-q', '-m', 'one']);
-    ['a@1.0.0', 'b@2.0.0', 'mgu-updater@0.8.0'].forEach((t) => g(['tag', t]));
+    ['a@1.0.0', 'b@2.0.0', 'mgu-updater@0.8.0', 'robertn_x@0.4.0'].forEach((t) => g(['tag', t]));
     const json = (id) => JSON.parse(fs.readFileSync(path.join(root, 'native', id, 'component.json'), 'utf8'));
     const log = () => fs.readFileSync(path.join(root, 'native', 'a', 'CHANGELOG.md'), 'utf8');
     const change = (rel, text, entry, subject) => {
@@ -649,17 +656,35 @@ function testReleaseVersions() {
     got = r.stamp(['b']);
     check('versions: a tool chosen alone brings what it requires "next" along', got.join() === 'a@1.0.2,b@2.0.2' &&
         r.json('b').requires.a === '1.0.2', got.join());
-    r.change('native/a/run.js', '3\n', 'Fix a third time.');
-    r.requires('mgu-updater', { a: 'next' });
-    got = r.stamp(['mgu-updater']);
-    check('versions: a hand-versioned tool keeps its version; its "next" is resolved and brings the release-time tool along',
-        got.join() === 'a@1.0.3,mgu-updater@0.8.0' && r.json('mgu-updater').version === '0.8.0' &&
-        r.json('mgu-updater').requires.a === '1.0.3', got.join() + JSON.stringify(r.json('mgu-updater')));
-    r.change('native/mgu-updater/component.json', JSON.stringify(Object.assign(r.json('mgu-updater'), { version: '0.8.1' }), null, 2) + '\n');
-    r.requires('b', { 'mgu-updater': 'next' });
-    got = r.stamp(['b']);
-    check('versions: "next" of a hand-versioned tool is the version its pull request set',
-        got.join() === 'b@2.0.3' && r.json('b').requires['mgu-updater'] === '0.8.1', got.join() + JSON.stringify(r.json('b').requires));
+
+    // the app: its version in mgu-app.json and the package's files, its CHANGELOG in package/
+    r = versionRepo();
+    const appFile = (rel) => fs.readFileSync(path.join(r.root, 'apps/robertn_x', rel), 'utf8');
+    const appLog = () => appFile('package/CHANGELOG.md');
+    const appEntry = (entry) => fs.writeFileSync(path.join(r.root, 'apps/robertn_x/package/CHANGELOG.md'),
+        appLog().replace('# Changelog\n\n', `# Changelog\n\n## Unreleased\n\n${entry}\n\n`));
+    appEntry('Faster.');
+    const appSource = r.change('apps/robertn_x/src/x.js', 'module.exports = 2;\n');
+    r.change('apps/robertn_x/release.json', JSON.stringify({ build: 'true', requires: { 'mgu-updater': 'next' } }, null, 2) + '\n');
+    got = r.stamp(['robertn_x']);
+    const x = () => components(r.root).find((c) => c.id === 'robertn_x');
+    check('versions: an app gets its version in mgu-app.json and the package\'s package.json, npm-shrinkwrap.json and application.json',
+        got.join() === 'robertn_x@0.4.1' && x().version === '0.4.1' && JSON.parse(appFile('mgu-app.json')).version === '0.4.1' &&
+        JSON.parse(appFile('package/npm-shrinkwrap.json')).version === '0.4.1' &&
+        JSON.parse(appFile('package/rhmiData/application.json')).application.version === '0.4.1' && JSON.parse(appFile('mgu-app.json')).tree === 'package',
+        got.join());
+    check('versions: an app\'s "next" of an unchanged tool is its version; its CHANGELOG\'s Unreleased lines move under the version',
+        JSON.parse(appFile('release.json')).requires['mgu-updater'] === '0.8.0' &&
+        appLog().startsWith('# Changelog\n\n## Unreleased\n\n## 0.4.1\n\nFaster.\n\n## 0.4.0\n'), appLog());
+    check('versions: an app\'s release commit (versions, "next", the CHANGELOG\'s move) is not its source', sourceCommit(x(), r.root) === appSource);
+    got = r.stamp(['robertn_x', 'a']);
+    check('versions: a component named with no change gets a patch, "No changes." in its CHANGELOG',
+        got.join() === 'robertn_x@0.4.2,a@1.0.1' && appLog().startsWith('# Changelog\n\n## Unreleased\n\n## 0.4.2\n\nNo changes.\n\n## 0.4.1\n') &&
+        r.log().startsWith('# Changelog\n\n## Unreleased\n\n## 1.0.1\n\nNo changes.\n\n## 1.0.0\n'), appLog() + r.log());
+    check('versions: a release of the same content is not the source either', sourceCommit(x(), r.root) === appSource);
+    fs.renameSync(path.join(r.root, 'apps/robertn_x/package'), path.join(r.root, 'apps/robertn_x/robertn_x@0.4.2'));
+    fs.writeFileSync(path.join(r.root, 'apps/robertn_x/mgu-app.json'), appFile('mgu-app.json').replace('"package"', '"robertn_x@0.4.2"'));
+    check('versions: an app\'s tree with its version in its name is still read', x().version === '0.4.2' && x().tree === 'robertn_x@0.4.2');
 
     r = versionRepo();
     r.change('native/a/run.js', '1\n', 'Fix.');
@@ -691,17 +716,14 @@ function testReleaseVersions() {
     const mixed = r.change('native/a/component.json', JSON.stringify(Object.assign(r.json('a'), { version: '1.0.2', title: 'A' }), null, 2) + '\n',
         null, 'release: a@1.0.2');
     check('versions: a commit named as a release that changes more than the version is the source', sourceCommit(a(), r.root) === mixed);
-    // "requires" on one line, as the repository writes it; a hand-versioned tool's "next" resolved
+    // "requires" on one line, as the repository writes it
     const oneLine = (id, version, req) => `{\n  "id": "${id}",\n  "kind": "tool",\n  "version": "${version}",\n  "title": "${id}",\n` +
         `  "requires": { "a": "${req}", "c": "1.0.0" },\n  "files": []\n}\n`;
     r.change('native/b/component.json', oneLine('b', '2.0.0', 'next'));
-    const hand = r.change('native/mgu-updater/component.json', oneLine('mgu-updater', '0.8.1', 'next'));
-    r.stamp(['b', 'mgu-updater']);
+    r.stamp(['b']);
     const b = components(r.root).find((c) => c.id === 'b');
-    const updater = components(r.root).find((c) => c.id === 'mgu-updater');
     check('versions: "next" resolved in a one-line "requires" is no source change',
         b.version === '2.0.1' && b.requires.a === '1.0.2' && sourceCommit(b, r.root) !== r.g(['rev-parse', 'HEAD']), JSON.stringify(b.requires));
-    check('versions: a hand-versioned tool\'s resolved "next" is no source change', sourceCommit(updater, r.root) === hand);
     const raised = r.change('native/b/component.json', oneLine('b', '2.0.1', '1.0.2').replace('"c": "1.0.0"', '"c": "1.1.0"'),
         null, 'release: b@2.0.1');
     check('versions: a release commit raising another requirement is the source', sourceCommit(b, r.root) === raised);
