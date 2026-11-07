@@ -419,8 +419,10 @@ function repoEntries(doc, listDir) {
  * package.json, in its folder). A tool is its folder's component.json, or a
  * service the entry describes; neither has a build step.
  * revision: the short commit shown for a component (a branch channel).
+ * On a branch channel each component has its content (contentOf) at the
+ * commit from treeOf() (resolves with the commit's tree, null when unknown).
  * Components that cannot be used are left out, each reason in `skipped`. */
-function repoCatalog(readFile, commit, revision, listDir) {
+function repoCatalog(readFile, commit, revision, listDir, treeOf) {
     return readFile('mgu-repo.json').then((buf) => {
         const doc = parseJson(buf, 'mgu-repo.json');
         if (!doc || doc.schema !== 1 || !(Array.isArray(doc.components) || doc.apps !== undefined || Array.isArray(doc.tools))) {
@@ -505,7 +507,9 @@ function repoCatalog(readFile, commit, revision, listDir) {
                         preload: rc.kind === 'tool' && rc.preload !== undefined ? checkPreload(rc.preload) : null,
                         mguNeeds: pick('needs') !== undefined ? pick('needs') : pick('mguNeeds'),
                         icon: iconRef || undefined,
-                        commit: commit || null, revision: revision || null
+                        commit: commit || null, revision: revision || null,
+                        // what its content is read from (contentOf)
+                        contentSpec: revision ? contentSpec(rc, script) : null
                     }), rhmi ? { icon: { ref: iconRef, sha256: null, entryPoint: true } } : {})]);
                 })
                 .catch((err) => {
@@ -518,8 +522,74 @@ function repoCatalog(readFile, commit, revision, listDir) {
                     }
                     return list;
                 });
-        }), Promise.resolve([])).then((components) => ({ mode: 'repo', commit, components, skipped }));
+        }), Promise.resolve([])).then((components) => {
+            // a build script that names no shared files reads the whole repo: all of it but the other apps' folders
+            const apps = components.filter((c) => c.kind === 'app').map((c) => c.path);
+            components.forEach((c) => {
+                if (c.contentSpec && c.contentSpec.paths[0] === '') {
+                    c.contentSpec.skip = apps.filter((p) => p !== c.path);
+                }
+            });
+            return (treeOf && revision ? treeOf() : Promise.resolve(null)).then((tree) => {
+                components.forEach((c) => {
+                    if (c.contentSpec) {
+                        c.content = tree ? contentOf(tree, c.contentSpec) : null;
+                    }
+                });
+                return { mode: 'repo', commit, components, skipped };
+            });
+        });
     });
+}
+
+/* Where a repo-tree component's content (contentOf) is read from: its
+ * folder; for an app a build script makes, also the files its build.shared
+ * names and the script, or, when it names none, the whole repo. listing:
+ * its mgu-repo.json entry, a change of which is a change of it too. */
+function contentSpec(rc, script) {
+    const listing = crypto.createHash('sha256').update(JSON.stringify(rc)).digest('hex');
+    if (!script) {
+        return { paths: [rc.path], skip: [], listing };
+    }
+    const shared = rc.build && Array.isArray(rc.build.shared) && rc.build.shared.length && rc.build.shared.every((p) => typeof p === 'string' && safeRel(p))
+        ? rc.build.shared : null;
+    const run = [rc.build.python, rc.build.node].filter((p) => typeof p === 'string' && safeRel(p));
+    return shared ? { paths: [rc.path].concat(shared, run), skip: [], listing } : { paths: [''], skip: [], listing };
+}
+
+/* What a repo-tree component is made of at a commit, from the commit's
+ * tree ({ sha: the root tree's id, entries: [{ path, sha }] }, git's
+ * recursive listing): the git ids of everything under spec.paths ('' the
+ * whole repo; one not there counts as missing), leaving out the folders in
+ * spec.skip, together with spec.listing. Two commits give the same content
+ * exactly when none of that differs. null when the first path, the
+ * component's own, is not there. */
+function contentOf(tree, spec) {
+    const sha = new Map(tree.entries.map((e) => [e.path, e.sha]));
+    const children = new Map();
+    tree.entries.forEach((e) => {
+        const parent = e.path.indexOf('/') < 0 ? '' : e.path.slice(0, e.path.lastIndexOf('/'));
+        children.set(parent, (children.get(parent) || []).concat([e.path]));
+    });
+    const holds = (p) => spec.skip.some((s) => p === '' || s.indexOf(`${p}/`) === 0);
+    const ids = [];
+    const walk = (p) => {
+        if (spec.skip.indexOf(p) >= 0) {
+            return;
+        }
+        if (p !== '' && !sha.has(p)) {
+            ids.push(`${p} -`);
+        } else if (holds(p)) {
+            (children.get(p) || []).sort().forEach(walk);
+        } else {
+            ids.push(`${p} ${p === '' ? tree.sha : sha.get(p)}`);
+        }
+    };
+    if (spec.paths[0] !== '' && !sha.has(spec.paths[0])) {
+        return null;
+    }
+    spec.paths.forEach(walk);
+    return crypto.createHash('sha256').update(`${spec.listing}\n${ids.join('\n')}`).digest('hex');
 }
 
 const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
@@ -1473,6 +1543,14 @@ function githubReader(s, ctx) {
 
     const releasesList = (n) => json(`${repoUrl}/releases?per_page=${n}`, 'releases.json').then((r) => (Array.isArray(r) ? r : []));
 
+    // a commit's tree for contentOf, through the API with or without a token (GitHub's web hosts give none)
+    const treeAt = (sha) => json(`${repoUrl}/git/trees/${sha}?recursive=1`, 'tree.json').then((t) => {
+        if (!t || t.truncated || typeof t.sha !== 'string' || !Array.isArray(t.tree)) {
+            throw new Error(t && t.truncated ? 'the tree is too large to list' : 'not a tree');
+        }
+        return { sha: t.sha, entries: t.tree.filter((e) => e && typeof e.path === 'string' && typeof e.sha === 'string').map((e) => ({ path: e.path, sha: e.sha })) };
+    });
+
     const atCommit = (sha, revision) => {
         if (!/^[0-9a-f]{40}$/.test(sha || '')) {
             throw new Error('no commit to read');
@@ -1497,7 +1575,14 @@ function githubReader(s, ctx) {
             }
             return items.filter((i) => i && i.type === 'dir' && typeof i.name === 'string').map((i) => i.name);
         }, failed);
-        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null, listDir).then((cat) => Object.assign(cat, { memoKey: unsure ? null : key }), (e) => {
+        // read (an API request) only while something is installed from this source's branch; a tree that
+        // cannot be read leaves the content unknown, and the listing is read again next time
+        const treeOf = () => (!(ctx.needContent && ctx.needContent()) ? Promise.resolve(null) : treeAt(sha).catch((e) => {
+            unsure = true;
+            console.log(`source ${s.id}: no tree at ${sha.slice(0, 7)}: ${e.message}`);
+            return null;
+        }));
+        return repoCatalog(readFile, sha, revision ? sha.slice(0, 7) : null, listDir, treeOf).then((cat) => Object.assign(cat, { memoKey: unsure ? null : key }), (e) => {
             throw e.missing ? new Error(`no mgu-repo.json at ${sha.slice(0, 7)}`) : e;
         });
     };
@@ -1639,6 +1724,8 @@ function githubReader(s, ctx) {
                 ? tokenOrNone((anon) => fileAt(entry.commit, rel, max, anon))
                 : Promise.reject(new Error('an icon path stays inside the repo'))))
                 : Promise.reject(new Error('an icon is a release asset, an https url or a file of the repo tree'))),
+        // a repo-tree component's content (contentOf) at another commit
+        contentAt: (commit, spec) => treeAt(commit).then((tree) => contentOf(tree, spec)),
         files: (commit, onProgress, under) => tokenOrNone((anon) => tarball(commit, onProgress, anon))
             .then((buf) => tar.untgz(buf, ctx.maxBuildBytes))
             // the tarball's one top folder (<owner>-<repo>-<sha>/) is left off
@@ -1881,7 +1968,7 @@ function label(s) {
 
 module.exports = {
     load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
-    repoCatalog, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
+    repoCatalog, contentSpec, contentOf, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
     renameable, renameApp, packageId, uuid5, orderBranches, entryIcons, isIcon, safePath, parseRefs, REPO, CHANNEL, PACKAGE, ICON_BYTES,
     RATE_LIMIT
 };
