@@ -13,9 +13,56 @@ const tr = i18n.t;
 const PHASE = { download: 'Downloading', verify: 'Verifying', build: 'Building', install: 'Installing',
     uninstall: 'Removing', check: 'Checking' };
 
+/* Minutes the HMI's clock is ahead of UTC (setClusterTime), null while the
+ * instrument cluster reports no valid time. */
+let clockOffset = null;
+
+const HOUR_MS = 3600000;
+const QUARTER_MS = 900000;
+const CLUSTER_UNFILLED = 15;
+
+/* The HMI's clock is the instrument cluster's display time (KombiIF
+ * statusShowTimeDate): its time zone and summer time are the ones set on
+ * the head unit. The offset is that time less now in UTC, in quarter
+ * hours. The HMI shows the time while statusDisplayClockTimeDate is odd
+ * and --:-- while it is even; 15 (unfilled) leaves the clock as it is.
+ * Returns whether the offset changed. */
+function setClusterTime(show, now) {
+    const status = show && show.statusDisplayClockTimeDate;
+    if (status === CLUSTER_UNFILLED || typeof status !== 'number') {
+        return false;
+    }
+    let offset = null;
+    if (status % 2 === 1 && show.displayHour < 24 && show.displayMinute < 60) {
+        const sec = show.displaySecond < 60 ? show.displaySecond : 0;
+        const dated = show.displayDateDay >= 1 && show.displayDateDay <= 31 && show.displayDateMonth >= 1 &&
+            show.displayDateMonth <= 12 && show.displayDateYear >= 2000 && show.displayDateYear < 2100;
+        let diff;
+        if (dated) {
+            diff = Date.UTC(show.displayDateYear, show.displayDateMonth - 1, show.displayDateDay,
+                show.displayHour, show.displayMinute, sec) - now;
+        } else {
+            const day = 24 * HOUR_MS;
+            diff = ((((show.displayHour * 60 + show.displayMinute) * 60 + sec) * 1000 - now) % day + day) % day;
+            diff = diff > 12 * HOUR_MS ? diff - day : diff;
+        }
+        const minutes = Math.round(diff / QUARTER_MS) * 15;
+        offset = Math.abs(minutes) <= 14 * 60 ? minutes : null;
+    }
+    const changed = offset !== clockOffset;
+    clockOffset = offset;
+    return changed;
+}
+
+/* A time as the HMI's clock shows it: in the head unit's time zone once
+ * the cluster reports it, else the system's. */
 function clock(ms) {
-    const d = new Date(ms);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    if (clockOffset === null) {
+        const d = new Date(ms);
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+    const d = new Date(ms + clockOffset * 60000);
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
 function percent(busy) {
@@ -459,6 +506,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { setupable, proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { setClusterTime, clock, setupable, proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

@@ -75,7 +75,7 @@ const { typeKey, wifiOf, proxyOf } = require('./store_ui.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
     loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage,
-    removable, requiredAlone, undoable, withSources, listed, localized, proxyUrlError } = require('./store_view.js');
+    removable, requiredAlone, undoable, withSources, listed, localized, proxyUrlError, setClusterTime } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 const tr = i18n.t;
@@ -101,6 +101,7 @@ const TOKEN_ADD_MS = 30000;             // how long Add token says "Checking tok
 const FOCUS_BACK_MS = 2000;             // how long a page waits for the HMI to give the focus back from the speller
 const PROBE_MS = 30000;                 // how long a repo being added waits for the updater's answer
 const IF_FRONTCCU = 'de.bmw.infotainment.controlelements.FrontCCU';
+const IF_KOMBI = 'de.bmw.infotainment.KombiIF';
 /* The HMI's context, by the instance of the CID: iDrive 7's HMI offers the first, iDrive 8's the second. */
 const HMI_CONTEXTS = [['de.bmw.infotainment.hmi.hmicontext.HMIContext', 'HMI_CID'],
     ['de.bmw.infotainment.hmi.hmicontext2.HMIContext2', '1']];
@@ -351,6 +352,7 @@ class Store extends OnlineApp {
         const foregroundStart = this._startedForeground();
         return this._setupRhmi()
             .then(() => this._setupLanguage())
+            .then(() => this._setupClusterClock())
             .then(() => this._setupController())
             .then(() => this._rendererAnswer())
             .then(() => this._registerEntryPoints())
@@ -410,6 +412,25 @@ class Store extends OnlineApp {
             this._forgetWritten();
             this._render();
         }
+    }
+
+    /* Times show as the HMI's clock does, in the head unit's time zone: from
+     * the instrument cluster's display time (store_view.js setClusterTime),
+     * read at start and on each change; the system's time zone without it. */
+    _setupClusterClock() {
+        let proxy;
+        const show = (v) => {
+            if (setClusterTime(v, Date.now())) {
+                this._render();
+            }
+        };
+        someipBuilders.buildTypedProxy(IF_KOMBI, '1')
+            .then((p) => { proxy = p; return proxy.init(); })
+            .then(() => proxy.waitUntilAvailable())
+            .then(() => proxy.statusShowTimeDate.subscribe(show))
+            .then(() => proxy.statusShowTimeDate.getValue())
+            .then(show)
+            .catch((err) => logger.warn(`cluster clock unavailable: ${err && err.message}`));
     }
 
     /* The controller for the drawn screens in embed mode (src/store_drawn.js

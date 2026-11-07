@@ -67,6 +67,14 @@
         "statusRotaryEncoderState": "rs"
       }
     },
+    "de.bmw.infotainment.KombiIF": {
+      "instances": [
+        "1"
+      ],
+      "attributes": {
+        "statusShowTimeDate": "rs"
+      }
+    },
     "de.bmw.infotainment.hmi.hmicontext.HMIContext": {
       "instances": [
         "HMI_CID"
