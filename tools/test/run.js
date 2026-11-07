@@ -552,14 +552,152 @@ function testReleaseGate() {
     check('release gate: an app with the tested artifact publishes', gateProblem(app, appRecord({}), src, 'f'.repeat(64)) === null);
     check('release gate: an app whose artifact differs from the tested one is refused',
         /the gate tested the artifact f{12}, this build is e{12}/.test(gateProblem(app, appRecord({}), src, 'e'.repeat(64))));
+    const stamped = Object.assign({ stamped: true }, c, { version: '0.6.9' });
+    check('release gate: a release-time component\'s record names its source; the release picks the version',
+        gateProblem(stamped, record({}), src) === null && /not this source/.test(gateProblem(stamped, record({}), 'b'.repeat(40))));
     check('release gate: a component outside the gate needs no record',
         gateProblem({ id: 'mgu-updater', version: '0.8.7' }, null, src) === null);
+}
+
+/* A git repository with release-time tools a (1.0.0, with a CHANGELOG) and b
+ * (2.0.0, requiring a 1.0.0), and the hand-versioned mgu-updater (0.8.0),
+ * each released (tagged). */
+function versionRepo() {
+    const root = tmp('versions');
+    const g = (args) => cp.execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
+        .concat(args), { cwd: root, encoding: 'utf8' }).trim();
+    const tool = (id, version, extra) => write(path.join(root, 'native', id, 'component.json'),
+        JSON.stringify(Object.assign({ id, kind: 'tool', version, title: id, files: [] }, extra), null, 2) + '\n');
+    fs.mkdirSync(path.join(root, 'apps'));
+    tool('a', '1.0.0', { versionFiles: ['a.js'] });
+    write(path.join(root, 'native', 'a', 'a.js'), "const VERSION = '1.0.0';\n");
+    write(path.join(root, 'native', 'a', 'CHANGELOG.md'), '# Changelog\n\n## 1.0.0\n\nFirst.\n');
+    tool('b', '2.0.0', { requires: { a: '1.0.0' } });
+    tool('mgu-updater', '0.8.0');
+    g(['init', '-q']);
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'one']);
+    ['a@1.0.0', 'b@2.0.0', 'mgu-updater@0.8.0'].forEach((t) => g(['tag', t]));
+    const json = (id) => JSON.parse(fs.readFileSync(path.join(root, 'native', id, 'component.json'), 'utf8'));
+    const log = () => fs.readFileSync(path.join(root, 'native', 'a', 'CHANGELOG.md'), 'utf8');
+    const change = (rel, text, entry, subject) => {
+        fs.writeFileSync(path.join(root, rel), text);
+        if (entry) {
+            const t = log();
+            fs.writeFileSync(path.join(root, 'native', 'a', 'CHANGELOG.md'), t.indexOf('## Unreleased\n') >= 0 ?
+                t.replace('## Unreleased\n\n', `## Unreleased\n\n${entry}\n`) : t.replace('# Changelog\n\n', `# Changelog\n\n## Unreleased\n\n${entry}\n\n`));
+        }
+        g(['add', '.']);
+        g(['commit', '-q', '-m', subject || rel]);
+        return g(['rev-parse', 'HEAD']);
+    };
+    const requires = (id, r) => change(`native/${id}/component.json`, JSON.stringify(Object.assign(json(id), { requires: r }), null, 2) + '\n');
+    const stamp = (ids) => {
+        const steps = rel.plan(rel.components(root), ids || [], root);
+        rel.writePlan(root, steps);
+        if (g(['status', '--porcelain'])) {
+            g(['commit', '-q', '-am', `release: ${steps.map((p) => `${p.c.id}@${p.version}`).join(', ')}`]);
+        }
+        steps.forEach((p) => g(['tag', '-f', `${p.c.id}@${p.version}`]));
+        return steps.map((p) => `${p.c.id}@${p.version}`);
+    };
+    const rel = require(path.join(REPO, 'release', 'release.js'));
+    return { root, g, change, requires, stamp, json, log, rel };
+}
+
+/* release.js stamp: release-time versions, the CHANGELOG's Unreleased section, "requires" of "next". */
+function testReleaseVersions() {
+    const { bumpVersion, releaseChangelog, plan, writePlan, components, prLabels, sourceCommit } = require(path.join(REPO, 'release', 'release.js'));
+    process.env.MGU_RELEASE_LABELS = 'off';
+    check('versions: patch, minor and major steps', bumpVersion('0.6.2', 'patch') === '0.6.3' &&
+        bumpVersion('0.6.2', 'minor') === '0.7.0' && bumpVersion('0.6.2', 'major') === '1.0.0');
+
+    let r = versionRepo();
+    check('versions: nothing changed since the tags, nothing to release', plan(components(r.root), [], r.root).length === 0);
+    r.change('native/a/run.js', '1\n', 'Fix one.');
+    let got = r.stamp();
+    check('versions: a changed tool gets a patch; the others keep theirs', got.join() === 'a@1.0.1', got.join());
+    check('versions: the version is written into component.json and the version files',
+        r.json('a').version === '1.0.1' && fs.readFileSync(path.join(r.root, 'native/a/a.js'), 'utf8') === "const VERSION = '1.0.1';\n");
+    check('versions: the Unreleased lines move under the version, an empty Unreleased above',
+        r.log().startsWith('# Changelog\n\n## Unreleased\n\n## 1.0.1\n\nFix one.\n\n## 1.0.0\n'), r.log());
+    prLabels.set(r.change('native/a/run.js', '2\n', 'New thing.'), ['enhancement', 'release:minor']);
+    got = r.stamp();
+    check('versions: release:minor gives a minor', got.join() === 'a@1.1.0', got.join());
+    prLabels.set(r.change('native/a/run.js', '3\n', 'Breaks.'), ['release:minor', 'release:major']);
+    got = r.stamp();
+    check('versions: the highest label wins', got.join() === 'a@2.0.0', got.join());
+    got = r.stamp(['b']);
+    check('versions: a tool named without a change gets a patch of the same content', got.join() === 'b@2.0.1', got.join());
+
+    r = versionRepo();
+    r.change('native/a/run.js', '1\n', 'First fix.');
+    r.change('native/a/run.js', '2\n', 'Second fix.');
+    got = r.stamp();
+    check('versions: two changes give one version with both entries',
+        got.join() === 'a@1.0.1' && r.log().indexOf('## 1.0.1\n\nSecond fix.\nFirst fix.\n\n## 1.0.0') >= 0, r.log());
+    check('versions: released, nothing left', r.stamp().length === 0);
+
+    r = versionRepo();
+    r.change('native/a/run.js', '1\n', 'Fix.');
+    r.requires('b', { a: 'next' });
+    got = r.stamp();
+    check('versions: "next" is the version released with it', got.join() === 'a@1.0.1,b@2.0.1' &&
+        JSON.stringify(r.json('b').requires) === '{"a":"1.0.1"}', got.join() + JSON.stringify(r.json('b').requires));
+    r.change('native/a/run.js', '2\n', 'Fix again.');
+    r.requires('b', { a: 'next' });
+    got = r.stamp(['b']);
+    check('versions: a tool chosen alone brings what it requires "next" along', got.join() === 'a@1.0.2,b@2.0.2' &&
+        r.json('b').requires.a === '1.0.2', got.join());
+    r.change('native/a/run.js', '3\n', 'Fix a third time.');
+    r.requires('mgu-updater', { a: 'next' });
+    got = r.stamp(['mgu-updater']);
+    check('versions: a hand-versioned tool keeps its version; its "next" is resolved and brings the release-time tool along',
+        got.join() === 'a@1.0.3,mgu-updater@0.8.0' && r.json('mgu-updater').version === '0.8.0' &&
+        r.json('mgu-updater').requires.a === '1.0.3', got.join() + JSON.stringify(r.json('mgu-updater')));
+    r.change('native/mgu-updater/component.json', JSON.stringify(Object.assign(r.json('mgu-updater'), { version: '0.8.1' }), null, 2) + '\n');
+    r.requires('b', { 'mgu-updater': 'next' });
+    got = r.stamp(['b']);
+    check('versions: "next" of a hand-versioned tool is the version its pull request set',
+        got.join() === 'b@2.0.3' && r.json('b').requires['mgu-updater'] === '0.8.1', got.join() + JSON.stringify(r.json('b').requires));
+
+    r = versionRepo();
+    r.change('native/a/run.js', '1\n', 'Fix.');
+    writePlan(r.root, plan(components(r.root), [], r.root));   // stamped, never tagged: the publish did not happen
+    r.g(['commit', '-q', '-am', 'release: a@1.0.1']);
+    r.change('native/a/run.js', '2\n', 'Another fix.');
+    got = r.stamp();
+    check('versions: a version stamped and not released keeps its number; later entries join its section',
+        got.join() === 'a@1.0.1' && r.log().startsWith('# Changelog\n\n## Unreleased\n\n## 1.0.1\n\nAnother fix.\n\nFix.\n\n## 1.0.0\n'), r.log());
+    check('versions: two Unreleased headings (a union merge) are one section',
+        releaseChangelog('# C\n\n## Unreleased\n\nOne.\n\n## Unreleased\n\nTwo.\n\n## 1.0.0\n\nx\n', '1.0.1') ===
+        '# C\n\n## Unreleased\n\n## 1.0.1\n\nOne.\n\nTwo.\n\n## 1.0.0\n\nx\n');
+
+    r = versionRepo();
+    r.change('native/a/run.js', '1\n');
+    check('versions: a change without its Unreleased entry stops the release',
+        /Unreleased/.test(String(throws(() => writePlan(r.root, plan(components(r.root), [], r.root))))));
+    r.requires('b', { 'mgu-deploy': 'next' });
+    check('versions: "next" names a component of this repository only',
+        /names a component of this repository only/.test(String(throws(() => components(r.root)))));
+
+    // the gate's source: what the component does, without the release commit that only set its version
+    r = versionRepo();
+    const content = r.change('native/a/run.js', '1\n', 'Fix.');
+    r.stamp();
+    const a = () => components(r.root).find((c) => c.id === 'a');
+    check('versions: a release commit that only stamped the version is not the source', sourceCommit(a(), r.root) === content);
+    r.change('native/a/run.js', '2\n', 'Fix.');
+    const mixed = r.change('native/a/component.json', JSON.stringify(Object.assign(r.json('a'), { version: '1.0.2', title: 'A' }), null, 2) + '\n',
+        null, 'release: a@1.0.2');
+    check('versions: a commit named as a release that changes more than the version is the source', sourceCommit(a(), r.root) === mixed);
 }
 
 try {
     testReleaseRequires();
     testReleaseTexts();
     testReleaseGate();
+    testReleaseVersions();
     testUntar();
     testUnitDonors();
     testHostileDonor();

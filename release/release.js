@@ -10,8 +10,10 @@
  *   node release/release.js list                      components, versions, publish state
  *   node release/release.js build [<id>...]           reproducible build of HEAD into release/out/
  *   node release/release.js check [<id>...]           build twice, compare the artifacts
- *   node release/release.js bump <id> <version>       set a component's version
- *   node release/release.js publish [<id>...] [--dry-run]
+ *   node release/release.js bump <id> <version>       set a hand-versioned component's version
+ *   node release/release.js versions <base>           a pull request's checks against its base commit
+ *   node release/release.js stamp [<id>...]           next versions into the tree, the release commit
+ *   node release/release.js publish [<id>...|--stamped] [--dry-run]
  *                                                     upload new versions, then the catalog
  *
  * A component in GATED publishes a new version to GitHub only with a passing
@@ -22,6 +24,14 @@
  * with SOURCE_DATE_EPOCH set to the last commit that touched what the
  * component ships (an app's staged tree, a tool's folder): the same tree
  * always gives the same bytes, so one version has exactly one artifact.
+ *
+ * Apps and the tools in HAND_VERSIONED carry the version their pull requests
+ * give them. Every other tool's version is set by the release: `stamp` gives
+ * each one changed since its last release (its <id>@<version> tag), or named,
+ * the next version, writes it into the tree with the CHANGELOG's Unreleased
+ * section under it and each "requires" of "next" resolved, and commits that.
+ * A pull request's labels release:minor and release:major raise the step
+ * from a patch.
  */
 const fs = require('fs');
 const os = require('os');
@@ -33,6 +43,10 @@ const REPO = path.resolve(__dirname, '..');
 const OUT = path.join(__dirname, 'out');
 // what draws an app's picture: published only after tools/emu-gate passed on its source
 const GATED = ['mgu-render', 'robertn_store'];
+// tools whose pull requests set their versions, as every app's do: a broken
+// release of these is repaired through the Store, so they move to release-time
+// versions one at a time
+const HAND_VERSIONED = ['mgu-deploy', 'mgu-render', 'mgu-updater', 'mgu-uplink'];
 const DEPLOY = path.join('deploy', 'hu');
 const publishTarget = require('./publish');
 const { compareVersions, hmiList, textsOf, SEMVER } = require('../native/mgu-updater/js/catalog.js');
@@ -72,14 +86,18 @@ function appTitle(stagedDir) {
  * prefix. */
 const APP_ID_PREFIX = 'robertn_';
 
+/* "requires" may name this repository's component at "next": the version it
+ * has after the next release, which `stamp` writes in. */
+const NEXT = 'next';
+
 /* The catalog fields beyond schema 1 (release/README.md), from an app's
  * release.json or a tool's component.json. */
 function catalogFields(from, where) {
     const out = {};
     if (from.requires !== undefined) {
-        if (!from.requires || typeof from.requires !== 'object' ||
-            !Object.keys(from.requires).every((id) => SEMVER.test(from.requires[id]))) {
-            throw new Error(`${where}: "requires" maps component ids to x.y.z versions`);
+        if (!from.requires || typeof from.requires !== 'object' || Array.isArray(from.requires) ||
+            !Object.keys(from.requires).every((id) => SEMVER.test(from.requires[id]) || from.requires[id] === NEXT)) {
+            throw new Error(`${where}: "requires" maps component ids to x.y.z versions or "${NEXT}"`);
         }
         out.requires = from.requires;
     }
@@ -165,6 +183,8 @@ function components(root = REPO) {
             title: appTitle(stagedDir),
             description: pkg.description || '',
             release,
+            // the staged tree's folder names its version: set by the pull request
+            stamped: false,
             build: manifest ? 'unit' : null,
             shipped: [`apps/${id}/${id}@${version}`].concat(manifest ?
                 [`apps/${id}/mgu-app.json`].concat(manifest.modules.map((m) => `apps/${id}/${m}`)) : []),
@@ -187,9 +207,11 @@ function components(root = REPO) {
             dir,
             title: c.title || id,
             description: c.description || '',
+            stamped: !HAND_VERSIONED.includes(id),
             build: null,
             // source files that carry the version too, as VERSION = 'x.y.z'
             versionFiles: c.versionFiles || [],
+            changelog: `${dir}/CHANGELOG.md`,
             shipped,
             artifact: null
         }, catalogFields(c, `${dir}/component.json`)));
@@ -206,6 +228,11 @@ function components(root = REPO) {
         if (texts[c.id]) {
             c.texts = texts[c.id];
         }
+        Object.keys(c.requires || {}).forEach((id) => {
+            if (c.requires[id] === NEXT && !out.some((x) => x.id === id)) {
+                throw new Error(`${c.dir}: requires ${id}: "${NEXT}" names a component of this repository only`);
+            }
+        });
     });
     return out;
 }
@@ -236,10 +263,40 @@ function sourceEpoch(c) {
  * brings the change in unaltered keeps it (history simplification follows the
  * parent it came from). An app's build also copies files in from elsewhere;
  * its artifact builds to the same bytes on the Mac and in CI (Reproducible
- * builds), so its record names those. */
-function sourceCommit(c) {
-    const packer = c.kind === 'tool' ? ['deploy/hu', 'tools/oap_pack.js'] : [];
-    return git(['log', '-1', '--format=%H', 'HEAD', '--'].concat(c.shipped, packer));
+ * builds), so its record names those. A release commit that only wrote the
+ * component's version and resolved its "requires" (stamp) is passed over: the
+ * gate tests what the component does, built at the version it would get. */
+function sourceCommit(c, repo = REPO) {
+    const paths = c.shipped.concat(c.kind === 'tool' ? ['deploy/hu', 'tools/oap_pack.js'] : []);
+    const commits = git(['log', '--format=%H', 'HEAD', '--'].concat(paths), { cwd: repo }).split('\n').filter(Boolean);
+    return commits.find((sha) => !(c.stamped && stampOnly(c, sha, paths, repo))) || '';
+}
+
+/* Whether a commit is a release commit that changes nothing of what c ships
+ * but its version (component.json "version", each versionFiles' VERSION) and
+ * a "requires" of "next" turned into a version. */
+function stampOnly(c, sha, paths, repo) {
+    const [subject, parents] = git(['show', '-s', '--format=%s%n%P', sha], { cwd: repo }).split('\n');
+    if (!subject.startsWith('release: ') || parents.split(' ').length !== 1) {
+        return false;
+    }
+    const files = [`${c.dir}/component.json`].concat(c.versionFiles.map((f) => `${c.dir}/${f}`));
+    const v = '\\d+\\.\\d+\\.\\d+';
+    const lines = [
+        new RegExp(`^[-+]\\s*"version": "${v}",?$`),
+        new RegExp(`^[-+].*\\bVERSION = '${v}'`),
+        new RegExp(`^-\\s*"[A-Za-z0-9_.-]+": "${NEXT}",?$`),
+        new RegExp(`^\\+\\s*"[A-Za-z0-9_.-]+": "${v}",?$`)
+    ];
+    return git(['diff', '-U0', '--no-renames', `${sha}^`, sha, '--'].concat(paths), { cwd: repo }).split('\n').every((l) => {
+        if (/^(diff --git |index |--- a\/|@@ |\\ )/.test(l)) {
+            return true;
+        }
+        if (l.startsWith('+++ ')) {
+            return files.includes(l.slice('+++ b/'.length));
+        }
+        return lines.some((re) => re.test(l));
+    });
 }
 
 /* Why a gated component's version may not be published: no gate record, or
@@ -253,7 +310,8 @@ function gateProblem(c, record, source, sha256) {
     if (!record) {
         return `${c.id}@${c.version} has no emulator gate record: ${run}`;
     }
-    if (record.id !== c.id || record.version !== c.version || record.source !== source) {
+    // a release-time component's record names the source; the release picks the version
+    if (record.id !== c.id || (!c.stamped && record.version !== c.version) || record.source !== source) {
         return `${c.id}@${c.version}: the gate record is for ${record.id}@${record.version} at ${String(record.source).slice(0, 12)}, ` +
             `not this source (${source.slice(0, 12)}): ${run}`;
     }
@@ -273,11 +331,12 @@ function gateRecord(id) {
     return r.status === 0 ? JSON.parse(r.stdout) : null;
 }
 
-function exportHead() {
+/* A commit's tree (HEAD's) in a new folder. */
+function exportHead(commit = 'HEAD') {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-release-'));
-    const tar = cp.spawnSync('sh', ['-c', 'git archive HEAD | tar -x -C "$1"', 'sh', dir], { cwd: REPO, stdio: 'inherit' });
+    const tar = cp.spawnSync('sh', ['-c', 'git archive "$2" | tar -x -C "$1"', 'sh', dir, commit], { cwd: REPO, stdio: 'inherit' });
     if (tar.status !== 0) {
-        throw new Error('git archive HEAD failed');
+        throw new Error(`git archive ${commit} failed`);
     }
     return dir;
 }
@@ -505,24 +564,14 @@ function cmdBump(id, version) {
     if (!c) {
         throw new Error(`no component "${id}"`);
     }
+    if (c.stamped) {
+        throw new Error(`${id}: the release sets its version (release/README.md, "Versions")`);
+    }
     if (compareVersions(version, c.version) <= 0) {
         throw new Error(`${id} is at ${c.version}; the new version must be higher`);
     }
     if (c.kind === 'tool') {
-        const edits = [['component.json', `"version": "${c.version}"`, `"version": "${version}"`]]
-            .concat(c.versionFiles.map((rel) => [rel, `VERSION = '${c.version}'`, `VERSION = '${version}'`]));
-        // every file names the old version once, or none is written
-        const texts = edits.map(([rel, from]) => {
-            const text = fs.readFileSync(path.join(REPO, c.dir, rel), 'utf8');
-            if (text.split(from).length !== 2) {
-                throw new Error(`${c.dir}/${rel}: expected ${from} once`);
-            }
-            return text;
-        });
-        edits.forEach(([rel, from, to], i) => {
-            fs.writeFileSync(path.join(REPO, c.dir, rel), texts[i].replace(from, to));
-            console.log(`${c.dir}/${rel}: ${c.version} -> ${version}`);
-        });
+        writeToolVersion(REPO, c, version).forEach((rel) => console.log(`${c.dir}/${rel}: ${c.version} -> ${version}`));
         return;
     }
     const oldToken = `${id}@${c.version}`;
@@ -558,6 +607,277 @@ function cmdBump(id, version) {
     console.log(`next: add a ${version} entry to ${c.dir}/${newToken}/CHANGELOG.md, rebuild (${c.release.build}), commit`);
 }
 
+/* Writes a tool's version into the tree at root: its component.json and its
+ * versionFiles' VERSION = 'x.y.z'. Returns the files written. */
+function writeToolVersion(root, c, version) {
+    const edits = [['component.json', `"version": "${c.version}"`, `"version": "${version}"`]]
+        .concat(c.versionFiles.map((rel) => [rel, `VERSION = '${c.version}'`, `VERSION = '${version}'`]));
+    // every file names the old version once, or none is written
+    const texts = edits.map(([rel, from]) => {
+        const text = fs.readFileSync(path.join(root, c.dir, rel), 'utf8');
+        if (text.split(from).length !== 2) {
+            throw new Error(`${c.dir}/${rel}: expected ${from} once`);
+        }
+        return text;
+    });
+    edits.forEach(([rel, from, to], i) => fs.writeFileSync(path.join(root, c.dir, rel), texts[i].replace(from, to)));
+    return edits.map(([rel]) => rel);
+}
+
+/* ---- release-time versions ---------------------------------------------------- */
+
+function bumpVersion(version, level) {
+    const [major, minor, patch] = version.split('.').map(Number);
+    return level === 'major' ? `${major + 1}.0.0` : level === 'minor' ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`;
+}
+
+/* Writes resolved "requires" (id -> x.y.z) over the "next" ones of a
+ * component's release.json or component.json. */
+function writeRequires(root, c, resolved) {
+    const file = path.join(root, c.dir, c.kind === 'app' ? 'release.json' : 'component.json');
+    let text = fs.readFileSync(file, 'utf8');
+    Object.keys(resolved).forEach((id) => {
+        const from = new RegExp(`("${id.replace(/[.]/g, '\\.')}"\\s*:\\s*)"${NEXT}"`);
+        if (!from.test(text)) {
+            throw new Error(`${path.relative(root, file)}: no "${id}": "${NEXT}"`);
+        }
+        text = text.replace(from, `$1"${resolved[id]}"`);
+    });
+    fs.writeFileSync(file, text);
+}
+
+/* A CHANGELOG's "## Unreleased" section: { start, end, body } (body
+ * trimmed), or null. Headings repeated right below it (two pull requests
+ * that each added one) count as one. */
+const UNRELEASED = /^## Unreleased[ \t]*$/m;
+function unreleasedOf(text) {
+    const m = UNRELEASED.exec(text);
+    if (!m) {
+        return null;
+    }
+    let after = m.index + m[0].length;
+    let body = '';
+    for (;;) {
+        const next = text.slice(after).search(/^## /m);
+        const end = next < 0 ? text.length : after + next;
+        body += text.slice(after, end);
+        const again = UNRELEASED.exec(text.slice(end));
+        if (!again || again.index !== 0) {
+            return { start: m.index, end, body: body.split('\n').map((l) => l.replace(/\s+$/, '')).join('\n').replace(/\n{3,}/g, '\n\n').trim() };
+        }
+        after = end + again[0].length;
+    }
+}
+
+/* The CHANGELOG with its Unreleased text under a heading for version and an
+ * empty "## Unreleased" above it for the next pull requests; when the
+ * newest section is already that version (a release stamped and not yet
+ * published), the text goes on top of it. Null when there is no text. */
+function releaseChangelog(text, version) {
+    const u = unreleasedOf(text);
+    if (!u || !u.body) {
+        return null;
+    }
+    let rest = text.slice(u.end);
+    const heading = `## ${version}`;
+    if (rest.startsWith(`${heading}\n`)) {
+        rest = rest.slice(heading.length + 1).replace(/^\n+/, '');
+    }
+    return `${text.slice(0, u.start)}## Unreleased\n\n${heading}\n\n${u.body}\n\n${rest}`;
+}
+
+function tagExists(tag, repo) {
+    return cp.spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}^{commit}`], { cwd: repo }).status === 0;
+}
+
+/* The step from a release to the next: "major" or "minor" when a pull
+ * request of one of the commits carries release:major or release:minor,
+ * else "patch". The pull requests are GITHUB_REPOSITORY's (the workflow's
+ * repository). MGU_RELEASE_LABELS=off reads no labels: a patch, but for the
+ * commits prLabels already holds (tests). */
+const LEVELS = ['patch', 'minor', 'major'];
+const prLabels = new Map();
+function levelOf(commits) {
+    let level = 0;
+    commits.forEach((sha) => {
+        if (!prLabels.has(sha) && process.env.MGU_RELEASE_LABELS !== 'off') {
+            if (!process.env.GITHUB_REPOSITORY) {
+                throw new Error('set GITHUB_REPOSITORY=<owner>/<repo> to read pull request labels, or MGU_RELEASE_LABELS=off');
+            }
+            const out = cp.execFileSync('gh', ['api', `repos/${process.env.GITHUB_REPOSITORY}/commits/${sha}/pulls`,
+                '--jq', '.[] | .labels[].name'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+            prLabels.set(sha, out.split('\n').filter(Boolean));
+        }
+        (prLabels.get(sha) || []).forEach((name) => {
+            const m = /^release:(minor|major)$/.exec(name);
+            if (m) {
+                level = Math.max(level, LEVELS.indexOf(m[1]));
+            }
+        });
+    });
+    return LEVELS[level];
+}
+
+/* What a release of the selected components (none: all) does. A
+ * release-time component changed since its tag <id>@<version>, or named,
+ * gets the next version; one whose version has no tag yet (stamped, not
+ * published; or new) keeps it. A hand-versioned component keeps its
+ * version and is in the plan only to resolve its "requires" of "next". A
+ * component that requires another one "next" brings that one along.
+ * Returns [{ c, version, level, resolved }]. */
+function plan(all, ids, repo = REPO) {
+    const byId = new Map(all.map((c) => [c.id, c]));
+    const chosen = new Set(select(all, ids).map((c) => c.id));
+    const out = new Map();
+    const consider = (c) => {
+        if (!c.stamped) {
+            if (Object.keys(c.requires || {}).some((id) => c.requires[id] === NEXT)) {
+                out.set(c.id, { c, version: c.version, level: 'hand' });
+            }
+            return;
+        }
+        const tag = `${c.id}@${c.version}`;
+        if (!tagExists(tag, repo)) {
+            out.set(c.id, { c, version: c.version, level: 'new' });
+            return;
+        }
+        const commits = git(['log', '--format=%H', `${tag}..HEAD`, '--'].concat(c.shipped), { cwd: repo }).split('\n').filter(Boolean);
+        const changed = commits.length &&
+            cp.spawnSync('git', ['diff', '--quiet', tag, 'HEAD', '--'].concat(c.shipped), { cwd: repo }).status !== 0;
+        // named: a patch release of the same content
+        if (!changed && !ids.includes(c.id)) {
+            return;
+        }
+        const level = changed ? levelOf(commits) : 'patch';
+        out.set(c.id, { c, version: bumpVersion(c.version, level), level });
+    };
+    all.filter((c) => chosen.has(c.id)).forEach(consider);
+    // what a chosen component requires "next" is released with it
+    let grew = true;
+    while (grew) {
+        grew = false;
+        [...out.values()].forEach((p) => Object.keys(p.c.requires || {}).forEach((id) => {
+            if (p.c.requires[id] === NEXT && !chosen.has(id)) {
+                chosen.add(id);
+                consider(byId.get(id));
+                grew = true;
+            }
+        }));
+    }
+    out.forEach((p) => {
+        p.resolved = {};
+        Object.keys(p.c.requires || {}).forEach((id) => {
+            if (p.c.requires[id] === NEXT) {
+                p.resolved[id] = out.has(id) ? out.get(id).version : byId.get(id).version;
+            }
+        });
+    });
+    return all.filter((c) => out.has(c.id)).map((c) => out.get(c.id));
+}
+
+/* Writes a plan into the tree at root: versions, "requires", CHANGELOGs. */
+function writePlan(root, steps) {
+    steps.forEach((p) => {
+        const changelog = p.c.stamped && path.join(root, p.c.changelog);
+        if (changelog && fs.existsSync(changelog)) {
+            const text = fs.readFileSync(changelog, 'utf8');
+            const released = releaseChangelog(text, p.version);
+            if (released === null && !text.includes(`\n## ${p.version}\n`)) {
+                throw new Error(`${p.c.changelog}: no "## Unreleased" section with what ${p.c.id} ${p.version} changes`);
+            }
+            if (released !== null) {
+                fs.writeFileSync(changelog, released);
+            }
+        }
+        if (p.version !== p.c.version) {
+            writeToolVersion(root, p.c, p.version);
+        }
+        if (Object.keys(p.resolved).length) {
+            writeRequires(root, p.c, p.resolved);
+        }
+    });
+}
+
+/* The ids the last stamp chose for publish --stamped (release/out/stamped):
+ * the release-time components it stamped and the hand-versioned ones
+ * selected, which publish as their pull requests set them. */
+const STAMPED = path.join(OUT, 'stamped');
+
+function cmdStamp(ids) {
+    if (git(['status', '--porcelain', '--untracked-files=no'])) {
+        throw new Error('commit first: stamp writes the release commit');
+    }
+    const all = components();
+    const steps = plan(all, ids);
+    steps.forEach((p) => {
+        const req = Object.keys(p.resolved).map((id) => `, requires ${id} ${p.resolved[id]}`).join('');
+        const how = p.level === 'hand' ? 'its version from its pull requests' :
+            p.level === 'new' ? 'not released yet' : `${p.level} from ${p.c.version}`;
+        console.log(`releasing ${p.c.id}@${p.version} (${how}${req})`);
+    });
+    if (!steps.some((p) => p.c.stamped)) {
+        console.log('no release-time component changed since its last release');
+    }
+    const hand = select(all, ids).filter((c) => !c.stamped).map((c) => c.id);
+    fs.mkdirSync(OUT, { recursive: true });
+    fs.writeFileSync(STAMPED, [...new Set(steps.map((p) => p.c.id).concat(hand))].join(' ') + '\n');
+    writePlan(REPO, steps);
+    git(['add', '-u']);
+    if (!git(['status', '--porcelain', '--untracked-files=no'])) {
+        return;
+    }
+    git(['commit', '-q', '-m', `release: ${steps.map((p) => `${p.c.id}@${p.version}`).join(', ')}`]);
+    console.log(`committed ${git(['rev-parse', '--short', 'HEAD'])}`);
+}
+
+/* A pull request's checks against its base commit: a release-time
+ * component's version stays as the base has it, and a changed one with a
+ * CHANGELOG says what changed under "## Unreleased". mgu-repo.json lists
+ * hand-versioned components only: a branch lists what it holds, so it
+ * would offer a release-time component's merged changes before a release
+ * gives them a version. */
+function cmdVersions(base) {
+    if (!base) {
+        throw new Error('usage: versions <base commit>');
+    }
+    const baseDir = exportHead(base);
+    const problems = [];
+    try {
+        const before = new Map(components(baseDir).map((c) => [c.id, c.version]));
+        const all = components();
+        all.filter((c) => c.stamped).forEach((c) => {
+            const was = before.get(c.id);
+            if (was && was !== c.version) {
+                problems.push(`${c.id}: the release sets its version; keep ${was}`);
+            }
+            const changed = !was || cp.spawnSync('git', ['diff', '--quiet', base, 'HEAD', '--'].concat(c.shipped),
+                { cwd: REPO }).status !== 0;
+            const log = path.join(REPO, c.changelog);
+            if (changed && fs.existsSync(log)) {
+                const u = unreleasedOf(fs.readFileSync(log, 'utf8'));
+                if (!u || !u.body) {
+                    problems.push(`${c.id}: add what changes under "## Unreleased" at the top of ${c.changelog}`);
+                }
+            }
+        });
+        const repoFile = path.join(REPO, 'mgu-repo.json');
+        (fs.existsSync(repoFile) ? readJson(repoFile).components || [] : []).forEach((e) => {
+            const c = all.find((x) => x.id === e.id);
+            if (c && c.stamped) {
+                problems.push(`mgu-repo.json: ${e.id} gets its version at release; a branch lists hand-versioned components only`);
+            }
+        });
+    } finally {
+        fs.rmSync(baseDir, { recursive: true, force: true });
+    }
+    problems.forEach((m) => console.log(m));
+    if (problems.length) {
+        process.exitCode = 1;
+    } else {
+        console.log('versions: as the base has them');
+    }
+}
+
 /* What the catalog this run publishes would require but not hold, at that
  * version or newer: the car installs requirements first, so each one must
  * be there to install. current: the published entries still in the
@@ -580,7 +900,7 @@ function unmetRequires(uploads, current) {
     return unmet;
 }
 
-function cmdPublish(ids, dryRun) {
+function cmdPublish(ids, dryRun, stamped) {
     if (git(['status', '--porcelain', '--untracked-files=no'])) {
         throw new Error('commit first: publish builds HEAD and records its commit in the catalog');
     }
@@ -600,21 +920,38 @@ function cmdPublish(ids, dryRun) {
     const inRepo = new Set(components().map((c) => c.id));
     const removed = [...current.keys()].filter((id) => !inRepo.has(id));
     removed.forEach((id) => current.delete(id));
+    if (stamped) {
+        // what the last stamp chose, and any component whose version is
+        // tagged but not in the catalog (a publish that stopped part-way)
+        const lagging = components().filter((c) => tagExists(`${c.id}@${c.version}`, REPO) &&
+            (!current.has(c.id) || current.get(c.id).version !== c.version));
+        ids = [...new Set(fs.readFileSync(STAMPED, 'utf8').split(/\s+/).filter(Boolean).concat(lagging.map((c) => c.id)))];
+    }
     const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-publish-'));
     const skipped = [];
-    const built = build(ids, staging, skipped);
+    // built twice: a version publishes only when both builds give the same
+    // bytes; with --stamped and nothing chosen, nothing is built
+    const built = stamped && !ids.length ? [] : build(ids, staging, skipped);
+    const again = built.length ? build(built.map((e) => e.id), fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-publish-b-')), skipped) : [];
     const uploads = [];
     const all = components();
     built.forEach((e) => {
         const p = current.get(e.id);
         const c = all.find((x) => x.id === e.id);
+        const b = again.find((x) => x.id === e.id);
+        const next = Object.keys(e.requires || {}).filter((id) => e.requires[id] === NEXT);
         // the gate binds what reaches cars; a folder (a test stick) takes any build
         const gate = publishTarget.describe().startsWith('github:') && (!p || p.version !== e.version) &&
             gateProblem(c, gateRecord(c.id), sourceCommit(c), e.artifact.sha256);
-        if (gate) {
+        if (!b || b.artifact.sha256 !== e.artifact.sha256) {
+            skipped.push(`${e.id}@${e.version} builds differently each time`);
+        } else if (next.length) {
+            skipped.push(`${e.id}@${e.version} requires ${next.join(', ')} "${NEXT}": stamp first`);
+        } else if (gate) {
             skipped.push(gate);
         } else if (p && p.version === e.version && p.artifact.sha256 !== e.artifact.sha256) {
-            skipped.push(`${e.id}@${e.version} is published with other content: bump its version to publish it`);
+            skipped.push(`${e.id}@${e.version} is published with other content: ` +
+                (c.stamped ? 'the release gives it its next version' : 'bump its version to publish it'));
         } else if (p && compareVersions(e.version, p.version) < 0) {
             skipped.push(`${e.id}@${e.version} is older than the published ${p.version}`);
         } else if (!p || p.version !== e.version) {
@@ -681,9 +1018,11 @@ function main(argv) {
     case 'build': return cmdBuild(args);
     case 'check': return cmdCheck(args);
     case 'bump': return cmdBump(args[0], args[1]);
-    case 'publish': return cmdPublish(args, flags.includes('--dry-run'));
+    case 'versions': return cmdVersions(args[0]);
+    case 'stamp': return cmdStamp(args);
+    case 'publish': return cmdPublish(args, flags.includes('--dry-run'), flags.includes('--stamped'));
     default:
-        process.stdout.write(fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').slice(2, 14)
+        process.stdout.write(fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').slice(2, 18)
             .map((l) => l.replace(/^ \* ?/, '')).join('\n') + '\n');
         process.exitCode = cmd ? 2 : 0;
     }
@@ -699,4 +1038,5 @@ if (require.main === module) {
     }
 }
 
-module.exports = { components, catalogTexts, compareVersions, unmetRequires, sourceCommit, gateProblem, GATED };
+module.exports = { components, catalogTexts, compareVersions, unmetRequires, sourceCommit, gateProblem, GATED, bumpVersion,
+    releaseChangelog, plan, writePlan, prLabels };

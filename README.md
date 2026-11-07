@@ -260,7 +260,8 @@ Each component's README covers its build and tests.
 [`deploy/README.md`](deploy/README.md) has the full installer reference
 (every command, including `token --list`/`--remove`) and `deploy/hu`, which
 installs components from a checkout; [`release/README.md`](release/README.md)
-covers releases.
+covers releases. [`CONTRIBUTING.md`](CONTRIBUTING.md): versions, CHANGELOG
+entries and `requires` in a pull request.
 
 ## License
 
