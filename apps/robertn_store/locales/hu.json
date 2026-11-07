@@ -95,7 +95,6 @@
     "Phone access": "Telefonos hozzáférés",
     "Preferred connection": "Elsődleges kapcsolat",
     "Preferred": "Elsődleges",
-    "Preferred: {0}": "Elsődleges: {0}",
     "Rejected": "Elutasítva",
     "Releases": "Kiadások",
     "Remove": "Eltávolítás",
@@ -192,6 +191,7 @@
     "Allow 5 GHz": "5 GHz engedélyezése",
     "May cause CarPlay issues": "CarPlay-problémákat okozhat",
     "On the iPhone, turn on Maximize Compatibility": "Az iPhone-on kapcsolja be: Kompatibilitás maximalizálása",
-    "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat"
+    "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat",
+    "Phone over USB": "Telefon USB-n keresztül"
   }
 }

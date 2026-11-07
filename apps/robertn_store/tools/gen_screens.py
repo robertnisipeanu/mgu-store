@@ -59,9 +59,10 @@ get(st, 'addRepo')['opts']['text'] = 'Add source'
 get(st, 'connLabel')['opts']['text'] = 'ACCESS'
 drop(st, 'tetherIcon', 'tetherName', 'tetherState', 'tether', 'checkNow', 'lastCheck', 'versions', 'subtitle')
 st['components'] += [
-    comp('access', 'appList', 1880, 412, 920, 260, {'items': [], 'rowH': 120}),
-    text('unit', 1880, 668, 920, 40, '', 32, 'bold'),
-    text('versions', 1880, 714, 920, 38, '', 28, 'label', 'dim'),
+    comp('access', 'appList', 1880, 412, 920, 360, {'items': [], 'rowH': 120}),
+    # the head unit on ACCESS's line after its longest translation, the versions above
+    text('unit', 2293, 374, 507, 30, '', 22, 'bold', align='right'),
+    text('versions', 1880, 341, 920, 28, '', 22, 'label', 'dim', align='right'),
     comp('checkNow', 'vbutton', 1880, 764, 440, 56, {'text': 'Check now', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:checkNow'),
     comp('restart', 'vbutton', 2340, 764, 460, 56, {'text': 'Restart head unit', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:restart'),
     text('note', 480, 227, 1300, 43, '', 34, 'label', '#ffb020'),
@@ -145,7 +146,6 @@ st['components'] += [copy.deepcopy(BACK),
     text('note', 2140, 336, 660, 130, '', 32, 'label', '#ffb020', wrap=True),
     comp('power', 'vbutton', 2140, 496, 660, 96, {'text': '', 'vicon': 'wifi', 'style': 'outline'}, 'event:power'),
     comp('scan', 'vbutton', 2140, 608, 660, 96, {'text': 'Scan', 'vicon': 'refresh', 'style': 'outline'}, 'event:scan'),
-    comp('prefer', 'vbutton', 2140, 720, 660, 96, {'text': '', 'vicon': 'route', 'style': 'outline'}, 'event:prefer'),
 ]
 screens.append(st)
 # the uplink's preferred connection
@@ -153,7 +153,8 @@ st = base('prefer')
 st['components'] += [copy.deepcopy(BACK),
     text('title', 610, 138, 1600, 90, 'Preferred connection', 72, 'bold'),
     text('status', 610, 227, 1600, 43, '', 34, 'label', 'dim'),
-    comp('list', 'appList', 610, 292, 1500, 540, {'items': [], 'rowH': 108, 'empty': ''}),
+    comp('list', 'appList', 610, 292, 1500, 432, {'items': [], 'rowH': 108, 'empty': ''}),
+    comp('usbPhone', 'appList', 610, 732, 1500, 108, {'items': [], 'rowH': 108, 'empty': ''}),
 ]
 screens.append(st)
 # the proxy downloads go through: on or off, and its address
