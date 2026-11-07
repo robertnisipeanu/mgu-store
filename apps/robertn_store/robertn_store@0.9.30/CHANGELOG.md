@@ -8,7 +8,8 @@ has **Phone over USB**, a switch for whether the uplink uses phones
 plugged in over USB (mgu-uplink 0.7.7, through mgu-updater 0.8.32); off,
 a plugged-in phone keeps playing audio and is not asked to trust the car.
 The switch shows only while the uplink and updater have it. The Wi-Fi
-page has Use Wi-Fi and Scan. In every language.
+page has no Preferred button: Settings' row is the way in. In every
+language.
 
 ## 0.9.29
 

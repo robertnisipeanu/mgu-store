@@ -688,6 +688,8 @@ class Store extends OnlineApp {
                 this._undoId = act.page.id;
             } else if (act.page.name === 'proxy') {
                 this._proxyNote = null;
+            } else if (act.page.name === 'prefer') {
+                this._uplinkNote = null;
             } else if (act.page.name === 'wifi') {
                 const w = wifiOf({ connected: this._connected, st: this._st });
                 this._uplinkNote = null;

@@ -1444,7 +1444,8 @@ function runDrawn() {
         app._states[host(1)].emit('focus', { focus: true });
         reset();
         tap('Preferred connection');
-        eq([states, drawn.top().name], [[`open ${host(2)}`], 'prefer']);
+        eq([states, drawn.top().name, app._drawnModel().uplinkNote], [[`open ${host(2)}`], 'prefer', null],
+            'the page opens without the Wi-Fi page\'s refusal');
         app._states[host(1)].emit('focus', { focus: false });
         app._states[host(2)].emit('visible', { visible: true });
         app._states[host(2)].emit('focus', { focus: true });

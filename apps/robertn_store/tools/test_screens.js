@@ -596,7 +596,7 @@ f = screen('wifi-paused');
 eq([text(f, 'subtitle'), text(f, 'state'), own(f).indexOf('Scan') >= 0], ['Paused for wireless Android Auto', 'Not connected', true],
     'paused: the page says so; Scan stays');
 // the page: the network joined first, then the scan's, then saved ones out of range; a tap joins a saved or open one and asks a
-// secured one's password; a saved one has Forget; Don't use Wi-Fi, Scan, the preferred connection
+// secured one's password; a saved one has Forget; Don't use Wi-Fi, Scan
 f = screen('wifi');
 eq(own(f), ['Allow 5 GHz', 'Forget', 'FRITZ!Box 7590 XY', 'Cafe Free WiFi', 'Telekom_FON', 'Forget', "Don't use Wi-Fi", 'Scan', 'Back']);
 eq(f.values.networks.items.map((n) => n.sub), ['Online · Strong', 'Secured · Strong', 'Open · Good', 'Open · Weak', 'Saved · not in range']);
