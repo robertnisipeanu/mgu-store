@@ -6,6 +6,7 @@ package main
 // the results.
 //
 //	{"op": "prefer", "kind": "phone"}                  the group tried first: wifi, usb, phone ("": none), kept in settings_conf
+//	{"op": "iphone", "on": false}                      whether an iPhone is taken, kept in settings_conf
 //	{"op": "wifi-enable", "on": true}                  Wi-Fi on or off, kept in settings_conf
 //	{"op": "wifi-5ghz", "on": true}                    joins use 5 GHz too, kept in settings_conf
 //	{"op": "wifi-scan"}                                scan; status.json's wifi.networks follow
@@ -108,6 +109,23 @@ func (s *service) request(r ctlRequest) error {
 		su.setPreferred(*r.Kind)
 		setStatusPreferred(*r.Kind)
 		logf("preferred uplink: %q", *r.Kind)
+		return nil
+	case "iphone":
+		su, ok := s.up.(*scanUplink)
+		switch {
+		case r.On == nil:
+			return errors.New("iphone needs on: true or false")
+		case !ok:
+			return errors.New("iphone needs uplink = auto")
+		}
+		s.ctlMu.Lock()
+		defer s.ctlMu.Unlock()
+		if err := setSetting(s.cfg.Settings, "iphone", onOff(*r.On)); err != nil {
+			return err
+		}
+		su.setIPhone(*r.On)
+		setStatusIPhone(*r.On)
+		logf("iphone: %s", onOff(*r.On))
 		return nil
 	case "wifi-enable":
 		switch {

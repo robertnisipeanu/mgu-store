@@ -194,6 +194,8 @@
     "Allow 5 GHz": "允許 5 GHz",
     "May cause CarPlay issues": "可能導致 CarPlay 出現問題",
     "On the iPhone, turn on Maximize Compatibility": "請在 iPhone 上開啟「最大相容性」",
-    "This network is 5 GHz only: CarPlay audio may drop": "此網路僅支援 5 GHz：CarPlay 音訊可能中斷"
+    "This network is 5 GHz only: CarPlay audio may drop": "此網路僅支援 5 GHz：CarPlay 音訊可能中斷",
+    "iPhone tethering": "iPhone 網路共用",
+    "Stops the iPhone's USB music": "會暫停 iPhone 的 USB 音訊"
   }
 }

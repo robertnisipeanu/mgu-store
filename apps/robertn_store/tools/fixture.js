@@ -41,7 +41,7 @@ function state() {
         login: null,
         web: { enabled: false, urls: [], error: null },
         proxy: { on: false, kind: null, address: null, auth: false, error: null },
-        uplink: { device: { kind: 'wifi', name: 'Mario iPhone' }, state: 'online', error: null, preferred: 'wifi',
+        uplink: { device: { kind: 'wifi', name: 'Mario iPhone' }, state: 'online', error: null, preferred: 'wifi', iphone: true,
             wifi: { enabled: true, link: 'online', ssid: 'Mario iPhone', ip: '172.20.10.3', signal: -52, scanning: false, error: null, allow5ghz: false,
                 networks: [{ ssid: 'Mario iPhone', signal: -52, secure: true, saved: true, current: true },
                     { ssid: 'FRITZ!Box 7590 XY', signal: -58, secure: true, saved: false, current: false },

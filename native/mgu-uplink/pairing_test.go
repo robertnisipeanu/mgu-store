@@ -579,6 +579,73 @@ func TestIPhoneDeclinedNotRetaken(t *testing.T) {
 	}
 }
 
+// heldLink is a Link that ends only when closed.
+type heldLink struct {
+	done   chan struct{}
+	closed bool
+}
+
+func (l *heldLink) Ifname() string        { return Ifname }
+func (l *heldLink) Done() <-chan struct{} { return l.done }
+func (l *heldLink) Err() error            { return nil }
+func (l *heldLink) Close()                { l.closed = true }
+func (l *heldLink) String() string        { return "held" }
+
+// With iPhones switched off the scan lists no iPhone, and a link on one
+// ends with errIPhoneOff; switched on again, the iPhone is listed.
+func TestIPhoneSwitchedOff(t *testing.T) {
+	defer func(s string, d time.Duration) { sysBusUSB, preferEvery = s, d }(sysBusUSB, preferEvery)
+	sysBusUSB, preferEvery = t.TempDir(), 20*time.Millisecond
+	fakeIPhoneSysfs(t, 9)
+	c := defaults()
+	c.IPhone = false
+	u := newScanUplink(c)
+	if cand, ok := iphoneCandidate(u); ok {
+		t.Fatalf("iPhone listed while switched off: %+v", cand)
+	}
+	u.setIPhone(true)
+	cand, ok := iphoneCandidate(u)
+	if !ok {
+		t.Fatal("iPhone not listed once switched on")
+	}
+	l := u.watchPreferred(&heldLink{done: make(chan struct{})}, cand)
+	defer l.Close()
+	u.setIPhone(false)
+	select {
+	case <-l.Done():
+		if !errors.Is(l.Err(), errIPhoneOff) {
+			t.Fatalf("link ended with %v, want errIPhoneOff", l.Err())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the iPhone's link kept running while switched off")
+	}
+}
+
+// The settings file and the request keep whether an iPhone is taken; a
+// value that is not on or off is skipped there.
+func TestIPhoneSetting(t *testing.T) {
+	dir := t.TempDir()
+	conf, settings := filepath.Join(dir, "u.conf"), filepath.Join(dir, "settings.conf")
+	writeFile(t, conf, "uplink = auto\niphone = on\nsettings_conf = "+settings+"\n")
+	c, err := loadConfig(conf)
+	if err != nil || !c.IPhone {
+		t.Fatalf("shipped: %v %v", c.IPhone, err)
+	}
+	if err := setSetting(settings, "iphone", "off"); err != nil {
+		t.Fatal(err)
+	}
+	if c, err = loadConfig(conf); err != nil || c.IPhone || len(c.Skipped) != 0 {
+		t.Fatalf("set: %v %v %v", c.IPhone, c.Skipped, err)
+	}
+	writeFile(t, settings, "iphone = maybe\n")
+	if c, err = loadConfig(conf); err != nil || !c.IPhone || len(c.Skipped) != 1 {
+		t.Fatalf("bad value: %v %v %v", c.IPhone, c.Skipped, err)
+	}
+	if c, err = loadConfig(filepath.Join(dir, "none.conf")); err == nil && !c.IPhone {
+		t.Fatal("iPhones off without a setting")
+	}
+}
+
 // A failed session is retried on the same usbmux session: VERSION is sent
 // once.
 func TestIPhoneTrustRetrySameMux(t *testing.T) {

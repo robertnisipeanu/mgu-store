@@ -192,6 +192,8 @@
     "Allow 5 GHz": "Permite 5 GHz",
     "May cause CarPlay issues": "Poate cauza probleme cu CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Pe iPhone, activați Maximizare compatibilitate",
-    "This network is 5 GHz only: CarPlay audio may drop": "Această rețea este doar 5 GHz: sunetul CarPlay se poate întrerupe"
+    "This network is 5 GHz only: CarPlay audio may drop": "Această rețea este doar 5 GHz: sunetul CarPlay se poate întrerupe",
+    "iPhone tethering": "Tethering iPhone",
+    "Stops the iPhone's USB music": "Oprește muzica USB de pe iPhone"
   }
 }

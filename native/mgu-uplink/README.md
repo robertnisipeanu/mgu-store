@@ -109,6 +109,11 @@ that one Apple device is touched; the media daemon keeps serving every other
 device. iOS's USB Restricted Mode cuts USB data after an hour locked unless
 Settings → Face ID & Passcode → Accessories is on.
 
+With `iphone = off` (the `iphone` request, the Store's **iPhone tethering**)
+the uplink takes no iPhone, so a trusted phone plugged in stays the media
+daemon's and its USB music plays. An iPhone the uplink holds, or is taking,
+when it is switched off is handed back within 5 s.
+
 The iPhone takeover (authorized toggle, configuration 4) and the hotspot
 interface's bring-up (alternate setting 1, GET_MACADDR, ENABLE_NCM,
 CARRIER_CHECK, CLEAR_HALT on both bulk endpoints) follow IterioDev's
@@ -277,11 +282,12 @@ the Store and the phone page:
   "state": "trust-needed", "error": "Tap Trust on the iPhone and enter its passcode" }
 ```
 
-with `uplink = auto`, also `wifi`, and `preferred` while a group is preferred:
+with `uplink = auto`, also `wifi`, `iphone` (whether an iPhone is taken),
+and `preferred` while a group is preferred:
 
 ```json
 { "device": { "kind": "wifi", "name": "iPhone - Mario" }, "state": "online", "error": null,
-  "preferred": "wifi",
+  "preferred": "wifi", "iphone": true,
   "wifi": { "enabled": true, "link": "online", "ssid": "iPhone - Mario", "ip": "172.20.10.2", "signal": -45,
     "networks": [ { "ssid": "iPhone - Mario", "signal": -40, "secure": true, "saved": true, "current": true } ],
     "saved": [ "iPhone - Mario" ], "scanning": false, "error": null } }
@@ -332,6 +338,7 @@ updater only, which relays these; `status.json` shows the results.
 | Request | |
 |---|---|
 | `{"op": "prefer", "kind": "phone"}` | the group tried first (`wifi`, `usb`, `phone`; `""` for none); takes effect within 5 s |
+| `{"op": "iphone", "on": false}` | whether an iPhone is taken (Phones, above); takes effect within 5 s |
 | `{"op": "wifi-enable", "on": true}` | Wi-Fi on or off |
 | `{"op": "wifi-5ghz", "on": true}` | Allow 5 GHz: joins on either band (The band, above) |
 | `{"op": "wifi-scan"}` | scan now |
@@ -339,7 +346,7 @@ updater only, which relays these; `status.json` shows the results.
 | `{"op": "wifi-forget", "ssid": "…"}` | forget a saved network |
 
 The reply is `{"ok": true}` or `{"ok": false, "error": "…"}`. `prefer`,
-`wifi-enable` and `wifi-5ghz` are kept in `settings_conf`. A password goes to wpa_supplicant
+`iphone`, `wifi-enable` and `wifi-5ghz` are kept in `settings_conf`. A password goes to wpa_supplicant
 only: no log line, reply or status names it.
 
 ## Config
@@ -362,6 +369,7 @@ older version still starts after a rollback.
 | `preferred` | `wifi`, `usb` or `phone`, tried first; empty (shipped) for the order above; any other value is logged and ignored |
 | `wifi` | `on` or `off` (shipped) |
 | `wifi_5ghz` | `on`: Wi-Fi joins on either band; `off` (shipped): on 2.4 GHz only where a network is seen there |
+| `iphone` | `on` (shipped): an iPhone with Personal Hotspot is taken from the media daemon; `off`: every iPhone is left to it |
 | `table`, `rule_pref` | routing table (110) and first rule priority (1100) |
 
 Components that need the internet add themselves without touching the

@@ -618,11 +618,17 @@ f = screen('confirm-wifi-forget');
 eq([f.labels, text(f, 'title'), text(f, 'text'), f.items[1].act], [['Cancel', 'Forget'], 'Forget network?', 'Home', { do: 'wifi-forget', ssid: 'Home' }]);
 // the preferred connection: Automatic and the uplink's three groups; the preferred one marked, the others a tap away
 f = screen('prefer');
-eq(own(f), ['Automatic', 'USB', 'Phone', 'Back']);
+eq(own(f), ['Automatic', 'USB', 'Phone', 'iPhone tethering', 'Back']);
 eq([text(f, 'status'), f.values.list.items[1].right, f.values.list.items[1].sub], ['Online through Wi-Fi', 'chip:Preferred', 'In use']);
 eq([f.items[0].act, f.items[2].act], [{ do: 'uplink-prefer', kind: '' }, { do: 'uplink-prefer', kind: 'phone' }]);
 f = screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { device: { kind: 'iphone', name: 'iPhone' }, preferred: 'usb' }) });
 eq([text(f, 'status'), f.values.list.items[3].sub, f.values.list.items[2].right], ['Online through Phone', 'In use', 'chip:Preferred']);
+// iPhone tethering below them: a switch, with an uplink that reports it (mgu-uplink 0.7.7)
+f = screen('prefer');
+eq([f.values.list.items[4].title, f.values.list.items[4].right, f.values.list.items[4].act], ['iPhone tethering', 'toggle:on', { do: 'uplink-iphone' }]);
+eq(screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { iphone: false }) }).values.list.items[4].right, 'toggle:off');
+eq(screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { iphone: undefined }) }).values.list.items.length, 4,
+    'no iPhone tethering with an uplink before 0.7.7');
 // unavailable: the reason shown, no Scan
 f = screen('wifi', {}, { uplink: Object.assign({}, fixture.state().uplink, { wifi: { enabled: true, link: 'unavailable', networks: [], saved: [],
     scanning: false, error: 'wlan1 is in access point mode' } }) });

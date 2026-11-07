@@ -192,6 +192,8 @@
     "Allow 5 GHz": "Izinkan 5 GHz",
     "May cause CarPlay issues": "Dapat menimbulkan masalah CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Di iPhone, nyalakan Maksimalkan Kompatibilitas",
-    "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus"
+    "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus",
+    "iPhone tethering": "Tethering iPhone",
+    "Stops the iPhone's USB music": "Menghentikan musik USB iPhone"
   }
 }

@@ -711,7 +711,9 @@ function wifiView(m) {
     };
 }
 
-/* The connection the uplink tries first; the others follow as fallbacks. */
+/* The connection the uplink tries first; the others follow as fallbacks.
+ * Below them, with an uplink that says (mgu-uplink 0.7.7's iphone), whether
+ * it takes an iPhone, which stops the phone's USB music. */
 function preferView(m) {
     const u = (m.connected && m.st && m.st.uplink) || {};
     const preferred = u.preferred || '';
@@ -722,7 +724,9 @@ function preferView(m) {
         list: { items: GROUPS.map(([group, label]) => ({ id: group || 'auto', title: tr(label), sub: group && group === using ? tr("In use") : '', plain: true,
             vicon: { '': 'route', usb: 'usb', wifi: 'wifi' }[group] || 'phone', iconColor: 'text',
             right: group === preferred ? 'chip:' + tr('Preferred') : '', chipColor: GREEN,
-            act: group === preferred ? null : { do: 'uplink-prefer', kind: group } })), empty: '' }
+            act: group === preferred ? null : { do: 'uplink-prefer', kind: group } })).concat(typeof u.iphone !== 'boolean' ? [] : [{ id: 'iphone',
+            title: tr("iPhone tethering"), sub: tr("Stops the iPhone's USB music"), subColor: DIM, plain: true, vicon: 'phone', iconColor: 'text',
+            right: `toggle:${u.iphone ? 'on' : 'off'}`, act: { do: 'uplink-iphone' } }]), empty: '' }
     };
 }
 

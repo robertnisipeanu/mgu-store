@@ -12,7 +12,9 @@ package main
 //	iphone  an iPhone's Personal Hotspot
 //
 // The preferred group's kinds (config Preferred, the prefer request:
-// preferGroups) go first and the others follow, each in that order. For
+// preferGroups) go first and the others follow, each in that order. With
+// iPhones switched off (config IPhone, the iphone request) no iPhone is
+// taken, and one already taken is handed back within 5 s. For
 // the kernel-driven and CDC kinds it takes only devices no driver or
 // process holds; an iPhone it takes from the media daemon itself
 // (iphone.go), so it reaches and takes an iPhone only when no device it
@@ -39,9 +41,11 @@ const (
 	kindUSB      = "usb"
 	scanEvery    = 2 * time.Second
 	retryFailed  = 15 * time.Second // a device that failed to open is tried again after this
-	preferEvery  = 5 * time.Second
 	switchRepeat = 30 * time.Second
 )
+
+// preferEvery: how often a link looks for a device it should give way to.
+var preferEvery = 5 * time.Second
 
 var autoKinds = []string{kindWiFi, kindUSB, kindECM, kindRNDIS, kindNCM, kindIPhone}
 
@@ -75,13 +79,14 @@ type scanUplink struct {
 
 	mu       sync.Mutex
 	prefer   string               // the group tried first (preferGroups)
+	iphone   bool                 // iPhones are taken
 	failed   map[string]time.Time // device key -> last failed open
 	switched map[string]time.Time
 	logged   map[string]string // device key -> last message logged
 }
 
 func newScanUplink(c config) *scanUplink {
-	return &scanUplink{record: c.linkFile(), pairDir: c.pairDir(), prefer: c.Preferred,
+	return &scanUplink{record: c.linkFile(), pairDir: c.pairDir(), prefer: c.Preferred, iphone: c.IPhone,
 		failed: map[string]time.Time{}, switched: map[string]time.Time{},
 		logged: map[string]string{}}
 }
@@ -93,6 +98,22 @@ func (u *scanUplink) setPreferred(group string) {
 	u.prefer = group
 	u.mu.Unlock()
 }
+
+func (u *scanUplink) setIPhone(on bool) {
+	u.mu.Lock()
+	u.iphone = on
+	u.mu.Unlock()
+}
+
+func (u *scanUplink) iphoneOn() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.iphone
+}
+
+// errIPhoneOff ends an iPhone's link, or its taking, once iPhones are
+// switched off.
+var errIPhoneOff = errors.New("iPhones are switched off")
 
 // rank orders kinds: the preferred group's first, then the others, each in
 // autoKinds' order.
@@ -133,6 +154,7 @@ func (u *scanUplink) candidates() []candidate {
 	}
 	devs := scanUSBDevices()
 	iphoneForgetGone(devs)
+	iphone := u.iphoneOn()
 	for _, info := range devs {
 		apple := strings.HasPrefix(info.vidpid, "05ac:")
 		for _, kind := range []string{kindECM, kindRNDIS, kindNCM, kindIPhone} {
@@ -141,6 +163,9 @@ func (u *scanUplink) candidates() []candidate {
 			// only as iPhones.
 			if apple && kind != kindIPhone {
 				continue
+			}
+			if kind == kindIPhone && !iphone {
+				continue // left to the media daemon
 			}
 			// The iPhone's attempt is keyed on its bus position, so a
 			// failed open backs off however the device re-enumerates.
@@ -243,9 +268,9 @@ func (u *scanUplink) Open(ctx context.Context) (Link, error) {
 				return nil, ctx.Err()
 			}
 			var pe *preferredError
-			if errors.As(err, &pe) {
+			if errors.As(err, &pe) || errors.Is(err, errIPhoneOff) {
 				u.say(c.key, fmt.Sprintf("%s: %v", c.info, err))
-				break // the next scan opens the preferred device first
+				break // the next scan opens the preferred device first, and takes no iPhone
 			}
 			u.mu.Lock()
 			u.failed[c.key] = time.Now()
@@ -289,6 +314,9 @@ func (u *scanUplink) open(ctx context.Context, c candidate) (Link, error) {
 		return u.wifi.openLink(c.dev.Name), nil
 	case kindIPhone:
 		return openIPhoneLink(ctx, c.info, c.fn, u.pairDir, func() error {
+			if !u.iphoneOn() {
+				return errIPhoneOff
+			}
 			if p := u.preferred(c); p != nil {
 				return &preferredError{*p}
 			}
@@ -368,6 +396,11 @@ func (u *scanUplink) watchPreferred(l Link, cur candidate) Link {
 				close(p.done)
 				return
 			case <-t.C:
+				if cur.kind == kindIPhone && !u.iphoneOn() {
+					p.err = errIPhoneOff
+					close(p.done)
+					return
+				}
 				if c := u.preferred(cur); c != nil {
 					p.err = &preferredError{*c}
 					close(p.done)
