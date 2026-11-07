@@ -142,10 +142,9 @@ st['components'] += [copy.deepcopy(BACK),
     comp('icon', 'appIcon', 2140, 176, 120, 120, {'vicon': 'wifi', 'kind': 'service', 'colors': '#7a808a,#3a3f47'}),
     text('state', 2290, 192, 510, 48, '', 38, 'bold'),
     text('info', 2290, 248, 510, 40, '', 30, 'label', 'dim'),
-    text('note', 2140, 336, 660, 130, '', 32, 'label', '#ffb020', wrap=True),
-    comp('power', 'vbutton', 2140, 496, 660, 96, {'text': '', 'vicon': 'wifi', 'style': 'outline'}, 'event:power'),
-    comp('scan', 'vbutton', 2140, 608, 660, 96, {'text': 'Scan', 'vicon': 'refresh', 'style': 'outline'}, 'event:scan'),
-    comp('prefer', 'vbutton', 2140, 720, 660, 96, {'text': '', 'vicon': 'route', 'style': 'outline'}, 'event:prefer'),
+    text('note', 2140, 336, 660, 242, '', 32, 'label', '#ffb020', wrap=True),
+    comp('power', 'vbutton', 2140, 608, 660, 96, {'text': '', 'vicon': 'wifi', 'style': 'outline'}, 'event:power'),
+    comp('scan', 'vbutton', 2140, 720, 660, 96, {'text': 'Scan', 'vicon': 'refresh', 'style': 'outline'}, 'event:scan'),
 ]
 screens.append(st)
 # the uplink's preferred connection

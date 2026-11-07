@@ -1919,7 +1919,7 @@ module.exports = {
      "x": 2140,
      "y": 336,
      "w": 660,
-     "h": 130,
+     "h": 242,
      "opts": {
       "text": "",
       "size": 32,
@@ -1934,7 +1934,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 2140,
-     "y": 496,
+     "y": 608,
      "w": 660,
      "h": 96,
      "opts": {
@@ -1949,7 +1949,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "vbutton",
      "x": 2140,
-     "y": 608,
+     "y": 720,
      "w": 660,
      "h": 96,
      "opts": {
@@ -1958,21 +1958,6 @@ module.exports = {
       "style": "outline"
      },
      "onTap": "event:scan"
-    },
-    {
-     "name": "prefer",
-     "rtype": "gpu",
-     "gpu": "vbutton",
-     "x": 2140,
-     "y": 720,
-     "w": 660,
-     "h": 96,
-     "opts": {
-      "text": "",
-      "vicon": "route",
-      "style": "outline"
-     },
-     "onTap": "event:prefer"
     }
    ]
   },

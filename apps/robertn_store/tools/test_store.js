@@ -1438,17 +1438,20 @@ function runDrawn() {
         // the uplink's refusal shows on the page
         app._client.emit('reply-error', 'Wi-Fi needs uplink = auto', 'wifi-scan');
         eq(app._drawnModel().uplinkNote, 'Wi-Fi needs uplink = auto');
-        // the preferred connection
+        // back to Settings; its Preferred connection row opens that page
+        drawn.pop();
+        app._states[host(2)].emit('visible', { visible: false });
+        app._states[host(1)].emit('focus', { focus: true });
         reset();
-        tap('Preferred: Automatic');
-        eq([states, drawn.top().name], [[`open ${host(3)}`], 'prefer']);
-        app._states[host(3)].emit('visible', { visible: true });
+        tap('Preferred connection');
+        eq([states, drawn.top().name], [[`open ${host(2)}`], 'prefer']);
+        app._states[host(1)].emit('focus', { focus: false });
+        app._states[host(2)].emit('visible', { visible: true });
+        app._states[host(2)].emit('focus', { focus: true });
         tap('USB');
         tap('Phone over USB');
         eq(sent.map(secretless), [{ op: 'uplink-prefer', kind: 'usb' }, { op: 'usb-phone', on: false }]);
         // back to Settings
-        drawn.pop();
-        app._states[host(3)].emit('visible', { visible: false });
         drawn.pop();
         app._states[host(2)].emit('visible', { visible: false });
         app._states[host(1)].emit('focus', { focus: true });

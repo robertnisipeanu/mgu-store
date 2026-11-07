@@ -23,9 +23,10 @@
  * ones the updater relays to mgu-uplink: "wifi-enable", "wifi-5ghz" (Allow 5 GHz), "wifi-scan",
  * "wifi-connect" (with the password typed for a secured network not saved
  * yet), "wifi-forget" (once confirmed), "uplink-prefer" (the preferred
- * connection) and "usb-phone" (Phone over USB). On the drawn screens, Settings has Wi-Fi while the uplink
- * reports it (state.uplink.wifi): the networks, Allow 5 GHz, Use Wi-Fi, Scan and the
- * preferred connection with Phone over USB; the widget screens have none of it.
+ * connection) and "usb-phone" (Phone over USB). On the drawn screens, Settings has Wi-Fi and
+ * Preferred connection while the uplink reports its Wi-Fi (state.uplink.wifi): the networks,
+ * Allow 5 GHz, Use Wi-Fi and Scan; the group tried first and Phone over USB; the widget screens
+ * have none of it.
  *
  * The start screen has the status line, Check for updates, the progress of
  * the running install, the rows Apps and Head-unit tools, which open their

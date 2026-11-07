@@ -299,6 +299,8 @@ function settingsView(m) {
         const sub = paused || [s[0], bandOf(w)].filter(Boolean).join(' · ');
         access.push({ id: 'wifi', title: 'Wi-Fi', sub, subColor: paused ? DIM : s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
             right: 'chevron', act: { do: 'open', page: { name: 'wifi' } } });
+        access.push({ id: 'prefer', title: tr("Preferred connection"), sub: groupLabel(m.st.uplink.preferred || ''), plain: true, vicon: 'route',
+            iconColor: 'text', right: 'chevron', act: { do: 'open', page: { name: 'prefer' } } });
     }
     if (toks) {
         access.push({ id: 'accounts', title: tr("Accounts"), sub: accountsState(toks), plain: true, vicon: 'lock', iconColor: 'text',
@@ -689,7 +691,6 @@ function wifiView(m) {
     const nets = wifiNets(w);
     const scanning = scanningOf(w);
     const dbm = typeof w.signal === 'number' ? `${w.signal} dBm` : '';
-    const preferred = (m.st && m.st.uplink && m.st.uplink.preferred) || '';
     return {
         subtitle: { text: !w.enabled || w.link === 'unavailable' || w.link === 'failed' ? '' : scanning ? tr("Scanning")
             : pausedLine(w) || plural(nets.length, 'network') },
@@ -705,9 +706,7 @@ function wifiView(m) {
         power: w.enabled ? button(tr("Don't use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'outline' })
             : button(tr("Use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'primary', color: GREEN, disabled: waiting }),
         scan: button(scanning ? tr("Scanning") : tr("Scan"), { do: 'wifi-scan' }, { vicon: 'refresh', style: 'outline',
-            disabled: !w.enabled || scanning || w.link === 'unavailable' || w.link === 'failed' }),
-        prefer: button(tr("Preferred: {0}", groupLabel(preferred)), { do: 'open', page: { name: 'prefer' } }, { vicon: 'route', style: 'outline',
-            disabled: waiting })
+            disabled: !w.enabled || scanning || w.link === 'unavailable' || w.link === 'failed' })
     };
 }
 

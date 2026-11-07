@@ -131,7 +131,7 @@ function screens() {
         ['type-symbols', { tab: 'settings', stack: main.concat([{ name: 'type', title: 'Password', text: 'Wi-\\"`', layout: 'text', symbols: true,
             sym: true, go: 'Connect' }]) }],
         // Wi-Fi (the uplink's): its networks, off, a join that failed, paused for wireless Android Auto (and in Settings for
-        // CarPlay); a password; Forget; the preferred connection
+        // CarPlay); a password; Forget; the preferred connection (Settings' row)
         ['wifi', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) }],
         ['wifi-off', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
             wifiSt(st, { enabled: false, link: 'off', ssid: '', ip: '', signal: null, networks: [] })],
@@ -151,7 +151,7 @@ function screens() {
             label: 'Password', layout: 'text', symbols: true, go: 'Connect', min: 8, max: 63, secret: 'password' }]) }],
         ['confirm-wifi-forget', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'confirm', kind: 'wifi-forget', ssid: 'Home' }]),
             focus: 0 }],
-        ['prefer', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'prefer' }]) }],
+        ['prefer', { tab: 'settings', stack: main.concat([{ name: 'prefer' }]) }],
         // the proxy: off, on, failing; its address typed
         ['proxy', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }],
         ['proxy-on', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
