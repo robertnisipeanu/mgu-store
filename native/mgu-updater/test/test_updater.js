@@ -6459,9 +6459,21 @@ function testContent() {
             return [of('kit_tool'), of('gate')];
         });
     };
-    return Promise.all([listed({}), listed({ 'kit/p/d': 'd2' }), listed({ 'kit/p/g.so': 'g2' })]).then(([a, b, c]) => {
+    // two apps a build script makes, without build.shared
+    const scripted = { 'mgu-repo.json': JSON.stringify({ schema: 1, components: [{ id: 'x_app', kind: 'app', path: 'apps/x', build: { node: 'b.js' } },
+        { id: 'y_app', kind: 'app', path: 'apps/y', build: { node: 'b.js' } }] }), 'apps/x/app.json': '{"version":"1.0.0"}', 'apps/y/app.json': '{"version":"1.0.0"}',
+        'b.js': 'b', 'README.md': 'r' };
+    const built2 = (more) => {
+        const f = Object.assign({}, scripted, more);
+        return sourcesLib.repoCatalog((rel) => (f[rel] !== undefined ? Promise.resolve(Buffer.from(f[rel])) : Promise.reject(Object.assign(new Error('no'), { missing: true }))),
+            'a'.repeat(40), 'aaaaaaa', null, () => Promise.resolve(tree(f))).then((cat) => ['x_app', 'y_app'].map((id) => (cat.components.find((c) => c.id === id) || {}).content));
+    };
+    return Promise.all([listed({}), listed({ 'kit/p/d': 'd2' }), listed({ 'kit/p/g.so': 'g2' }),
+        built2({}), built2({ 'apps/x/m.js': 'm' }), built2({ 'b.js': 'b2' })]).then(([a, b, c, x, y, z]) => {
         ok('content: of two tools in one folder, a change to one\'s files is no change of the other',
             a[0] && a[1] && b[0] !== a[0] && b[1] === a[1] && c[0] === a[0] && c[1] !== a[1], JSON.stringify([a, b, c]));
+        ok('content: of two apps a build script makes, a change to one\'s folder is no change of the other; the script changes both',
+            x[0] && x[1] && y[0] !== x[0] && y[1] === x[1] && z[0] !== x[0] && z[1] !== x[1], JSON.stringify([x, y, z]));
     });
 }
 

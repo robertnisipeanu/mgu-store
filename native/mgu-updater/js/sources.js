@@ -527,8 +527,8 @@ function repoCatalog(readFile, commit, revision, listDir, treeOf) {
             const specs = components.filter((c) => c.contentSpec);
             specs.forEach((c) => {
                 const own = c.contentSpec.paths[0];
-                c.contentSpec.skip = specs.filter((o) => o !== c && (own === '' ? o.kind === 'app' : o.contentSpec.paths[0].indexOf(`${own}/`) === 0))
-                    .map((o) => o.contentSpec.paths[0]);
+                c.contentSpec.skip = own === '' ? specs.filter((o) => o !== c && o.kind === 'app').map((o) => o.path)
+                    : specs.filter((o) => o !== c && o.contentSpec.paths[0].indexOf(`${own}/`) === 0).map((o) => o.contentSpec.paths[0]);
             });
             return (treeOf && revision ? treeOf() : Promise.resolve(null)).then((tree) => {
                 specs.forEach((c) => {
@@ -548,8 +548,9 @@ function repoCatalog(readFile, commit, revision, listDir, treeOf) {
  * mgu-repo.json entry, a change of which is a change of it too. */
 function contentSpec(rc, script) {
     const listing = crypto.createHash('sha256').update(JSON.stringify(rc)).digest('hex');
+    // a file name checkService / checkPreload checked
     const one = rc.kind === 'tool' && ((rc.service && rc.service.exec) || (rc.preload && rc.preload.library));
-    if (typeof one === 'string' && safeRel(one)) {
+    if (one) {
         return { paths: [`${rc.path}/${one}`], skip: [], listing };
     }
     if (!script) {
