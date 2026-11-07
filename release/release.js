@@ -44,7 +44,7 @@ const OUT = path.join(__dirname, 'out');
 // what draws an app's picture: published only after tools/emu-gate passed on its source
 const GATED = ['mgu-render', 'robertn_store'];
 // tools whose pull requests set their versions, as every app's do (release/README.md, "Versions")
-const HAND_VERSIONED = ['mgu-deploy', 'mgu-render', 'mgu-updater', 'mgu-uplink'];
+const HAND_VERSIONED = ['mgu-deploy', 'mgu-updater'];
 const DEPLOY = path.join('deploy', 'hu');
 const publishTarget = require('./publish');
 const { compareVersions, hmiList, textsOf, SEMVER } = require('../native/mgu-updater/js/catalog.js');
