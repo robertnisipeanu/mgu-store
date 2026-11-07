@@ -382,6 +382,18 @@ f = screen('settings');
 eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source',
     'Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access', 'Check now']);
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
+// iDrive 8: the head unit's line, on the Access card's label's line, starts after the label in every language
+{
+    const { Recorder } = require(path.join(__dirname, '..', 'src', 'kit_record.js'));
+    const set = SCREENS.screens.find((x) => x.name === 'settings').components;
+    const at = (n) => set.find((c) => c.name === n);
+    const lab = at('connLabel');
+    const rec = new Recorder(1, 1);
+    const widest = Math.max(...[{ words: {} }].concat(require(path.join(__dirname, '..', 'src', 'locales.js')))
+        .map((l) => Math.max(...['ACCESS', 'HEAD UNIT'].map((k) => rec.textWidth(l.words[k] || k, lab.opts.size, { font: lab.opts.font })))));
+    ok(lab.x + widest + 16 <= at('unit').x && at('unit').y < lab.y + lab.h && at('versions').y + at('versions').h <= at('unit').y,
+        `iDrive 8: the label (up to ${Math.round(widest)} px) clear of the head unit's line`);
+}
 // the Access card shows three rows: the controller's focus on each later row scrolls it into view, in order, on every unit
 Object.keys(UNITS).forEach((u) => {
     const m = fixture.model(fixture.screens().find((x) => x[0] === 'settings')[1]);
