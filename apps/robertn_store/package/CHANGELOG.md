@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Text with ‘ ’ “ ” or a no-break space, such as an iPhone hotspot named
+Alex’s iPhone, shows them as plain quotes and a space where the font has
+no glyph for them, not as "?".
+
 ## 0.9.32
 
 The time after *checked* in the status line is in the head unit's time

@@ -25,16 +25,13 @@ const i18n = require('./i18n.js');
 const FACES = { regular: require('./font_regular.js'), semibold: require('./font_semibold.js') };
 const FAMILY = { label: 'regular', light: 'regular', bold: 'semibold', num: 'semibold', gear: 'semibold' };
 const OWN = ['latin', 'greek', 'cyrillic', 'vietnamese', 'chinese', 'chinese-tc', 'japanese', 'korean'];
+// Drawn with the plain character when an atlas lacks them: ‘ ’ “ ” and the no-break space.
+const PLAIN = { 0x2018: 0x27, 0x2019: 0x27, 0x201c: 0x22, 0x201d: 0x22, 0xa0: 0x20 };
 const families = Object.create(null);
 let owned = null;                       // the language font in use: its name and atlases ({ all } or by face)
 
 /* An atlas; its pixels inflated when first asked for, until let go. */
 function atlas(s) {
-    // Use the straight apostrophe when the atlas lacks the curly one.
-    // This aliases only the glyph: the original SSID stays intact.
-    if (!s.glyphs[0x2019] && s.glyphs[0x27]) {
-        s = Object.assign({}, s, { glyphs: Object.assign({}, s.glyphs, { [0x2019]: s.glyphs[0x27] }) });
-    }
     const f = { size: s.size, ascent: s.ascent, descent: s.descent, atlasW: s.atlasW, atlasH: s.atlasH,
         glyphs: s.glyphs, key: s.key, _alpha: s.alpha, _pixels: null };
     Object.defineProperty(f, 'alpha', {
@@ -129,10 +126,17 @@ function get(name, size, text) {
     return pick(fam, size);
 }
 
+/** The glyph that draws the character ch in atlas f: its own, its plain
+ * stand-in (PLAIN), else "?". */
+function glyph(f, ch) {
+    const c = ch.codePointAt(0);
+    return f.glyphs[c] || f.glyphs[PLAIN[c]] || f.glyphs[63];
+}
+
 function measure(f, s) {
     let w = 0;
     for (const ch of s) {
-        const g = f.glyphs[ch.codePointAt(0)] || f.glyphs[63];
+        const g = glyph(f, ch);
         if (g) {
             w += g[6];
         }
@@ -140,4 +144,4 @@ function measure(f, s) {
     return w;
 }
 
-module.exports = { get, measure };
+module.exports = { get, measure, glyph };
