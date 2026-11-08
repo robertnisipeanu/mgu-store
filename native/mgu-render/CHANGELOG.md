@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.15
+
 - The journal names the app the iDrive controller is held for and says when `@mgu-renderd-ccu` is bound and released: `controller: held for <app> (@mgu-renderd-ccu bound)`, `controller: held for <app>` when another of its apps takes it over, and `controller: back to the HMI, @mgu-renderd-ccu released (was held for <app>)`.
 
 ## 0.6.14
