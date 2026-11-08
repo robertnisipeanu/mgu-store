@@ -275,6 +275,11 @@ class Store extends OnlineApp {
                 this._client.send({ op: 'hello', id: APP_ID, version: this._version() });
             }
             this._connected = true;
+            // a refusal answers the Wi-Fi as it was: once its link moves on, the note is stale
+            const link = (s) => s && s.uplink && s.uplink.wifi && s.uplink.wifi.link;
+            if (this._uplinkNote && link(this._stRaw) !== link(st)) {
+                this._uplinkNote = null;
+            }
             this._stRaw = st;
             this._st = localized(st);
             this._tokenAdded(st);

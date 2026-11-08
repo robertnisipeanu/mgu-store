@@ -1445,6 +1445,14 @@ function runDrawn() {
         // the uplink's refusal shows on the page
         app._client.emit('reply-error', 'Wi-Fi needs uplink = auto', 'wifi-scan');
         eq(app._drawnModel().uplinkNote, 'Wi-Fi needs uplink = auto');
+        // it stays while the link is as it was, and goes once the link moves on
+        const online = app._stRaw;
+        app._client.emit('state', Object.assign({}, online));
+        eq(app._drawnModel().uplinkNote, 'Wi-Fi needs uplink = auto', 'the note stays on an unchanged link');
+        app._client.emit('state', Object.assign({}, online, { uplink: Object.assign({}, online.uplink,
+            { wifi: Object.assign({}, online.uplink.wifi, { link: 'connecting' }) }) }));
+        eq(app._drawnModel().uplinkNote, null, 'a stale refusal goes once the link changes');
+        app._client.emit('state', online);
         // back to Settings; its Preferred connection row, the Access card's third, in view, opens that page
         drawn.pop();
         app._states[host(2)].emit('visible', { visible: false });

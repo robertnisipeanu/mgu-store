@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A Wi-Fi refusal note (for example "the car's wpa_supplicant does not have wlan0") goes away when the Wi-Fi link changes. Before, it stayed next to Online until the page was opened again.
+
 ## 0.9.32
 
 The time after *checked* in the status line is in the head unit's time
