@@ -1,22 +1,22 @@
 {
   "id": "robertn_store",
-  "version": "0.9.31",
-  "source": "2f31453840dc0e6904b7dd50bba947f60df443d9",
+  "version": "0.9.32",
+  "source": "4bbb3a8b3c7f2c79e6e6eb8b9a018c9caf227495",
   "result": "pass",
   "unit": "id7",
   "emulator": "deb756780bddf43178501ea43b40b952e04d7df2",
-  "artifactSha256": "e09a851d9d5a122d65ab1813d8387939056ea9ffc14a1747a5f06c068faa4f50",
-  "minutes": 6.2,
+  "artifactSha256": "91c2be79d1dc39aac91772da61951c0c98f41c052de6fe586fc37501bb1c5dba",
+  "minutes": 6.1,
   "cases": [
     {
       "name": "installed on its own over the published release",
       "ok": true,
-      "detail": "robertn_store 0.9.31 updated in place by the app manager (pid 865) as uid 12204 (source PREINSTALLED)"
+      "detail": "robertn_store 0.9.32 updated in place by the app manager (pid 865) as uid 12204 (source PREINSTALLED)"
     },
     {
       "name": "after the head-unit restart, the Store in its page (embed)",
       "ok": true,
-      "detail": "in front, 686 colours"
+      "detail": "in front, 682 colours"
     },
     {
       "name": "renderer restarted, the Store on its own layer",

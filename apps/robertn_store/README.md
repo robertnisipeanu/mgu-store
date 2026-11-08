@@ -125,6 +125,11 @@ accounts, SSIDs and the updater's errors are shown as they are. A
 component's title and description are in the language when its catalog
 entry has them (`texts`, `release/README.md`), else English.
 
+The time in the status line (*checked*) is in the head unit's time zone,
+as the HMI's clock shows it: the instrument cluster's display time
+(`statusShowTimeDate` of KombiIF `1`, the manifest's proxy), read at start
+and on each change.
+
 A language is one file, `locales/<code>.json`: the HMI's languages it is
 for (`CommonTypes.Language`), its RHMI text files (named as the oap-sdk
 names those languages), the glyphs it is drawn with, and its words, each
