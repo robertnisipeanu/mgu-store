@@ -30,6 +30,11 @@ let owned = null;                       // the language font in use: its name an
 
 /* An atlas; its pixels inflated when first asked for, until let go. */
 function atlas(s) {
+    // Use the straight apostrophe when the atlas lacks the curly one.
+    // This aliases only the glyph: the original SSID stays intact.
+    if (!s.glyphs[0x2019] && s.glyphs[0x27]) {
+        s = Object.assign({}, s, { glyphs: Object.assign({}, s.glyphs, { [0x2019]: s.glyphs[0x27] }) });
+    }
     const f = { size: s.size, ascent: s.ascent, descent: s.descent, atlasW: s.atlasW, atlasH: s.atlasH,
         glyphs: s.glyphs, key: s.key, _alpha: s.alpha, _pixels: null };
     Object.defineProperty(f, 'alpha', {
