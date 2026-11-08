@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- On iDrive 8, when `first-install` restarts the head unit with the Store queued, it checks that the Store's tile appears. If the package was staged at boot and the running app manager is ready but the Store is missing from its registry, the installer tries the same package in place once, using the verified artifact it already has.
+
 ## 0.8.6
 
 - iDrive 7: every restart of MainApp the deploy tool makes first waits until MainApp's install worker has not run for 5 s, for at most 3 minutes. Still busy then, MainApp is not restarted: what needs the restart takes effect at the next start of the head unit (Restart pending), and an app install or update that needed it fails and is rolled back, to be run again later.

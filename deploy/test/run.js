@@ -9093,6 +9093,51 @@ function testMguInstallTiles() {
     }
 }
 
+function testMguInstallId8Restart() {
+    const from = fs.mkdtempSync(path.join(T, 'from-id8-'));
+    hu(['artifact', DEPLOY, '--out', from]);
+    const updater = namedTool('mgu-updater', '0.2.0');
+    const store = rhmiApp('robertn_store', '1.0.0', ['ID8'], { npm: true, acl: ACL, marked: true });
+    const deploy = path.join(from, `mgu-deploy@${VERSION}.tgz`);
+    [updater, store].forEach((f) => fs.copyFileSync(f, path.join(from, path.basename(f))));
+    const components = [deploy, updater, store].map((f, i) => {
+        const entry = publishedEntry('http://127.0.0.1:9', f, i, i === 2 ? 'app' : 'tool');
+        entry.artifact.url = entry.artifact.name;
+        return entry;
+    });
+    write(path.join(from, 'catalog.json'), JSON.stringify({ schema: 2, components }));
+    const args = ['first-install', '--from', from, '--host', '10.0.0.9', '--no-uplink', '--no-renderer'];
+
+    for (const mode of ['missing', 'registered', 'declined']) {
+        const root = id8Root();
+        const bin = installBin(root);
+        const shim = root.p('var/opt/mgu-deploy/mgu-deploy.sh');
+        write(path.join(bin.bin, 'nsm_control'), `#!/bin/sh
+set -e
+echo boot-2 > "$MGU_DEPLOY_BOOT_ID"
+: > "$FAKE_MGR_PIDFILE"
+sh '${shim}' apply-pending >&2
+echo active > '${root.unitFile('mgu-updater.service.active')}'
+${mode === 'registered' ? `"$FAKE_NODE" -e 'require(process.argv[1]).install("robertn_store", " at boot")' '${path.join(HERE, 'fake_manager.js')}'` : ''}
+nohup "$FAKE_NODE" '${path.join(HERE, 'fake_inplace.js')}' '${root.p(ID8_COPY)}' >/dev/null 2>&1 &
+`, 0o755);
+        try {
+            const r = mguInstallTerminal(args, { bin, api: 'http://127.0.0.1:9' }, mode === 'declined' ? 'n' : 'y');
+            const calls = r.calls.filter((a) => a[a.length - 1].includes('install --artifact'));
+            const done = r.out.includes('Setup is done:');
+            check(`mgu-install iDrive 8 after restart (${mode}): only a missing Store is installed in place`,
+                r.status === 0 && done === (mode !== 'declined') && calls.length === (mode === 'missing' ? 1 : 0) &&
+                (mode !== 'missing' || root.managerLog().some((line) => line.includes('install robertn_store 1.0.0 uid') && line.endsWith('in place'))),
+                `${r.out}\n${root.managerLog().join('\n')}`);
+        } finally {
+            const manager = inplaceStatus(root);
+            if (manager) {
+                try { process.kill(manager.pid); } catch (e) { if (e.code !== 'ESRCH') throw e; }
+            }
+        }
+    }
+}
+
 // MGU_TEST_ONLY=<name>,...: only those test functions
 const SUITES = [
     testArtifact,
@@ -9167,6 +9212,7 @@ const SUITES = [
     testSourcesAndDonor,
     testMguInstall,
     testMguInstallTiles,
+    testMguInstallId8Restart,
     testMguInstallCoding,
     testMguInstallUsb,
     testMguInstallFrom,

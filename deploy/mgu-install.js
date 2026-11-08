@@ -518,10 +518,10 @@ function sshArgs(o, remote) {
 }
 
 /* Runs remote on the unit; input on its stdin; capture: its stdout returned. */
-function ssh(o, remote, { input, capture } = {}) {
+function ssh(o, remote, { input, capture, timeout, quiet } = {}) {
     const r = cp.spawnSync('ssh', sshArgs(o, remote), {
-        input, maxBuffer: 64 << 20, windowsHide: true,
-        stdio: [input !== undefined ? 'pipe' : 'inherit', capture ? 'pipe' : 'inherit', 'inherit']
+        input, timeout, maxBuffer: 64 << 20, windowsHide: true,
+        stdio: [input !== undefined ? 'pipe' : 'inherit', capture ? 'pipe' : 'inherit', quiet ? 'ignore' : 'inherit']
     });
     if (r.error) {
         throw new Error(r.error.code === 'ENOENT' ? 'no ssh command found; install the OpenSSH client' : `ssh: ${r.error.message}`);
@@ -782,7 +782,7 @@ function promptLine(question, input) {
 
 /* Asks whether to restart the head unit now, at a terminal only; on yes
  * restarts it. Its exit status. */
-async function offerRestart(o, later = 'restart it from the Store') {
+async function offerRestart(o, later = 'restart it from the Store', after) {
     const term = o.noRestartPrompt || process.env.CI ? null : terminal();
     if (!term || !/^y(es)?$/i.test((await promptLine('Restart the head unit now? [y/N] ', term)).trim())) {
         return 0;
@@ -798,7 +798,7 @@ async function offerRestart(o, later = 'restart it from the Store') {
         return 1;
     }
     say('Restarting the head unit.');
-    return 0;
+    return after ? after() : 0;
 }
 
 /* The optional components first-install puts on too, unless told not to:
@@ -944,24 +944,94 @@ async function firstInstall(o) {
         }
     }
     const services = [{ id: 'mgu-updater', unit: 'mgu-updater.service' }].concat(withs);
-    // the status on stderr, shown as it comes; which services run on stdout (absent: not installed), then the status as JSON
-    const st = ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) =>
-        `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`),
-    [`sh ${DEPLOY} status --json 2>/dev/null | tail -n 1`]).join('; '), { capture: true });
-    const lines = st.stdout.split('\n');
-    const tiles = tilesShow(lines[services.length]);
-    const running = services.every((s, i) => ['active', 'absent'].indexOf((lines[i] || '').trim()) >= 0);
+    const { running, tiles, status, boot } = setupStatus(o, services);
     if (tiles.why) {
         say(`The Store's tile cannot show: ${tiles.why}`);
         if (running) {
             return 1;
         }
     } else if (tiles.shown && running) {
-        say('Setup is done: the Store installs and updates everything from here on.');
+        say(SETUP_DONE);
         return 0;
     }
     say('Restart the head unit to finish setup.');
-    return offerRestart(o);
+    const store = artifacts.find((a) => a.entry.id === 'robertn_store');
+    const queued = store && boot && status && (status.unit || {}).hmi === 'ID8' &&
+        !storeApp(status) && (status.pending_reboot || []).some((p) => p.id === store.entry.id && p.reason === 'installs at the next start');
+    const after = queued ? () => finishId8Setup(o, services, { boot, last: (status.last_apply || {}).at }, store, q) : null;
+    return offerRestart(o, undefined, after);
+}
+
+const SETUP_DONE = 'Setup is done: the Store installs and updates everything from here on.';
+const MAINAPP_HOOK = '/var/opt/public/oap/oap_12201/data/mgu-deploy-inplace.json';
+
+function setupStatus(o, services, probe) {
+    // Keep the human-readable status separate from the records on stdout.
+    const commands = probe ? [] : [`sh ${DEPLOY} status >&2`];
+    services.forEach((s) => commands.push(
+        `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`));
+    commands.push(`sh ${DEPLOY} status --json 2>/dev/null | tail -n 1`, 'cat /proc/sys/kernel/random/boot_id');
+    if (probe) commands.push(`cat ${MAINAPP_HOOK} 2>/dev/null || true`);
+    const options = probe ? Object.assign({}, o, { sshOpts: o.sshOpts.concat('BatchMode=yes') }) : o;
+    const st = ssh(options, commands.join('; '), { capture: true, timeout: probe ? 5000 : undefined, quiet: probe });
+    const lines = st.stdout.split('\n');
+    const [line, boot, hook] = lines.slice(services.length);
+    return { boot, status: parseStatus(line), hook: parseStatus(hook), tiles: tilesShow(line),
+        running: services.every((s, i) => ['active', 'absent'].includes((lines[i] || '').trim())) };
+}
+
+function parseStatus(line) {
+    try {
+        return JSON.parse(line);
+    } catch (e) {
+        return null;
+    }
+}
+
+function storeApp(status) {
+    return (status.components || []).find((c) => c.kind === 'app' && c.id === 'robertn_store');
+}
+
+/* After the approved restart, MainApp-21 may leave a staged Store out of
+ * its registry. Send the catalog's verified artifact once, through the
+ * installed deploy tool, after the manager announces its in-place hook. */
+async function finishId8Setup(o, services, before, store, q) {
+    say('Waiting for iDrive 8 to finish Store setup.');
+    const deadline = Date.now() + 120000;
+    let retried = false;
+    while (Date.now() < deadline) {
+        let current;
+        try {
+            current = setupStatus(o, services, true);
+        } catch (e) {
+            // SSH can be down while the head unit restarts.
+        }
+        const status = current && current.status;
+        if (status && (status.unit || {}).hmi === 'ID8' && current.boot && current.boot !== before.boot) {
+            const installed = storeApp(status);
+            if (current.running && current.tiles.shown && installed && installed.tile_visible === true) {
+                say(SETUP_DONE);
+                return 0;
+            }
+            const last = status.last_apply || {};
+            if (!retried && !installed && last.at !== before.last && Array.isArray(status.pending_reboot) &&
+                !status.pending_reboot.some((p) => p.id === store.entry.id) &&
+                (last.results || []).some((r) => r.ok === true && r.action === 'install' &&
+                    r.id === store.entry.id && r.version === store.entry.version) &&
+                current.hook && current.hook.state === 'ready' && current.hook.at >= Date.parse(last.at)) {
+                retried = true;
+                say('The Store was staged but is missing from the registry. Installing it in place.');
+                const artifact = `${q}/${shQuote(store.entry.artifact.name)}`;
+                const data = tgz([{ name: store.entry.artifact.name, data: store.data, mode: 0o644 }], Math.floor(Date.now() / 1000));
+                const r = ssh(o, unpackKit(q) +
+                    `{ sh ${DEPLOY} install --artifact ${artifact} --skip-older --yes; st=$?; rm -rf ${q}; exit $st; }`, { input: data });
+                if (r.status !== 0) break;
+            }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    say('Store setup could not be confirmed after the restart. Run the installer again once iDrive is ready.');
+    return 1;
 }
 
 /* From the deploy tool's status --json, whether our apps' tiles show on an
@@ -978,12 +1048,7 @@ async function firstInstall(o) {
  * status without listed_by_manager (an older deploy tool) counts as
  * shown. */
 function tilesShow(line) {
-    let s = null;
-    try {
-        s = JSON.parse(line);
-    } catch (e) {
-        return { shown: true };
-    }
+    const s = parseStatus(line);
     const fb = s && s.fallback;
     if (fb && (s.unit || {}).hmi === 'ID8' && 'listed_by_manager' in fb) {
         const apps = (s.components || []).filter((c) => c.kind === 'app');
