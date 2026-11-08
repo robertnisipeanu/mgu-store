@@ -78,6 +78,10 @@ function plan(repo, statusFile, catalogFile) {
     ids.forEach((id) => {
         const req = branch[id].requires || {};
         Object.keys(req).forEach((r) => {
+            // the next release of a component this install does not bring is not on the unit yet
+            if (req[r] === 'next' && ids.indexOf(r) < 0) {
+                refuse(`${id} ${branch[id].version} requires the next release of ${r}; test in the emulator`);
+            }
             const by = ids.indexOf(r) >= 0 ? branch[r].version : have[r];
             if (!by || cmp(by, req[r]) < 0) {
                 refuse(`${id} ${branch[id].version} requires ${r} ${req[r]}; the unit has ${have[r] || 'none'}. ` +

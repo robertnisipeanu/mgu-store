@@ -33,7 +33,11 @@ core, the deploy tool's on-unit `mgu-deploy.js` (`deploy/README.md`):
   (`deploy/hu` from a checkout, for development). It bootstraps the car
   and installs the deploy tool, the uplink and this updater.
 - **Sources**: this updater and the Store. It hands each verified
-  artifact to `/var/opt/mgu-deploy/mgu-deploy.sh install --artifact`.
+  artifact to `/var/opt/mgu-deploy/mgu-deploy.sh install --artifact`, with
+  `--other-source` for a tool another source installed (its origin in
+  `origins.json`), whose version going is deactivated first. A tool with
+  no recorded origin (installed over SSH, or before origins were kept)
+  installs without it, as an update or a downgrade of the same tool.
 
 Both take the same artifacts (`release.js` packs tools with `deploy/hu
 artifact`), the same `component.json`, the same `versions/<v>` + `current`
@@ -104,7 +108,7 @@ API requests it made.
 | Layout | Where | Components |
 |---|---|---|
 | catalog | a `catalog` release's `catalog.json` asset (`release/README.md`), the https URL, `catalog.json` in a folder | schema 1 or 2 entries; artifact URLs absolute or relative to the catalog |
-| releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description"}}}`), else the installed app's en_GB entry-point text, else the id; always apps, each `uninstallable` |
+| releases | a GitHub repo's releases (newest first, drafts and prereleases left out): assets named `<id>@<x.y.z>.tgz` or `.mgu` | each id's newest version, the `.tgz` over the `.mgu` of one version; titles from an optional `mgu-store.json` asset (`{"apps":{"<id>":{"title","description","texts"}}}`), else the installed app's en_GB entry-point text, else the id; always apps, each `uninstallable` |
 | repo tree | `mgu-repo.json` at a repo's or folder's root, at one commit | see below |
 | index | an https URL answering IterioDev's App Manager index: version 2, `{"version": 2, "packages": [{"url", "sha256", "size", "id", "kind", "version", "title", "author", "description", "icon", "iconSha256", …}]}`, or version 1, `{"packages": [{"url", "sha256"}]}` | version 2: each entry as it stands, no package downloaded (50 at most, 32 MiB each); `kind` `app`, or `renderer` / `tether`: a tool providing that kind, as a stick's service package (below); an app without `mguHmi` is for iDrive 8, the App Manager's head unit; an entry of another kind or without an https `url`, a sha256 and a size is left out, named in the source's `error`. An install downloads the package, checks its sha256 and that its `package.json` is the id, version and service its entry names, and keeps it in `state/index/<source id>/<sha256>.tgz` (root, 0600) while it is the newest of its id the index lists. Version 1: each package (https, absolute or relative to the index) downloaded once, checked against its sha256 and read like a stick's `oap/` package; `state/index/<source id>/index.json` keeps what each listed package is (one that does not read: until the updater's next version), and only the newest of each id is kept, as for version 2; a package that is missing or does not match is left out, named in the source's `error`. The packages kept come to at most 128 MiB, every source's together; one past that, or no longer kept, is downloaded again for its install or icon |
 
@@ -206,17 +210,29 @@ commit). Without one: `releases` when the repo has a release, else
   does (*Gate needs a renderer: install <the ones the sources list>
   first*), and the last installed provider of a capability an installed
   component needs is not removed.
-- `title`, `description`, `requires`, `optional` and `uninstallable` come
-  from the entry, else from the component's own file. A component that
+- `title`, `description`, `texts`, `requires`, `optional` and
+  `uninstallable` come from the entry, else from the component's own file. A component that
   cannot be used is left out and the source's `error` says why; the rest
   are listed.
 - GitHub: the files are read at the commit through the contents API, and
   an install downloads the repo tarball at that commit (`/tarball/<sha>`,
   at most `repo_max_bytes`; links in it are left out). A folder is read in
   place.
-- On a branch, a commit of the same version is an update too: a row's
-  `revision` is the short commit it would install, and
-  `state/origins.json` records the commit installed.
+- On a branch, a commit of the same version is an update too when it
+  changes the component: a row's `revision` is the short commit it would
+  install, and `state/origins.json` records the commit installed and the
+  component's content there. The content is the git ids, from the commit's
+  tree (`/git/trees/<sha>?recursive=1`), of the component's folder,
+  leaving out other components' folders or files inside it, and its
+  `mgu-repo.json` entry. A service or preload tool is the one file it packs.
+  For an app a build script makes, it is also the paths its `build.shared`
+  names and the script, or, without `build.shared`, the whole repo but the
+  other apps' folders. The tree is read, one API request, for each new head
+  commit while something is installed from the branch, and once for each
+  older commit an install is recorded with alone (its content is then that
+  commit's, while `mgu-repo.json` is the same file there, else `-`, which
+  matches nothing). While a content cannot be read, a new commit is an
+  update.
 
 **Building on the unit.** `build.node` runs under this Node, and
 `build.python` under `python` (`/var/opt/mgu-python/current/bin/python3`,
@@ -238,12 +254,15 @@ uid, over a file the build left there under that name; that goes to the deploy t
 module generated for it there when it requires one). A build with
 `network` gets the internet through `js/proxy.js`, an HTTP proxy on
 127.0.0.1 at a random port that the updater runs as the fetch uid for that
-build alone, resolving names through the lease's DNS: `http_proxy`,
+build alone, resolving each connection's host name through the DNS of the
+lease as it is then, within 15 s for the lookup and the TCP connection
+together: `http_proxy`,
 `https_proxy` (and upper case) name it with a random password, and it
 serves only connections of the build uid (`/proc/net/tcp`) that carry it;
 CONNECT to port 443 and http GET/HEAD to port 80, to host names with a
-public IPv4 address; at most `build_max_bytes` in all; each host it is
-asked for is logged (`build <id>: internet: CONNECT host:443`). Without the
+public IPv4 address (with a proxy set, also names the car's DNS cannot
+look up, which the proxy then looks up); at most `build_max_bytes` in all;
+each host it is asked for is logged (`build <id>: internet: CONNECT host:443`). Without the
 uplink's lease, such a build fails: *needs internet to build*. It is
 stopped past `build_timeout_s` (600) or once its folder holds more than
 `build_max_bytes` (200 MB); every process of the build uid is killed
@@ -279,7 +298,9 @@ lists the id.
 - Every other origin's listing is beside it, as a row keyed `<id>@<source>`
   that installs as `<id>` (`installAs`), and, while another origin's `<id>`
   is installed, `blocked` with the reason (`<id> is already installed from
-  <source>`): its install is refused. A tool and a package built elsewhere
+  <source>`, or, for one installed without a recorded origin,
+  `<id> is already installed; its updates come from <source>`): its
+  install is refused. A tool and a package built elsewhere
   (a release, catalog or index package, a stick's `oap/`), which may name
   its id in its code, keep their id so.
 - An app the updater builds (a repo tree's build script, or source
@@ -304,11 +325,12 @@ lists the id.
   updater: the installers, the emulator's provisioning; `imported`), or
   whose origin lists its id no more (a stick that is gone, a source
   removed), is updated by the origin whose listing has its title (an
-  app's en_GB entry-point text, a tool's `component.json` title); one
+  app's en_GB entry-point text, a tool's `component.json` title), of
+  several the built-in source (the installers install from it); one
   without a recorded origin also by the only origin listing its id,
   whatever its title. An origin holding
   another id for an app of that id (`doom2`) is not counted. With two of
-  that title, or none of it, it has no update. That origin's row has the
+  that title and neither built in, or none of it, it has no update. That origin's row has the
   id, and installing from it records it as the origin. So a car set up
   offline updates the Store, the updater and the uplink from a stick, an
   App Manager app from a stick's `oap/`, and a source removed and added
@@ -503,14 +525,29 @@ first change to the sources, writes it.
   `oap_<uid>/source/package.json` its version). Tools from
   `/var/opt/<id>/current/component.json`. Only components a source lists
   are looked at.
-- **Installing.** On request only, one at a time (later requests queue).
-  Nothing is installed on its own: an app install restarts every running
-  OAP app, which must not happen unasked. The artifact is downloaded (or
-  packed, or built), copied root-only and checked, then handed to the
-  deploy tool's `install --artifact`, the one install path every app and
-  tool takes on the unit. Exit 0 is done (a tool whose service cannot
+- **Installing.** On request, one at a time (later requests queue; the
+  Store's own install waits for all the others, the updater's own update
+  included, since it closes the Store); on its own only to set up again
+  what does not work (`repair`, "The socket") and to put back a lost app
+  (below): an app install restarts every running OAP app, which must not
+  happen unasked. The service runs at `Nice=10`, below the HMI. The
+  artifact is downloaded (or packed, or built), copied root-only and
+  checked, then handed to the deploy tool's `install --artifact`, the one
+  install path every app and tool takes on the unit. Exit 0 is done (a tool whose service cannot
   restart yet reports "takes effect after reboot", shown as *Restart
-  pending*), 1 failed and rolled back, 2 refused by preflight.
+  pending*), 1 failed and rolled back, 2 refused by preflight, 3 stopped by
+  the deploy tool's MainApp guard: what it changed stays for the next start
+  of the head unit, nothing is checked, rolled back or tried again, and the
+  state's `mainappGuard` says why.
+- **Lost apps.** An app of ours MainApp's registry no longer has while the
+  deploy tool keeps its package (its `status --json` `lost_apps`: what
+  oapcontroller's wipe of every app leaves) is installed again from that
+  package, the Store first, once per start of the head unit
+  (`state/boot.json`, by `boot_id`), and not while the deploy tool's
+  MainApp guard holds app changes back. Our installed apps are looked at
+  every 15 s, so the Store comes back without a computer. An app removed
+  through the Store, the deploy tool's uninstall or its restore has no
+  kept package and stays removed.
 
 ## Downloads: apps-only internet
 
@@ -543,8 +580,13 @@ fetcher can change nothing it installs.
   not redirected.
 - The size the source states is the most that is read; API answers at
   most 4 MiB.
-- A download whose connection breaks (cut mid-transfer, reset, no data for
-  30 s, no connection) or that gets a 500, 502, 503 or 504 is tried again
+- A connection waits at most 15 s for the name lookup, TCP and TLS
+  together, and 30 s for the answer's headers and for each part of its body:
+  a network the uplink has left gives the connection neither data nor a
+  reset. Each try resolves names through the servers of the uplink's lease
+  as it is then, so a download carries on over a network joined meanwhile.
+- A download whose connection breaks (cut mid-transfer, reset, one of those
+  waits over, no connection) or that gets a 500, 502, 503 or 504 is tried again
   after 1, 2, 4 and 8 s, up to 4 times in a row without getting further, 200
   tries in all. Where the server takes byte ranges with a strong ETag
   (GitHub's release downloads do; `codeload.github.com` does not), the next
@@ -552,6 +594,36 @@ fetcher can change nothing it installs.
   otherwise the file starts over. The size and sha256 are checked on the
   whole file. A POST, a refused certificate, an unknown host name and other
   HTTP answers are not tried again.
+
+### Through a proxy
+
+Downloads can go through a proxy, for networks where GitHub is slow or
+blocked. Set it in the Store (Settings → Proxy), on the phone page, or in
+`/var/opt/mgu-updater/updater.local.conf` (then restart the updater or the
+head unit):
+
+```
+proxy = socks5://192.168.8.1:7891
+```
+
+- `http://host:port` (a proxy that takes `CONNECT`) or `socks5://host:port`;
+  with a user name and password as `socks5://user:password@host:port`
+  (characters such as `@`, `:` or `#` in them written as `%40`, `%3A`,
+  `%23`).
+- Everything goes through it: GitHub, catalogs, packages, pictures, every
+  redirect, and the downloads of a build on the unit.
+- TLS runs through the proxy to the server itself, with the same
+  certificate checks. The proxy gets its own user name and password only,
+  never a token.
+- The proxy looks up the names of what is downloaded itself, so a name
+  server that answers wrongly on the car's network does not matter. A
+  build's names are first looked up on the car, and a name whose address
+  there is not public is refused.
+- When the proxy is down or refuses, the error says so, e.g. `proxy
+  192.168.8.1:7890: connection refused`.
+- The log and the Store show only the proxy's host and port. The file is
+  root's alone.
+- An empty `proxy` (or off in the Store) downloads directly again.
 
 ## Its own uids
 
@@ -667,8 +739,11 @@ which no BMW unit hooks, and it stops the services by their `KillSignal`
   restart with that reason. Any other restart that does not happen shows
   as a unit still up 3 minutes later: `rebootError` is `the head unit did
   not restart`. `rebootError` stays until the next catalog check.
-- Limited, so that nothing can restart the unit in a loop (on a car,
-  recmgr answers repeated failed starts with a data wipe). A request is
+- The Store's request, with the secret, is someone's tap: it runs at
+  once, whatever the limits below, and is not recorded against them.
+- Any other request (without the secret, from a Store before 0.9.16) is
+  limited, so that nothing can restart the unit in a loop (on a car,
+  recmgr answers repeated failed starts with a data wipe). It is
   refused, with `rebootError` saying why and when a restart is possible
   (`too soon after start-up, possible in 3 min`) until then:
   - before the unit has been up 4 minutes (`/proc/uptime`, so a restart of
@@ -728,7 +803,7 @@ on and off (privileged `web` op) and shows its QR code.
   (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
   `source-add` (`github` or `https` only), `source-probe` (its answer goes
   back to the page as it is), `source-remove`, `token-add`,
-  `token-remove`, `login-start` and `login-cancel`, each with only its own
+  `token-remove`, `login-start`, `login-cancel` and `proxy-set`, each with only its own
   fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
   is the daemon's own regular file; the journals of `mgu-updater`,
@@ -756,10 +831,10 @@ updates. Keys: `sources`, `credentials_dir`, `builtin_repo`, `default_sources`,
 `build_max_bytes`, `python`, `fetch_uid`, `fetch_gid`, `lease`, `deploy`,
 `deploy_timeout_s` (5400: a deploy tool run still going then is stopped with
 what it started, and fails), `deploy_tool`, `uplink_tool`, `bootstrap_check_s`, `privacy_tool`,
-`state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `store_app`,
+`state_dir`, `tool_root`, `oap_root`, `mainapp_uid`, `boot_id`, `store_app`,
 `reboot`, `log_file`, `socket`, `socket_group`, `web_uid`, `web_gid`,
 `web_port`, `web_iface`, `web_secret`, `uplink_status`, `uplink_ctl`,
-`uplink_poll_s` ("The uplink"). Relative paths are relative to
+`uplink_poll_s` ("The uplink"), `proxy` ("Through a proxy"). Relative paths are relative to
 `updater.conf`.
 
 **Log.** Every line the daemon logs goes to the journal and, with its UTC
@@ -798,6 +873,7 @@ each request, and whenever it changes (at most every 250 ms):
   "login": { "url": "https://github.com/login/device", "code": "ABCD-1234",
     "expiresAt": 1792620900000, "status": "pending", "error": null },
   "web": { "enabled": false, "urls": [], "error": null },
+  "proxy": { "on": true, "kind": "socks5", "address": "192.168.8.1:7891", "auth": false, "error": null },
   "uplink": { "device": { "kind": "wifi", "name": "Phone" }, "state": "online", "error": null, "preferred": "wifi",
     "wifi": { "enabled": true, "link": "online", "ssid": "Phone", "ip": "172.20.10.2", "signal": -45, "networks": [ … ],
       "saved": [ "Phone" ], "scanning": false, "error": null } },
@@ -806,12 +882,18 @@ each request, and whenever it changes (at most every 250 ms):
   "components": [ { "id": "doom", "kind": "app", "title": "DOOM", "version": "1.0.1",
     "installed": "1.0.0", "size": 2080457, "status": "update", "source": "idrive7-apps",
     "build": null, "optional": false, "uninstallable": true, "revision": null,
-    "description": "…", "author": "…", "icon": "/var/opt/mgu-updater/state/icons/…png",
+    "description": "…", "texts": { "de": { "title": "DOOM", "description": "…" } }, "author": "…",
+    "icon": "/var/opt/mgu-updater/state/icons/…png",
     "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null,
-    "listedId": null, "installAs": "doom", "blocked": null, "pendingReboot": false, "problem": null, "nextStart": null, "queued": false,
-    "previous": null, "error": null } ] }
+    "listedId": null, "installAs": "doom", "blocked": null, "pendingReboot": false, "problem": null, "repair": null, "nextStart": null, "queued": false,
+    "previous": null, "requiredAlone": [], "error": null } ] }
 ```
 
+- `texts`: the component's title and description in other languages, by
+  the Store's language code (`de`, `pt-BR`, `zh-TW`), as its catalog entry,
+  `mgu-repo.json` entry or `mgu-store.json` app has them (`"texts":
+  {"de": {"title", "description"}}`), else null. The Store shows the head
+  unit's language, else English.
 - `components`: each origin's component of an id (Sources, "Ids"); `id`
   the row's id (requests and `busy` name it), `listedId` the id its source
   lists when `id` is another, `installAs` the id it is or would be
@@ -836,7 +918,27 @@ each request, and whenever it changes (at most every 250 ms):
   `description` and `author` its source's (`''` when it gives none);
   `icon` the kept icon's path, or null (Sources, "Icons"); `problem` what
   an installed tool says is wrong, the string `problem` of its
-  `/var/opt/<id>/status.json` (mgu-render's page template), else null.
+  `/var/opt/<id>/status.json` (mgu-render's page template), else for an
+  installed component that does not work `Not working: <repair>`, else null.
+  `repair`: why an installed component does not work until it is set up
+  again (the deploy tool's `stale`, after a firmware update), else null.
+  At each check (not the updater itself, nor an app on iDrive 8), a tool
+  its source lists newer, while online, is updated from it, each newer
+  version once while the updater runs. Otherwise, once for each reason, a
+  tool the deploy tool keeps a copy of has its files laid again (`relay`;
+  also when that update fails): files only for one with an install step,
+  which is left; else the component is installed again from its source
+  (its version there). `needsSetup`: why the installed tool's install step
+  (`activate`, `postInstall`) waits after a firmware update (the deploy
+  tool's `needs_setup`), else null; such a tool is updated at the first
+  check that finds its source listing a newer version while online, and
+  Set up (`setup`) runs its step from the copy kept, a failure its row's
+  `error`.
+  `tileHidden`: an installed app of ours whose tile does not show (the
+  deploy tool's `tile_visible`, not one provisioning's own section hides,
+  `tile_withheld`) after an install that restarted the app
+  manager (its `last_bounce_at` moved), until the next start of the head
+  unit; else false.
   `previous`: the version Undo update returns to (the deploy tool's
   `rollback`, from the version it keeps), else null: never for the
   updater, the deploy tool, the Store or what the updater requires, nor
@@ -844,6 +946,14 @@ each request, and whenever it changes (at most every 250 ms):
   deploy tool's check at the start of the head unit found a tool's new
   version not working (`last_verify`): `<version> did not work after the
   restart (<why>); <previous> is back`, while that version runs.
+  `requiredAlone`: of an installed app, the installed tools only it
+  requires, itself or through one another, that its removal may take along
+  (each one its row may remove, nothing else installed requires, and none
+  the last provider of a capability another installed component needs),
+  in the order they are removed; else `[]`. The requirements it follows
+  are the sources' catalog rows (`requires`), not the installed
+  components' own files, so a requirement only an installed version
+  declares is not seen.
 - `unit`: the head unit (`hmi` `ID7`, `ID8` or null, `firmware` its build
   string), null until the deploy tool says. `allProviders`: the installed tools
   providing each capability; `providers`: the first of them each, for the
@@ -866,12 +976,19 @@ each request, and whenever it changes (at most every 250 ms):
 - `login`: the GitHub sign-in in progress (`pending`, `done`, `error`,
   `expired`), or null.
 - `web`: the phone page's state (`js/web.js`), present when the updater has it.
+- `proxy`: the proxy setting ("Through a proxy"): `on`, `kind` (`http` or
+  `socks5`), `address` (host:port), `auth` (it has a user name or
+  password, never shown), and `error`: what is wrong with the setting, else
+  the last download's failure at the proxy until one gets through.
 - `uplink`: the uplink's `status.json` ("The uplink"): its `device`,
-  `state`, `error`, `preferred` (`""`: none) and `wifi` (null without it:
-  an uplink before 0.7.0, or not on `uplink = auto`); null while the
-  uplink does not run.
+  `state`, `error`, `preferred` (`""`: none), `usbPhone` (whether phones
+  over USB are used; left out before mgu-uplink 0.7.7 and without
+  `uplink = auto`) and `wifi` (null without it: an uplink before 0.7.0, or
+  not on `uplink = auto`); null while the uplink does not run.
 - `catalog`: the sources as one line, for the Store 0.3: `checking` while
   any is read, `error` the first source that failed (`<label>: <error>`).
+- `mainappGuard`: why app changes wait for the next start of the head unit
+  (the deploy tool's MainApp guard, `mainapp_guard`), else null.
 - `privacy` is the app-privacy patch's state from `patch_mainapp.js check
   --json` (`native/app-privacy`), read at start, with every check and after
   each install: `patched` (in effect), `restart-needed` (patched, MainApp
@@ -887,8 +1004,9 @@ Store says it at each connection (below, "The Store's update").
 
 | Request | Does |
 |---|---|
-| `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"); without the secret while a Store older than 0.9.16 is installed |
-| `{"op":"uninstall","id"}` | removes an `uninstallable` component (every app but the Store) |
+| `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"): at once with the secret; without it while a Store older than 0.9.16 is installed, within the restart limits |
+| `{"op":"uninstall","id","tools"?}` | removes an `uninstallable` component (every app but the Store); then each of `tools`, which must be among the app row's `requiredAlone` (else nothing is queued), a tool before those it requires. A tool whose turn comes while something installed still requires it (the app's removal failed) stays; an app whose removal waits for the next start (iDrive 8) requires none |
+| `{"op":"setup","id"}` | Set up: a tool whose row has `needsSetup` laid again by the deploy tool from its kept copy with its install step (`mgu-deploy.sh setup <id> --yes`) |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A repo that is already a source is refused |
@@ -896,10 +1014,12 @@ Store says it at each connection (below, "The Store's update").
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
 | `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |
+| `{"op":"proxy-set","url"}` | the proxy downloads go through (`""`: none), checked and kept in `updater.local.conf`; the sources are read again |
 | `{"op":"web","enable":true\|false}` | the phone page on or off, kept across restarts (`state/web.json`) |
 | `{"op":"logs","unit","lines"}` | `{"type":"logs","unit","text"}`: a journal for the phone page |
 | `{"op":"uplink-prefer","kind"}` | the uplink's preferred connection: `wifi`, `usb`, `phone` (`""` for none), relayed as its `prefer` ("The uplink") |
-| `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi, relayed as they are ("The uplink") |
+| `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-5ghz","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi, relayed as they are ("The uplink") |
+| `{"op":"usb-phone","on":true\|false}` | phones over USB used by the uplink or left alone, relayed as it is ("The uplink") |
 
 A refused request gets `{"type":"error","op",…,"error"}`; one without the
 right secret, `"error":"forbidden"`. The direct answer to a request
@@ -940,8 +1060,8 @@ requests take the secret as `opts.secret` or `setSecret()`).
 
 The Store talks to the updater only; the uplink's requests socket
 (`uplink_ctl`, `/run/mgu-uplink/ctl.sock`, root only, mgu-uplink 0.7.0)
-is the updater's to reach. `uplink-prefer`, `wifi-enable`, `wifi-scan`,
-`wifi-connect` and `wifi-forget` (privileged) are checked here (a kind of
+is the updater's to reach. `uplink-prefer`, `usb-phone` (mgu-uplink 0.7.7), `wifi-enable`, `wifi-5ghz` (mgu-uplink 0.7.6),
+`wifi-scan`, `wifi-connect` and `wifi-forget` (privileged) are checked here (a kind of
 up to 16 lower-case letters, a network name of 1 to 32 bytes, a password
 of 8 to 63 printable ASCII characters or none, `on` true or false), then
 sent on as one request on a new connection, `uplink-prefer` as `prefer`,
@@ -980,7 +1100,7 @@ js/web.js                the phone page
 updater.conf             defaults
 systemd/mgu-updater.service
 component.json           the tool component (deploy tool format)
-test/                    offline tests (test/run.sh: Node 8.16.2 in Docker)
+test/                    offline tests (test/run.sh: Node 8.16.2 in Docker; MGU_TEST_NODE_VERSION=8.9.4 for the 2019 MGU's)
 ```
 
 ## Tests
@@ -1018,7 +1138,7 @@ files), with
   refresh token), no token anywhere but `api.github.com`, and the
   per-source files of 0.2 converted; public repos read with a stored
   token; the requests each check makes; the releases layout, a branch (a new commit of the same
-  version is an update) and tags, repo-tree apps and tools, build scripts
+  version is an update when it changes the component) and tags, repo-tree apps and tools, build scripts
   that succeed, fail, run too long or write outside their folder,
   requirements installed first, uninstall and its refusals, USB media
   (a stick's root and `mgu-repo/<name>`, a stick's `oap/` with a renderer
@@ -1077,6 +1197,11 @@ files), with
   default source) lists given it as origin (with its update) once it is
   read, one it does not list imported, kept over a restart; with that
   source removed, imported, the source not added again;
+- lost apps: after a simulated wipe the Store and another app of ours
+  installed again from their kept packages, the Store first, an app
+  removed on purpose left alone, once per start, none while the guard is
+  off; the tile line after an install that restarted the app manager, and
+  gone at the next start;
 - the daemon under its supervisor: an app install and update, the updater
   updating itself, rollback from a new version that crashes and from one
   that never comes up, a download that does not match its source, a

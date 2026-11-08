@@ -72,6 +72,7 @@ type wifiNetwork struct {
 	Secure  bool   `json:"secure"`
 	Saved   bool   `json:"saved"`
 	Current bool   `json:"current"`
+	bands   int    // bandBit of its access points in the scan
 }
 
 // wifiStatus is status.json's "wifi" (devstatus.go). link: off,
@@ -88,7 +89,11 @@ type wifiStatus struct {
 	Saved    []string      `json:"saved"`
 	Scanning bool          `json:"scanning"`
 	Error    *string       `json:"error"`
-	Backend  string        `json:"backend,omitempty"` // mgu-wpa, car-supplicant: what joins
+	Backend  string        `json:"backend,omitempty"`  // mgu-wpa, car-supplicant: what joins
+	Paused   string        `json:"paused,omitempty"`   // carplay, android-auto: no automatic scans during that wireless session
+	Freq     int           `json:"freq,omitempty"`     // MHz of the access point joined, while it can be read
+	Allow5   bool          `json:"allow5ghz"`          // joins use 5 GHz too (wifiband.go)
+	FiveOnly bool          `json:"fiveOnly,omitempty"` // joined on 5 GHz to a network not seen on 2.4 GHz, 5 GHz not allowed
 }
 
 // wifiRecord is what the provider changed on the interface, kept in the
@@ -112,11 +117,32 @@ type wifiBackend interface {
 	signal() (int, bool)
 	scan() error
 	saved() map[string]int
-	networks() ([]wifiNetwork, []string)
-	join(ssid, psk string, open bool) error
+	networks() ([]wifiNetwork, []string, map[string]int) // and each name's bands (bit24, bit5) in the scan
+	join(ssid, psk string, open, limit24 bool) error
+	widen() error                             // the join under way on every band
+	limited() map[string]bool                 // the saved networks on 2.4 GHz only
+	limit(ssid string, on bool) (bool, error) // a saved network on 2.4 GHz only or on every band; true: on 2.4 GHz only
 	joined() error
 	reload() error
 	forget(ssid string) error
+	hold(h scanHold) bool // limits the supplicant's own scans; true: none
+	freq() int            // MHz of the access point joined, 0 not known
+}
+
+// scanHold is what the provider tells the supplicant's own (automatic)
+// scans: idle, it only searches (no join or association under way, no scan
+// request showing), so its scans may stop; other, the uplink is online on a
+// device that outranks Wi-Fi; session, a wireless CarPlay or Android Auto
+// session (projection.go) is up, with the phone on band (2: 2.4 GHz, 5:
+// 5 GHz, 0: not known); same, with Allow 5 GHz, the frequencies of the
+// phone's groups, which the scans cover too: a station on the group's own
+// channel shares it without taking the radio off it.
+type scanHold struct {
+	idle    bool
+	other   bool
+	session string
+	band    int
+	same    []int
 }
 
 type wifiProvider struct {
@@ -135,11 +161,24 @@ type wifiProvider struct {
 	// notify, when set, is called once the provider takes or gives back the
 	// interface (the service's firewall guards it meanwhile).
 	notify func()
+	// outranks says whether an uplink of kind ranks above Wi-Fi, so Wi-Fi
+	// could not take over from it (scanUplink.rank); nil: any kind does.
+	outranks func(kind string) bool
 	// iftype reads the interface's nl80211 type; dbusHas asks a D-Bus
 	// wpa_supplicant whether it has the interface.
 	iftype      func(iface string) (uint32, error)
 	dbusHas     func(iface string) (bool, error)
 	connmanConf string
+	proj        *projection
+	groupFreq   func(ifname string) (int, error)
+	freqs       map[string]int // the session's P2P interfaces' frequencies, read once a session (reqMu)
+	sessKind    string         // the session the last tick found (reqMu)
+	joinedOn    string         // the network and frequency last logged (reqMu)
+	// the band joins use (wifiband.go), with reqMu held
+	bands      map[string]int  // each name's bands in the latest scan
+	dropped    map[string]bool // on every band after a join on 2.4 GHz did not work
+	stuckSince time.Time
+	bandScanAt time.Time
 
 	wake  chan struct{}
 	stopc chan struct{}
@@ -164,6 +203,9 @@ type wifiProvider struct {
 	st        wifiStatus
 	joining   string
 	joinNew   bool // joining a network that was not saved
+	joinLimit bool // the join keeps to 2.4 GHz
+	allow5    bool // joins use 5 GHz too
+	bandReset bool // setAllow5 ran: the tick ends what failed joins set
 	joinedAt  time.Time
 	scanUntil time.Time
 	fails     int       // failures in a row to take the interface or run the supplicant
@@ -172,19 +214,22 @@ type wifiProvider struct {
 	note      string    // the saved networks set aside, shown until the next join or switch
 	switched  bool      // setEnabled ran: the tick ends a run of give-backs (retakeAt, givebacks: reqMu's)
 	ip        string    // the uplink's lease on the interface
+	other     string    // the kind of another device the uplink is online on, "" none
 	link      *wifiLink
 }
 
 func newWiFiProvider(c config, bin string) *wifiProvider {
 	mgu := &supplicant{bin: bin, iface: c.WiFiIf, conf: c.wpaConf(), ctrl: c.wpaCtrl(), local: c.wpaLocal()}
+	car := newCarSupplicant(carIfname, c.wpaConf(), c.wpaCtrl())
 	return &wifiProvider{
 		ownIf: c.WiFiIf, carIf: carIfname, bcmdhd: "/sys/module/bcmdhd",
+		proj: newProjection(), groupFreq: car.groupFreq, freqs: map[string]int{}, bands: map[string]int{}, dropped: map[string]bool{},
 		iface: c.WiFiIf, sys: sysClassNet, proc: "/proc", record: c.wifiFile(), linkUp: wifiLinkUp,
 		iftype: nl80211Iftype, dbusHas: dbusSupplicantHas, connmanConf: "/etc/connman/main.conf",
-		mgu: mgu, car: newCarSupplicant(carIfname, c.wpaConf(), c.wpaCtrl()), wpa: mgu,
+		mgu: mgu, car: car, wpa: mgu,
 		wake: make(chan struct{}, 1), stopc: make(chan struct{}), done: make(chan struct{}),
-		enabled: c.WiFi,
-		st:      wifiStatus{Enabled: c.WiFi, Link: "off", Networks: []wifiNetwork{}, Saved: []string{}},
+		enabled: c.WiFi, allow5: c.WiFi5,
+		st: wifiStatus{Enabled: c.WiFi, Allow5: c.WiFi5, Link: "off", Networks: []wifiNetwork{}, Saved: []string{}},
 	}
 }
 
@@ -265,7 +310,7 @@ func (p *wifiProvider) tick() {
 		}
 	}()
 	p.mu.Lock()
-	st := wifiStatus{Enabled: p.enabled, Networks: []wifiNetwork{}, Saved: []string{}}
+	st := wifiStatus{Enabled: p.enabled, Allow5: p.allow5, Networks: []wifiNetwork{}, Saved: []string{}}
 	p.mu.Unlock()
 	switch {
 	case !st.Enabled:
@@ -359,7 +404,7 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		}
 		return
 	}
-	st.Networks, st.Saved = p.wpa.networks()
+	st.Networks, st.Saved, p.bands = p.wpa.networks()
 	switch ws["wpa_state"] {
 	case "COMPLETED":
 		st.Link = "connected"
@@ -376,7 +421,7 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	now := time.Now()
 	p.mu.Lock()
 	st.Scanning = now.Before(p.scanUntil)
-	joining, joinNew, joinedAt := p.joining, p.joinNew, p.joinedAt
+	joining, joinNew, joinedAt, joinLimit := p.joining, p.joinNew, p.joinedAt, p.joinLimit
 	p.mu.Unlock()
 	if joining != "" {
 		switch {
@@ -386,6 +431,17 @@ func (p *wifiProvider) up(st *wifiStatus) {
 			}
 			logf("wifi: joined %q", joining)
 			joining = ""
+		case joinLimit && now.Sub(joinedAt) > joinTimeout/2:
+			// not joined on 2.4 GHz: the same network on every band, for a whole joinTimeout
+			logf("wifi: %q not joined on 2.4 GHz: trying every band", joining)
+			if err := p.wpa.widen(); err != nil {
+				logf("wifi: %v", err)
+			}
+			p.dropped[joining] = true
+			p.mu.Lock()
+			p.joinLimit, p.joinedAt = false, now
+			p.mu.Unlock()
+			st.Link, st.SSID = "connecting", joining
 		case now.Sub(joinedAt) > joinTimeout:
 			p.wpa.reload()
 			p.mu.Lock()
@@ -407,6 +463,39 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		}
 		p.mu.Unlock()
 	}
+	// The supplicant's station scans take the shared radio off the channel
+	// of wireless CarPlay and Android Auto. While the uplink is online on a
+	// device Wi-Fi can't take over from, and during a wireless session, the
+	// supplicant's own scans stop or keep to the band the phone is not on
+	// (with Allow 5 GHz, and the phone's own channel; scanHold); they go on
+	// as usual as soon as neither is so, for a scan request, and never under
+	// a join the owner asked for.
+	sess := p.session()
+	if joining == "" {
+		p.mu.Lock()
+		other := p.other
+		p.mu.Unlock()
+		idle := ws["wpa_state"] == "SCANNING" || ws["wpa_state"] == "INACTIVE" || ws["wpa_state"] == "DISCONNECTED"
+		h := scanHold{idle: idle && !st.Scanning, other: other != "" && (p.outranks == nil || p.outranks(other)), session: sess.kind}
+		if h.session != "" && p.wpa == wifiBackend(p.car) {
+			h.band = p.phoneBand(sess)
+			p.mu.Lock()
+			allow5 := p.allow5
+			p.mu.Unlock()
+			if h.band != 0 && allow5 {
+				for _, ifname := range sess.ifaces {
+					if f := p.freqs[ifname]; !slices.Contains(h.same, f) {
+						h.same = append(h.same, f)
+					}
+				}
+			}
+		}
+		held := p.wpa.hold(h)
+		if held && h.session != "" {
+			st.Paused = h.session
+		}
+		p.reviewBands(st, ws, sess, held)
+	}
 	for i := range st.Networks {
 		st.Networks[i].Saved = slices.Contains(st.Saved, st.Networks[i].SSID)
 		st.Networks[i].Current = st.Link == "connected" && st.Networks[i].SSID == st.SSID
@@ -415,7 +504,70 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		if sig, ok := p.wpa.signal(); ok {
 			st.Signal = &sig
 		}
+		st.Freq = p.wpa.freq()
+		st.FiveOnly = p.fiveOnly(st)
 	}
+	p.logBand(st)
+}
+
+// logBand logs the frequency and band of the access point joined, when
+// the network or its frequency changes. With reqMu held.
+func (p *wifiProvider) logBand(st *wifiStatus) {
+	on := ""
+	if st.Link == "connected" && st.Freq > 0 {
+		on = fmt.Sprintf("%q on %s at %d MHz", st.SSID, p.iface, st.Freq)
+		if b := band(st.Freq); b != 0 {
+			on += " (" + bandName(b) + ")"
+		}
+	}
+	if on != p.joinedOn && on != "" {
+		logf("wifi: joined %s", on)
+	}
+	p.joinedOn = on
+}
+
+// session is the wireless CarPlay or Android Auto session now, logged as
+// it starts and ends. With reqMu held.
+func (p *wifiProvider) session() projSession {
+	s := p.proj.look(p.proc, time.Now())
+	if s.kind != p.sessKind {
+		if s.kind != "" {
+			logf("wifi: wireless %s on %v", projectionName(s.kind), s.ifaces)
+		} else {
+			logf("wifi: wireless %s ended", projectionName(p.sessKind))
+		}
+		p.sessKind = s.kind
+	}
+	if s.kind == "" {
+		clear(p.freqs)
+	}
+	return s
+}
+
+// phoneBand is the band of the P2P groups the phone is on (2 or 5), 0 when
+// they are on both or a frequency can't be read. Each group's frequency is
+// read once a session. With reqMu held.
+func (p *wifiProvider) phoneBand(s projSession) int {
+	b := 0
+	for _, ifname := range s.ifaces {
+		f, ok := p.freqs[ifname]
+		if !ok {
+			var err error
+			if f, err = p.groupFreq(ifname); err != nil {
+				logf("wifi: the frequency of %s: %v", ifname, err)
+			} else {
+				logf("wifi: %s on %d MHz", ifname, f)
+			}
+			p.freqs[ifname] = f
+		}
+		switch g := band(f); {
+		case g == 0, b != 0 && g != b:
+			return 0
+		default:
+			b = g
+		}
+	}
+	return b
 }
 
 // lost says why the interface the provider took is no longer as it took it
@@ -724,11 +876,12 @@ func (p *wifiProvider) guarding() bool {
 	return p.owned
 }
 
-// setOnline records the uplink's lease address on the interface ("" none).
-func (p *wifiProvider) setOnline(ip string) {
+// setOnline records the uplink's lease address on the interface ("" none)
+// and the kind of another device it is online on ("" none).
+func (p *wifiProvider) setOnline(ip, other string) {
 	p.mu.Lock()
-	changed := p.ip != ip
-	p.ip = ip
+	changed := p.ip != ip || p.other != other
+	p.ip, p.other = ip, other
 	p.mu.Unlock()
 	if changed {
 		p.poke()
@@ -814,14 +967,19 @@ func (p *wifiProvider) connect(ssid, psk string) error {
 		}
 	}
 	_, had := p.wpa.saved()[ssid]
-	if err := p.wpa.join(ssid, psk, open); err != nil {
+	limit := p.limit24(ssid)
+	if err := p.wpa.join(ssid, psk, open, limit); err != nil {
 		p.wpa.reload()
 		return err
 	}
 	p.mu.Lock()
-	p.joining, p.joinNew, p.joinedAt = ssid, !had, time.Now()
+	p.joining, p.joinNew, p.joinedAt, p.joinLimit = ssid, !had, time.Now(), limit
 	p.mu.Unlock()
-	logf("wifi: joining %q", ssid)
+	if limit {
+		logf("wifi: joining %q on 2.4 GHz", ssid)
+	} else {
+		logf("wifi: joining %q", ssid)
+	}
 	p.poke()
 	return nil
 }
@@ -945,7 +1103,7 @@ func (p *wifiProvider) openLink(ssid string) *wifiLink {
 	l := &wifiLink{p: p, iface: p.iface, ssid: ssid, done: make(chan struct{}), stop: make(chan struct{})}
 	p.link = l
 	p.mu.Unlock()
-	go l.watch()
+	go l.watch(wifiEvery, wifiDropAfter)
 	return l
 }
 
@@ -956,8 +1114,10 @@ func (l *wifiLink) end(err error) {
 	})
 }
 
-func (l *wifiLink) watch() {
-	t := time.NewTicker(wifiEvery)
+// watch looks at the link at the interval openLink read (wifiEvery,
+// wifiDropAfter), so that it never reads them itself.
+func (l *wifiLink) watch(every, dropAfter time.Duration) {
+	t := time.NewTicker(every)
 	defer t.Stop()
 	var lost time.Time
 	for {
@@ -978,7 +1138,7 @@ func (l *wifiLink) watch() {
 			l.end(fmt.Errorf("joined %s instead", ssid))
 		case lost.IsZero():
 			lost = time.Now()
-		case time.Since(lost) >= wifiDropAfter:
+		case time.Since(lost) >= dropAfter:
 			l.end(fmt.Errorf("%s is gone", l.ssid))
 		}
 	}

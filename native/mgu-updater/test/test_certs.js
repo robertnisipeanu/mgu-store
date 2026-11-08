@@ -13,7 +13,10 @@
  *
  * Downloads cut mid-transfer (cut()): fetch.js tries again and asks for the
  * rest where the server takes ranges, through a redirect to a host whose
- * dates are let go too; the file comes out whole.
+ * dates are let go too; the file comes out whole. Connections that go
+ * quiet (testStalls()): no answer to the handshake or to the request, and a
+ * name server that never answers; each try ends in
+ * time, asks the lease as it is then, and the download comes out whole.
  *
  * With MGU_TEST_PYTHON naming a Python 3.6 or newer (mgu-python on the
  * unit), each chain is also fetched by that Python's own TLS (urllib, the
@@ -25,7 +28,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const cp = require('child_process');
+const net = require('net');
 const https = require('https');
+const dgram = require('dgram');
 const crypto = require('crypto');
 const certs = require('../js/certs');
 
@@ -354,6 +359,10 @@ function cutServer(leaf, chain, payload) {
                 res.socket.destroy();
                 return;
             }
+            // the first request of /hold-head gets no answer at all, its connection kept open
+            if (p === '/hold-head' && n === 0) {
+                return;
+            }
             if (p === '/missing') {
                 res.writeHead(404);
                 res.end();
@@ -458,10 +467,109 @@ function testCuts() {
     });
 }
 
+/* A network that has gone quiet: nothing answers and nothing resets.
+ * Every wait is bounded (connectMs, idleMs: 1 s here), each try asks the
+ * lease it finds then, and a download that cannot go on ends at once. */
+function testStalls() {
+    const payload = crypto.randomBytes(200000);
+    const sum = (b) => crypto.createHash('sha256').update(b).digest('hex');
+    const ca = pem('root');
+    const lease = path.join(T, 'lease.json');
+    let i = 0;
+    // job's events, with onEvent(ev) told each as it comes; ms: how long it took
+    const run = (job, onEvent) => new Promise((resolve) => {
+        const dest = path.join(T, `stall-${i++}`);
+        const t0 = Date.now();
+        const child = cp.spawn(process.execPath, [path.join(ROOT, 'js', 'fetch.js')], { stdio: ['pipe', 'pipe', 'inherit'], env: {} });
+        const events = [];
+        let buf = '';
+        child.stdout.on('data', (d) => {
+            buf += d;
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                const ev = JSON.parse(buf.slice(0, nl));
+                buf = buf.slice(nl + 1);
+                events.push(ev);
+                if (onEvent) {
+                    onEvent(ev);
+                }
+            }
+        });
+        child.on('close', (code) => resolve({ code, events, ms: Date.now() - t0, last: events[events.length - 1] || {},
+            file: fs.existsSync(dest) ? fs.readFileSync(dest) : null }));
+        child.stdin.end(JSON.stringify(Object.assign({ headers: { 'User-Agent': 't' }, dest, ca, dns: [], maxBytes: payload.length,
+            retryMs: 50, connectMs: 1000, idleMs: 1000 }, job)));
+    });
+    const tries = (r) => JSON.stringify(r.events.filter((e) => e.progress === undefined));
+    let web;
+    let quiet;
+    let silentDns;
+    return cutServer('now', ['inter'], payload).then((s) => {
+        web = s;
+        // TCP accepted, the TLS handshake never answered, for the first connection; the rest reach web
+        return new Promise((resolve) => {
+            let conns = 0;
+            quiet = net.createServer((c) => {
+                c.on('error', () => {});
+                if (conns++ === 0) {
+                    return;
+                }
+                const up = net.connect(web.address().port, '127.0.0.1');
+                up.on('error', () => c.destroy());
+                c.pipe(up).pipe(c);
+            });
+            quiet.listen(0, '127.0.0.1', resolve);
+        });
+    }).then(() => new Promise((resolve) => {
+        // a DNS server that takes every query and answers none
+        silentDns = dgram.createSocket('udp4');
+        silentDns.bind(0, '127.0.0.1', resolve);
+    })).then(() => run({ url: `https://localhost:${web.address().port}/hold-head` })).then((r) => {
+        ok('stall: an answer whose headers never come is tried again after idleMs, and comes out whole',
+            r.last.done && r.file && sum(r.file) === sum(payload) && r.events.some((e) => e.retry && /no data for 1 s/.test(e.error)) &&
+            r.ms < 4000, `${r.ms} ms ${tries(r)}`);
+        return run({ url: `https://localhost:${quiet.address().port}/x` });
+    }).then((r) => {
+        ok('stall: a connection whose TLS handshake never answers is tried again after connectMs',
+            r.last.done && r.file && sum(r.file) === sum(payload) && r.events.some((e) => e.retry && /no connection in 1 s/.test(e.error)) &&
+            r.ms < 4000, `${r.ms} ms ${tries(r)}`);
+        return run({ url: `https://stalled.test:${web.address().port}/x`, dns: [`127.0.0.1:${silentDns.address().port}`] });
+    }).then((r) => {
+        // 5 tries of 1 s and 50 + 100 + 200 + 400 ms between: the lookups still under way keep no one waiting
+        ok('stall: a name lookup that never answers ends each try at connectMs, and the download fails as soon as the last does',
+            r.code === 1 && r.last.error === 'stalled.test: no connection in 1 s (5 tries)' && r.ms < 7500, `${r.ms} ms ${tries(r)}`);
+        // the lease names the silent server; after the first try the uplink is on another network
+        // (retryMs: time for the lease to change before the next try reads it)
+        fs.writeFileSync(lease, JSON.stringify({ dns: [`127.0.0.1:${silentDns.address().port}`] }));
+        return run({ url: `https://localhost:${web.address().port}/x`, dns: [`127.0.0.1:${silentDns.address().port}`], lease, retryMs: 500 }, (ev) => {
+            if (ev.retry === 1) {
+                fs.writeFileSync(lease, JSON.stringify({ dns: [] }));
+            }
+        });
+    }).then((r) => {
+        ok('stall: each try resolves through the lease as it is then', r.last.done && r.file && sum(r.file) === sum(payload) &&
+            r.events.filter((e) => e.retry).length === 1, tries(r));
+        fs.unlinkSync(lease);
+        return run({ url: `https://localhost:${web.address().port}/x`, lease, retryMs: 500 }, (ev) => {
+            if (ev.retry === 2) {
+                fs.writeFileSync(lease, JSON.stringify({ dns: [] }));
+            }
+        });
+    }).then((r) => {
+        ok('stall: a try without a lease fails as having no internet, and a lease that comes back is used',
+            r.last.done && r.file && sum(r.file) === sum(payload) &&
+            r.events.filter((e) => e.retry && e.error === 'no internet (the uplink is down)').length === 2, tries(r));
+        web.close();
+        quiet.close();
+        silentDns.close();
+    });
+}
+
 testDirect();
 testLogOnce();
 testFetch()
     .then(testCuts)
+    .then(testStalls)
     .then(() => (process.env.MGU_TEST_PYTHON ? testPython(process.env.MGU_TEST_PYTHON) : null))
     .catch((e) => {
         failed++;

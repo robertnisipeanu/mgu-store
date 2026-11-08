@@ -1,5 +1,31 @@
 # mgu-uplink changelog
 
+## Unreleased
+
+## 0.7.8
+
+- With Allow 5 GHz on, the car's supplicant's automatic scans during wireless CarPlay or Android Auto also cover the phone's own P2P group channel(s), not only the other band: a station on the group's channel shares it without taking the radio off it. A home access point on the same 5 GHz channel as the CarPlay group (e.g. 5785 MHz) is joined there instead of on 2.4 GHz. With Allow 5 GHz off, as before.
+
+## 0.7.7
+
+- Phones over USB can be switched off (`usb_phone = off`; the `usb-phone` request; shipped on). Off, the uplink leaves every phone alone: no Android phone's USB tethering is used, and no iPhone is taken from the media daemon, switched to its tethering configuration or paired, so USB audio keeps playing and the phone does not ask "Trust This Computer?". USB Ethernet adapters, CDC-ECM sticks and Wi-Fi are used; a stick presenting RNDIS or NCM counts as a phone and is left alone too. Switched off while the uplink runs on a phone, the link ends as an unplug ends it and the uplink goes on with the next device; switched on, a phone is taken again at the next scan.
+- `status.json` adds `usbPhone` (with `uplink = auto`); `mgu-uplink status` shows it.
+
+## 0.7.6
+
+- Wi-Fi prefers 2.4 GHz: with Allow 5 GHz off (`wifi_5ghz = off`, the default; the `wifi-5ghz` request), a network seen on 2.4 GHz is joined there only, through a `freq_list` and `scan_freq` of the 2.4 GHz channels (car's supplicant: `AddNetwork` properties; `wlan1`: `SET_NETWORK`), kept in `wpa.conf`. A network seen on 5 GHz only is joined there (`wifi.fiveOnly`). A join on 2.4 GHz that has not joined after 20 s goes on on every band; a saved network in range on 2.4 GHz but not joined for 40 s is on every band until a restart or a switch of the setting; a supplicant that refuses `freq_list` costs one retry and is not asked again; a saved network on 2.4 GHz only that is out of range is looked for on every channel every 2 min (not during wireless CarPlay or Android Auto). Networks saved before keep joining on any band until seen on 2.4 GHz. A joined network's band changes only once it is left.
+- `status.json`'s `wifi` adds `allow5ghz` and `fiveOnly`.
+
+## 0.7.5
+
+- Wi-Fi during wireless CarPlay and Android Auto: while the phone projects over the car's Wi-Fi (the CarPlay or Android Auto daemon connected to the phone, and a P2P group receiving from it), the supplicant's own scans keep off the phone's band. Through the car's supplicant (`wlan0`), our networks get a `scan_freq` of the other band, read from the phone's P2P group's frequency; with the band not known, or a supplicant that refuses `scan_freq`, they are switched off while Wi-Fi is not joined. On `wlan1`, our wpa_supplicant makes no scans of its own while Wi-Fi is not joined. A `wifi-scan` or `wifi-connect` request still covers every channel, a joined network stays joined, and when the session ends everything is as before within 2 s. `status.json`'s `wifi.paused` (`carplay`, `android-auto`) says when the supplicant makes no scans of its own.
+- Calls to the car's wpa_supplicant carry D-Bus's NO_AUTO_START flag: a call made while it is not running never starts one.
+- `status.json`'s `wifi.freq`: the frequency (MHz) of the access point joined, while it can be read (car's supplicant: `CurrentBSS` and its `Frequency`; `wlan1`: `STATUS`). The log names the network, interface, frequency and band when Wi-Fi joins and whenever the frequency changes.
+
+## 0.7.4
+
+- Wi-Fi through the car's supplicant (iDrive 7, `wlan0`): while the uplink is online on a device that ranks above Wi-Fi (a phone with `preferred = phone`, an adapter with `usb`) and Wi-Fi is not joined, our networks are switched off in the car's supplicant, which then stops scanning every 5 s for a saved network out of range. Those scans took the shared radio off wireless CarPlay's channel and flooded the journal. They are switched on again as soon as that uplink is offline or gone, and for a `wifi-scan` request. They are only ever in the supplicant's memory, and a start adds them switched on. `wlan1` (our own wpa_supplicant) is unchanged.
+
 ## 0.7.3
 
 - Wi-Fi on iDrive 7 units without `wlan1` (Broadcom BCM4359, `bcmdhd`): the unit joins on the car's own `wlan0` through the car's D-Bus wpa_supplicant, beside the car's hotspot and wireless CarPlay, with the same requests, saved networks, DHCP, routing and firewall as on `wlan1`. Our networks live only in the car's supplicant's memory, tagged `id_str="mgu-uplink"`, and are removed when Wi-Fi is switched off, the service stops or the car starts using `wlan0` (a network of its own, its Wi-Fi switched off); a start removes the ones a killed run left. `wlan1`, where there is one, is used as before.

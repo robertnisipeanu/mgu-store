@@ -8,6 +8,8 @@ After=local-fs.target
 ExecStart=/var/opt/mgu-updater/current/mgu-updater
 Restart=always
 RestartSec=5
+# Its downloads, builds and installs give way to the HMI.
+Nice=10
 # The unit's system.conf sends stdout to null by default; the updater logs there.
 StandardOutput=journal
 

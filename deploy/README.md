@@ -147,7 +147,8 @@ deploy/hu status --host 127.0.0.1 --port 2225 \
 ```
 
 Exit status everywhere: 0 done, 1 failed (rolled back where it applies),
-2 refused before anything changed (and bad usage).
+2 refused before anything changed (and bad usage), 3 stopped by the MainApp
+guard (iDrive 7, "Bouncing the app manager"): what it changed stays.
 
 ### The updater's sources and tokens
 
@@ -227,7 +228,7 @@ from a file or from stdin (`curl -fsSL <raw URL> | node - first-install
 ...`); from stdin a token prompt reads the terminal device (`/dev/tty`),
 and where there is none (Windows) the downloaded file is run instead.
 
-`first-install` and `token` find the head unit by themselves, and print
+`first-install`, `uninstall` and `token` find the head unit by themselves, and print
 which connection they used:
 
 1. the car's hotspot, `172.16.222.97:22`, when it serves an SSH banner;
@@ -266,6 +267,7 @@ which the unit's sshd needs.
 ```sh
 node mgu-install.js first-install [--from <folder>] [--no-renderer] [--no-uplink] [--token] [ssh options]
 node mgu-install.js token [--list [--json] | --remove <id>] [ssh options]
+node mgu-install.js uninstall [--yes] [--from <folder>] [--no-restart-prompt] [ssh options]
 node mgu-install.js usb-repo <stick folder> [<input>...]
 ```
 
@@ -335,8 +337,10 @@ printed. Its last line
 is `Restart the head unit to finish setup.` while any of
 `mgu-updater.service`, `mgu-render.socket` and `mgu-uplink.service` is
 installed but not active, or, on iDrive 7, while the running app manager
-does not yet run the provisioning fallback that shows our apps' tiles;
-else `Setup is done`. When the fallback could not be turned on, it says
+does not yet run the provisioning fallback that shows our apps' tiles,
+or, on iDrive 8, while the deploy tool's `status` does not report the
+Store's tile and those of the other apps listed in `custom_apps.json`
+as shown (a Store not yet registered included); else `Setup is done`. When the fallback could not be turned on, it says
 `The Store's tile cannot show:` and the reason (exit 1 when the services
 run). After the restart line, at a
 terminal (not under CI, nor with `--no-restart-prompt`), it asks
@@ -365,6 +369,33 @@ node mgu-install.js first-install --from <folder>/mgu-repo/mgu-store --identity 
 
 Before installing, the car is parked, on stable power (engine running or a
 charger connected), and stays awake until the command finishes.
+
+**uninstall** removes everything the Store setup put on the head unit,
+with the deploy tool's `remove-all` ("Removing the Store setup" below). It
+first lists what is installed (the apps and tools the deploy tool
+installed, from any source, the updater's sources and tokens, the deploy
+tool) and asks `Remove all of it? [y/N]`; `--yes` skips the question, and
+without a terminal it removes nothing unless given `--yes` (exit 2). A
+deploy tool on the unit without `remove-all` hands the job to the
+published one, read like first-install's (or from `--from <folder>`),
+which stays installed should the run not finish.
+It ends with one line:
+`Removed: nothing of the Store setup is left on the head unit.`;
+`Removed. Restart the head unit to finish.` or, on iDrive 8 with apps
+removed at the next start, `Restart the head unit to finish: <apps> and
+the deploy tool go at its next start.`, either followed by the restart
+question as first-install asks it; or `Not finished: <what> is still on
+the head unit. Run uninstall again to finish.` (exit 1), or, when what
+is left goes only after a restart, `… Restart the head unit, then run
+uninstall again to finish.` and the restart question (exit 1).
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.sh | sh -s -- uninstall --identity ~/.ssh/mgu_root_key
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.ps1))) uninstall --identity $HOME\.ssh\mgu_root_key
+```
 
 **token** adds a GitHub token for the updater: read from a hidden prompt
 (not echoed), or from stdin when stdin is not a terminal and the script
@@ -414,9 +445,12 @@ and the stick's other files stay. A root-service package of another
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--leave <id>...] [--yes]
 mgu-deploy.sh status [--json]
+mgu-deploy.sh relay [<id>...] --yes           # a stale tool's files from the copy kept here, no install step
+mgu-deploy.sh setup <id> --yes                # a tool laid again from that copy, its install step included
 mgu-deploy.sh uninstall <id> [--yes]
+mgu-deploy.sh remove-all [--json] | remove-all --yes
 mgu-deploy.sh rollback <id> [--yes]
 mgu-deploy.sh restore [name] [--yes]
 mgu-deploy.sh backups
@@ -426,6 +460,7 @@ mgu-deploy.sh updater-token --list [--json] | --remove <id>
 mgu-deploy.sh updater-sources                 # sources.json on stdin
 mgu-deploy.sh sdk-donor [--json]
 mgu-deploy.sh apply-pending                   # iDrive 8, at boot
+mgu-deploy.sh relist                          # iDrive 8, at boot: our apps in custom_apps.json
 mgu-deploy.sh verify                          # at boot: the tools updated for this start
 mgu-deploy.sh remove-unused                   # at boot: files hooks handed over
 mgu-deploy.sh appmanager [--json] | appmanager adopt [--yes]
@@ -474,7 +509,7 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /var/opt/public/oap/oap_12201/data/apps/<id>.json   an app's registry entry
 /var/opt/public/oap/oap_12201/data/custom_apps.json the apps the fallback lists
 /var/opt/public/oap/oap_12201/data/mgu-deploy-inplace.json the manager's in-place hook and its last answer
-/var/opt/public/oap/oap_12201/data/mgu-deploy-guard.json   iDrive 8: the copy's guard for this boot
+/var/opt/public/oap/oap_12201/data/mgu-deploy-guard.json   the MainApp guard for this boot (iDrive 7: the bounces' watch; iDrive 8: the copy's)
 /var/opt/public/oap/oap_<uid>/           an app's home (source/, data/, security/, someipInterfaces/, ...)
 ```
 
@@ -505,7 +540,42 @@ installs. On a unit not known the install says mguHmi is not checked.
 With `--skip-older` (a kit, `mgu-install.js first-install`) such an
 artifact is skipped, saying why, and the others install.
 
+**Another version of an installed tool.** An install of an older version,
+or of any version with `--other-source` (the updater's install of a tool
+another source installed), runs the `deactivate` of the version it
+replaces first, with all of that version in place, as its removal does:
+one that fails refuses the install (exit 2), and that version stays
+current and runs its `activate` again. An update runs only the new
+version's `activate`. Whichever it is, what the versions kept under
+`versions/` installed and the new one does not list goes, as in a
+rollback, in the install's own rootfs window: their running units are
+stopped first (when recmgr has loaded them), the new version's list
+entries go in, then its units, links and drop-ins, then the old units,
+links, drop-ins and their limits go, and last their recmgr names no
+installed tool has and the crash handler's names no installed tool wants.
+An install that fails after that puts them back with the snapshot, starts
+the units it stopped again, and runs the replaced version's `activate`
+again.
+
 ### iDrive 8 apps
+
+**Backend provisioning.** Telematics serves the das files until the car's
+first sync with BMW's backend (**Update apps and services**). From then on
+it serves the backend's provisioning
+(`/var/opt/public/tm/tm_12000/data/prov/ProvSigned.xml`), which has no
+section for our apps, and MainApp-21 gives an app with no section no
+tile. So every app of ours the das files list, registered or with its
+package in place, keeps a `custom_apps.json` entry with its das line's
+flags, which the fallback copy gives it as its section. `apply-pending`,
+every `install`, `status` run as root (the updater runs it) and `relist`
+(run by the fallback's boot unit before MainApp-21) put a missing entry
+back; an app with a queued removal is left out. An entry put back counts
+from MainApp-21's next start. The copy records the sections it filled in
+`oap_12201/data/mgu-deploy-listed.json` (`{pid, apps}`), and `status`
+reports an app's tile as shown only when the provisioning Telematics
+serves has its section (`tile=provisioned`) or the running MainApp-21's
+copy filled it (`tile=fallback`); `status --json` lists those apps as
+`fallback.listed_by_manager`.
 
 MainApp-21 installs an app it finds in its `preinstalled_apps` when
 provisioning, the six das files under `/usr/share/tm/prov`, lists it, at
@@ -520,8 +590,8 @@ uninstall of that one app, as on iDrive 7, and its tile appears or goes at
 once. The package (`preinstalled_apps/<id>@<version>.tgz`) and the app's
 das lines go in first, as `apply-pending` puts them (below), so every later
 start has the app; its `custom_apps.json` entry gives it its provisioning
-section until then (the copy fills only a listed app's empty section and
-never adds to `installable_apps`). `status`, run as root (the updater
+section whenever provisioning has none for it (the copy fills only a
+listed app's empty section and never adds to `installable_apps`). `status`, run as root (the updater
 runs it right after it installs the deploy tool), turns the fallback on
 once, when a copy of this MainApp-21's `main.js` builds, with the crash
 list's rules for remounting `/`; it reports `live_installs` in `status
@@ -737,15 +807,15 @@ the new version, so `status --json` answers from the new `current` at once.
 The updater probes `status --json` after its self-update and, when it gets
 no answer, renames `current` back itself.
 
-`uninstall mgu-deploy` is refused (exit 2): a running tool does not remove
-itself. `restore` puts back what the tool changed and keeps the tool;
-`/var/opt/mgu-deploy` is removed by hand when wanted.
+`uninstall mgu-deploy` is refused (exit 2): the deploy tool goes last in
+`remove-all`, with everything it installed ("Removing the Store setup").
+`restore` puts back what the tool changed and keeps the tool.
 
-**Version rule.** Bump `deploy/component.json`'s version, and `VERSION` with
-it (`node release/release.js bump mgu-deploy <x.y.z>` sets both), whenever a
-file under `deploy/unit/`, `tools/oap_link.js` or `tools/oap_pack.js`
-changes; `deploy/hu`, `mgu-install.js`, the tests and this README are not part
-of the artifact.
+**Version rule.** The release sets `deploy/component.json`'s version and
+`VERSION` with it (release/README.md, "Versions"). A change to a file under
+`deploy/unit/`, `tools/oap_link.js` or `tools/oap_pack.js` adds its line
+under `## Unreleased` in `deploy/CHANGELOG.md`; `deploy/hu`, `mgu-install.js`,
+the tests and this README are not part of the artifact.
 
 ### Tools
 
@@ -887,13 +957,56 @@ them (below).
   restarted are restarted on the previous version (or stopped when their
   unit went with it) and a first install is removed. Whenever an install
   that ran `activate` is rolled back (a failed `activate` or `check`), the
-  previous version's `activate` runs again.
+  new version's `deactivate` runs first (one that fails keeps the new
+  version current, recorded and its copy kept as an install does, and the
+  install fails), then the previous version's `activate` runs again.
 - `deactivate` runs before a removal changes anything, with the tool's units
-  and files in place. A non-zero exit refuses the removal (exit 2) and the
-  tool stays; a removal that fails after it is rolled back. Either way the
-  tool's `activate` runs again. A restart it asks for stays pending under
-  `mgu-deploy` (`<id> removed: <reason>`), since the tool's own entries go
-  with it.
+  and files in place. It must succeed, doing nothing, when what it reverts
+  is already stock (after a firmware update put the original files back,
+  or when another version's `deactivate` reverted them first): it may run
+  for a version whose changes are gone. A non-zero exit refuses the
+  removal (exit 2) and the tool stays; a removal that fails after it is
+  rolled back. Either way the tool's `activate` runs again. A restart it
+  asks for stays pending under `mgu-deploy` (`<id> removed: <reason>`),
+  since the tool's own entries go with it. A rollback runs the
+  `deactivate` of the version it leaves the same way, before it switches
+  (Rollback, below). `state.json` records the kept versions whose
+  `deactivate` ran last (`deactivated`), which are not deactivated again,
+  and those an install could not deactivate (`deactivate_owed`), which the
+  next install or removal deactivates; a version made current again, or no
+  longer kept, has neither. Each record is on disk (written by rename, file
+  and folder synced) as soon as its hook has run, or, when the disk
+  refuses it then, kept for the command's own save and said in the output;
+  a snapshot put back keeps them. An install deactivates a kept version
+  newer than the one it replaces and never deactivated (or one owed)
+  before removing it: one that fails refuses the install (exit 2), naming
+  it, and stays kept and owed, and the current version's `activate` runs
+  again; a failure after it activates the version it replaces again too.
+  Any install of the tool after a firmware update (the firmware recorded
+  with the tool, `state.json` `tools`, differs from the unit's, or the
+  tool needs setup since) leaves such versions kept and records them as
+  deactivated, as it does the version a downgrade or an install from
+  another source replaces, so no later install runs them; laying it
+  again for another reason (a unit missing) runs them first, and one that
+  fails stays kept and owed while the current version is laid again. A
+  unit, link or drop-in another installed tool lists is never stopped or
+  taken out.
+
+**Stock files stay usable.** The deploy tool runs with umask 022, whatever
+its caller's, and so does everything it runs; a file that must be root's
+alone is written with its mode. After each `activate`, `deactivate` and
+`postInstall`, it checks the stock files whose service runs as its own user
+and fails, restarting the head unit at every start, when that user cannot
+use them: `/usr/bin/carplay` and `/usr/bin/aapd` must be readable and
+runnable by group and others, `/etc/aapd.conf` readable. One that lacks such
+a bit gets it added to its mode (the rest of the mode stays), and one not
+owned by root:root gets root:root, in a rootfs window, with a warning
+(`warning: <id> activate: /usr/bin/carplay is 0700 0:0, which its service's
+user cannot run: it becomes 0755 0:0`). Only a regular file on `/`'s file
+system is touched: none through a symlink, in its path or itself, and none
+a mount covers. When the window fails (`/` not read-only after it), the hook
+fails as a non-zero exit does, after its result (restart reason, files
+removed once unused) is recorded; the install fails after a `postInstall`.
 
 **Files removed once unused.** A hook that replaced a binary a process still
 runs keeps the old file linked (an unlinked file a process holds keeps `/`
@@ -912,7 +1025,13 @@ the output. Every snapshot holds the unit, its link and the list, so a
 failed install or removal puts them back with the recmgr list.
 
 `uninstall <id>` stops the tool's running units (when recmgr has loaded
-them), removes its units, links and the recmgr names no other tool lists,
+them), removes its units, links, drop-ins and the recmgr names no other tool
+lists, those of every version kept under `versions/` as well as the current one's
+(after the current version's `deactivate`, that of each kept version whose
+`deactivate` is due, oldest first: one newer than the current version and
+never deactivated, which an earlier deploy tool's rollback left and which
+reverts what only it set up, or one an install could not deactivate; a
+refusal by any of them refuses the removal),
 and the whole `/var/opt/<id>`: besides `versions/` and `current`, a tool's
 own config there goes too, named in the output (the updater's
 `sources.json` and `credentials/`, the uplink's `local.conf`, `uids.d/` and
@@ -924,13 +1043,30 @@ created is removed once it is empty; folders that were there before stay.
 `rollback <id>` switches a tool's `current` to its one other kept version
 (`status --json` names it as the tool's `previous` when it is older).
 With no other version, or more than one, it is refused (exit 2, listing
-them). It snapshots first, then restarts that version's `restart` units under
-the same recmgr rules and health check; a failed check switches back,
-restarts again and exits 1. When recmgr has not loaded the entry the switch
-still happens and the tool is reported pending. Unit files are not rolled
-back: they run from `current/`, so they stay as the newer version installed
-them; when the two versions list different units, `rollback` says so, and an
-install of the wanted artifact changes them. `rollback app-privacy` also runs
+them). It snapshots first, then runs the `deactivate` of the version it
+leaves, with all of it in place, as a removal does: one that fails refuses
+the rollback (exit 2), that version stays current and its `activate` runs
+again. It switches `current`, and takes out what the version it leaves
+installed and the one it goes to does not list: units (stopped first when
+recmgr has loaded them), enablement links, drop-ins and their limits, its
+recmgr names no installed tool has and the crash handler's names no
+installed tool wants, units before list entries. Then it restarts that
+version's `restart` units under the same recmgr rules and health check, and
+runs its `activate` (a failed one runs that version's `deactivate` first;
+one that fails too keeps it current). A failed check, apply or `activate`
+puts the snapshot back (`current`, the units and lists), starts again the units it stopped,
+restarts again, runs the left version's `activate` again and exits 1. When
+recmgr has not loaded the entry the switch still happens and the tool is
+reported pending. Units both versions list are not rolled back: they run
+from `current/`, so they stay as the newer version installed them, and an
+install of the wanted artifact changes them. The units, links and drop-ins
+the version it goes to lists that are missing (a change to another version
+took them out) are laid again from the copy kept with it
+(`kept/<id>/<version>/`), its recmgr names first, in one rootfs window, and
+its `restart` units and enabled sockets among them start as at a first
+install; one without a copy says which are missing, and an install of its
+artifact lays them again.
+`rollback app-privacy` also runs
 its `apply` (below). `rollback mgu-deploy` switches `current` and exits; the
 shim and the updater run that version from the next call.
 
@@ -943,6 +1079,16 @@ app install keeps its package, and that of the version it replaces (from
 `preinstalled_apps`), in `kept/<id>/`; only the installed version and the
 newest older one stay, and an uninstall removes them. `status --json`
 gives an app's `previous` (null on iDrive 8, where it is refused).
+
+`status --json` lists as `lost_apps` the apps this tool installed
+(`state.json` `apps`) that MainApp's registry no longer has while the
+installed version's package is kept, as oapcontroller's wipe leaves them;
+none while another run holds the lock. The updater installs them again
+from that package. An uninstall (also one the MainApp guard stopped) and a
+restore that removes an app (once its bounce is done or stopped) drop
+both the app's record and its kept packages, so an app removed on purpose
+is never one. An uninstall that
+fails and is rolled back keeps both, and its registry entry is back.
 
 ### app-privacy
 
@@ -1010,6 +1156,68 @@ manager again (a respawned child restarts the wait). With no manager
 running there is no bounce and no wait. This is why an install can pause for
 up to 60 s. The rule lives only here: the updater adds no timer of its own
 and gets the spacing by calling this tool.
+
+**The MainApp guard (iDrive 7).** After every bounce the respawned child
+is watched until it has been up 60 s (`MGU_DEPLOY_GUARD_WATCH_S`), so a
+manager that crashes right after a bounce never reaches the third death.
+One that dies before turns the guard off for the rest of the boot:
+
+- the run stops where it is (exit 3, `… stopped here: what this run
+  changed stays`). Nothing is rolled back: that would write `/`, the
+  registry, `custom_apps.json` and app folders while the next manager
+  starts. What it placed and listed is taken up at the next start of the
+  head unit. Only this tool's own records follow what the run did: an app
+  install stopped once its package is placed records that version and keeps
+  its package; an app removal or a restore's removal stopped counts as done
+  (the app's record and kept packages go); a reinstall stopped (an app
+  rollback, an install afresh) keeps the app's record at the version of the
+  install under way (its fallback install's, when that one was), with that
+  package, and its data folder: put into the app's home when the app is
+  installed, else recorded in `state.json` (`data_stash`, below); a
+  `remove-all` stopped prints its result, what it removed and what is
+  left; a boot check (`verify`) stopped records its outcome, reports the
+  tool it was rolling back as that tool is now, keeps the tools it had not
+  checked due for the next start, and exits 0. An unmount that fails is
+  said and the run still stops. A hook's stock-file fix runs right after
+  the hook, before any bounce, and never bounces;
+- `main.js` and `CertificateManager.js` are unbound, so the next manager
+  starts on the files under them as they are. Until the next start nothing
+  binds them again, nothing bounces, and app-privacy is not applied: an
+  apply is left to `app-privacy.service` at the next start (app-privacy
+  reported pending). The fallback's boot unit binds the copy again then;
+- app installs, removals, rollbacks, `fallback migrate`, `restore` and the
+  removal of app-privacy or IterioDev's App Manager are refused (exit 2,
+  `… waits for the next start of the head unit: <why>`); `remove-all`
+  removes nothing and its result names everything as left, with a
+  restart (exit 1). Other tools still install.
+
+Every data folder a reinstall sets aside (`.mgu-deploy-data-<id>-<pid>`
+beside the homes) and does not put back, stopped or failed, is recorded in
+`data_stash`, each app's folders oldest first. The newest goes into the
+app's home once the app is registered again, whoever installed it (the
+updater's reinstall, an install from the Store, or the app manager by
+itself at its start): by that install, else by the next changing run or
+`status` run as root (not while the guard is off), and only while the app
+has no data folder or an empty one, the home and data folder never
+followed through a link. An install within a reinstall of the app takes
+none: the reinstall puts back the folder it set aside itself. An app with
+data of its own keeps it, and its folders stay recorded, said once. Only
+an explicit removal of the app removes them, all of them: an uninstall, a
+restore that removes the app, `remove-all`. A folder no record names is
+left as it is.
+
+The guard file (`oap_12201/data/mgu-deploy-guard.json`, `{boot, bounce,
+watch, off}`) is written before the bounce and when the watch starts. A
+run cut short while it watched leaves its watch there: once a manager runs
+again, the next changing run, or `status` run as root (under the lock, when
+free), finds the watched manager gone and the running one started before
+the watch would have ended, and turns the guard off. The fallback copy reads the file as it loads: a load whose
+process started within the watch of the first manager after the bounce, or
+of the one this tool watched, runs as the stock file for the rest of the
+boot (no provisioning fallback, in-place hook or queue order; its hook's
+status file says `off`), which covers the manager oapcontroller starts
+before this tool sees the death. `status --json` gives the reason as
+`mainapp_guard`. oapcontroller is never restarted.
 
 ### Apps
 
@@ -1438,6 +1646,83 @@ installed before it in the same call stay installed, and the output says so
 (the updater installs one artifact per call). The app-privacy patch stays
 applied after a failed app install while the app-privacy tool is installed.
 
+### After a firmware update
+
+A firmware update puts the root file system back and keeps `/var/opt`:
+every component stays listed, while what it set up outside `/var/opt`
+(units, their enablement and drop-ins, boot-list entries, MainApp's
+copies of an app's SOME/IP interfaces and ACLs for the firmware before)
+is gone or set up for the firmware before. Running the same install again
+(`mgu-install.js first-install`, which also brings back the updater and
+our boot units) sets every component up again:
+
+- Each tool install records the firmware it was installed under
+  (`state.json` `tools`) and keeps the tool's units, drop-ins and
+  `component.json` in `kept/<id>/<version>/`, one for each version under
+  `/var/opt/<id>/versions`.
+- Every install lays again from that copy each installed tool it does not
+  install that lacks a unit, an enablement link or a drop-in, or was
+  installed under another firmware. A tool with no install step of its own
+  is laid again as an install of the same version. One with an `activate`
+  or `postInstall` gets its files only: its units, enablement links and
+  drop-ins, their recmgr names and limits, and the restart units laid
+  started as at a first install, under recmgr's rules; its step does not
+  run, since the copy may be an old version from another source and the
+  step may patch the firmware's files. Its record then holds the firmware
+  and `needsSetup` (`status --json` `needs_setup`, why), and the run's last
+  line names such tools (`needs setup (...): <ids>`). Its step runs at its
+  next install (an update, the same version again) or `setup <id> --yes`,
+  which lays it again from its copy, step included (the Store's Set up);
+  the stock-file fix follows each step as at any install. `relay [<id>...]
+  --yes` lays the files again without an install (the updater, when no
+  newer version is reachable): only for the tools named, files only for
+  one with an install step, whole for one without. Until a hook of the
+  tool has run on the new firmware, no install of it runs a hook of a
+  version it replaces (a due deactivate, the deactivate of a downgrade or
+  of an install from another source, or the activate of the version a
+  failed install goes back to, which then needs setup). An install that a
+  refusal stops after it laid tools' files again exits 1, naming them. A tool installed before copies were kept
+  says so; its source installs it again (the updater, `repair`).
+  `mgu-install.js first-install` installs the release's tools as usual and
+  leaves the others (from other sources) to files only, so no other
+  source's step runs unasked.
+- MainApp's first start after a firmware update marks every installed
+  app as needing an update (`"NO_FORCED_UPDATE_NEEDED": false` in its
+  registry entry) and starts none so marked; it updates its own apps, not
+  ours. On iDrive 7 an install of such an app, already current, installs
+  it afresh: uninstall, install, its data folder carried over.
+- `status --json` gives each component's `stale` until then, and for a
+  tool `kept` and `needs_setup`.
+
+### Removing the Store setup
+
+`remove-all --yes` removes what the Store setup put on the unit, each step
+with its snapshot and rollback as on its own, in this order: every app the
+deploy tool installed (recorded in `state.json`, listed in
+`custom_apps.json` or marked `mguLocalOnly`; on iDrive 8 also those with
+our das lines and queued installs); every tool but app-privacy, a tool
+another requires after it; the provisioning fallback and `custom_apps.json`;
+app-privacy, its patch reverted; then the deploy tool's boot units and
+recmgr entries, any limits drop-in and crash handler name it still owns,
+`local-only-apps.json` and its other files in the app manager's folder, the
+updater's sources and tokens, and last `/var/opt/mgu-deploy` with its
+state and backups. The restart lists are edited as they are on the unit,
+whatever firmware wrote them; no backup is restored. The app manager is
+restarted once at the end (iDrive 7, the usual bounce rules), where a step
+asked for it. A step that fails is named and what depends on it stays:
+app-privacy and the fallback while one of our apps is left, the deploy
+tool while anything is; running it again finishes. On iDrive 8 the apps
+MainApp-21 does not uninstall in place are queued; `mgu-deploy-apply`
+and the deploy tool stay for the next start, which removes them and then
+both. Apps and the renderer adopted from IterioDev's App Manager stay, as
+`uninstall oap-appmanager` leaves them.
+
+`remove-all` (or `--json`) lists what it would remove and changes nothing.
+With `--yes` the steps' lines go to stderr and the result is one JSON line
+on stdout: `removed`, `left`, `restart` (a restart finishes the job),
+`next_start` and `self` (`removed`, `next-start` or `kept`). Exit 0 when
+nothing is left, 1 otherwise.
+
 ### Backups and restore
 
 Before every change the installer snapshots every file the operation
@@ -1494,6 +1779,13 @@ boundary:
   Explicitly uninstalling the updater removes its whole folder.
 - the deploy tool itself stays installed: no snapshot records or restores
   `/var/opt/mgu-deploy/versions/` or `current`.
+- every snapshot records the firmware it was taken on (`firmware` in its
+  manifest). A restore that would write a file outside `/var/opt` is
+  refused (exit 2, nothing changed) unless that is the firmware the unit
+  runs now. A snapshot without the record counts as another firmware's,
+  since it may predate a firmware update; one that writes no file outside
+  `/var/opt` restores. To take the Store setup off after a firmware
+  update, use `mgu-install.js uninstall`.
 
 app-privacy patches the app manager's bundles in place. A restore that
 removes it first runs its `revert --json` (on the fallback copy and the stock
@@ -1569,9 +1861,16 @@ effect. `fallback off` unmounts it and removes the unit, its link, its recmgr
 entry and the copy; apps installed already stay installed, and a new app
 install turns it on again. `status` shows per app whether its tile comes from
 provisioning (`tile_provisioned`) or the fallback (`tile_fallback`), from the
-flags the manager persisted in its `provisioningCache`. Provisioning's own
-section for an app's id wins over the fallback: when it disallows the app the
-tile stays hidden (`tile_visible: false`), and the install says so.
+flags the manager persisted in its `provisioningCache`; on iDrive 8 only
+where the provisioning served has the app's section or the running
+MainApp-21's copy filled it (iDrive 8 apps, Backend provisioning). On iDrive 7 an app
+listed in `custom_apps.json` shows only while the running manager runs the
+fallback copy (`fallback.manager_runs_copy`); otherwise, or with no manager
+running, its tile is reported hidden (with the retired installer's leftovers,
+which list apps by themselves, the cached flags stand). Provisioning's own section for an app's
+id wins over the fallback: when it disallows the app the tile stays hidden
+(`tile_visible: false`, and `tile_withheld: true`: the flags the manager
+keeps hide it, so a restart does not show it), and the install says so.
 
 ### The retired installer's leftovers
 
@@ -1641,16 +1940,19 @@ stdout, read-only, taking no lock, of this shape:
 ```
 { "version": "<x.y.z>",
   "unit": { "hmi": "ID7"|"ID8"|null, "firmware" },
-  "components": [{ "id", "kind": "tool", "version", "units": [{ "name", "enabled", "active", "journal" }], "provides" },
+  "components": [{ "id", "kind": "tool", "version", "units": [{ "name", "enabled", "active", "journal" }], "provides",
+                   "stale": "<what it lacks>"|null, "kept": true, "needs_setup": "<why>"|null },
                  { "id", "kind": "app", "version", "uid", "installationSource", "running",
-                   "tile_provisioned", "tile_fallback", "tile_visible" }],
+                   "tile_provisioned", "tile_fallback", "tile_visible", "tile_withheld", "stale": "<why>"|null }],
   "pending_reboot": [{ "id", "reason" }],
   "last_apply": { "at", "results": [{ "id", "action", "version", "ok", "error"?, "log", "rejected"? }] } | null,   (iDrive 8;
                  action "restore": version put back in place of the rejected one)
   "display_bridge_socket": true, "display_bridge_todo_on_car": ["<key>: TODO(on-car): ..."],   (display-bridge)
   "fallback": { ... }, "backups": 3, "stock_backup": true, "updater_tokens": 1,
   "retired_leftovers": ["/usr/lib/oap-mainapp/src/main.js.capbak"],
-  "appmanager": { "present", "version", "app", "daemon", "record" } | null }
+  "appmanager": { "present", "version", "app", "daemon", "record" } | null,
+  "mainapp_guard": "<why app changes wait for the next start>" | null, "last_bounce_at": <epoch s> | null,   (iDrive 7)
+  "lost_apps": [{ "id", "version", "package" }] }
 ```
 
 ## Tests
@@ -1659,6 +1961,7 @@ stdout, read-only, taking no lock, of this shape:
 node deploy/test/run.js              # MGU_TEST_ONLY=testKit,... runs those test functions only; MGU_TEST_INSTALL_EXE=<file> runs an mgu-install executable in place of the script
 sh deploy/test/run.sh                # in Docker: the unit's code on Node 8.16.2 (MGU_TEST_UNIT_NODE)
 node tools/test/run.js               # the linker and packer; sh tools/test/run.sh: on Node 8.16.2
+MGU_TEST_NODE_VERSION=8.9.4 sh deploy/test/run.sh   # both run.sh: on the 2019 MGU's Node 8.9.4
 ```
 
 Offline, against a fake root (`MGU_DEPLOY_FAKE_ROOT=1` and the
@@ -1669,7 +1972,26 @@ app-privacy are the stand-ins in `deploy/test/`): reproducible artifacts
 unchanged, tool layout, pruning and idempotence, pending reboots, restarts
 with their health check and the rollback after a crash loop, `rollback`,
 app-privacy as a tool, the fresh-install and update flows through the
-simulated manager, bounce spacing, per-artifact transactions, the stock
+simulated manager, bounce spacing, the MainApp guard (a manager that dies within the watch
+after a bounce: the run stops with exit 3, an install, an update and an
+uninstall through the sh window keeping what they did with no rootfs write
+after the death and their records following it, a rollback stopped in its
+removal or its install keeping the record, kept package and data that the
+next install completes, a restore stopped or failing, an unmount that
+fails, a boot check stopped, no further bounce, app change or app-privacy apply, main.js unbound,
+until the next start; one that dies after it: nothing; a watch a killed
+run left, judged at the next status; the copy's guard loaded once per
+start; a data folder set aside taken by its app registered again with an
+empty data folder, kept recorded beside one with data, never through a
+link, kept through a later reinstall of the app that succeeds, fails or
+is stopped (both folders recorded then), all of them removed by an
+uninstall, kept through status and later commands after a failed reinstall, and
+gone after a removal, a restore or remove-all; a fallback install stopped
+recording its version; the records of a stopped app-privacy install, update
+and rollback, restore and fallback on and off matching the finished ones; a stopped boot
+check keeping the rest due; a hook's stock-file fix before a stopped
+bounce and with the guard off; remove-all while the guard is off); a
+restore that removes an app dropping its record, per-artifact transactions, the stock
 restore, `status --json`, the fallback, the in-place install, update and
 uninstall (the copy built from `fixtures/main.js`, its hook run by
 `fake_inplace.js` as the running manager: installs, updates and uninstalls

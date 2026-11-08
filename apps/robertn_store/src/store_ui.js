@@ -17,18 +17,19 @@ const { t: tr } = require('./i18n.js');
  * updater's answer, null while it looks), tokenNote (Add token's status
  * belongs on its page) }, or null), uplinkNote (the uplink's refusal of the
  * last Wi-Fi or preferred-connection request), held (the Installed lists'
- * rows to keep in this order: { apps, services } ids, or null) }.
+ * rows to keep in this order: { apps, services } ids, and restart: whether
+ * its Restart now shows; or null) }.
  *
  * What a press does rides on the values as `act`: on a button's opts, on
  * each nav, grid and list item, on each filter cell (acts). The acts:
  * { do: 'tab', tab }, { do: 'filter', filter }, { do: 'open', page },
  * { do: 'back' }, { do: 'check' }, { do: 'install', id }, { do: 'update-all' },
- * { do: 'remove', id }, { do: 'restart' },
+ * { do: 'remove', id, tools? }, { do: 'restart' },
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
  * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
  * { do: 'pick', channel }, { do: 'pick-retry' }, { do: 'pick-add-token' }, { do: 'key', key } (typeKey),
- * { do: 'wifi-power' }, { do: 'wifi-scan' }, { do: 'wifi-join', ssid }, { do: 'wifi-password', ssid },
- * { do: 'wifi-forget', ssid }, { do: 'uplink-prefer', kind }.
+ * { do: 'wifi-power' }, { do: 'wifi-5ghz' }, { do: 'wifi-scan' }, { do: 'wifi-join', ssid }, { do: 'wifi-password', ssid },
+ * { do: 'wifi-forget', ssid }, { do: 'uplink-prefer', kind }, { do: 'usb-phone' }, { do: 'proxy-toggle' }, { do: 'proxy-edit' }.
  *
  * The type page ({ name: 'type', title, text, shift, sym, layout, symbols,
  * go, secret, max, min, label }) is text typed on the drawn keyboard: layout 'url'
@@ -40,10 +41,14 @@ const { t: tr } = require('./i18n.js');
  * The Wi-Fi page (wifi) and the preferred connection (prefer) show the
  * uplink's state (state.uplink: mgu-uplink 0.7.0's status.json through the
  * updater) and are there only with its Wi-Fi.
+ *
+ * The proxy (state.proxy: { on, kind, address, error }, an updater from
+ * 0.8.27) is a row in Settings and its page (proxy): on or off, and its
+ * address; model.proxyNote is the refusal of the last change.
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    notForUnit, removable, undoable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
+    notForUnit, removable, requiredAlone, undoable, setupable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -74,9 +79,11 @@ const rawComps = (m) => (m.connected && m.st && Array.isArray(m.st.components) ?
 function comps(m) {
     return rawComps(m).filter(listed);
 }
-const srcName = (m, c) => (c.source && sourceNames(sources(m))[c.source]) || '';
-/* Its title, with its source's short name where another listed row has the same title (two sources' DOOM). */
-const named = (m, c) => (srcName(m, c) && comps(m).some((o) => o !== c && o.title === c.title) ? `${c.title} (${srcName(m, c)})` : c.title);
+/* Its title, with its source's name where another listed row has the same title (two sources' DOOM). */
+function named(m, c) {
+    const name = sourceNames(comps(m), sources(m))(c);
+    return name && comps(m).some((o) => o !== c && o.title === c.title) ? `${c.title} (${name})` : c.title;
+}
 /* A component's page: its row, else (its row's id changed with an install)
  * the row of the same source and listed id, else (its source turned to a
  * stick copying it, or back) the row of its id. */
@@ -107,6 +114,18 @@ const busyOf = (m) => (m.connected && m.st ? m.st.busy : null);
 function canRestart(m) {
     const st = m.st;
     return !!(m.connected && st && !st.busy && st.rebooting === false && !comps(m).some((c) => c.queued));
+}
+
+/* Restart now on Store and Installed while a listed component waits for a
+ * restart (an installed tool, or an iDrive 8 app change queued for the next
+ * start) and the updater can restart the unit: it opens Restart head unit's
+ * confirm step. It stays while an install runs, so the rows after it keep
+ * their place (the focus is their index). keep: shown or not as drawn
+ * (Installed's held rows). */
+function restartNow(m, keep) {
+    return m.connected && m.st && m.st.rebooting === false && (typeof keep === 'boolean' ? keep : comps(m).some((c) => c.pendingReboot))
+        ? button(tr("Restart now"), { do: 'open', page: { name: 'confirm', kind: 'restart' } }, { vicon: 'refresh', style: 'primary', color: BLUE })
+        : hidden;
 }
 
 /* Why the last restart failed or was refused, beside Restart head unit. */
@@ -148,6 +167,12 @@ function tileState(c, busy) {
     if (c.status === 'update') {
         return { sub: tr("Update {0}", target(c)), subColor: BLUE, badge: 'update', progress: -1 };
     }
+    if (c.installed && c.repair) {
+        return { sub: tr("Not working"), subColor: AMBER, badge: 'installed', progress: -1 };
+    }
+    if (setupable(c, busy)) {
+        return { sub: tr("Needs setup"), subColor: AMBER, badge: 'installed', progress: -1 };
+    }
     if (c.status === 'available') {
         return { sub: [c.version, size(c.size)].filter(Boolean).join(' · '), subColor: DIM, badge: '', progress: -1 };
     }
@@ -158,17 +183,18 @@ function tileState(c, busy) {
 }
 
 /* Whether something runs or waits on the component, as tileState tells it:
- * its install or removal, a queued one, a failure, a restart pending or an
- * update. */
+ * its install or removal, a queued one, a failure, a restart pending, an
+ * update, or its setup. */
 function pending(c, busy) {
     if ((busy && busy.id === c.id) || c.queued) {
         return true;
     }
-    return !notForUnit(c) && !c.blocked && !!(c.error || startPending(c) || c.status === 'update' || c.pendingReboot);
+    return !notForUnit(c) && !c.blocked && !!(c.error || startPending(c) || c.status === 'update' || c.pendingReboot || setupable(c, busy));
 }
 
-function tile(m, c, busy) {
-    return Object.assign(iconOf(c), { id: c.id, title: c.title, src: srcName(m, c), act: { do: 'open', page: pageOf(c) } }, tileState(c, busy));
+/* A tile; name: its screen's sourceNames. */
+function tile(m, c, busy, name) {
+    return Object.assign(iconOf(c), { id: c.id, title: c.title, src: name(c), act: { do: 'open', page: pageOf(c) } }, tileState(c, busy));
 }
 
 function nav(m, sel) {
@@ -191,6 +217,7 @@ function storeView(m) {
     // the status line names a row as the tiles tell it apart
     const st = m.st && Object.assign({}, m.st, { components: m.st.components.map((c) => (listed(c) ? Object.assign({}, c, { title: named(m, c) }) : c)) });
     const list = comps(m).filter((c) => m.filter === 'all' || (m.filter === 'app' ? !isTool(c) : isTool(c)));
+    const name = sourceNames(list, sources(m));
     const checking = !!(m.connected && m.st && m.st.catalog && m.st.catalog.checking);
     const online = m.connected && m.st && m.st.online;
     return {
@@ -200,7 +227,8 @@ function storeView(m) {
         filter: { sel: Math.max(0, FILTERS.indexOf(m.filter)), acts: FILTERS.map((f) => ({ do: 'filter', filter: f })) },
         online: { items: !m.connected ? [] : checking ? [{ text: tr("Checking"), color: BLUE, dot: true }]
             : online ? [{ text: tr("Online"), color: GREEN, dot: true }] : [{ text: tr("Offline"), color: AMBER, dot: true }] },
-        grid: { items: list.map((c) => tile(m, c, busy)), empty: m.connected ? tr("Nothing here") : '' }
+        restartNow: restartNow(m),
+        grid: { items: list.map((c) => tile(m, c, busy, name)), empty: m.connected ? tr("Nothing here") : '' }
     };
 }
 
@@ -214,12 +242,13 @@ function installedView(m) {
     const apps = keep(all.filter((c) => !isTool(c)), m.held && m.held.apps);
     const tools = keep(all.filter(isTool), m.held && m.held.services);
     const updates = all.filter((c) => c.status === 'update' && rowAction(c, busy) === 'install');
+    const name = sourceNames(all, sources(m));
     const item = (c) => {
         const s = tileState(c, busy);
         const up = c.status === 'update' && s.badge === 'update';
         const open = { do: 'open', page: pageOf(c) };
         return Object.assign(iconOf(c), { id: c.id, title: c.title, act: open,
-            sub: [up ? `${c.installed} → ${target(c)}` : `${c.installed}${isTool(c) ? tr(' · tool') : ''}`, srcName(m, c)].filter(Boolean).join(' · '), subColor: up ? BLUE : DIM,
+            sub: [up ? `${c.installed} → ${target(c)}` : `${c.installed}${isTool(c) ? tr(' · tool') : ''}`, name(c)].filter(Boolean).join(' · '), subColor: up ? BLUE : DIM,
             right: up ? 'chip:' + tr('Update') : s.sub !== tr("Installed") ? `chip:${s.sub}` : 'chevron', chipColor: up ? BLUE : s.subColor,
             chipAct: up ? { do: 'install', id: c.id } : null });
     };
@@ -228,6 +257,7 @@ function installedView(m) {
         subtitle: { text: `${plural(apps.length, 'app')} · ${plural(tools.length, 'tool')}` },
         updateAll: updates.length ? button(tr("Update all ({0})", updates.length), { do: 'update-all' }, { vicon: 'arrowDown', style: 'primary', color: BLUE }) : hidden,
         apps: { items: apps.map(item), empty: tr("None") },
+        restartNow: restartNow(m, m.held ? m.held.restart : undefined),
         services: { items: tools.map(item), empty: tr("None"), rowH: 120 }
     };
 }
@@ -237,10 +267,11 @@ function usbView(m) {
     const usb = (sources(m) || []).filter((s) => s.usb);
     const ids = usb.map((s) => s.id);
     const list = comps(m).filter((c) => ids.indexOf(c.source) >= 0);
+    const name = sourceNames(list, sources(m));
     return {
         title: { text: 'USB' },
         subtitle: { text: usb.length ? `${usb.map(sourceLabel).join(', ')} · ${plural(list.length, 'package')}` : '' },
-        grid: { items: list.map((c) => tile(m, c, busy)), empty: usb.length ? tr("Nothing here") : tr("No USB stick") }
+        grid: { items: list.map((c) => tile(m, c, busy, name)), empty: usb.length ? tr("Nothing here") : tr("No USB stick") }
     };
 }
 
@@ -262,14 +293,28 @@ function settingsView(m) {
     const web = m.connected && st && st.web && typeof st.web === 'object' ? st.web : null;
     const access = [];
     const w = wifiOf(m);
+    let prefer = null;
     if (w) {
         const s = wifiState(w);
-        access.push({ id: 'wifi', title: 'Wi-Fi', sub: s[0], subColor: s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
+        const paused = pausedLine(w);
+        const sub = paused || [s[0], bandOf(w)].filter(Boolean).join(' · ');
+        access.push({ id: 'wifi', title: 'Wi-Fi', sub, subColor: paused ? DIM : s[1], plain: true, vicon: 'wifi', iconColor: s[1] === DIM ? 'text' : s[1],
             right: 'chevron', act: { do: 'open', page: { name: 'wifi' } } });
+        prefer = { id: 'prefer', title: tr("Preferred connection"), sub: groupLabel(m.st.uplink.preferred || ''), plain: true, vicon: 'route',
+            iconColor: 'text', right: 'chevron', act: { do: 'open', page: { name: 'prefer' } } };
     }
     if (toks) {
         access.push({ id: 'accounts', title: tr("Accounts"), sub: accountsState(toks), plain: true, vicon: 'lock', iconColor: 'text',
             right: 'chevron', act: { do: 'open', page: { name: 'accounts' } } });
+    }
+    if (prefer) {
+        access.push(prefer);
+    }
+    const px = proxyOf(m);
+    if (px) {
+        access.push({ id: 'proxy', title: tr("Proxy"), sub: !px.on ? tr("Off") : px.error ? tr("Error") : px.address,
+            subColor: px.error ? AMBER : DIM, plain: true, vicon: 'route', iconColor: px.error ? AMBER : 'text',
+            right: 'chevron', act: { do: 'open', page: { name: 'proxy' } } });
     }
     if (web) {
         access.push({ id: 'phone', title: tr("Phone access"), sub: phoneState(web), plain: true, vicon: 'phone', iconColor: 'text',
@@ -335,7 +380,9 @@ function appView(m, page) {
     if (c.blocked) {
         notes.push([c.blocked, AMBER]);
     }
-    if (c.pendingReboot) {
+    if (setupable(c, busy)) {
+        notes.push([tr("Needs setup"), AMBER]);
+    } else if (c.pendingReboot) {
         notes.push([tr("Restart pending"), AMBER]);
         const failed = restartFailed(m);
         if (failed) {
@@ -357,6 +404,8 @@ function appView(m, page) {
     } else if (action === 'install') {
         v.primary = button(c.error ? tr("Try again") : c.status === 'update' ? tr("Update to {0}", target(c)) : tr("Install"), { do: 'install', id: c.id },
             { vicon: c.error ? 'refresh' : 'arrowDown', style: 'primary', color: BLUE });
+    } else if (action === 'setup') {
+        v.primary = button(c.error ? tr("Try again") : tr("Set up"), { do: 'setup', id: c.id }, { vicon: 'refresh', style: 'primary', color: BLUE });
     } else if (c.pendingReboot && canRestart(m)) {
         v.primary = button(tr("Restart head unit"), { do: 'open', page: { name: 'confirm', kind: 'restart' } },
             { vicon: 'refresh', style: 'primary', color: BLUE });
@@ -379,15 +428,22 @@ function confirmView(m, page) {
     let title = '';
     let line = '';
     let now = null;
+    let also = hidden;
     if (page.kind === 'remove') {
         title = c ? tr("Remove {0} {1}?", named(m, c), c.installed || '').replace(' ?', '?') : tr("Remove?");
         now = button(tr("Remove"), { do: 'remove', id: page.id }, { vicon: 'trash', style: 'primary', color: RED });
+        const tools = c ? requiredAlone(all, c) : [];
+        if (tools.length) {
+            line = tr("Tools only it uses: {0}", tools.map((t) => `${named(m, t)} ${t.installed}`).join(', '));
+            also = button(tr("Remove all"), { do: 'remove', id: page.id, tools: tools.map((t) => t.id) }, { vicon: 'trash', style: 'outline' });
+        }
     } else if (page.kind === 'undo') {
         title = c ? tr("Back to {0} {1}?", named(m, c), c.previous || '').replace(' ?', '?') : tr("Undo update");
         now = button(tr("Undo update"), { do: 'undo', id: page.id }, { vicon: 'back', style: 'primary', color: BLUE });
     } else if (page.kind === 'restart') {
         title = tr("Restart head unit?");
-        now = button(tr("Restart"), { do: 'restart' }, { vicon: 'refresh', style: 'primary', color: BLUE });
+        // as Restart head unit, while the updater takes a restart
+        now = button(tr("Restart"), { do: 'restart' }, { vicon: 'refresh', style: 'primary', color: BLUE, disabled: !canRestart(m) });
     } else if (page.kind === 'source-remove') {
         const s = find(sources(m), page.id);
         title = tr("Remove source?");
@@ -403,7 +459,7 @@ function confirmView(m, page) {
         line = page.ssid;
         now = button(tr("Forget"), { do: 'wifi-forget', ssid: page.ssid }, { vicon: 'trash', style: 'primary', color: RED });
     }
-    return { icon, title: { text: title }, text: { text: line }, now, later: button(tr("Cancel"), { do: 'back' }, { vicon: 'back', style: 'outline' }),
+    return { icon, title: { text: title }, text: { text: line }, now, also, later: button(tr("Cancel"), { do: 'back' }, { vicon: 'back', style: 'outline' }),
         note: { text: '' } };
 }
 
@@ -529,6 +585,24 @@ function phoneView(m) {
     };
 }
 
+/* The updater's proxy setting, null with an updater before 0.8.27. */
+function proxyOf(m) {
+    const p = m.connected && m.st && m.st.proxy;
+    return p && typeof p === 'object' ? p : null;
+}
+
+function proxyView(m) {
+    const p = proxyOf(m) || { on: false };
+    return {
+        rows: { items: [
+            { id: 'proxy', title: tr("Proxy"), sub: '', plain: true, vicon: 'route', iconColor: 'text',
+                right: `toggle:${p.on ? 'on' : 'off'}`, act: { do: 'proxy-toggle' } },
+            { id: 'address', title: tr("Address"), sub: p.on && p.address ? `${p.kind}://${p.address}` : tr("None"), plain: true,
+                vicon: 'wrench', iconColor: 'text', right: 'chevron', act: { do: 'proxy-edit' } }], empty: '' },
+        error: { text: String(m.proxyNote || p.error || '').slice(0, 200) }
+    };
+}
+
 /* ---- the uplink: Wi-Fi and the preferred connection (state.uplink, mgu-uplink 0.7.0's status.json) ---- */
 
 /* The uplink's Wi-Fi (status.json's wifi), null without it (an uplink before
@@ -553,6 +627,31 @@ function wifiState(w) {
     return { online: [tr("Online{0}", at), GREEN], connected: [tr("Connected{0}", at), BLUE], connecting: [tr("Connecting{0}", at), BLUE],
         off: [tr("Not used"), DIM] }[w.link] || [tr("Not connected"), DIM];
 }
+const PROJECTION = { carplay: 'CarPlay', 'android-auto': 'Android Auto' };
+/* While wireless CarPlay or Android Auto keeps the uplink from searching for
+ * its networks by itself (mgu-uplink 0.7.5's wifi.paused) and Wi-Fi is not
+ * joined: that line; '' otherwise. */
+function pausedLine(w) {
+    const name = w.enabled && PROJECTION[w.paused];
+    return name && ['online', 'connected', 'connecting'].indexOf(w.link) < 0 ? tr("Paused for wireless {0}", name) : '';
+}
+/* The band of the access point joined (mgu-uplink 0.7.5's wifi.freq, MHz)
+ * while Wi-Fi is joined; '' without it. */
+function bandOf(w) {
+    const f = w.freq;
+    if (['online', 'connected'].indexOf(w.link) < 0 || typeof f !== 'number') {
+        return '';
+    }
+    return f >= 2400 && f < 2500 ? tr("2.4 GHz") : f >= 4900 && f < 5900 ? tr("5 GHz") : '';
+}
+/* Joined on 5 GHz to a network not seen on 2.4 GHz, with Allow 5 GHz off
+ * (mgu-uplink 0.7.6's wifi.fiveOnly): what to do about it; '' otherwise. */
+function bandNote(w) {
+    if (!w.fiveOnly || ['online', 'connected'].indexOf(w.link) < 0) {
+        return '';
+    }
+    return /iphone/i.test(w.ssid || '') ? tr("On the iPhone, turn on Maximize Compatibility") : tr("This network is 5 GHz only: CarPlay audio may drop");
+}
 const strength = (dbm) => (typeof dbm !== 'number' ? null : dbm >= -60 ? [tr("Strong"), GREEN] : dbm >= -72 ? [tr("Good"), BLUE] : [tr("Weak"), AMBER]);
 const scanningOf = (w) => !!(w.scanning || w.link === 'scanning');
 
@@ -575,7 +674,7 @@ function netRow(w, n) {
     const status = n.away ? tr("Saved · not in range") : n.current ? { online: tr("Online"), connected: tr("Connected"), connecting: tr("Connecting") }[w.link] || tr("Saved")
         : n.saved ? tr("Saved") : n.secure ? tr("Secured") : tr("Open");
     const act = n.away || joined ? null : n.saved || !n.secure ? { do: 'wifi-join', ssid: n.ssid } : { do: 'wifi-password', ssid: n.ssid };
-    return { id: n.ssid, title: n.ssid, sub: [status, q && q[0]].filter(Boolean).join(' · '), subColor: n.current ? GREEN : DIM, plain: true,
+    return { id: n.ssid, title: n.ssid, sub: [status, q && q[0], joined && bandOf(w)].filter(Boolean).join(' · '), subColor: n.current ? GREEN : DIM, plain: true,
         vicon: n.secure && !n.saved ? 'lock' : 'wifi', iconColor: q ? q[1] : DIM, act,
         right: n.saved ? 'chip:' + tr('Forget') : act ? 'chevron' : '', chipColor: DIM,
         chipAct: n.saved ? { do: 'open', page: { name: 'confirm', kind: 'wifi-forget', ssid: n.ssid } } : null };
@@ -596,21 +695,22 @@ function wifiView(m) {
     const nets = wifiNets(w);
     const scanning = scanningOf(w);
     const dbm = typeof w.signal === 'number' ? `${w.signal} dBm` : '';
-    const preferred = (m.st && m.st.uplink && m.st.uplink.preferred) || '';
     return {
-        subtitle: { text: !w.enabled || w.link === 'unavailable' || w.link === 'failed' ? '' : scanning ? tr("Scanning") : plural(nets.length, 'network') },
+        subtitle: { text: !w.enabled || w.link === 'unavailable' || w.link === 'failed' ? '' : scanning ? tr("Scanning")
+            : pausedLine(w) || plural(nets.length, 'network') },
         networks: { items: nets.map((n) => netRow(w, n)),
             empty: waiting ? tr("Waiting") : !w.enabled ? tr("Not used") : w.link === 'unavailable' ? tr("Unavailable") : scanning ? tr("Scanning") : tr("No networks") },
         icon: { vicon: 'wifi', kind: 'service', colors: LIT[s[1]] || '#7a808a,#3a3f47' },
         state: { text: s[0], color: s[1] },
         info: { text: [w.ip && `IP ${w.ip}`, dbm].filter(Boolean).join(' · ') },
-        note: { text: String(m.uplinkNote || w.error || '').slice(0, 160) },
+        note: { text: String(m.uplinkNote || w.error || bandNote(w)).slice(0, 160) },
+        // Allow 5 GHz, with an uplink that has it (mgu-uplink 0.7.6's wifi.allow5ghz)
+        allow5: { items: !waiting && w.enabled && typeof w.allow5ghz === 'boolean' ? [{ id: 'allow5', title: tr("Allow 5 GHz"), sub: tr("May cause CarPlay issues"), subColor: DIM, plain: true,
+            vicon: 'wifi', iconColor: 'text', right: `toggle:${w.allow5ghz ? 'on' : 'off'}`, act: { do: 'wifi-5ghz' } }] : [] },
         power: w.enabled ? button(tr("Don't use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'outline' })
             : button(tr("Use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'primary', color: GREEN, disabled: waiting }),
         scan: button(scanning ? tr("Scanning") : tr("Scan"), { do: 'wifi-scan' }, { vicon: 'refresh', style: 'outline',
-            disabled: !w.enabled || scanning || w.link === 'unavailable' || w.link === 'failed' }),
-        prefer: button(tr("Preferred: {0}", groupLabel(preferred)), { do: 'open', page: { name: 'prefer' } }, { vicon: 'route', style: 'outline',
-            disabled: waiting })
+            disabled: !w.enabled || scanning || w.link === 'unavailable' || w.link === 'failed' })
     };
 }
 
@@ -625,7 +725,10 @@ function preferView(m) {
         list: { items: GROUPS.map(([group, label]) => ({ id: group || 'auto', title: tr(label), sub: group && group === using ? tr("In use") : '', plain: true,
             vicon: { '': 'route', usb: 'usb', wifi: 'wifi' }[group] || 'phone', iconColor: 'text',
             right: group === preferred ? 'chip:' + tr('Preferred') : '', chipColor: GREEN,
-            act: group === preferred ? null : { do: 'uplink-prefer', kind: group } })), empty: '' }
+            act: group === preferred ? null : { do: 'uplink-prefer', kind: group } })), empty: '' },
+        // Phone over USB, with an uplink that has it (mgu-uplink 0.7.7's usbPhone)
+        usbPhone: { items: typeof u.usbPhone === 'boolean' ? [{ id: 'usbPhone', title: tr("Phone over USB"), plain: true,
+            vicon: 'usb', iconColor: 'text', right: `toggle:${u.usbPhone ? 'on' : 'off'}`, act: { do: 'usb-phone' } }] : [] }
     };
 }
 
@@ -650,6 +753,7 @@ function view(m) {
     case 'type': values = typeView(m, page); break;
     case 'wifi': values = wifiView(m); break;
     case 'prefer': values = preferView(m); break;
+    case 'proxy': values = proxyView(m); break;
     default: screen = 'store'; values = storeView(m);
     }
     values.nav = nav(m, tabSel);
@@ -675,4 +779,4 @@ function icons(v) {
     return out.filter((f, i) => out.indexOf(f) === i);
 }
 
-module.exports = { view, icons, typeKey, wifiOf, TABS, FILTERS, canRestart };
+module.exports = { view, icons, typeKey, wifiOf, proxyOf, TABS, FILTERS, canRestart };

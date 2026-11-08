@@ -1,4 +1,4 @@
-# robertn_store 0.9.16
+# robertn_store 0.9.26
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -7,7 +7,7 @@ It is the screen of [mgu-updater](../../native/mgu-updater/README.md),
 which does all the work; the app shows the state the updater streams over
 its socket and sends it requests: check, install and reboot, and the
 privileged ones (uninstall, source-add, source-probe, source-remove, token-add, token-remove,
-login-start, login-cancel, web, and uplink-prefer, wifi-enable, wifi-scan, wifi-connect,
+login-start, login-cancel, web, proxy-set, and uplink-prefer, wifi-enable, wifi-5ghz, wifi-scan, wifi-connect,
 wifi-forget, which the updater relays to [mgu-uplink](../../native/mgu-uplink/README.md)),
 which carry the secret the updater leaves in the app's data folder
 (`data/updater-secret`, read again for every request). It is for iDrive 7
@@ -26,12 +26,15 @@ USB, Settings) beside:
 
 - **Store**: All / Apps / Tools, Online / Offline / Checking, the status line
   (or the running install; an app whose title another listed app has is
-  named with its source, `DOOM (idrive7-apps)`), a grid of tiles: the package's picture when the
+  named with its source, `DOOM (cauliflowermossgrape)`), a grid of tiles: the package's picture when the
   updater names one (`components[].icon`, a PNG file), else a letter tile
-  (round for a tool), its name, its source under it (the repo's name,
-  `owner/repo` where two sources share a repo name, a catalog's host), its state (`Installed`, `Update 1.0.1`, `Downloading
-  42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`,
-  version and size) and a badge or progress ring. A component for another
+  (round for a tool), its name, its author under it (the repo's owner,
+  a catalog's host, a USB stick's label; `owner/repo` where another tile of the
+  same name comes from the same author), its state (`Installed`, `Update 1.0.1`, `Downloading
+  42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`, `Not working`,
+  version and size) and a badge or progress ring. While a listed app or tool waits
+  for a restart, **Restart now** sits left of the filters: Settings' confirm
+  step, whose Restart is off while an install runs or waits. A component for another
   head unit only (the updater's `compat: "no"`) is listed only while
   installed, so it can be removed (on the widget screens too). A version
   not for this head unit is not counted as an update.
@@ -41,23 +44,27 @@ USB, Settings) beside:
   Available; the running phase (Downloading, Verifying, Building,
   Installing, Removing) with its progress; `Not installable` and why (a package of an id another source's app
   holds; installed, it shows as installed, with Remove and no update), `Not for this head unit` / `For
-  iDrive 8` (that version is not offered), the failure in full (above the description), what an installed tool says is wrong (the updater's `problem`: `In-page drawing unavailable: <reason>` from the renderer), `Restart pending`; and what can be done:
-  Install, Update to, Try again, Restart head unit, Undo update (where the updater offers the version before; a confirm step), Remove (a confirm step). A second renderer
+  iDrive 8` (that version is not offered), the failure in full (above the description), what is wrong with an installed component (the updater's `problem`: `In-page drawing unavailable: <reason>` from the renderer, `Not working: <reason>` for one that does not work until it is set up again after a firmware update), `Restart pending`; and what can be done:
+  Install, Update to, Try again, Set up (a tool whose install step waits after a firmware update, the updater's `needsSetup`; its tile and row say `Needs setup`), Restart head unit, Undo update (where the updater offers the version before; a confirm step), Remove (a confirm step; for an app it lists the tools only that app uses, the updater's `requiredAlone`, with Remove all, which removes them too). A second renderer
   installs beside the first. On iDrive 8 an app install or removal is
   queued for the next start: its row shows `Restart pending`, as a tool
   pending a restart does.
 - **Installed**: apps and head-unit tools, each with its version and
-  source, its update (a press on Update installs it) or state, and Update all.
-  The ones with something running or waiting (an install, update or removal,
-  a queued one, an update, a failure, a restart pending) come first; while
-  the focus is on a row, the rows stay where they are.
+  author (as on Store), its update (a press on Update installs it) or state, Update all,
+  and Restart now beside it (as on Store). The ones with something running or
+  waiting (an install, update or removal, a queued one, an update, a failure,
+  a restart pending) come first; while the focus is on a row, the rows and
+  Restart now stay as they are.
 - **USB**: the components of the sticks' sources.
 - **Settings**: the sources (each opens its page: channel, account,
   components, error, Remove with a confirm step, and while a sign-in does
   not reach a private one the GitHub App's install page as a QR code and
   its address), Add source, Wi-Fi (below), Accounts (each one's Remove with a confirm
-  step; Sign in with GitHub while `state.signin` is true; Add token), Phone
-  access, the head unit and versions, Check now, Restart head unit.
+  step; Sign in with GitHub while `state.signin` is true; Add token), Proxy
+  (Off or its address, with an updater that reports `state.proxy`: its page
+  turns it on or off and sets its address, `http://` or `socks5://`, checked
+  before it is sent), Phone access, the head unit and versions, Check now,
+  Restart head unit.
 
 Confirm steps are a sheet over the page, Cancel first. Every page is a host
 state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
@@ -99,41 +106,65 @@ installs it; the same package runs on iDrive 7.
 
 ## Languages
 
-The Store is in the head unit's display language: English, and Simplified
-Chinese (translated by [JackieZ123430](https://github.com/JackieZ123430)).
+The Store is in the head unit's display language, every one the iDrive 7
+and iDrive 8 HMI offers: English (UK, US), German, Dutch (also Flemish),
+Danish, Swedish, Norwegian, Finnish, Polish, Czech, Slovak, Slovenian,
+Hungarian, Romanian, French (France, Canada), Italian, Turkish, Spanish
+(Spain, Latin America), Portuguese (Portugal, Brazil), Greek, Russian,
+Ukrainian, Indonesian, Vietnamese, Japanese, Korean, Simplified Chinese
+(also Cantonese simplified; translated by [JackieZ123430](https://github.com/JackieZ123430)),
+Traditional Chinese (also Cantonese traditional), Arabic, Hebrew and Thai.
+The drawn screens cannot lay out Arabic, Hebrew (right to left, joined
+letters) or Thai (stacked marks): in those three the tile and the widget
+screens are translated and the drawn screens are English.
+
 It reads `currentDisplayLanguage` of HMIContext (`HMI_CID`, iDrive 7) and
 HMIContext2 (`1`, iDrive 8), the manifest's proxies, at start and follows
-each change, the drawn screens and the widget
-screens alike; any other language, and a value it cannot read, is English.
-Names, versions, sources, accounts, SSIDs and the updater's errors are shown
-as they are.
+each change; a value it cannot read is English. Names, versions, sources,
+accounts, SSIDs and the updater's errors are shown as they are. A
+component's title and description are in the language when its catalog
+entry has them (`texts`, `release/README.md`), else English.
+
+The time in the status line (*checked*) is in the head unit's time zone,
+as the HMI's clock shows it: the instrument cluster's display time
+(`statusShowTimeDate` of KombiIF `1`, the manifest's proxy), read at start
+and on each change.
 
 A language is one file, `locales/<code>.json`: the HMI's languages it is
-for (`CommonTypes.Language`), its RHMI text file and its words, each keyed
-by the English (`{0}`, `{1}` stand for the values):
+for (`CommonTypes.Language`), its RHMI text files (named as the oap-sdk
+names those languages), the glyphs it is drawn with, and its words, each
+keyed by the English (`{0}`, `{1}` stand for the values); `"drawn": false`
+keeps the drawn screens English:
 
 ```json
-{ "hmiLanguages": ["CHINESISCH_SIMPLE"], "rhmiTexts": "zh_CN", "font": "chinese",
-  "words": { "Update {0}": "更新 {0}" } }
+{ "hmiLanguages": ["CHINESISCH_SIMPLE", "KANTONESISCH_SIMPLE"], "rhmiTexts": ["zh_CN", "zh_yue_Hans_CN"],
+  "font": "chinese", "words": { "Update {0}": "更新 {0}" } }
 ```
 
 `tools/build.js` writes them into the Store (`src/locales.js`, by
-`tools/gen_locales.js`) and, by `tools/gen_rhmi.js`, the RHMI text file of
-each language (`rhmiData/variantGroups/Common/texts`): the widget screens'
-own words are string ids, which the HMI shows in its language, the Store's
-tile name too. `tools/test_i18n.js` checks that every word the Store
-translates (its `tr()` words, the layouts' own words, the widget screens'
-string ids) has a translation in every language, with the same `{n}`, that
-no translation is left over, and that each language's characters can be
-drawn: Inter has ASCII and `·…→–—°×` (`tools/bake_fonts.py`), so a language
-with other characters needs them baked, or a font of its own (`"font"`).
+`tools/gen_locales.js`) and, by `tools/gen_rhmi.js`, the RHMI text files
+(`rhmiData/variantGroups/Common/texts`): the widget screens' own words are
+string ids, which the HMI shows in its language, the Store's tile name too.
+`tools/test_i18n.js` checks that every word the Store translates has a
+translation in every language, with the same `{n}`, that every HMI language
+has its text file, and that each language's words and catalog texts can be
+drawn; `tools/test_fit.js` that no translation is cut on a drawn screen
+where the English fits.
 
-Chinese is drawn with Noto Sans SC (SIL OFL, `src/LICENSE-NotoSansSC.txt`),
-baked by `tools/bake_chinese.py` into `src/font_chinese.js`, used for text
-Inter cannot draw while Chinese is the language and loaded the first time
-it is: the Store's own words at 48 px, and GB2312's 3,755 most used
-characters at 24 px, for names and descriptions. Its two atlases take
-about 3,040 rows of the renderer's shared 2048 x 4096 glyph texture.
+Inter has ASCII and `·…→–—°×` (`tools/bake_fonts.py`). Every other
+language has a font of its own, used for text Inter cannot draw and
+loaded the first time it is:
+
+| `font` | Glyphs | Baked by |
+|---|---|---|
+| `latin`, `greek`, `cyrillic`, `vietnamese` | Inter with those letters, regular and semibold | `tools/bake_inter.py` |
+| `chinese`, `chinese-tc`, `japanese`, `korean` | Noto Sans SC, TC, JP, KR (SIL OFL, `src/LICENSE-NotoSans*.txt`): the Store's words at 40 px, and the language's common characters for names and descriptions at 18 or 20 px | `tools/bake_cjk.py` |
+
+The renderer's glyph texture (two columns of 1024 x 4096) is shared by
+every app and keeps every atlas until the renderer restarts. Inter's and
+one language's atlases fit with room to spare. After display-language
+changes the texture can fill up, and the new language's text then shows
+after the head unit's next start.
 
 ## The widget screens
 
@@ -147,13 +178,21 @@ about 3,040 rows of the renderer's shared 2048 x 4096 glyph texture.
 | `DOOM` · `42%` / `Verifying` / `Building` / `Installing` / `Removing` | nothing (in progress) |
 | `Extended dashboard` · `Waiting` | nothing (queued) |
 | `Display bridge` · `Restart pending` | nothing (installed; active after the next reboot) |
+| `Cluster render` · `Not working` | as an installed row: installed, but not working until it is set up again (the updater's `repair`), which the updater has its source do |
+| `Cluster render` · `Needs setup` | set it up: its install step, which a firmware update left (the updater's `needsSetup`) |
 | `Car Data` · `Restart pending` | an iDrive 8 app install queued for the next start (the updater's `nextStart: "install"`): *Remove?* when `uninstallable`, which drops it; a queued removal (`nextStart: "remove"`) offers nothing |
 | `Car Data` · `Not for this head unit` | nothing (installed; the updater marks the new version `compat: "no"`); *Remove?* when `uninstallable` |
 | `DOOM` · `Failed, retry` | try again (the status line names the error); a removal the last start failed to apply is removed again (*Remove?*); an install it failed to apply is installed again, and its page also has *Remove* (when `uninstallable`), which clears it |
 | `Renderer` · `Install 0.2.0` | install it (beside another installed renderer) |
 
+Each row's name ends with its author, as on the Store's tiles: `DOOM (cauliflowermossgrape)`.
+
 The start screen has a status line (`1 update, checked 14:02`, `Offline`,
-`Checking for updates`, `Restarting`, the last error; `Restart the head
+`Checking for updates`, `Restarting`, the last error; `Restart head unit to
+install apps` while the deploy tool holds app changes until the next start
+(the updater's `mainappGuard`); `Restart head unit to show <app>` while an
+app's tile is hidden after an install that restarted the app manager
+(`tileHidden`); `Restart the head
 unit to finish setup` while the updater has not run since the Store was
 installed, which after the first install is until the next start; `Updater
 not running` once it has), a **Check for updates** button, a progress bar for the running
@@ -300,7 +339,21 @@ through an updater from 0.8.0; without them the row is not there), with
 its state: `Online · <network>`, `Connected · <network>` (joined; the
 uplink uses another device or waits for DHCP), `Connecting · <network>`,
 `Not connected`, `Not used`, `Unavailable` (no radio, or the car uses it),
-`Failed`, `Error`; the page shows the reason. Its page (from IterioDev App Manager 2.0.6's Wi-Fi page) lists,
+`Failed`, `Error`; the page shows the reason. While Wi-Fi is not joined and
+wireless CarPlay or Android Auto keeps the uplink from searching by itself
+(`wifi.paused`, mgu-uplink 0.7.5), the row and the page's status line say
+`Paused for wireless CarPlay` (or Android Auto). While Wi-Fi is joined and
+the uplink reads the access point's frequency (`wifi.freq`, mgu-uplink
+0.7.5), the row and the joined network's row on the page add its band
+(`Online · <network> · 5 GHz`, `· 2.4 GHz`). Above the networks, while Wi-Fi is on
+and the uplink has it (mgu-uplink 0.7.6, `wifi.allow5ghz`), **Allow 5
+GHz** is a switch (`wifi-5ghz`, through mgu-updater 0.8.28) with `May
+cause CarPlay issues` under it: off, the uplink joins a network seen on
+2.4 GHz there only. Joined on 5 GHz to a
+network without 2.4 GHz with it off (`wifi.fiveOnly`), the panel says
+`This network is 5 GHz only: CarPlay audio may drop`, or, for a network
+named like an iPhone's hotspot, `On the iPhone, turn on Maximize
+Compatibility`. Its page (from IterioDev App Manager 2.0.6's Wi-Fi page) lists,
 while Wi-Fi is on, the network joined first, then the latest scan's,
 strongest first, then saved ones out of range, each with `Online` /
 `Connected` / `Connecting`, `Saved`, `Secured` or `Open` and its signal
@@ -312,13 +365,19 @@ the HMI's speller. The password goes to the updater in that request and
 is kept nowhere, logged nowhere. A saved network has **Forget** (a confirm
 step, `wifi-forget`). The panel shows the state, address and signal, the
 uplink's error (a join that failed) or the refusal of the last request,
-and **Use Wi-Fi** / **Don't use Wi-Fi** (`wifi-enable`: whether the uplink uses Wi-Fi; Use Wi-Fi unblocks a soft-blocked radio and leaves it on), **Scan** (`wifi-scan`, also
-asked when the page opens) and **Preferred: <kind>**, which opens the
-preferred connection: Automatic, Wi-Fi, USB (adapters and LTE sticks),
+and **Use Wi-Fi** / **Don't use Wi-Fi** (`wifi-enable`: whether the uplink uses Wi-Fi; Use Wi-Fi unblocks a soft-blocked radio and leaves it on) and **Scan** (`wifi-scan`, also
+asked when the page opens).
+
+Settings' access card has **Preferred connection** below Accounts, while
+the Wi-Fi row is there. It shows the group the uplink tries first and
+opens its page: Automatic, Wi-Fi, USB (adapters and LTE sticks),
 Phone (Android and iPhone tethering): the uplink's `preferred` values
 `wifi`, `usb`, `phone`; the one preferred marked, the one in use said so; a press makes it the one the uplink tries first
-(`uplink-prefer`), the others staying fallbacks. The widget screens have
-none of this.
+(`uplink-prefer`), the others staying fallbacks. Below them, while the
+uplink has it (mgu-uplink 0.7.7, `usbPhone`, through mgu-updater 0.8.32),
+**Phone over USB** is a switch (`usb-phone`): off, the uplink leaves phones
+plugged in over USB alone, so they keep playing audio and are not asked to
+trust the car. The widget screens have none of this.
 
 An app installs or updates in place when the running MainApp can do it:
 only that app stops and starts. Otherwise the installer restarts MainApp's
@@ -347,15 +406,16 @@ locales/<code>.json        a language's words (README "Languages")
 src/i18n.js                the words in the display language
 src/locales.js             the languages, written by tools/gen_locales.js
 src/kit_*.js               the kit: record, canvas, vicons, png, themes (MIT, src/LICENSE-kit.txt);
-                           kit_fonts.js maps its families onto Inter, and Chinese onto Noto Sans SC
+                           kit_fonts.js maps its families onto Inter, and a language's font onto its own atlases
 src/font_regular.js, src/font_semibold.js   Inter glyph atlases (tools/bake_fonts.py)
-src/font_chinese.js        Noto Sans SC glyph atlases (tools/bake_chinese.py)
+package/fonts/<font>.json   a language's glyph atlases (tools/bake_inter.py, tools/bake_cjk.py)
 lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
 tools/gen_locales.js       src/locales.js from locales/*.json
 tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table, and the RHMI texts
 tools/build.js             languages, RHMI, lib/, the source package, and given a donor the OAP tgz
 tools/bake_fonts.py        the Inter atlases (Pillow, Inter 4.1's TTFs)
-tools/bake_chinese.py      the Noto Sans SC atlases (Pillow, NotoSansSC[wght].ttf of google/fonts, SHA-256 checked)
+tools/bake_inter.py        the Latin, Greek, Cyrillic and Vietnamese atlases (Pillow, Inter 4.1's TTFs)
+tools/bake_cjk.py          the Noto Sans SC, TC, JP and KR atlases (Pillow, google/fonts' TTFs, SHA-256 checked)
 tools/gen_screens.py       src/am_screens.js from App Manager 2's screens.json
 tools/fixture.js           an updater state with one of everything, and the drawn screens over it
 tools/test_view.js         the texts for every row, source, account, sign-in and phone state
@@ -364,19 +424,20 @@ tools/test_qr.js           the QR pictures (decoded back with zbarimg when insta
 tools/test_speller.js      src/speller.js against a fake use case factory
 tools/test_screens.js      every drawn screen in iDrive 7's and 8's boxes: in the box, values, presses, focus order, scrolling, touch
 tools/test_store.js        src/store.js's flows against stand-in SDK, RHMI, updater, speller and renderer
-tools/test_i18n.js         every language: its words, placeholders, RHMI text file, font
-tools/shots.js             screenshots of the drawn screens through mgu-render --replay
+tools/test_i18n.js         every language: its words, placeholders, RHMI text files, fonts, catalog texts
+tools/test_fit.js          every language's words on every drawn screen: nothing cut where the English fits
+tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.17/       staged package tree (no javascript/: the build writes it)
+package/       staged package tree (no javascript/: the build writes it; the release names it robertn_store@<version>)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.17.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.17.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@<version>.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@<version>.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js
@@ -397,10 +458,8 @@ naming the bundle and data folder, `node --check`, `javascript/build.json`.
 `lib/client.js` and `lib/mgu_render_client.js` are committed: run the build
 after `native/mgu-updater/js/client.js` or
 `native/mgu-render/js/mgu_render_client.js` changes and commit the copies.
-The Store requires mgu-render and mgu-uplink (`release.json`), so an
-install puts them on. The uplink is the Store's requirement, not the
-updater's: mgu-uplink requires the updater, and the updater's planner
-refuses two components that require each other.
+The Store requires the deploy tool, the updater and mgu-render
+(`release.json`), so an install puts them on first.
 
 ## Needs the head unit
 

@@ -40,8 +40,9 @@ function state() {
         signinApp: { installUrl: 'https://github.com/apps/mgu-store/installations/new' },
         login: null,
         web: { enabled: false, urls: [], error: null },
-        uplink: { device: { kind: 'wifi', name: 'Mario iPhone' }, state: 'online', error: null, preferred: 'wifi',
-            wifi: { enabled: true, link: 'online', ssid: 'Mario iPhone', ip: '172.20.10.3', signal: -52, scanning: false, error: null,
+        proxy: { on: false, kind: null, address: null, auth: false, error: null },
+        uplink: { device: { kind: 'wifi', name: 'Mario iPhone' }, state: 'online', error: null, preferred: 'wifi', usbPhone: true,
+            wifi: { enabled: true, link: 'online', ssid: 'Mario iPhone', ip: '172.20.10.3', signal: -52, scanning: false, error: null, allow5ghz: false,
                 networks: [{ ssid: 'Mario iPhone', signal: -52, secure: true, saved: true, current: true },
                     { ssid: 'FRITZ!Box 7590 XY', signal: -58, secure: true, saved: false, current: false },
                     { ssid: 'Cafe Free WiFi', signal: -70, secure: false, saved: false, current: false },
@@ -94,14 +95,18 @@ function screens() {
         ['app-renderer', { stack: main.concat([{ name: 'app', id: 'mgu-render' }]) }],
         ['confirm-remove', { stack: main.concat([{ name: 'app', id: 'gauges' }, { name: 'confirm', kind: 'remove', id: 'gauges' }]),
             focus: 0 }],
+        ['confirm-remove-tools', { stack: main.concat([{ name: 'app', id: 'gauges' }, { name: 'confirm', kind: 'remove', id: 'gauges' }]),
+            focus: 0 }, { components: st.components.map((c) => (c.id === 'gauges' ? Object.assign({}, c, { requiredAlone: ['display-bridge', 'mgu-renderd', 'mgu-uplink', 'mgu-render'] }) : c)) }],
         ['tool-undo', { tab: 'installed', stack: main.concat([{ name: 'app', id: 'mgu-uplink' }]) }],
         ['confirm-undo', { tab: 'installed', stack: main.concat([{ name: 'app', id: 'mgu-uplink' }, { name: 'confirm', kind: 'undo', id: 'mgu-uplink' }]),
             focus: 0 }],
         ['installed', { tab: 'installed', stack: main }],
+        // nothing installing, a restart pending: Restart now on Store and Installed (with a tool that does not work)
+        ['store-restart', { tab: 'store', stack: main }, idleSt(st)],
+        ['installed-restart', { tab: 'installed', stack: main }, failedSt(idleSt(st), 'mgu-uplink', { repair: 'installed under firmware 23-07' })],
         ['usb', { tab: 'usb', stack: main }],
         ['settings', { tab: 'settings', stack: main }],
-        ['confirm-restart', { tab: 'settings', stack: main.concat([{ name: 'confirm', kind: 'restart' }]), focus: 0 },
-            { busy: null, components: st.components.map((c) => Object.assign({}, c, { queued: false })) }],
+        ['confirm-restart', { tab: 'settings', stack: main.concat([{ name: 'confirm', kind: 'restart' }]), focus: 0 }, idleSt(st)],
         ['source', { tab: 'settings', stack: main.concat([{ name: 'source', id: 'idrive7-apps' }]) }],
         ['source-install-app', { tab: 'settings', stack: main.concat([{ name: 'source', id: 'car-apps' }]) }],
         ['accounts', { tab: 'settings', stack: main.concat([{ name: 'accounts' }]) }],
@@ -125,23 +130,48 @@ function screens() {
             go: 'Connect' }]) }],
         ['type-symbols', { tab: 'settings', stack: main.concat([{ name: 'type', title: 'Password', text: 'Wi-\\"`', layout: 'text', symbols: true,
             sym: true, go: 'Connect' }]) }],
-        // Wi-Fi (the uplink's): its networks, off, a join that failed; a password; Forget; the preferred connection
+        // Wi-Fi (the uplink's): its networks, off, a join that failed, paused for wireless Android Auto (and in Settings for
+        // CarPlay); a password; Forget; the preferred connection (Settings' row)
         ['wifi', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) }],
         ['wifi-off', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
             wifiSt(st, { enabled: false, link: 'off', ssid: '', ip: '', signal: null, networks: [] })],
         ['wifi-failed', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
             wifiSt(st, { link: 'idle', ssid: '', ip: '', signal: null, error: 'could not join "FRITZ!Box 7590 XY" (wrong password, or out of range)',
                 networks: st.uplink.wifi.networks.map((n) => Object.assign({}, n, { current: false })) })],
+        ['wifi-paused', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
+            wifiSt(st, { link: 'idle', ssid: '', ip: '', signal: null, paused: 'android-auto',
+                networks: st.uplink.wifi.networks.map((n) => Object.assign({}, n, { current: false })) })],
+        ['settings-wifi-band', { tab: 'settings', stack: main }, wifiSt(st, { freq: 5745 })],
+        ['wifi-band', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) }, wifiSt(st, { freq: 2437 })],
+        ['wifi-5ghz-only', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) }, wifiSt(st, { fiveOnly: true, freq: 5745 })],
+        ['wifi-5ghz-only-ap', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
+            wifiSt(st, { fiveOnly: true, freq: 5180, ssid: 'FRITZ!Box 7590 XY', networks: [] })],
+        ['settings-wifi-paused', { tab: 'settings', stack: main }, wifiSt(st, { link: 'idle', ssid: '', ip: '', signal: null, paused: 'carplay' })],
         ['wifi-password', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'type', title: 'FRITZ!Box 7590 XY', text: 'sec',
             label: 'Password', layout: 'text', symbols: true, go: 'Connect', min: 8, max: 63, secret: 'password' }]) }],
         ['confirm-wifi-forget', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'confirm', kind: 'wifi-forget', ssid: 'Home' }]),
             focus: 0 }],
-        ['prefer', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'prefer' }]) }],
+        ['prefer', { tab: 'settings', stack: main.concat([{ name: 'prefer' }]) }],
+        // the proxy: off, on, failing; its address typed
+        ['proxy', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }],
+        ['proxy-on', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
+        ['proxy-error', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) },
+            proxySt({ on: true, kind: 'http', address: '192.168.8.1:7890', error: 'proxy 192.168.8.1:7890: connection refused (5 tries)' })],
+        ['settings-proxy-on', { tab: 'settings', stack: main, scroll: { 'settings.access': 10000 } }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
+        // the access card scrolled to its end: Proxy and Phone access
+        ['settings-access-end', { tab: 'settings', stack: main, scroll: { 'settings.access': 10000 } }],
+        ['type-proxy', { tab: 'settings', stack: main.concat([{ name: 'proxy' }, { name: 'type', title: 'Proxy', label: 'Address',
+            text: 'socks5://192.168.8.1:7891', layout: 'text', symbols: true, max: 300 }]) }],
         ['offline', { tab: 'store', stack: main, connected: false, st: null, secret: false }],
         // an error of about 200 characters: on a component's page, a source's page
         ['app-failed', { stack: main.concat([{ name: 'app', id: 'vehicle_control' }]) }, failedSt(st, 'vehicle_control', { error: LONG_ERROR })],
         ['source-failed', { tab: 'settings', stack: main.concat([{ name: 'source', id: 'car-apps' }]) }, sourceFailed(st)]
     ];
+}
+
+/* State overrides: nothing installing or waiting. */
+function idleSt(st) {
+    return { busy: null, components: st.components.map((c) => Object.assign({}, c, { queued: false })) };
 }
 
 /* State overrides: nothing installing, component id with o over it. */
@@ -153,6 +183,11 @@ function failedSt(st, id, o) {
 function sourceFailed(st) {
     return { catalog: Object.assign({}, st.catalog, { error: `IterioDev/car-apps: ${LONG_ERROR}` }),
         sources: st.sources.map((s) => (s.id === 'car-apps' ? Object.assign({}, s, { status: 'error', error: LONG_ERROR }) : s)) };
+}
+
+/* State overrides: the proxy setting p. */
+function proxySt(p) {
+    return { proxy: Object.assign({ on: false, kind: null, address: null, auth: false, error: null }, p) };
 }
 
 /* State overrides: the uplink's Wi-Fi with w over it. */

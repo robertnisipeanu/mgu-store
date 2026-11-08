@@ -116,6 +116,22 @@ CARRIER_CHECK, CLEAR_HALT on both bulk endpoints) follow IterioDev's
 at once: the unit has `Conflicts=ipheth-tether.service`, and the Store does
 not install the tether (deploy/README.md, "IterioDev's App Manager").
 
+#### Phones over USB switched off
+
+Taking a phone has a cost: an iPhone taken for its hotspot is no media
+device, so USB audio from it stops, and each time it is plugged in while
+it does not trust the unit, it asks "Trust This Computer?". It is taken
+whether Personal Hotspot is on or not. With phones over USB switched off
+(`usb_phone = off`, or the Store through `usb-phone`), the uplink leaves
+every phone alone: no Android phone's USB tethering is used, and no iPhone
+is taken from the media daemon, switched to configuration 4 or paired, so
+the car keeps it for media, iAP2 and wired CarPlay. USB Ethernet
+adapters, CDC-ECM sticks and Wi-Fi are used; a stick that presents RNDIS
+or NCM counts as a phone and is left alone too. Switched off while the
+uplink runs on a phone, that link ends at once as an unplug ends it (an
+iPhone goes back to the media daemon) and the uplink goes on with the next
+device; switched on again, a phone plugged in is taken at the next scan.
+
 ### Wi-Fi
 
 The unit joins a saved Wi-Fi network (a phone's hotspot, an access point)
@@ -189,6 +205,88 @@ its configuration; the car's own networks, hotspot and radio are left
 alone. Wi-Fi is `unavailable` while the car uses `wlan0` itself (a network
 of its own, or its Wi-Fi switched off). WPA2 personal and open networks.
 
+The radio is shared with wireless CarPlay, and every station scan takes it
+off CarPlay's channel. So while the uplink is online on a device that ranks
+above Wi-Fi (`preferred = phone` with a phone, `usb` with an adapter or
+stick), and Wi-Fi is not joined, our networks are switched off in the car's
+supplicant (`wifi.link` `idle`). With none enabled, it stops its periodic
+scans. They are switched on again as soon as that uplink is offline or gone,
+and for 8 s after a `wifi-scan` request. A start or a Wi-Fi switch-on adds
+them switched on.
+
+#### The band
+
+Wireless CarPlay and Android Auto use the car's 5 GHz P2P group when they
+can, and a station on the same band shares the radio's core with them. So
+with **Allow 5 GHz** off (`wifi_5ghz = off`, the default; the
+`wifi-5ghz` request), a network seen on 2.4 GHz in the scan results is
+joined on 2.4 GHz only: it gets a `freq_list` and a `scan_freq` of the
+2.4 GHz channels (2412 to 2472 MHz), as `AddNetwork` properties in the
+car's supplicant and as `SET_NETWORK` on `wlan1`, and they are kept in
+`wpa.conf` as `freq_list=` and `scan_freq=` lines. With Allow 5 GHz on, a
+network is joined on either band. Nobody is cut off:
+
+- a network seen on 5 GHz only (an iPhone's hotspot with Maximize
+  Compatibility off) is joined there; `wifi.fiveOnly` says so while
+  joined;
+- a join on 2.4 GHz only that has not joined after 20 s goes on on every
+  band, and is saved so; a saved network on 2.4 GHz only that is in range
+  there but not joined for 40 s is on every band until the service
+  restarts or Allow 5 GHz is switched;
+- a supplicant that refuses a `freq_list` (an `AddNetwork` with one, or
+  `SET_NETWORK`) has the network added or set again without it, once, and
+  is not asked for one again until it is taken again;
+- a saved network on 2.4 GHz only that is not in range is looked for with a
+  scan of every channel every 2 min while Wi-Fi is not joined (not during
+  a wireless session, below), so that a network now on 5 GHz only is found
+  and joined there;
+- a network saved without a `freq_list` (before this) joins on any band
+  until it is seen on 2.4 GHz.
+
+A network's band changes only while the supplicant is not on it (on
+`wlan1` a `SET_NETWORK` flushes the network's PMKSA, which would end a WPA3
+association): a joined network stays as it is until it is left.
+
+#### During wireless CarPlay and Android Auto
+
+A station scan takes the radio off the channel the phone projects on. So
+while wireless CarPlay or Android Auto is connected, the supplicant's own
+scans (looking for a saved network, or joining one again) keep off the
+phone's band (with Allow 5 GHz, all but the phone's own channel); a
+`wifi-scan` request and a `wifi-connect` still cover every channel, at any
+time, and a joined network stays joined.
+
+A session is the projection daemon connected to an address that is not a
+loopback one (`/proc/net/tcp`, `tcp6`: uid 13002 for CarPlay, `carplay`;
+uid 13006 for Android Auto, `aapd`) while a P2P group interface (`p2p-*`)
+received data in the last 30 s (`/proc/net/dev`); wired CarPlay has the
+connection but no P2P traffic. The groups that received data are the
+phone's.
+
+- Through the car's supplicant (`wlan0`): the frequency of the phone's
+  group, read from the car's supplicant (the group interface's
+  `fi.w1.wpa_supplicant1.Interface.P2PDevice.Group`, its `Frequency`),
+  gives the band. Our networks get a `scan_freq` of the other band's
+  channels (2412 to 2472 MHz, or 5180 to 5825 MHz), so the supplicant's
+  own scans cover only those; with Allow 5 GHz, the frequency of the
+  phone's group too (a station on the group's own channel shares it
+  without taking the radio off it), so an access point on that channel is
+  found and joined there. With the band not known (both groups
+  receive, or the frequency can't be read), or a supplicant that refuses
+  `scan_freq`, our networks are switched off while Wi-Fi is not joined, as
+  above.
+- On `wlan1` (our wpa_supplicant; every interface of these units may share
+  the one radio): while Wi-Fi is not joined, `DISCONNECT`, which keeps
+  the supplicant from scanning and joining by itself until `RECONNECT`.
+
+`wifi.paused` (`carplay`, `android-auto`) says when the supplicant makes
+no scans of its own for that session. When the session ends, everything is
+as before within 2 s. A joined network makes no scans to roam: the car's
+wpa_supplicant runs without a configuration file (`-u -s -d`), so it has no
+global `bgscan`, and our networks in it set none; on `wlan1`, our
+`wpa.conf` sets no global `bgscan` and our networks none (and `mgu-wpa` is
+built without bgscan modules).
+
 ### status.json
 
 `/run/mgu-uplink/status.json` (0644, present while the service runs), for
@@ -199,11 +297,12 @@ the Store and the phone page:
   "state": "trust-needed", "error": "Tap Trust on the iPhone and enter its passcode" }
 ```
 
-with `uplink = auto`, also `wifi`, and `preferred` while a group is preferred:
+with `uplink = auto`, also `wifi`, `usbPhone` (whether phones over USB are
+taken), and `preferred` while a group is preferred:
 
 ```json
 { "device": { "kind": "wifi", "name": "iPhone - Mario" }, "state": "online", "error": null,
-  "preferred": "wifi",
+  "preferred": "wifi", "usbPhone": true,
   "wifi": { "enabled": true, "link": "online", "ssid": "iPhone - Mario", "ip": "172.20.10.2", "signal": -45,
     "networks": [ { "ssid": "iPhone - Mario", "signal": -40, "secure": true, "saved": true, "current": true } ],
     "saved": [ "iPhone - Mario" ], "scanning": false, "error": null } }
@@ -221,7 +320,15 @@ with `uplink = auto`, also `wifi`, and `preferred` while a group is preferred:
 `networks` is the latest scan (the strongest per name, at most 20,
 strongest first), `saved` the saved names, `scanning` true for 8 s after a
 scan request, `signal` dBm, `backend` what joins (`mgu-wpa` or
-`car-supplicant`) while Wi-Fi is on and there is a radio. `error` keeps a failed join ("could not join
+`car-supplicant`) while Wi-Fi is on and there is a radio, `paused`
+(`carplay`, `android-auto`) while the supplicant makes no scans of its own
+during that wireless session, `freq` the frequency (MHz) of the access
+point joined while it can be read (the car's supplicant: `CurrentBSS`,
+then its `Frequency`; `wlan1`: `STATUS`'s `freq=`), left out otherwise,
+`allow5ghz` the Allow 5 GHz setting and `fiveOnly` true while joined on
+5 GHz, with Allow 5 GHz off, to a network not seen on 2.4 GHz.
+The log says `wifi: joined "<network>" on <interface> at <MHz> MHz
+(<band>)` when Wi-Fi joins and whenever that frequency changes. `error` keeps a failed join ("could not join
 … (wrong password, or out of range)", after 40 s) until the next request.
 
 | `state` | |
@@ -247,12 +354,14 @@ updater only, which relays these; `status.json` shows the results.
 |---|---|
 | `{"op": "prefer", "kind": "phone"}` | the group tried first (`wifi`, `usb`, `phone`; `""` for none); takes effect within 5 s |
 | `{"op": "wifi-enable", "on": true}` | Wi-Fi on or off |
+| `{"op": "wifi-5ghz", "on": true}` | Allow 5 GHz: joins on either band (The band, above) |
+| `{"op": "usb-phone", "on": false}` | phones over USB taken or left alone (Phones over USB switched off, above) |
 | `{"op": "wifi-scan"}` | scan now |
 | `{"op": "wifi-connect", "ssid": "…", "psk": "…"}` | join a network, with its password; saved once joined. Without `psk`: a saved network, or an open one |
 | `{"op": "wifi-forget", "ssid": "…"}` | forget a saved network |
 
-The reply is `{"ok": true}` or `{"ok": false, "error": "…"}`. `prefer` and
-`wifi-enable` are kept in `settings_conf`. A password goes to wpa_supplicant
+The reply is `{"ok": true}` or `{"ok": false, "error": "…"}`. `prefer`,
+`wifi-enable`, `wifi-5ghz` and `usb-phone` are kept in `settings_conf`. A password goes to wpa_supplicant
 only: no log line, reply or status names it.
 
 ## Config
@@ -263,7 +372,7 @@ replaced by every update. The unit's own settings go in
 replaces the shipped value, except `uids`, which adds to it), which updates keep.
 What the Store sets through requests goes in
 `/var/opt/mgu-uplink/mgu-uplink.settings.conf`, read after the local conf
-and kept by updates. Only `preferred` and `wifi` are read from it; any other
+and kept by updates. Only `preferred`, `wifi`, `wifi_5ghz` and `usb_phone` are read from it; any other
 line, or a value this version does not know, is logged and skipped, so an
 older version still starts after a rollback.
 
@@ -274,6 +383,8 @@ older version still starts after a rollback.
 | `uplink` | `auto`, or `netdev:<ifname>` for an existing interface (no Wi-Fi, no `preferred`) |
 | `preferred` | `wifi`, `usb` or `phone`, tried first; empty (shipped) for the order above; any other value is logged and ignored |
 | `wifi` | `on` or `off` (shipped) |
+| `wifi_5ghz` | `on`: Wi-Fi joins on either band; `off` (shipped): on 2.4 GHz only where a network is seen there |
+| `usb_phone` | `on` (shipped): phones over USB are used; `off`: left alone |
 | `table`, `rule_pref` | routing table (110) and first rule priority (1100) |
 
 Components that need the internet add themselves without touching the
@@ -290,7 +401,7 @@ local conf is ignored, and the start logs it: the uplink takes whatever is
 plugged in.
 
 `uplink`, `table` and the other keys take effect at the next service
-restart; `preferred` and `wifi` set by a request take effect at once.
+restart; `preferred`, `wifi`, `wifi_5ghz` and `usb_phone` set by a request take effect at once.
 
 ## Build, install, update
 

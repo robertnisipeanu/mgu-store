@@ -261,13 +261,16 @@ nothing.
 ## Settings
 
 `mgu-render.conf` lists every key with its default; `-s key=value` overrides.
-The unit-specific ones:
+A unit's own settings go in `local_conf` (`/var/opt/mgu-render/mgu-render.local.conf`,
+same format), read last: an update replaces `mgu-render.conf` but leaves that
+file, so a value changed on a car survives the next update. A bad line there is
+logged and skipped; the renderer still starts. The unit-specific ones:
 
 | Key | iDrive 7 | iDrive 8 |
 |---|---|---|
 | screen, app area | read from Winston's output: 1920×720, area 108,82,1790,638 | 2880×960, area 0,76,2880,764 |
 | `touch_iface`, `touch_saddr` | `vlan73`, `160.48.199.115` (`auto`: `lo` when there is no vlan73, as in the emulator) | same |
-| `touch_area` | 84,76,1836,644 (`auto` by screen size) | 0,76,2880,764 |
+| `touch_area` | 84,0,1836,720 (`auto` by screen size) | 0,76,2880,764 |
 | `embed`, `embed_area` | 1, 104,88,1796,632 | never offered: no HmiMain3D, so no template is loaded |
 | `embed_zero_copy`, `tick_early`, `readback_pbo`, `embed_finish` | 1, 1, 1, 0 (embed: "Embed buffers") | same |
 | `fps`, `fps.<app>` | 0: an app that asks for a rate (the Store: 60) gets it; N: N frames a second in its place, for every such app or one (`fps.robertn_store = 30`) | same |
@@ -346,7 +349,7 @@ the car can show:
 - [ ] Embed: DOOM-style pixmap frames inside the page: presented rate (`fps` in `test/pixel_client.js`), and the readback cost at 1796×632 (STATS avg µs) on the HD 505.
 - [ ] display-bridge's apps: after the update and a head-unit restart, display-bridge's units inactive (condition), DOOM, draw_gallery and display_bridge_demo drawn in their pages, DOOM's presented rate (`doom fps` in `/tmp/doom.log`) and touch on display_bridge_demo.
 - [ ] Embed: HmiMain3D's compositor offers `wl_drm` v2 with PRIME (`embed:` lines in the journal), takes the GPU buffers and shows them (`embed: zero-copy`), and the Store's drawn screens' frame rate while dragging (`tools/car-test/CAR-TEST.md`).
-- [ ] Touch: finger PDUs on UDP 30567 from 160.48.199.115 on vlan73, finger PDUs told by their finger count (payload byte 37) whatever their word type; the claim area 84,76,1836,644.
+- [ ] Touch: finger PDUs on UDP 30567 from 160.48.199.115 on vlan73, finger PDUs told by their finger count (payload byte 37) whatever their word type; the claim area 84,0,1836,720.
 - [ ] Touch in embed mode: a claimed area inside the page reaches the app and the HMI's hidden components under it do not react.
 - [ ] The foreground gate as root:root (gid 0) under the unit's SOME/IP credentials.
 - [ ] GRAB with upstream's `mgu-inputgate.so` loaded (installed separately).

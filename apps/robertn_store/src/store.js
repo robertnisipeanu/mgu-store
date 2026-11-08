@@ -20,12 +20,13 @@
  * component, once confirmed), "source-add", "source-probe", "source-remove", "token-add",
  * "token-remove" (an account, once confirmed), "login-start" / "login-cancel" (GitHub
  * sign-in, which adds an account), "web" (Phone access on or off), and the
- * ones the updater relays to mgu-uplink: "wifi-enable", "wifi-scan",
+ * ones the updater relays to mgu-uplink: "wifi-enable", "wifi-5ghz" (Allow 5 GHz), "wifi-scan",
  * "wifi-connect" (with the password typed for a secured network not saved
- * yet), "wifi-forget" (once confirmed) and "uplink-prefer" (the preferred
- * connection). On the drawn screens, Settings has Wi-Fi while the uplink
- * reports it (state.uplink.wifi): the networks, Use Wi-Fi, Scan and the
- * preferred connection; the widget screens have none of it.
+ * yet), "wifi-forget" (once confirmed), "uplink-prefer" (the preferred
+ * connection) and "usb-phone" (Phone over USB). On the drawn screens, Settings has Wi-Fi and
+ * Preferred connection while the uplink reports its Wi-Fi (state.uplink.wifi): the networks,
+ * Allow 5 GHz, Use Wi-Fi and Scan; the group tried first and Phone over USB; the widget screens
+ * have none of it.
  *
  * The start screen has the status line, Check for updates, the progress of
  * the running install, the rows Apps and Head-unit tools, which open their
@@ -70,11 +71,11 @@ const i18n = require('./i18n.js');
 const { qrPng } = require('./qr.js');
 const { spell } = require('./speller.js');
 const { Drawn, DEPTHS } = require('./store_drawn.js');
-const { typeKey, wifiOf } = require('./store_ui.js');
+const { typeKey, wifiOf, proxyOf } = require('./store_ui.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
     loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage,
-    removable, undoable, withSources, listed } = require('./store_view.js');
+    removable, requiredAlone, undoable, withSources, listed, localized, proxyUrlError, setClusterTime } = require('./store_view.js');
 
 const logger = logging.getSDKLogger();
 const tr = i18n.t;
@@ -100,10 +101,11 @@ const TOKEN_ADD_MS = 30000;             // how long Add token says "Checking tok
 const FOCUS_BACK_MS = 2000;             // how long a page waits for the HMI to give the focus back from the speller
 const PROBE_MS = 30000;                 // how long a repo being added waits for the updater's answer
 const IF_FRONTCCU = 'de.bmw.infotainment.controlelements.FrontCCU';
+const IF_KOMBI = 'de.bmw.infotainment.KombiIF';
 /* The HMI's context, by the instance of the CID: iDrive 7's HMI offers the first, iDrive 8's the second. */
 const HMI_CONTEXTS = [['de.bmw.infotainment.hmi.hmicontext.HMIContext', 'HMI_CID'],
     ['de.bmw.infotainment.hmi.hmicontext2.HMIContext2', '1']];
-const UPLINK_OPS = ['uplink-prefer', 'wifi-enable', 'wifi-scan', 'wifi-connect', 'wifi-forget'];
+const UPLINK_OPS = ['uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget'];
 
 /* The drawn screens' host states and their proxies (tools/gen_rhmi.js). */
 const PROXIES = [48, 24, 12];
@@ -117,7 +119,7 @@ const ROOTS = { widgets: 'ST_OnlineApps_Store', layer: hostName('layer', 1), emb
 const ID8_CELLS = { Text: 'PrimaryText', Text1stCol: 'PrimaryText', Text2ndCol: 'FrequencyText', TextLeft: 'PrimaryText',
     TextRight: 'FrequencyText' };
 const ID8_LABELS = new Set(['storeStatus', 'storeSourcesStatus', 'storeSrcError', 'storeAccountsStatus', 'storeAccountName',
-    'storeAccountSources', 'storeLoginCode', 'storeLoginUrl', 'storeLoginStatus', 'storeRemoveName', 'storePhoneUrl',
+    'storeAccountSources', 'storeLoginCode', 'storeLoginUrl', 'storeLoginStatus', 'storeRemoveName', 'storeRemoveTools', 'storePhoneUrl',
     'storePhoneError', 'storeSrcAppLabel', 'storeSrcAppUrl', 'storePickStatus']);
 
 /* tools/gen_rhmi.js */
@@ -154,7 +156,8 @@ const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress
     loginQr: 'storeLoginQr', loginCode: 'storeLoginCode', loginUrl: 'storeLoginUrl',
     loginStatus: 'storeLoginStatus', loginCancel: 'storeLoginCancel',
     srcRemoveCancel: 'storeSrcRemoveCancel', srcRemoveConfirm: 'storeSrcRemoveConfirm',
-    removeName: 'storeRemoveName', removeCancel: 'storeRemoveCancel', removeConfirm: 'storeRemoveConfirm',
+    removeName: 'storeRemoveName', removeTools: 'storeRemoveTools', removeCancel: 'storeRemoveCancel', removeConfirm: 'storeRemoveConfirm',
+    removeAll: 'storeRemoveAll',
     srcAppLabel: 'storeSrcAppLabel', srcAppQr: 'storeSrcAppQr', srcAppUrl: 'storeSrcAppUrl',
     phoneToggle: 'storePhoneToggle', phoneQr: 'storePhoneQr', phoneUrl: 'storePhoneUrl',
     phoneError: 'storePhoneError' };
@@ -237,6 +240,7 @@ class Store extends OnlineApp {
         this._spelling = false;         // the HMI's speller is up
         this._typing = null;            // the drawn keyboard's page up: { page, resolve, under (the page it took the place of) }
         this._uplinkNote = null;        // the refusal of the last Wi-Fi or preferred-connection request
+        this._proxyNote = null;         // why the last proxy change was refused
         this._qr = { login: { key: null, file: null, chain: Promise.resolve() },
             phone: { key: null, file: null, chain: Promise.resolve() }, app: { key: null, file: null, chain: Promise.resolve() } };
         this._hmi = 'ID7';
@@ -262,6 +266,7 @@ class Store extends OnlineApp {
             this._render();
         });
         this._st = null;
+        this._stRaw = null;
         this._connected = false;
         this._client = new UpdaterClient(SOCKET, { reconnectMs: RECONNECT_MS });
         this._client.on('state', (st) => {
@@ -272,10 +277,11 @@ class Store extends OnlineApp {
             this._connected = true;
             // a refusal answers the Wi-Fi as it was: once its link moves on, the note is stale
             const link = (s) => s && s.uplink && s.uplink.wifi && s.uplink.wifi.link;
-            if (this._uplinkNote && link(this._st) !== link(st)) {
+            if (this._uplinkNote && link(this._stRaw) !== link(st)) {
                 this._uplinkNote = null;
             }
-            this._st = st;
+            this._stRaw = st;
+            this._st = localized(st);
             this._tokenAdded(st);
             this._reprobe();
             this._render();
@@ -311,6 +317,9 @@ class Store extends OnlineApp {
                 this._probed({ type: 'probe', repo: this._pick.repo, status: 'refused', error: String(msg) });
             } else if (UPLINK_OPS.indexOf(forOp) >= 0) {
                 this._uplinkNote = String(msg);
+                this._render();
+            } else if (forOp === 'proxy-set') {
+                this._proxyNote = String(msg);
                 this._render();
             } else if (forOp === 'token-add' && this._tokenAdding) {
                 this._endTokenAdd({ kind: 'refused', error: String(msg) });
@@ -348,6 +357,7 @@ class Store extends OnlineApp {
         const foregroundStart = this._startedForeground();
         return this._setupRhmi()
             .then(() => this._setupLanguage())
+            .then(() => this._setupClusterClock())
             .then(() => this._setupController())
             .then(() => this._rendererAnswer())
             .then(() => this._registerEntryPoints())
@@ -403,9 +413,29 @@ class Store extends OnlineApp {
     _displayLanguage(value) {
         if (i18n.setHmiLanguage(value)) {
             logger.info(`display language ${value}: ${i18n.language()}`);
+            this._st = localized(this._stRaw);
             this._forgetWritten();
             this._render();
         }
+    }
+
+    /* Times show as the HMI's clock does, in the head unit's time zone: from
+     * the instrument cluster's display time (store_view.js setClusterTime),
+     * read at start and on each change; the system's time zone without it. */
+    _setupClusterClock() {
+        let proxy;
+        const show = (v) => {
+            if (setClusterTime(v, Date.now())) {
+                this._render();
+            }
+        };
+        someipBuilders.buildTypedProxy(IF_KOMBI, '1')
+            .then((p) => { proxy = p; return proxy.init(); })
+            .then(() => proxy.waitUntilAvailable())
+            .then(() => proxy.statusShowTimeDate.subscribe(show))
+            .then(() => proxy.statusShowTimeDate.getValue())
+            .then(show)
+            .catch((err) => logger.warn(`cluster clock unavailable: ${err && err.message}`));
     }
 
     /* The controller for the drawn screens in embed mode (src/store_drawn.js
@@ -509,6 +539,7 @@ class Store extends OnlineApp {
         });
         this._bind(C.removeCancel, () => this._closeState(S.remove));
         this._bind(C.removeConfirm, () => this._remove());
+        this._bind(C.removeAll, () => this._remove(this._removeTools().map((t) => t.id)));
         this._bind(C.navSources, () => this._openState(S.sources));
         this._bind(C.sourceList, (row) => this._onSource(row));
         this._bind(C.sourceAdd, () => this._addSource());
@@ -605,6 +636,9 @@ class Store extends OnlineApp {
         }
         logger.info(`screens: ${ui}`);
         this._ui = ui;
+        if (i18n.useDrawn(ui !== 'widgets')) {
+            this._st = localized(this._stRaw);
+        }
         this._forgetWritten();
         this._render();
         if (!this._entryUuid) {
@@ -656,7 +690,7 @@ class Store extends OnlineApp {
             version: this._version(), note: this._sourcesNote, login: this._login,
             webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
             pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe, tokenNote: !!this._pick.tokenNote },
-            uplinkNote: this._uplinkNote, language: i18n.language() };
+            uplinkNote: this._uplinkNote, proxyNote: this._proxyNote, language: i18n.language() };
     }
 
     /* A press on the drawn screens (src/store_ui.js acts). */
@@ -678,6 +712,10 @@ class Store extends OnlineApp {
                 this._removeId = act.page.id;
             } else if (act.page.name === 'confirm' && act.page.kind === 'undo') {
                 this._undoId = act.page.id;
+            } else if (act.page.name === 'proxy') {
+                this._proxyNote = null;
+            } else if (act.page.name === 'prefer') {
+                this._uplinkNote = null;
             } else if (act.page.name === 'wifi') {
                 const w = wifiOf({ connected: this._connected, st: this._st });
                 this._uplinkNote = null;
@@ -688,13 +726,16 @@ class Store extends OnlineApp {
             this._drawn.push(act.page);
             break;
         case 'install': this._install(act.id); break;
-        case 'update-all':
-            (this._connected && this._st ? this._st.components : [])
-                .filter((c) => c.status === 'update' && rowAction(c, this._st.busy) === 'install')
-                .forEach((c) => this._install(c.id));
+        case 'update-all': {
+            // the Store's own update last: it closes the Store
+            const ids = (this._connected && this._st ? this._st.components : [])
+                .filter((c) => c.status === 'update' && rowAction(c, this._st.busy) === 'install').map((c) => c.id);
+            ids.filter((id) => id !== APP_ID).concat(ids.filter((id) => id === APP_ID)).forEach((id) => this._install(id));
             break;
-        case 'remove': this._removeId = act.id; this._remove(); break;
+        }
+        case 'remove': this._removeId = act.id; this._remove(act.tools); break;
         case 'undo': this._undoId = act.id; this._undo(); break;
+        case 'setup': this._setup(act.id); break;
         case 'restart': this._restart(); break;
         case 'source-remove': this._sourceId = act.id; this._removeSource(); break;
         case 'account-remove': this._tokenId = act.id; this._removeAccount(); break;
@@ -714,6 +755,13 @@ class Store extends OnlineApp {
             }
             break;
         }
+        case 'wifi-5ghz': {
+            const w = wifiOf({ connected: this._connected, st: this._st });
+            if (w) {
+                this._uplink({ op: 'wifi-5ghz', on: !w.allow5ghz });
+            }
+            break;
+        }
         case 'wifi-scan': this._uplink({ op: 'wifi-scan' }); break;
         case 'wifi-join': this._uplink({ op: 'wifi-connect', ssid: act.ssid }); break;
         case 'wifi-password': this._wifiPassword(act.ssid); break;
@@ -722,6 +770,23 @@ class Store extends OnlineApp {
             this._uplink({ op: 'wifi-forget', ssid: act.ssid });
             break;
         case 'uplink-prefer': this._uplink({ op: 'uplink-prefer', kind: act.kind }); break;
+        case 'usb-phone': {
+            const u = this._connected && this._st && this._st.uplink;
+            if (u && typeof u.usbPhone === 'boolean') {
+                this._uplink({ op: 'usb-phone', on: !u.usbPhone });
+            }
+            break;
+        }
+        case 'proxy-toggle': {
+            const p = proxyOf({ connected: this._connected, st: this._st });
+            if (p && p.on) {
+                this._setProxy('');
+            } else {
+                this._editProxy();
+            }
+            break;
+        }
+        case 'proxy-edit': this._editProxy(); break;
         default: break;
         }
         this._render();
@@ -755,6 +820,39 @@ class Store extends OnlineApp {
             this._uplink({ op: 'wifi-connect', ssid, psk });
             this._render();
         });
+    }
+
+    /* The proxy's address, typed (iDrive 8: the drawn keyboard; iDrive 7: the
+     * HMI's speller), checked here and by the updater, which keeps it. */
+    _editProxy() {
+        this._proxyNote = null;
+        const p = proxyOf({ connected: this._connected, st: this._st });
+        // a user name and password are not shown, so an address with them is typed again in full
+        const text = p && p.on && p.address && !p.auth ? `${p.kind}://${p.address}` : '';
+        this._spell(tr("Proxy"), (m) => { this._proxyNote = sourcesMessage(m); this._render(); },
+            { label: tr("Address"), text, layout: 'text', symbols: true, max: 300 }).then((url) => {
+            const typed = (url || '').trim();
+            if (!typed) {
+                return;
+            }
+            const why = proxyUrlError(typed);
+            if (why) {
+                this._proxyNote = why;
+                this._render();
+                return;
+            }
+            this._setProxy(typed);
+        });
+    }
+
+    _setProxy(url) {
+        this._proxyNote = null;
+        // the address can hold a password: only whether one is set goes to the log
+        logger.info(`proxy ${url ? 'set' : 'off'}`);
+        if (!this._privileged({ op: 'proxy-set', url })) {
+            this._proxyNote = readSecret() ? 'updater not running' : 'no updater secret';
+        }
+        this._render();
     }
 
     _openState(name) {
@@ -845,6 +943,12 @@ class Store extends OnlineApp {
         return (this._connected && this._st && id && this._st.components.find((c) => c.id === id)) || null;
     }
 
+    /* The installed tools only the component the Remove confirm step names requires. */
+    _removeTools() {
+        const row = this._component(this._removeId);
+        return row ? requiredAlone(this._st.components, row) : [];
+    }
+
     _source(id) {
         const sources = this._connected && this._st && this._st.sources;
         return (Array.isArray(sources) && id && sources.find((s) => s.id === id)) || null;
@@ -863,6 +967,8 @@ class Store extends OnlineApp {
         const action = rowAction(row, this._st.busy);
         if (action === 'install') {
             this._install(row.id);
+        } else if (action === 'setup') {
+            this._setup(row.id);
         } else if (action === 'remove') {
             this._removeId = row.id;
             this._openPage('remove', { name: 'confirm', kind: 'remove', id: row.id });
@@ -877,12 +983,23 @@ class Store extends OnlineApp {
         }
     }
 
-    _remove() {
+    /* tools: the ones only it requires that go with it, as its confirm step listed them. */
+    _remove(tools) {
         this._closePage('remove', isConfirm('remove'));
         const row = this._component(this._removeId);
         if (row && removable(row, this._st.busy)) {
-            logger.info(`uninstall ${row.id}`);
-            this._privileged({ op: 'uninstall', id: row.id });
+            const along = Array.isArray(tools) && tools.length ? { tools } : {};
+            logger.info(`uninstall ${row.id}${along.tools ? ` with ${tools.join(', ')}` : ''}`);
+            this._privileged(Object.assign({ op: 'uninstall', id: row.id }, along));
+        }
+    }
+
+    /* Set up: the tool's install step, which a firmware update left for it (the updater's setup). */
+    _setup(id) {
+        const row = this._component(id);
+        if (row && rowAction(row, this._st.busy) === 'setup') {
+            logger.info(`set up ${row.id}`);
+            this._privileged({ op: 'setup', id: row.id });
         }
     }
 
@@ -1318,8 +1435,11 @@ class Store extends OnlineApp {
         }
     }
 
-    /* The app manager inserts the public tile from application.json and hands
-     * it to the app at start; the SDK emits 'entryPointExecute' on a tap. */
+    /* The app manager inserts the public tile from application.json, with its
+     * name and icon from the manager's own bundles, and hands it to the app at
+     * start; the SDK emits 'entryPointExecute' on a tap. The app leaves the
+     * name and icon alone: its own bundles end with its process, and a tile
+     * pointing at them shows no name once the manager stops the app. */
     _registerEntryPoints() {
         const descriptions = (this.appDescription &&
             this.appDescription.application.entryPoints) || [];
@@ -1332,10 +1452,6 @@ class Store extends OnlineApp {
         return ours.init()
             .then(() => this.rhmiApplication.mapEntryState(description.uuid, this._states[ROOTS[this._ui]]))
             .then(() => { this._entryUuid = description.uuid; })
-            .then(() => Promise.resolve()
-                .then(() => ours.entryPoint.setText(description.textId))
-                .then(() => (description.icon ? ours.entryPoint.setIcon(description.icon) : undefined))
-                .catch((err) => logger.warn(`entry point text/icon: ${err && err.message}`)))
             .then(() => ours.setAvailability('ENABLED'))
             .then(() => logger.info(`entry point ${description.name} ENABLED`));
     }
@@ -1431,6 +1547,9 @@ class Store extends OnlineApp {
         const removingComponent = this._component(this._removeId);
         // a queued install (iDrive 8) has no installed version
         this._text(C.removeName, removingComponent ? [removingComponent.title, removingComponent.installed].filter(Boolean).join(' ') : '');
+        const removeTools = this._removeTools();
+        this._text(C.removeTools, removeTools.length ? tr("Tools only it uses: {0}", removeTools.map((t) => `${t.title} ${t.installed}`).join(', ')) : '');
+        this._show(C.removeAll, removeTools.length > 0);
 
         // an updater that reports no sources or web hides Sources and Phone access
         const sources = connected && Array.isArray(st.sources) ? st.sources : null;

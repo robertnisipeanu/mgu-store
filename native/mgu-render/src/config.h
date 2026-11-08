@@ -27,6 +27,7 @@ struct cfg {
     int embed_finish;           /* embed zero-copy: a frame waits for the GPU (glFinish) before it is committed */
     char embed_marker[128];     /* written by mgu-render-hmi.sh once the template is mounted */
     char hmi_process[32];       /* the HMI's process name: the template is loaded if it started after the marker */
+    char local_conf[256];       /* this unit's own settings, outside the version folder: read last, kept across updates */
     char foreground_gate[256];  /* command reporting "foreground [uid ...]" on fd 3; empty: none */
     int gate_legacy;            /* upstream / iterio apps (layer) hidden while another app is in front */
     uint32_t yield_surfaces[CFG_MAX_YIELD]; /* layer mode hides while one of these is visible */
@@ -49,6 +50,7 @@ void cfg_defaults(struct cfg *c);
 int cfg_set(struct cfg *c, const char *key, const char *value);   /* 0, or -1 (logged) */
 int cfg_load(struct cfg *c, const char *path);
 int cfg_set_pair(struct cfg *c, const char *pair);
+int cfg_load_local(struct cfg *c);
 int cfg_fps(const struct cfg *c, const char *app);   /* app's fps setting, else the global one */
 
 #endif

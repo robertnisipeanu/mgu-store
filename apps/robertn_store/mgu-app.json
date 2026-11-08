@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "id": "robertn_store",
-  "version": "0.9.17",
-  "tree": "robertn_store@0.9.17",
+  "version": "0.9.32",
+  "tree": "package",
   "modules": [
     "src/store.js",
     "src/store_view.js",
@@ -30,7 +30,6 @@
     "src/kit_themes.js",
     "src/font_regular.js",
     "src/font_semibold.js",
-    "src/font_chinese.js",
     "lib/mgu_render_client.js"
   ],
   "sdk": [
