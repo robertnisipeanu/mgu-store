@@ -336,6 +336,7 @@ function fakeRoot(opts) {
         MGU_DEPLOY_PS: path.join(HERE, 'fake_ps.sh'),
         MGU_DEPLOY_KILL: path.join(HERE, 'fake_kill.sh'),
         MGU_DEPLOY_SYNC: path.join(HERE, 'fake_sync.sh'),
+        MGU_DEPLOY_LOGGER: 'true',
         MGU_DEPLOY_STOCK_UNITS: p('lib/systemd/system'),
         MGU_DEPLOY_STOCK_BINS: `${p('bin')}:${p('usr/bin')}`,
         FAKE_SYNC_LOG: `${R}.sync.log`,
@@ -8394,6 +8395,78 @@ function testId8Unprovisioned() {
     check('id8 unprovisioned: not with a removal queued', lost() === '[]', lost());
 }
 
+/* After a factory reset the app manager's home is gone until its first
+ * start creates it: nothing of this tool creates it, no app counts as lost
+ * and no app installs meanwhile. A home owned by root is given back to
+ * the manager, and the manager started again. */
+function testFactoryReset() {
+    const art = appArtifact('fixture_app', '1.0.0', true);
+    const root = fakeRoot();
+    const ins = root.run(['install', '--artifact', art, '--yes']);
+    if (ins.status !== 0) throw new Error(ins.out);
+    const home = root.home(MGR);
+    fs.rmSync(home, { recursive: true });
+    const sr = root.run(['status', '--json']);
+    check('factory reset: status reports no lost app and creates nothing while the app manager\'s home is missing',
+        sr.status === 0 && JSON.parse(sr.stdout).lost_apps.length === 0 && !fs.existsSync(home), sr.out);
+    const again = root.run(['install', '--artifact', art, '--yes']);
+    check('factory reset: an app install is refused and creates nothing', again.status === 2 &&
+        again.out.includes('the app manager has not created its data folder yet') && !fs.existsSync(home), again.out);
+    fs.mkdirSync(path.join(home, 'data', 'apps'), { recursive: true });
+    const lost = root.status().lost_apps;
+    check('factory reset: once the app manager has created its home the app counts as lost', lost.length === 1 && lost[0].id === 'fixture_app',
+        JSON.stringify(lost));
+
+    // a home made as root: the test's own uid stands for root
+    const asRoot = { MGU_DEPLOY_FAKE_ROOT_UID: String(process.getuid()) };
+    const broken = fakeRoot();
+    const bh = broken.home(MGR);
+    fs.chmodSync(bh, 0o755);
+    fs.chmodSync(path.join(bh, 'data'), 0o755);
+    const rr = broken.run(['status', '--json'], asRoot);
+    check('factory reset: status gives a root-owned home back with the manager\'s modes and restarts the manager that started before',
+        rr.status === 0 && mode(bh) === 0o3770 && mode(path.join(bh, 'data')) === 0o750 && broken.kills().length === 1 &&
+        rr.stderr.includes('and its data folder were owned by root: given back to uid 12201') &&
+        !JSON.parse(rr.stdout).pending_reboot.length, rr.out);
+    check('factory reset: the repair touches nothing inside the data folder', mode(broken.entry('stock_app')) === 0o660);
+    const idle = fakeRoot({ noManager: true });
+    fs.chmodSync(idle.home(MGR), 0o755);
+    const ir = idle.run(['status', '--json'], asRoot);
+    check('factory reset: with no app manager coming up the restart is pending', mode(idle.home(MGR)) === 0o3770 &&
+        JSON.parse(ir.stdout).pending_reboot.some((x) => x.id === 'mgu-deploy' && /folders were repaired/.test(x.reason)), ir.out);
+    check('factory reset: a home not owned by root is left as it is', (() => {
+        const ok = fakeRoot();
+        fs.chmodSync(ok.home(MGR), 0o755);
+        ok.run(['status', '--json']);
+        return mode(ok.home(MGR)) === 0o755 && !ok.kills().length;
+    })());
+
+    // iDrive 8: the boot unit's relist, before MainApp-21
+    const id8 = id8Root();
+    const custom = id8.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`);
+    const cardash = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097 });
+    id8.run(['install', '--artifact', cardash, '--yes']);
+    id8.noManager();
+    id8.run(['apply-pending']);
+    const h8 = id8.home(MGR);
+    fs.rmSync(h8, { recursive: true });
+    const rl = id8.run(['relist']);
+    check('factory reset: iDrive 8 relist creates nothing while the app manager\'s home is missing', rl.status === 0 &&
+        rl.out.includes('has not created its data folder yet') && !fs.existsSync(h8), rl.out);
+    const s8 = id8.status();
+    check('factory reset: iDrive 8 status lists nothing meanwhile', s8.listing.state === 'pending' && !fs.existsSync(h8), JSON.stringify(s8.listing));
+    fs.mkdirSync(path.join(h8, 'data'), { recursive: true, mode: 0o755 });
+    fs.chmodSync(h8, 0o755);
+    const fixed = id8.run(['relist'], asRoot);
+    check('factory reset: iDrive 8 relist gives a root-owned home back before it lists', fixed.status === 0 && mode(h8) === 0o3770 &&
+        mode(path.join(h8, 'data')) === 0o750 && fixed.out.includes('listed for the provisioning fallback: oap-cardash') &&
+        !!(readJsonOrNull(custom) || {})['oap-cardash'], fixed.out);
+    fs.chmodSync(h8, 0o755);
+    const p8 = JSON.parse(id8.run(['status', '--json'], asRoot).stdout);
+    check('factory reset: iDrive 8 status repairs it with the restart pending', mode(h8) === 0o3770 && !id8.kills().length &&
+        p8.pending_reboot.some((x) => x.id === 'mgu-deploy' && /folders were repaired/.test(x.reason)), JSON.stringify(p8.pending_reboot));
+}
+
 /* The guard in a copy of the MainApp-21 fixture, loaded as MainApp-21
  * loads it, one process per start. */
 function testId8Guard() {
@@ -8928,7 +9001,8 @@ function testId8Complete() {
     const noHomes = id8Root();
     fs.rmSync(noHomes.p('var/opt/public/oap'), { recursive: true });
     const nh = install(noHomes, 'nh');
-    check('id8: the apps\' homes folder missing fails the install', nh.status === 1 && nh.out.includes('var/opt/public/oap is missing'), nh.out);
+    check('id8: the apps\' homes folder missing refuses the install', nh.status === 2 &&
+        nh.out.includes('the app manager has not created its data folder yet'), nh.out);
 
     // a unit whose RHMI applets folder is missing under the HMI's data has none there
     const noRhmi = id8Root({ builtin: [] });
@@ -9252,6 +9326,7 @@ const SUITES = [
     testId8Guard,
     testId8Listing,
     testId8Unprovisioned,
+    testFactoryReset,
     testId8LiveOn,
     testAppManager,
     testId8Complete,
