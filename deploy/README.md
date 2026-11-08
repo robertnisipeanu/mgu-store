@@ -1090,6 +1090,14 @@ both the app's record and its kept packages, so an app removed on purpose
 is never one. An uninstall that
 fails and is rolled back keeps both, and its registry entry is back.
 
+On iDrive 8, `lost_apps` lists the apps placed at a start for MainApp-21
+(their package in `preinstalled_apps`, their das lines) that it did not
+install because Telematics serves BMW's backend provisioning
+(`ProvSigned.xml`), which does not list them, once the running manager
+runs the in-place hook. An app with a change queued, an update applied at
+the start (it goes back at the next one) and IterioDev's App Manager are
+left out. The updater installs them in place from that package.
+
 ### app-privacy
 
 The `app-privacy` tool must be in effect before the manager sees an app

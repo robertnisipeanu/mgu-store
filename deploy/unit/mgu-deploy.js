@@ -6352,7 +6352,7 @@ function cmdStatus(args, crashList, live, limits, listing) {
             s.appmanager.daemon + (s.appmanager.record ? ', adopted' : '') : 'removed'));
     }
     if (s.mainapp_guard) say('no app changes until the next start of the head unit: ' + s.mainapp_guard);
-    s.lost_apps.forEach(function (a) { say('not registered any more: ' + a.id + ' ' + a.version + ' (its package is kept)'); });
+    s.lost_apps.forEach(function (a) { say('not registered: ' + a.id + ' ' + a.version + ' (its package is at ' + a.package + ')'); });
     s.pending_reboot.forEach(function (p) { say('pending reboot: ' + p.id + ' - ' + p.reason); });
     if (s.last_apply) {
         say('last apply at the start (' + s.last_apply.at + '):');
@@ -7431,18 +7431,40 @@ function toolPrevious(t) {
     return others.length === 1 && semverCmp(others[0], cur) < 0 ? others[0] : null;
 }
 
-/* ---- apps: kept packages and rollback (iDrive 7) ------------------------------- */
-/* Apps this tool installed (state.json apps) that MainApp's registry no
- * longer has, with the package kept for them: what oapcontroller's wipe
- * leaves. An uninstall drops both the record and the packages, so an app
- * removed on purpose is never one. None while another run holds the lock:
- * it may be removing one. */
+/* ---- apps: kept packages and rollback (iDrive 7), unregistered apps ----------- */
+/* Apps for the updater to install again from a package on the unit. On
+ * iDrive 7, apps this tool installed (state.json apps) that MainApp's
+ * registry no longer has, with the package kept for them: what
+ * oapcontroller's wipe leaves. An uninstall drops both the record and the
+ * packages, so an app removed on purpose is never one. On iDrive 8,
+ * unprovisionedId8. None while another run holds the lock: it may be
+ * removing one. */
 function lostApps(state) {
     var lock = lockState();
-    if (isId8() || (!lock.free && lock.live)) return [];
+    if (!lock.free && lock.live) return [];
+    if (isId8()) return unprovisionedId8();
     return Object.keys(state.apps).map(function (id) {
         var v = state.apps[id] && state.apps[id].version;
         return !lstatOrNull(appEntryFile(id)) && v && fs.existsSync(keptFile(id, v)) ? { id: id, version: v, package: keptFile(id, v) } : null;
+    }).filter(Boolean);
+}
+/* iDrive 8: apps placed at a start (their package in preinstalled_apps,
+ * their das lines) that MainApp-21 never installs because Telematics
+ * serves the backend's provisioning, which does not list them: each with
+ * its package, for the updater to install in place once the running
+ * manager runs the hook (as inplaceManager has it). None with a change
+ * queued for it, nor an update applied at the start: confirmId8 puts the
+ * version before back, with its data, at the next one. Not IterioDev's
+ * App Manager, which the Store replaces. */
+function unprovisionedId8() {
+    var hook = readJsonOrNull(inplaceStatusFile()), m = managerStart(), skip = [AM.app];
+    if (!m || m.started === null || !hook || hook.pid !== m.pid || typeof hook.start !== 'number' ||
+        Math.abs(hook.start / 1000 - m.started) >= 5 || bundlesWritten() > m.started || hook.state === 'off') return [];
+    readPending().concat(readUnconfirmed()).forEach(function (c) { skip.push(c.id); });
+    return dasApps().map(function (id) {
+        var pkgs = preinstalledFor(id), v = pkgs.length === 1 && /@(\d+\.\d+\.\d+)\.tgz$/.exec(pkgs[0]);
+        if (!v || skip.indexOf(id) >= 0 || lstatOrNull(appEntryFile(id)) || provisioningNames(id) !== false) return null;
+        return { id: id, version: v[1], package: pkgs[0] };
     }).filter(Boolean);
 }
 /* The manager takes no older package for an installed app, so an app goes
