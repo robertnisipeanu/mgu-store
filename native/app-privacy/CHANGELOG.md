@@ -1,6 +1,6 @@
 # app-privacy changelog
 
-## 1.8.0
+## Unreleased
 
 - iDrive 7 (MainApp 8.3.2): BMW apps listed in `/var/opt/public/oap/oap_12201/data/never-start-apps.json` never start: MainApp treats them as not startable (no tile, widget, voice, backend, autostart or last-used start) and as start type `manually`. Calls, diagnosis, privacy and the platform's own app are never matched. Without the file nothing changes. Bundles patched by 1.7.1 are upgraded by `apply`. Other MainApp releases are patched exactly as before.
 

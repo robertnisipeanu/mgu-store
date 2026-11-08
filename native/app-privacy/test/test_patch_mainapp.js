@@ -227,7 +227,7 @@ const PATCHED_BY = {
 // 1.2.1's) and 1.1.0's (and 1.0.0's).
 const PATCHED_SHA256 = {
     current: {
-        main: null,     // 1.8.0's main.js not recorded yet: null skips that one compare
+        main: null,     // this release's main.js not recorded yet: null skips that one compare
         appmanagement: 'fbd85004e927f2ff28f33bef15540fb677026dda53e85cc4a07a98ab284bbc2a'
     },
     '1.7.1': {
