@@ -726,6 +726,63 @@ function testBounceGuard() {
         !r.out.includes('waiting') && Date.now() - n0 < MIN * 1000 && none.kills().length === 0, r.out);
 }
 
+/* Every bounce waits until MainApp's install worker has not run for
+ * idleQuietS, up to idleMaxS; still busy then, nothing is restarted and the
+ * change waits for the next start (pending). */
+function testIdleWait() {
+    const src = fs.readFileSync(UNIT_JS, 'utf8');
+    check('idle: the defaults are 5 s quiet and 180 s at most',
+        src.includes("env('MGU_DEPLOY_IDLE_QUIET_S', '5')") && src.includes("env('MGU_DEPLOY_IDLE_MAX_S', '180')"));
+    const nowS = () => Math.floor(Date.now() / 1000);
+    const W = { MGU_DEPLOY_IDLE_QUIET_S: '1', MGU_DEPLOY_IDLE_MAX_S: '30' };
+
+    const idle = fakeRoot();
+    const t0 = Date.now();
+    const r0 = idle.run(['fallback', 'on', '--yes'], Object.assign({
+        FAKE_PS_EXTRA: '  90 root      1000 S    grep /usr/lib/oap-mainapp/src/AppManagement/AppManagement' }, W));
+    check('idle: no worker running: the bounce does not wait', r0.status === 0 && idle.kills().length === 1 &&
+        !r0.out.includes('waiting for the app manager') && Date.now() - t0 < 5000, r0.out);
+
+    const busy = fakeRoot();
+    const until = nowS() + 3;
+    const r1 = busy.run(['fallback', 'on', '--yes'], Object.assign({ FAKE_WORKER_UNTIL: String(until) }, W));
+    const k1 = busy.kills();
+    check('idle: a running worker is waited out, then 1 s of quiet, then the bounce', r1.status === 0 && k1.length === 1 &&
+        k1[0].at >= until * 1000 + 400, `${until} ${r1.out}\n${JSON.stringify(k1)}`);
+    check('idle: the wait is said once', (r1.out.match(/waiting for the app manager to finish installing or updating apps/g) || []).length === 1,
+        r1.out);
+    check('idle: nothing pending after a bounce that waited', !busy.status().pending_reboot.length, JSON.stringify(busy.status().pending_reboot));
+
+    const stuck = fakeRoot();
+    const t2 = Date.now();
+    const r2 = stuck.run(['fallback', 'on', '--yes'], { FAKE_WORKER_UNTIL: String(nowS() + 3600), MGU_DEPLOY_IDLE_QUIET_S: '1',
+        MGU_DEPLOY_IDLE_MAX_S: '2' });
+    check('idle: still busy at the bound: no bounce, exit 0', r2.status === 0 && stuck.kills().length === 0 &&
+        Date.now() - t2 >= 2000, r2.out);
+    check('idle: the defer is said', r2.out.includes('still installing or updating apps after 2s: it is not restarted'), r2.out);
+    const p2 = stuck.status().pending_reboot;
+    check('idle: the restart is pending under mgu-deploy', p2.some((p) => p.id === 'mgu-deploy' && /next start/.test(p.reason)),
+        JSON.stringify(p2));
+    check('idle: the change itself stays (the fallback is on)', fs.existsSync(stuck.p('etc/systemd/system/mgu-app-fallback.service')), r2.out);
+
+    // an app install through a bounce, MainApp busy past the bound: refused and rolled back
+    const app = fakeRoot();
+    const custom = () => readJsonOrNull(app.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`)) || {};
+    const r3 = app.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes'],
+        { FAKE_WORKER_UNTIL: String(nowS() + 3600), MGU_DEPLOY_IDLE_QUIET_S: '1', MGU_DEPLOY_IDLE_MAX_S: '2' });
+    check('idle: a deferred app install fails with no bounce, and says to run it again', r3.status === 1 && app.kills().length === 0 &&
+        r3.out.includes('the app manager is busy installing or updating apps, so fixture_app 1.0.0 cannot be installed now'), r3.out);
+    const st3 = app.status();
+    check('idle: the deferred app install is rolled back: not placed, listed, recorded or lost; the restart stays pending',
+        !fs.existsSync(app.preinstalled('fixture_app', '1.0.0')) && !('fixture_app' in custom()) && !app.state().apps.fixture_app &&
+        !st3.lost_apps.length && !st3.pending_reboot.some((p) => p.id === 'fixture_app') &&
+        st3.pending_reboot.some((p) => p.id === 'mgu-deploy'),
+        `${r3.out}\n${JSON.stringify(st3.pending_reboot)}`);
+    const r4 = app.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes'], W);
+    check('idle: once MainApp is idle the same install goes through', r4.status === 0 && app.kills().length === 1 &&
+        app.state().apps.fixture_app.version === '1.0.0', r4.out);
+}
+
 /* After every bounce the respawned manager is watched: one that dies within
  * the watch turns the guard off for the boot (no bounce, no app change,
  * main.js unbound), one that dies after it changes nothing, and a run cut
@@ -9045,6 +9102,7 @@ const SUITES = [
     testPendingReboot,
     testApps,
     testBounceGuard,
+    testIdleWait,
     testMainAppGuard,
     testGuardStops,
     testGuardNested,

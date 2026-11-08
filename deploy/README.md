@@ -1157,6 +1157,18 @@ running there is no bounce and no wait. This is why an install can pause for
 up to 60 s. The rule lives only here: the updater adds no timer of its own
 and gets the spacing by calling this tool.
 
+**MainApp idle (iDrive 7).** Every bounce also waits until MainApp's install
+worker (the node child running `src/AppManagement/AppManagement`) has not
+run for 5 s (`MGU_DEPLOY_IDLE_QUIET_S`), for at most 3 minutes
+(`MGU_DEPLOY_IDLE_MAX_S`). An app update deletes the app's registry entry and
+writes it again later in the worker's run; a restart in between loses the
+entry, and MainApp installs the app again from its firmware package under a
+new uid. Still busy at the bound, MainApp is not restarted, and the run's
+later bounces do not wait again. What needs the restart takes effect at the
+next start of the head unit (`mgu-deploy` pending for the rest of the boot);
+an app install or update that needed it fails and is rolled back, to be run
+again later.
+
 **The MainApp guard (iDrive 7).** After every bounce the respawned child
 is watched until it has been up 60 s (`MGU_DEPLOY_GUARD_WATCH_S`), so a
 manager that crashes right after a bounce never reaches the third death.
