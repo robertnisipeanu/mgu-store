@@ -16,11 +16,11 @@
  *
  *   tools/emu-gate <id>...
  *
- * MGU_EMULATOR: the mgu-emulator checkout (default
- * ~/workspaces/personal/mgu-emulator); a worktree of its origin/main and a VM
- * of its own (mgu-emu-gate) are made for the run and removed after it
- * (EMU_GATE_KEEP=1 keeps them; one component then). One run at a time: a run
- * removes what an interrupted one left.
+ * MGU_EMULATOR: the shared mgu-emulator checkout (default
+ * ~/workspaces/personal/mgu-emulator), with no changes to its tracked files;
+ * the record names its commit. The run is its own emulator instance
+ * (mgu-emu-gate), destroyed after it (EMU_GATE_KEEP=1 keeps it; one component
+ * then). One run at a time: a run removes what an interrupted one left.
  */
 const fs = require('fs');
 const os = require('os');
@@ -91,15 +91,16 @@ function pictureColours(file) {
 function emulator(dir) {
     const emu = (...args) => run('./emu.py', args, { cwd: dir, env: Object.assign({}, process.env, { EMU_LIMA: VM }) });
     const emuMay = (...args) => run('./emu.py', args, { cwd: dir, env: Object.assign({}, process.env, { EMU_LIMA: VM }), allowFail: true });
-    let port = 0;
-    const sshArgs = () => ['-p', String(port), '-i', path.join(dir, 'build/ssh/id_ed25519'), '-o', 'StrictHostKeyChecking=no',
+    let port = 0, identity = '';
+    const sshArgs = () => ['-p', String(port), '-i', identity, '-o', 'StrictHostKeyChecking=no',
         '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=10'];
     const self = {
         up() {
             const out = emu('up', '--preset', 'store');
-            const m = out.match(/--port (\d+)/);
-            if (!m) throw new Error('emulator: no SSH port in the output of up');
+            const m = out.match(/--port (\d+) --identity (\S+)/);
+            if (!m) throw new Error('emulator: no SSH port and key in the output of up');
             port = Number(m[1]);
+            identity = m[2];
         },
         sh(cmd, allowFail) { return run('ssh', sshArgs().concat(['root@127.0.0.1', cmd]), { allowFail, timeout: 10 * 60000 }); },
         put(file, to) { run('scp', ['-q', '-P', String(port)].concat(sshArgs().slice(2), [file, `root@127.0.0.1:${to}`])); },
@@ -145,7 +146,8 @@ function emulator(dir) {
             });
             return { id: screen ? Number(screen[1]) : 0, list: screen ? screen[2].trim().split(/\s+/).filter(Boolean).map(Number) : [], vis };
         },
-        down() { emuMay('down'); }
+        down() { emuMay('down'); },
+        destroy() { emuMay('destroy'); }
     };
     return self;
 }
@@ -252,19 +254,22 @@ function main(ids) {
     const all = components();
     const started = Date.now();
     const tmp = path.join(os.tmpdir(), 'emu-gate');
-    const emuDir = path.join(tmp, 'emu');
+    const emuChanged = () => run('git', ['-C', EMULATOR, 'status', '--porcelain', '--untracked-files=no']).trim();
+    if (emuChanged()) {
+        console.error(`emu-gate: ${EMULATOR} has changes; the gate runs a commit of the emulator`);
+        return 1;
+    }
     const clean = () => {
-        if (fs.existsSync(emuDir)) emulator(emuDir).down();
-        // the emulator's GPU server on this Mac, should down not have reached it
-        run('pkill', ['-f', `${fs.existsSync(tmp) ? fs.realpathSync(tmp) : tmp}/emu/build/virgl-server`], { allowFail: true });
+        // the instance's VM, its GPU server and its files
+        emulator(EMULATOR).destroy();
         run('limactl', ['delete', '-f', VM], { allowFail: true });
-        run('git', ['-C', EMULATOR, 'worktree', 'remove', '--force', emuDir], { allowFail: true });
         fs.rmSync(tmp, { recursive: true, force: true });
         run('git', ['worktree', 'prune'], { cwd: REPO, allowFail: true });
+        run('git', ['-C', EMULATOR, 'worktree', 'prune'], { allowFail: true });
     };
     clean();
     fs.mkdirSync(tmp);
-    if (process.env.EMU_GATE_KEEP) console.log(`kept after the run: VM ${VM}, emulator worktree ${emuDir}`);
+    if (process.env.EMU_GATE_KEEP) console.log(`kept after the run: the emulator instance ${VM} (EMU_LIMA=${VM})`);
     let failed = 0;
     try {
         // the stale-copy client: mgu-render's test client, built for the head unit
@@ -275,9 +280,7 @@ function main(ids) {
             'for x in ivi-controller; do wayland-scanner client-header protocol/$x.xml /o/$x-client-protocol.h; ' +
             'wayland-scanner private-code protocol/$x.xml /o/$x-protocol.c; done && ' +
             'gcc -O2 -std=gnu11 -Isrc -I/o -Wl,--dynamic-linker=/lib/ld-linux-x86-64.so.2 -o /o/ivi_client test/ivi_client.c src/relist.c src/log.c /o/ivi-controller-protocol.c -lwayland-client']);
-        run('git', ['-C', EMULATOR, 'fetch', '-q', 'origin']);
-        run('git', ['-C', EMULATOR, 'worktree', 'add', '--detach', emuDir, 'origin/main']);
-        const emuCommit = run('git', ['-C', emuDir, 'rev-parse', 'HEAD']).trim();
+        const emuCommit = run('git', ['-C', EMULATOR, 'rev-parse', 'HEAD']).trim();
         for (const id of ids) {
             const c = all.find((x) => x.id === id);
             const source = sourceCommit(c);
@@ -291,17 +294,23 @@ function main(ids) {
             const t0 = Date.now();
             let out;
             try {
-                out = gate(id, version, artifact, path.join(tmp, 'ivi_client'), emuDir);
+                out = gate(id, version, artifact, path.join(tmp, 'ivi_client'), EMULATOR);
             } catch (e) {
                 console.log(`FAIL ${id}: ${e.message}`);
                 failed++;
                 continue;
             } finally {
-                if (!process.env.EMU_GATE_KEEP) emulator(emuDir).down();
+                if (!process.env.EMU_GATE_KEEP) emulator(EMULATOR).down();
             }
             if (!out.results.every((r) => r.ok)) { failed++; continue; }
             if (run('git', ['rev-parse', 'HEAD'], { cwd: REPO }).trim() !== head) {
                 console.log(`FAIL ${id}: HEAD moved during the run; run the gate again`);
+                failed++;
+                continue;
+            }
+            // the shared emulator checkout ran the whole case at the commit the record names
+            if (run('git', ['-C', EMULATOR, 'rev-parse', 'HEAD']).trim() !== emuCommit || emuChanged()) {
+                console.log(`FAIL ${id}: ${EMULATOR} changed during the run; run the gate again`);
                 failed++;
                 continue;
             }
