@@ -7439,10 +7439,26 @@ function toolPrevious(t) {
  * it may be removing one. */
 function lostApps(state) {
     var lock = lockState();
-    if (isId8() || (!lock.free && lock.live)) return [];
+    if (!lock.free && lock.live) return [];
+    if (isId8()) return unprovisionedId8();
     return Object.keys(state.apps).map(function (id) {
         var v = state.apps[id] && state.apps[id].version;
         return !lstatOrNull(appEntryFile(id)) && v && fs.existsSync(keptFile(id, v)) ? { id: id, version: v, package: keptFile(id, v) } : null;
+    }).filter(Boolean);
+}
+/* iDrive 8: apps placed at a start (their package in preinstalled_apps,
+ * their das lines) that MainApp-21 never installs because Telematics
+ * serves the backend's provisioning, which does not list them: each with
+ * its package, for the updater to install in place once the running
+ * manager has announced its hook. None with a change queued for it. */
+function unprovisionedId8() {
+    var hook = readJsonOrNull(inplaceStatusFile()), pid = managerPid(), queued = readPending();
+    if (!pid || !hook || hook.pid !== pid || hook.state === 'off') return [];
+    return dasApps().map(function (id) {
+        var pkgs = preinstalledFor(id), m = pkgs.length === 1 && /@(\d+\.\d+\.\d+)\.tgz$/.exec(pkgs[0]);
+        if (!m || lstatOrNull(appEntryFile(id)) || provisioningNames(id) !== false ||
+            queued.some(function (c) { return c.id === id; })) return null;
+        return { id: id, version: m[1], package: pkgs[0] };
     }).filter(Boolean);
 }
 /* The manager takes no older package for an installed app, so an app goes

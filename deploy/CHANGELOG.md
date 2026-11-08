@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- On iDrive 8, when `first-install` restarts the head unit with the Store queued, it checks that the Store's tile appears. If the package was staged at boot and the running app manager is ready but the Store is missing from its registry, the installer tries the same package in place once, using the verified artifact it already has.
+- iDrive 8: an app placed for MainApp-21 at a start that it does not install, because the head unit's provisioning comes from BMW's backend and does not list it, is reported as not registered (`status`), and the updater installs it in place. This covers the Store after `first-install` on a car that has synced its apps with BMW.
 
 ## 0.8.6
 

@@ -8342,6 +8342,41 @@ function testId8Listing() {
     check('id8 listing: relist does nothing on iDrive 7', seven.status === 0 && seven.out.includes('not iDrive 8'), seven.out);
 }
 
+/* iDrive 8 under backend provisioning: an app placed at the start that
+ * MainApp-21 did not install (its provisioning does not list it) is a lost
+ * app, for the updater to install in place once the hook is up. */
+function testId8Unprovisioned() {
+    const root = id8Root();
+    const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097 });
+    root.run(['install', '--artifact', art, '--yes']);
+    root.noManager();
+    root.run(['apply-pending']);
+    const placed = root.p('usr/lib/oap-mainapp21/preinstalled_apps/oap-cardash@1.1.4.tgz');
+    const hook = root.p(`var/opt/public/oap/oap_${MGR}/data/mgu-deploy-inplace.json`);
+    const signed = root.p('var/opt/public/tm/tm_12000/data/prov/ProvSigned.xml');
+    const lost = () => JSON.stringify(root.status().lost_apps);
+    fs.writeFileSync(`${root.R}.mgr.pid`, '4000');
+    write(hook, JSON.stringify({ pid: 4000, start: 0, at: 0, state: 'ready' }));
+    check('id8 unprovisioned: with the das files served MainApp-21 installs it; not lost', fs.existsSync(placed) && lost() === '[]', lost());
+    write(signed, '<bmwprovsigned><bmwprov><set><data><x_call enabled="true" allowed="true"/><main_app/></data></set></bmwprov></bmwprovsigned>\n');
+    check('id8 unprovisioned: under backend provisioning without it, lost with its placed package',
+        lost() === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', package: placed }]), lost());
+    write(hook, JSON.stringify({ pid: 3999, start: 0, at: 0, state: 'ready' }));
+    check('id8 unprovisioned: not while the running manager has not announced its hook', lost() === '[]', lost());
+    write(hook, JSON.stringify({ pid: 4000, start: 0, at: 0, state: 'off', why: 'x' }));
+    check('id8 unprovisioned: not while the hook is off', lost() === '[]', lost());
+    write(hook, JSON.stringify({ pid: 4000, start: 0, at: 0, state: 'done' }));
+    write(signed, '<bmwprov><oap-cardash enabled="true" allowed="true"/></bmwprov>\n');
+    check('id8 unprovisioned: not when the backend\'s provisioning names it', lost() === '[]', lost());
+    write(signed, '<bmwprov><x_call/></bmwprov>\n');
+    write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED' }));
+    check('id8 unprovisioned: not once registered', lost() === '[]', lost());
+    fs.unlinkSync(root.entry('oap-cardash'));
+    root.run(['uninstall', 'oap-cardash', '--yes']);
+    check('id8 unprovisioned: not with a removal queued', lost() === '[]', lost());
+    check('id8 unprovisioned: iDrive 7 keeps its own rule', JSON.stringify(fakeRoot().status().lost_apps) === '[]');
+}
+
 /* The guard in a copy of the MainApp-21 fixture, loaded as MainApp-21
  * loads it, one process per start. */
 function testId8Guard() {
@@ -9093,51 +9128,6 @@ function testMguInstallTiles() {
     }
 }
 
-function testMguInstallId8Restart() {
-    const from = fs.mkdtempSync(path.join(T, 'from-id8-'));
-    hu(['artifact', DEPLOY, '--out', from]);
-    const updater = namedTool('mgu-updater', '0.2.0');
-    const store = rhmiApp('robertn_store', '1.0.0', ['ID8'], { npm: true, acl: ACL, marked: true });
-    const deploy = path.join(from, `mgu-deploy@${VERSION}.tgz`);
-    [updater, store].forEach((f) => fs.copyFileSync(f, path.join(from, path.basename(f))));
-    const components = [deploy, updater, store].map((f, i) => {
-        const entry = publishedEntry('http://127.0.0.1:9', f, i, i === 2 ? 'app' : 'tool');
-        entry.artifact.url = entry.artifact.name;
-        return entry;
-    });
-    write(path.join(from, 'catalog.json'), JSON.stringify({ schema: 2, components }));
-    const args = ['first-install', '--from', from, '--host', '10.0.0.9', '--no-uplink', '--no-renderer'];
-
-    for (const mode of ['missing', 'registered', 'declined']) {
-        const root = id8Root();
-        const bin = installBin(root);
-        const shim = root.p('var/opt/mgu-deploy/mgu-deploy.sh');
-        write(path.join(bin.bin, 'nsm_control'), `#!/bin/sh
-set -e
-echo boot-2 > "$MGU_DEPLOY_BOOT_ID"
-: > "$FAKE_MGR_PIDFILE"
-sh '${shim}' apply-pending >&2
-echo active > '${root.unitFile('mgu-updater.service.active')}'
-${mode === 'registered' ? `"$FAKE_NODE" -e 'require(process.argv[1]).install("robertn_store", " at boot")' '${path.join(HERE, 'fake_manager.js')}'` : ''}
-nohup "$FAKE_NODE" '${path.join(HERE, 'fake_inplace.js')}' '${root.p(ID8_COPY)}' >/dev/null 2>&1 &
-`, 0o755);
-        try {
-            const r = mguInstallTerminal(args, { bin, api: 'http://127.0.0.1:9' }, mode === 'declined' ? 'n' : 'y');
-            const calls = r.calls.filter((a) => a[a.length - 1].includes('install --artifact'));
-            const done = r.out.includes('Setup is done:');
-            check(`mgu-install iDrive 8 after restart (${mode}): only a missing Store is installed in place`,
-                r.status === 0 && done === (mode !== 'declined') && calls.length === (mode === 'missing' ? 1 : 0) &&
-                (mode !== 'missing' || root.managerLog().some((line) => line.includes('install robertn_store 1.0.0 uid') && line.endsWith('in place'))),
-                `${r.out}\n${root.managerLog().join('\n')}`);
-        } finally {
-            const manager = inplaceStatus(root);
-            if (manager) {
-                try { process.kill(manager.pid); } catch (e) { if (e.code !== 'ESRCH') throw e; }
-            }
-        }
-    }
-}
-
 // MGU_TEST_ONLY=<name>,...: only those test functions
 const SUITES = [
     testArtifact,
@@ -9212,7 +9202,6 @@ const SUITES = [
     testSourcesAndDonor,
     testMguInstall,
     testMguInstallTiles,
-    testMguInstallId8Restart,
     testMguInstallCoding,
     testMguInstallUsb,
     testMguInstallFrom,
@@ -9245,6 +9234,7 @@ const SUITES = [
     testId8Inplace,
     testId8Guard,
     testId8Listing,
+    testId8Unprovisioned,
     testId8LiveOn,
     testAppManager,
     testId8Complete,
