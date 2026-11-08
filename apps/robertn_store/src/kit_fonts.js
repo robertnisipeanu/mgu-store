@@ -1,6 +1,6 @@
 'use strict';
 /**
- * The kit's fonts API (get, measure) over the Store's own glyph atlases:
+ * The kit's fonts API (get, measure, glyph) over the Store's own glyph atlases:
  * Inter (SIL OFL 1.1, src/LICENSE-Inter.txt), baked by tools/bake_fonts.py
  * into src/font_regular.js and src/font_semibold.js. The kit's family
  * names map onto them: label and light the regular face, bold, num and gear
