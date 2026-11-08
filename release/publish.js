@@ -107,7 +107,7 @@ function releaseOf(tag) {
 /* Publishing to GitHub runs in GitHub Actions (.github/workflows/release.yml). */
 function githubPreflight(dryRun) {
     if (!dryRun && process.env.GITHUB_ACTIONS !== 'true') {
-        throw new Error('publishing runs in GitHub Actions: push a v* tag or run the Release workflow (release/README.md)');
+        throw new Error('publishing runs in GitHub Actions: run the Release workflow (release/README.md)');
     }
 }
 

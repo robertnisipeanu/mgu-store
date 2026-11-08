@@ -166,7 +166,13 @@ cmd_install() {
 	node "$REPO/deploy/mgu-install.js" usb-repo "$STATE/published" || die "could not copy the published release; nothing installed" 2
 	local pub="$STATE/published/mgu-repo/mgu-store"
 	[ -f "$pub/catalog.json" ] || die "no catalog in $pub; nothing installed" 2
-	node "$KIT/kit.js" plan "$REPO" "$work/before/status.json" "$pub/catalog.json" >"$work/plan.json" || exit 2
+	# in a clone of HEAD, so the checkout is left as it is; with the release commit stamp makes, so a
+	# changed mgu-render carries the version its release gives it
+	if ! { git clone -q --no-checkout "$REPO" "$work/src" && git -C "$work/src" checkout -q --detach "$head"; }; then
+		die "could not clone HEAD for the build; nothing installed" 2
+	fi
+	(cd "$work/src" && MGU_RELEASE_LABELS=off node release/release.js stamp >/dev/null) || die "could not stamp the next versions; nothing installed" 2
+	node "$KIT/kit.js" plan "$work/src" "$work/before/status.json" "$pub/catalog.json" >"$work/plan.json" || exit 2
 	node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).notes.forEach((n) => console.log(n))' "$work/plan.json"
 	# an mgu-render this test replaces must be the published artifact byte for byte, or restore could
 	# not put it back
@@ -181,10 +187,6 @@ cmd_install() {
 	say "== building HEAD ($head)"
 	local ids
 	ids=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).install.map((a) => a.id).join(" "))' "$work/plan.json")
-	# in a clone of HEAD, so the checkout is left as it is
-	if ! { git clone -q --no-checkout "$REPO" "$work/src" && git -C "$work/src" checkout -q --detach "$head"; }; then
-		die "could not clone HEAD for the build; nothing installed" 2
-	fi
 	# shellcheck disable=SC2086
 	(cd "$work/src" && node release/release.js build $ids) || die "the build failed; nothing installed" 2
 

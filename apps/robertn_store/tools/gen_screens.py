@@ -4,7 +4,8 @@
 restart (as confirm), installed, usb and settings screens with the Store's
 labels, and the Store's own pages in the same frame (type: his Add
 repository page's text box and keyboard under a title; wifi: his App
-Manager 2.0.6's Wi-Fi page; prefer: the uplink's preferred connection).
+Manager 2.0.6's Wi-Fi page; prefer: the uplink's preferred connection;
+proxy: the proxy downloads go through).
 
     python3 tools/gen_screens.py <screens.json> src/am_screens.js <mgu-app-store commit>
 """
@@ -28,15 +29,28 @@ def text(name, x, y, w, h, t, size, font='label', color='text', align='left', wr
     return comp(name, 'text', x, y, w, h, o)
 BACK = copy.deepcopy(get(S['app'], 'back'))
 screens = []
+# Restart now, Update all's button beside it while a restart waits; shown, it moves shift
+def restart_now(st, before, x, y, h, shift):
+    i = next(k for k, c in enumerate(st['components']) if c['name'] == before)
+    st['components'].insert(i, comp('restartNow', 'vbutton', x, y, 540, h, {'text': 'Restart now', 'vicon': 'refresh', 'style': 'primary',
+        'size': 34, 'color': '#3d9bff', 'hidden': True, 'shift': shift}, 'event:restartNow'))
 # store: his, filter Apps / Tools
-st = copy.deepcopy(S['store']); get(st, 'filter')['opts']['items'] = 'All,Apps,Tools'; screens.append(st)
+st = copy.deepcopy(S['store']); get(st, 'filter')['opts']['items'] = 'All,Apps,Tools'
+restart_now(st, 'filter', 936, 134, 84, {}); screens.append(st)
 # app: his, and under the description what an installed tool says is wrong
 st = copy.deepcopy(S['app']); get(st, 'desc')['h'] = 250
 st['components'].append(text('problem', 480, 730, 1560, 90, '', 36, 'label', '#ffb020', wrap=True)); screens.append(st)
-# confirm: his restart sheet, for every confirm step
-st = copy.deepcopy(S['restart']); st['name'] = 'confirm'; screens.append(st)
+# confirm: his restart sheet, for every confirm step, its line wrapped over two; under it Remove all, shown while an app's removal may take tools along
+st = copy.deepcopy(S['restart']); st['name'] = 'confirm'
+get(st, 'title')['y'] = 290
+get(st, 'text').update({'y': 362, 'h': 90}); get(st, 'text')['opts']['wrap'] = True
+i = next(k for k, c in enumerate(st['components']) if c['name'] == 'text')
+st['components'].insert(i + 1, comp('also', 'vbutton', 1150, 466, 1190, 80, {'text': 'Remove all', 'vicon': 'trash', 'style': 'outline',
+    'size': 32, 'hidden': True}, 'event:also'))
+screens.append(st)
 # installed: his, tools for system services
-st = copy.deepcopy(S['installed']); get(st, 'svcLabel')['opts']['text'] = 'HEAD-UNIT TOOLS'; screens.append(st)
+st = copy.deepcopy(S['installed']); get(st, 'svcLabel')['opts']['text'] = 'HEAD-UNIT TOOLS'
+restart_now(st, 'appsLabel', 2300, 140, 100, {'updateAll': [-564, 0], 'subtitle': [0, -70]}); screens.append(st)
 st = copy.deepcopy(S['usb']); get(st, 'title')['opts']['text'] = 'USB'; screens.append(st)
 # settings: sources on the left, access and the head unit on the right
 st = copy.deepcopy(S['settings'])
@@ -45,9 +59,10 @@ get(st, 'addRepo')['opts']['text'] = 'Add source'
 get(st, 'connLabel')['opts']['text'] = 'ACCESS'
 drop(st, 'tetherIcon', 'tetherName', 'tetherState', 'tether', 'checkNow', 'lastCheck', 'versions', 'subtitle')
 st['components'] += [
-    comp('access', 'appList', 1880, 412, 920, 260, {'items': [], 'rowH': 120}),
-    text('unit', 1880, 668, 920, 40, '', 32, 'bold'),
-    text('versions', 1880, 714, 920, 38, '', 28, 'label', 'dim'),
+    comp('access', 'appList', 1880, 412, 920, 360, {'items': [], 'rowH': 120}),
+    # the head unit on ACCESS's line after its longest translation, the versions above
+    text('unit', 2293, 374, 507, 30, '', 22, 'bold', align='right'),
+    text('versions', 1880, 341, 920, 28, '', 22, 'label', 'dim', align='right'),
     comp('checkNow', 'vbutton', 1880, 764, 440, 56, {'text': 'Check now', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:checkNow'),
     comp('restart', 'vbutton', 2340, 764, 460, 56, {'text': 'Restart head unit', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:restart'),
     text('note', 480, 227, 1300, 43, '', 34, 'label', '#ffb020'),
@@ -131,7 +146,6 @@ st['components'] += [copy.deepcopy(BACK),
     text('note', 2140, 336, 660, 130, '', 32, 'label', '#ffb020', wrap=True),
     comp('power', 'vbutton', 2140, 496, 660, 96, {'text': '', 'vicon': 'wifi', 'style': 'outline'}, 'event:power'),
     comp('scan', 'vbutton', 2140, 608, 660, 96, {'text': 'Scan', 'vicon': 'refresh', 'style': 'outline'}, 'event:scan'),
-    comp('prefer', 'vbutton', 2140, 720, 660, 96, {'text': '', 'vicon': 'route', 'style': 'outline'}, 'event:prefer'),
 ]
 screens.append(st)
 # the uplink's preferred connection
@@ -139,7 +153,16 @@ st = base('prefer')
 st['components'] += [copy.deepcopy(BACK),
     text('title', 610, 138, 1600, 90, 'Preferred connection', 72, 'bold'),
     text('status', 610, 227, 1600, 43, '', 34, 'label', 'dim'),
-    comp('list', 'appList', 610, 292, 1500, 540, {'items': [], 'rowH': 108, 'empty': ''}),
+    comp('list', 'appList', 610, 292, 1500, 432, {'items': [], 'rowH': 108, 'empty': ''}),
+    comp('usbPhone', 'appList', 610, 732, 1500, 108, {'items': [], 'rowH': 108, 'empty': ''}),
+]
+screens.append(st)
+# the proxy downloads go through: on or off, and its address
+st = base('proxy')
+st['components'] += [copy.deepcopy(BACK),
+    text('title', 610, 138, 1600, 90, 'Proxy', 72, 'bold'),
+    comp('rows', 'appList', 610, 292, 1500, 240, {'items': [], 'rowH': 120, 'empty': ''}),
+    text('error', 610, 570, 1500, 160, '', 34, 'label', '#ffb020', wrap=True),
 ]
 screens.append(st)
 body = json.dumps({'design': d['design'], 'screens': screens}, indent=1)
@@ -151,7 +174,7 @@ open(out, 'w').write("""'use strict';
  * app, confirm (the sheet), installed, usb and settings are IterioDev's App
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
  * @ %s, the HMI UI builder's export of projects/app-manager.json) with the Store's labels; source, pick, accounts, login, phone,
- * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page) and prefer are the Store's
+ * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page), prefer and proxy are the Store's
  * own in the same frame. Each element is drawn by am_gpu.js; src/store_ui.js gives their values.
  */
 module.exports = %s;

@@ -1,47 +1,47 @@
 {
   "id": "mgu-render",
-  "version": "0.6.9",
-  "source": "d82b4984b1483e5874df4e14fcbcd061665326a1",
+  "version": "0.6.14",
+  "source": "61ceee95497d28639b1cfef5cc8ead3101141179",
   "result": "pass",
   "unit": "id7",
-  "emulator": "a13e6b604afbdc604d3e38d0c69a0c580842b70d",
-  "artifactSha256": "0176d5a00946ecadfe5e42befc268a4c1d74ec70beefcd3c0bf13d64b7e035f6",
-  "minutes": 6.7,
+  "emulator": "deb756780bddf43178501ea43b40b952e04d7df2",
+  "artifactSha256": "f92df4ee3ffeee59bb122c8f5e5bc3c19ae65e02c5b26ea3f59de7f886c1fe2f",
+  "minutes": 5.8,
   "cases": [
     {
       "name": "installed on its own over the published release",
       "ok": true,
-      "detail": "mgu-render 0.6.9 installed"
+      "detail": "mgu-render 0.6.14 installed"
     },
     {
       "name": "after the head-unit restart, the Store in its page (embed)",
       "ok": true,
-      "detail": "in front, 687 colours"
+      "detail": "in front, 694 colours"
     },
     {
       "name": "renderer restarted, the Store on its own layer",
       "ok": true,
-      "detail": "in front, 671 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 132 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "another program sets the screen's layers without ours while shown",
       "ok": true,
-      "detail": "in front, 671 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 132 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "the Store opened again",
       "ok": true,
-      "detail": "in front, 671 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 683 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "a client open since before adds its layer while shown; ours back, its layer kept",
       "ok": true,
-      "detail": "in front, 671 colours, layers 0x64 0x4d47fff0 0x4d520000"
+      "detail": "in front, 683 colours, layers 0x64 0x4d47fff0 0x4d520000"
     },
     {
       "name": "renderer restarted while the Store shows",
       "ok": true,
-      "detail": "in front, 671 colours, layers 0x64 0x4d47fff0 0x4d520000"
+      "detail": "in front, 683 colours, layers 0x64 0x4d47fff0 0x4d520000"
     }
   ]
 }

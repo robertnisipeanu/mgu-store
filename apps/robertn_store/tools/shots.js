@@ -7,6 +7,7 @@
  *
  *   (cd native/mgu-render && make test)          # once: the image and build/host/mgu-render
  *   node apps/robertn_store/tools/shots.js <out dir> [<screen name>...]
+ *   STORE_LANGUAGE=DEUTSCH node apps/robertn_store/tools/shots.js ...   in that HMI display language
  *
  * Each screen in iDrive 7's page box (1796x632) and iDrive 8's app area
  * (2880x764), placed as the Store places it: <out>/<unit>-<screen>.png.
@@ -55,7 +56,7 @@ function session(file, unit, m) {
         gpu.on('ready', () => {
             const p = placement(unit.w, unit.h);
             gpu.place({ x: 0, y: 0, w: unit.w, h: unit.h, scale: p.scale, ox: p.ox, oy: p.oy });
-            gpu.frame(frame(m, { textScale: p.scale, focus: m.focus, scroll: {}, layout: p.layout }).rec);
+            gpu.frame(frame(m, { textScale: p.scale, focus: m.focus, scroll: m.scroll || {}, layout: p.layout }).rec);
             gpu.close();
             resolve();
         });
@@ -64,6 +65,9 @@ function session(file, unit, m) {
 }
 
 async function main() {
+    const i18n = require(path.join(HERE, 'src', 'i18n.js'));
+    i18n.setHmiLanguage(process.env.STORE_LANGUAGE);
+    i18n.useDrawn(true);
     const out = path.resolve(process.argv[2] || 'shots');
     const only = process.argv.slice(3);
     fs.mkdirSync(path.join(out, 'sessions'), { recursive: true });

@@ -6,7 +6,6 @@
     { "id": "idrive-apps", "type": "github", "repo": "robertnisipeanu/idrive-apps", "channel": "releases" },
     { "id": "car-apps", "type": "github", "repo": "IterioDev/car-apps", "channel": "tags" },
     { "id": "mgu-apps", "type": "github", "repo": "JustAnotherPU/mgu-apps", "channel": "releases" },
-    { "id": "moonride", "type": "github", "repo": "JustAnotherPU/moonride", "channel": "releases" },
-    { "id": "waze-hud", "type": "github", "repo": "JustAnotherPU/waze-hud", "channel": "releases" }
+    { "id": "moonride", "type": "github", "repo": "JustAnotherPU/moonride", "channel": "releases" }
   ]
 }

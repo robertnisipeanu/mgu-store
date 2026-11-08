@@ -1,8 +1,12 @@
 {
   "hmiLanguages": [
-    "CHINESISCH_SIMPLE"
+    "CHINESISCH_SIMPLE",
+    "KANTONESISCH_SIMPLE"
   ],
-  "rhmiTexts": "zh_CN",
+  "rhmiTexts": [
+    "zh_CN",
+    "zh_yue_Hans_CN"
+  ],
   "font": "chinese",
   "words": {
     "Store": "应用商店",
@@ -93,7 +97,6 @@
     "Phone access": "手机访问",
     "Preferred connection": "首选连接",
     "Preferred": "首选",
-    "Preferred: {0}": "首选：{0}",
     "Rejected": "已拒绝",
     "Releases": "发布版本",
     "Remove": "移除",
@@ -103,6 +106,8 @@
     "Undo update": "撤销更新",
     "Back to {0} {1}?": "恢复到 {0} {1}？",
     "Remove?": "移除？",
+    "Remove all": "全部移除",
+    "Tools only it uses: {0}": "仅它使用的工具：{0}",
     "Removing": "移除中",
     "Renderer {0}": "渲染器 {0}",
     "Restart": "重启",
@@ -111,7 +116,11 @@
     "Restart head unit?": "重启主机？",
     "Restart now": "立即重启",
     "Restart pending": "等待重启",
+    "Restart head unit to show {0}": "重启主机以显示 {0}",
+    "Restart head unit to install apps": "重启主机以安装应用",
     "Not working": "无法使用",
+    "Needs setup": "待设置",
+    "Set up": "设置",
     "Restart the head unit to finish setup": "请重启主机以完成设置",
     "Restarting": "重启中",
     "Saved": "已保存",
@@ -125,7 +134,7 @@
     "Sign-in failed: {0}": "登录失败：{0}",
     "Signed in": "已登录",
     "Starting": "启动中",
-    "Store {0}": "商店 {0}",
+    "Store {0}": "应用商店 {0}",
     "Strong": "强",
     "Tags": "标签",
     "Text entry failed: {0}": "文字输入失败：{0}",
@@ -171,6 +180,20 @@
     "{0} component": "{0} 个组件",
     "{0} components": "{0} 个组件",
     "{0} network": "{0} 个网络",
-    "{0} networks": "{0} 个网络"
+    "{0} networks": "{0} 个网络",
+    "Space": "空格",
+    "Delete": "删除",
+    "Shift": "Shift",
+    "Proxy": "代理",
+    "Address": "地址",
+    "Use http://host:port or socks5://host:port": "请使用 http://host:port 或 socks5://host:port",
+    "Paused for wireless {0}": "因无线{0}已暂停",
+    "2.4 GHz": "2.4 GHz",
+    "5 GHz": "5 GHz",
+    "Allow 5 GHz": "允许 5 GHz",
+    "May cause CarPlay issues": "可能导致 CarPlay 出现问题",
+    "On the iPhone, turn on Maximize Compatibility": "请在 iPhone 上打开“最大兼容性”",
+    "This network is 5 GHz only: CarPlay audio may drop": "此网络仅支持 5 GHz：CarPlay 音频可能中断",
+    "Phone over USB": "通过 USB 连接手机"
   }
 }

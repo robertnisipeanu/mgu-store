@@ -1,8 +1,73 @@
 # Updater changelog
 
+## Unreleased
+
+- Default sources: JustAnotherPU/mgu-apps and JustAnotherPU/moonride on their releases channel, added once at the first start of an updater that names them (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. Their apps are for iDrive 7. Like any source each can be removed; once removed it is not added again.
+
+## 0.8.34
+
+No changes.
+
+## 0.8.33
+
+- On a branch, a new commit of the same version is an update only when it changes the component: its folder (without other components' folders or files inside it) or its `mgu-repo.json` entry; a service or preload tool's one file; for an app a build script makes, also the paths its `build.shared` names and the script, or, without `build.shared`, anything but the other apps' folders. The updater compares the git ids in each commit's tree: one GitHub API request for each new head commit while something is installed from the branch, and one for each older commit an install is recorded with alone. While a content cannot be read, a new commit is an update.
+
+## 0.8.32
+
+- `{"op":"usb-phone","on":true|false}` (privileged) is relayed to the uplink as it is: phones over USB used or left alone (mgu-uplink 0.7.7).
+- The state's `uplink` has `usbPhone` while the uplink's `status.json` says it.
+
+## 0.8.31
+
+- A tool a firmware update left not working, or whose install step waits (the deploy tool's `needs_setup`), is updated from its source at the first check that finds the source listing a newer version while the unit is online, each newer version once while the updater runs. Otherwise, or when that update fails, a tool the deploy tool keeps a copy of has its files laid again (`relay`), once for each reason.
+- A setup that fails is the row's `error`. A newer version the updater cannot queue (a requirement no source has) leaves a stale tool to its files laid again.
+- A row has `needsSetup`: why the tool's install step waits. `{"op":"setup","id"}` (privileged) runs the deploy tool's `setup`, which lays the tool again from its kept copy with its step.
+- The updater requires mgu-deploy 0.8.4.
+
+## 0.8.30
+
+- An app of ours MainApp's registry no longer has while the deploy tool keeps its package (its `status --json` `lost_apps`, as oapcontroller's wipe leaves them) is installed again from that package, the Store first, once per start of the head unit (`state/boot.json`, by the new `boot_id` setting), and not while the deploy tool's MainApp guard holds app changes back. Our installed apps are looked at every 15 s. An app removed through the Store, the deploy tool's uninstall or its restore has no kept package and stays removed.
+- After an install that restarted the app manager (the deploy tool's `last_bounce_at` moved), an installed app of ours whose tile does not show (`tile_visible` false, and not hidden by provisioning's own flags, `tile_withheld`) has `tileHidden` in its row until the next start of the head unit.
+- The state has `mainappGuard`: why app changes wait for the next start of the head unit (the deploy tool's `mainapp_guard`), else null.
+- A deploy tool run its MainApp guard stopped (exit 3) is neither an error nor checked, rolled back or tried again: what it changed stays for the next start, and a Store update's trial ends. Going back the guard stopped says which version comes back at the next start.
+- The updater requires mgu-deploy 0.8.3.
+
+## 0.8.29
+
+- Downloads work on Node 8.9.4 (2019 MGU, firmware `D_19w31.3`): a download whose answer came whole is kept when that Node reports it aborted, as it does when the server closes the connection while the file is still being written.
+
+## 0.8.28
+
+- `{"op":"wifi-5ghz","on":true|false}` (privileged) is relayed to the uplink as it is: Allow 5 GHz for the Store's Wi-Fi (mgu-uplink 0.7.6).
+
+## 0.8.27
+
+- An optional proxy for every download: `proxy = http://host:port` or `proxy = socks5://host:port` (a user name and password as `user:pass@`) in `updater.local.conf`, or set from the Store or the phone page. GitHub, catalogs, packages, pictures and every redirect go through it, as do the downloads of a build on the unit. TLS stays end to end with the same certificate checks; the proxy gets only its own user name and password, never a token. The proxy looks up the names of what is downloaded.
+- A proxy that is down or refuses shows as `proxy <host:port>: <why>` in the source's or the download's error.
+
+## 0.8.26
+
+- The Store's own install runs after every other queued request, the updater's own update and what waits for it included: it closes the Store, which shows the rest of the queue until then.
+- The service runs at `Nice=10` (from the next start of the head unit), so downloads, builds and installs give way to the HMI.
+
+## 0.8.25
+
+- An install that fails with the new version left current (its activate and deactivate both failed) says `<version> stays current`, one that leaves none installed `nothing is installed`, otherwise `the previous version was kept`.
+- Installing a tool another source installed (its origin in `origins.json` is another source) passes `--other-source` to the deploy tool, which runs the deactivate of the version it replaces first. The updater requires mgu-deploy 0.7.17.
+- An installed app's row has `requiredAlone`: the installed tools only it requires, itself or through one another, that its removal may take along (each one its row may remove, and nothing else installed requires or needs as the last provider of a capability).
+- `{"op":"uninstall","id","tools":[...]}` removes the app, then each of those tools (a subset of `requiredAlone`), each through the deploy tool's uninstall, a tool before the tools it requires. Anything else in `tools` refuses the request, and nothing is queued. A tool whose turn comes while something installed still requires it, as when the app's removal failed, stays; an app whose removal waits for the next start (iDrive 8) requires none.
+
+## 0.8.24
+
+- A component installed without a recorded origin (by an installer, a stick, the deploy tool), or whose origin lists it no more, that more than one source lists under its title is updated by the built-in source, so the Store shows one row for it, installed, with its update. For one without a recorded origin the other sources' listings are beside it, blocked: `<id> is already installed; its updates come from <source>`. Of two such sources neither built in, it has no update.
+
+## 0.8.23
+
+- A component's title and description in other languages (a catalog entry's, an `mgu-repo.json` entry's or an `mgu-store.json` app's `texts`) reach the Store, which shows them in the head unit's language.
+
 ## 0.8.22
 
-- Default sources: JustAnotherPU/mgu-apps, JustAnotherPU/moonride and JustAnotherPU/waze-hud on their releases channel, added once at the first start of this version (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. Their apps are for iDrive 7. Like any source each can be removed; once removed it is not added again.
+- A build with internet carries on after the uplink moves to another network (a Wi-Fi switch, a new lease): its proxy resolves each new connection's host name through the servers of the lease it finds then, and refuses one without a lease as having no internet. The name lookup and the TCP connection together take at most 15 s (`<host>: no connection in 15 s`).
 
 ## 0.8.21
 

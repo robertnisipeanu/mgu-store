@@ -100,8 +100,8 @@ function checkHmi(hmi, dir) {
                 ok(comp.properties.Focusable.value === xc.focusable, `${comp.name} Focusable matches the XML`);
                 ok(comp.rows.length === 1, `${comp.name} has one row`);
             }
-            // the status line and a source's error wrap over several rows on iDrive 7 (iDrive 8's labels scroll)
-            if (hmi === 'ID7' && (comp.name === 'storeStatus' || comp.name === 'storeSrcError')) {
+            // the status line, a source's error and the tools a removal may take wrap over several rows on iDrive 7 (iDrive 8's labels scroll)
+            if (hmi === 'ID7' && ['storeStatus', 'storeSrcError', 'storeRemoveTools'].indexOf(comp.name) >= 0) {
                 ok(xc.widget === 'LT_Label_4Row_1TextDyn', `${comp.name} wraps (${xc.widget})`);
             }
             if (CELLS[hmi][xc.widget]) {

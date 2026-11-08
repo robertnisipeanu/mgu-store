@@ -57,6 +57,14 @@ function atlasId(f, family) {
     return id;
 }
 function atlasById(id) { const a = atlasList.find((x) => x.id === id); return a ? a.f : null; }
+/** Forgets atlases no longer drawn with (a language font let go); one drawn with again gets its id back. */
+function dropAtlases(fs) {
+    fs.forEach((f) => {
+        atlasIds.delete(f);
+        const i = atlasList.findIndex((x) => x.f === f);
+        if (i >= 0) atlasList.splice(i, 1);
+    });
+}
 
 // cached layers (static parts of widgets): drawn once, used by id
 let layerSeq = 0;
@@ -367,5 +375,5 @@ function play(words, real) {
     return real;
 }
 
-module.exports = { Recorder, OP, pack, unpack, rampId, rampList, atlasId, atlasList, atlasById, makeLayer, dropLayer, layerById,
+module.exports = { Recorder, OP, pack, unpack, rampId, rampList, atlasId, atlasList, atlasById, dropAtlases, makeLayer, dropLayer, layerById,
     makeImage, dropImage, imageById, play, softLayer };

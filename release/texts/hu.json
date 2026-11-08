@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Az összes forrás alkalmazásai és fejegység-eszközei az állapotukkal, valamint maguk a források; az mgu-updater segítségével telepíti, frissíti és eltávolítja őket"
+  },
+  "mgu-updater": {
+    "title": "Frissítő",
+    "description": "Forrásaiból telepíti, frissíti és eltávolítja az alkalmazásokat és a fejegység-eszközöket"
+  },
+  "mgu-deploy": {
+    "title": "Telepítőeszköz",
+    "description": "Telepíti, frissíti, visszaállítja és eltávolítja eszközeinket és alkalmazásainkat a fejegységen, minden változtatás előtt pillanatképet készítve"
+  },
+  "mgu-render": {
+    "title": "Renderelő",
+    "description": "Az alkalmazások képernyőit a GPU-n rajzolja, a HMI fölé vagy az alkalmazás oldalán belül"
+  },
+  "mgu-uplink": {
+    "title": "Internetkapcsolat",
+    "description": "Internet a kiválasztott alkalmazásoknak USB-hálózati adapteren, LTE-modemen, USB-n csatlakoztatott telefonon vagy Wi-Fi-n keresztül"
+  },
+  "app-privacy": {
+    "title": "Alkalmazás-adatvédelem",
+    "description": "Kizárja alkalmazásainkat a fejegység háttérrendszer felé küldött alkalmazásjelentéseiből, és összeomlás után újraindítja őket"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 azokhoz az alkalmazásokhoz, amelyek Pythonnal épülnek a fejegységen"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Les apps et outils système de chaque source avec leur état, ainsi que les sources ; les installe, met à jour et supprime via mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Service de mise à jour",
+    "description": "Installe, met à jour et supprime les apps et outils système depuis ses sources"
+  },
+  "mgu-deploy": {
+    "title": "Outil de déploiement",
+    "description": "Installe, met à jour, restaure et supprime nos outils et apps sur le système, avec un instantané avant chaque modification"
+  },
+  "mgu-render": {
+    "title": "Moteur de rendu",
+    "description": "Dessine les écrans des apps sur le GPU, par-dessus l'IHM ou dans la page de l'app"
+  },
+  "mgu-uplink": {
+    "title": "Accès Internet",
+    "description": "Internet pour certaines apps via un adaptateur réseau USB, une clé LTE, un téléphone en partage de connexion USB ou le Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "Confidentialité des apps",
+    "description": "Exclut nos apps des signalements d'apps que le système envoie au serveur et les redémarre après un plantage"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 pour les apps compilées sur le système avec Python"
+  }
+}

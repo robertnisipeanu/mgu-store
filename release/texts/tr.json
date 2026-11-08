@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Her kaynağın uygulamalarını ve ana ünite araçlarını durumlarıyla birlikte, kaynakları da gösterir; bunları mgu-updater üzerinden yükler, günceller ve kaldırır"
+  },
+  "mgu-updater": {
+    "title": "Güncelleyici",
+    "description": "Uygulamaları ve ana ünite araçlarını kaynaklarından yükler, günceller ve kaldırır"
+  },
+  "mgu-deploy": {
+    "title": "Dağıtım aracı",
+    "description": "Araçlarımızı ve uygulamalarımızı ana ünitede yükler, günceller, geri alır ve kaldırır; her değişiklikten önce anlık görüntü alır"
+  },
+  "mgu-render": {
+    "title": "Oluşturucu",
+    "description": "Uygulama ekranlarını GPU üzerinde, HMI'ın üstünde veya uygulamanın sayfasında çizer"
+  },
+  "mgu-uplink": {
+    "title": "İnternet bağlantısı",
+    "description": "Seçili uygulamalara USB ağ adaptörü, LTE modem, USB ile internet paylaşan telefon veya Wi-Fi üzerinden internet sağlar"
+  },
+  "app-privacy": {
+    "title": "Uygulama gizliliği",
+    "description": "Uygulamalarımızı ana ünitenin arka uca yaptığı uygulama raporlamasının dışında tutar ve çöktüklerinde yeniden başlatır"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Ana ünitede Python ile derlenen uygulamalar için Python 3.12"
+  }
+}

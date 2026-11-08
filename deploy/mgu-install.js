@@ -8,6 +8,7 @@
  *
  *   node mgu-install.js first-install [--from <folder>] [--no-renderer] [--no-uplink] [--token] [--no-restart-prompt] [<ssh options>]
  *   node mgu-install.js token [--list [--json] | --remove <id>] [<ssh options>]
+ *   node mgu-install.js uninstall [--yes] [--from <folder>] [--no-restart-prompt] [<ssh options>]
  *   node mgu-install.js usb-repo <stick folder> [<input>...]
  *
  * first-install downloads the newest published mgu-store release (the
@@ -26,6 +27,14 @@
  * (<folder>/mgu-repo/mgu-store) instead of GitHub, each file checked
  * against its catalog the same way: download at home, install at the car
  * without internet.
+ *
+ * uninstall removes everything the Store setup put on the head unit: the
+ * apps and tools the deploy tool installed, the app manager patch, the
+ * provisioning fallback, the updater's sources and tokens, and last the
+ * deploy tool with its backups. It lists them and asks first (--yes: no
+ * question). What could not be removed is named, and running it again
+ * finishes the job. When the head unit needs a restart to finish, it asks
+ * as first-install does.
  *
  * token adds a GitHub token for the updater (no option), lists the tokens
  * (--list: id, label, account; --json as JSON) or removes one (--remove
@@ -88,8 +97,7 @@ const SOURCES = { schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: 
     { id: 'idrive-apps', type: 'github', repo: 'robertnisipeanu/idrive-apps', channel: 'releases' },
     { id: 'car-apps', type: 'github', repo: 'IterioDev/car-apps', channel: 'tags' },
     { id: 'mgu-apps', type: 'github', repo: 'JustAnotherPU/mgu-apps', channel: 'releases' },
-    { id: 'moonride', type: 'github', repo: 'JustAnotherPU/moonride', channel: 'releases' },
-    { id: 'waze-hud', type: 'github', repo: 'JustAnotherPU/waze-hud', channel: 'releases' }] };
+    { id: 'moonride', type: 'github', repo: 'JustAnotherPU/moonride', channel: 'releases' }] };
 /* the installed deploy tool */
 const DEPLOY = '/var/opt/mgu-deploy/mgu-deploy.sh';
 const UPDATER_JS = '/var/opt/mgu-updater/current/updater.js';
@@ -776,7 +784,7 @@ function promptLine(question, input) {
 
 /* Asks whether to restart the head unit now, at a terminal only; on yes
  * restarts it. Its exit status. */
-async function offerRestart(o) {
+async function offerRestart(o, later = 'restart it from the Store') {
     const term = o.noRestartPrompt || process.env.CI ? null : terminal();
     if (!term || !/^y(es)?$/i.test((await promptLine('Restart the head unit now? [y/N] ', term)).trim())) {
         return 0;
@@ -784,11 +792,11 @@ async function offerRestart(o) {
     const r = ssh(o, RESTART, { input: Buffer.alloc(0), capture: true });
     const refused = /\[Error\.\s*([^\]]*)\]/.exec(r.stdout);
     if (r.status === 3) {
-        say('An install is running on the head unit: restart it from the Store once it is done.');
+        say(`An install is running on the head unit: ${later} once it is done.`);
         return 1;
     }
     if (r.status !== 0 || refused) {
-        say(`The head unit did not take the restart${refused ? `: ${refused[1].trim()}` : ''}. Restart it from the Store.`);
+        say(`The head unit did not take the restart${refused ? `: ${refused[1].trim()}` : ''}. ${later[0].toUpperCase()}${later.slice(1)}.`);
         return 1;
     }
     say('Restarting the head unit.');
@@ -803,14 +811,16 @@ const WITH = [
 ];
 
 /* On the unit, in the staging folder: the release's deploy tool installs
- * every artifact (itself among them; newer installed ones kept) and seeds
- * the updater's sources when it has none; then each of WITH on its own, so
+ * every artifact (itself among them; newer installed ones kept), leaving
+ * WITH's tools, installed after, to their own install, and seeds the
+ * updater's sources when it has none; then each of WITH on its own, so
  * one it refuses (exit 2) is left out and the
  * rest stays; one that fails fails the run. */
 const RUN_SH = `set -e
 S=$(cd "$(dirname "$0")" && pwd)
 set --
 for f in "$S"/artifacts/*.tgz; do set -- "$@" --artifact "$f"; done
+for f in "$S"/with/*.tgz; do [ -e "$f" ] && set -- "$@" --leave "$(basename "$f" | sed 's/@.*//')"; done
 sh "$S/mgu-deploy.sh" install "$@" --skip-older --yes
 sh "$S/mgu-deploy.sh" updater-sources < "$S/sources.json"
 for f in "$S"/with/*.tgz; do
@@ -882,6 +892,13 @@ function fromFolder(dir) {
     return d;
 }
 
+/* The start of a remote command that unpacks the kit on stdin into the
+ * fresh folder q, root's alone by its mode. umask 022: the hooks the deploy
+ * tool runs write stock files their own users run. */
+function unpackKit(q) {
+    return `rm -rf ${q} && umask 022 && mkdir -m 700 -p ${q} && tar -xzf - -C ${q} && `;
+}
+
 async function firstInstall(o) {
     // --from: its catalog is read first, so a missing or bad one stops before the token prompt and the unit search
     const from = o.from ? fromFolder(o.from) : null;
@@ -916,7 +933,7 @@ async function firstInstall(o) {
     const stage = `/var/opt/mgu-deploy-kit-${process.pid}`;
     const q = shQuote(stage);
     say(`installing on ${o.host}:${o.port}`);
-    const run = ssh(o, `rm -rf ${q} && umask 077 && mkdir -p ${q} && tar -xzf - -C ${q} && ` +
+    const run = ssh(o, unpackKit(q) +
         `{ sh ${q}/run.sh; st=$?; rm -rf ${q}; exit $st; }`, { input: tgz(entries, Math.floor(Date.now() / 1000)) });
     if (run.status !== 0) {
         say(`first-install: the install on the unit ended with status ${run.status}`);
@@ -953,9 +970,15 @@ async function firstInstall(o) {
  * iDrive 7 unit: they do once the running app manager runs the fallback
  * copy, and a restart brings that while the fallback is on. why: the
  * deploy tool's reason it could not turn the fallback on. A status
- * without manager_runs_copy (an older deploy tool, iDrive 8, no status),
- * no app listed, or the retired installer's leftovers (which list the apps
- * themselves) count as shown. */
+ * without manager_runs_copy (an older deploy tool, no status), no app
+ * listed, or the retired installer's leftovers (which list the apps
+ * themselves) count as shown. On iDrive 8 the Store and every app listed
+ * in custom_apps.json show once the status reports their tiles visible
+ * (from the provisioning MainApp-21 gets, or the sections the running
+ * MainApp-21's fallback filled); a Store not yet registered does not.
+ * why: the deploy tool's reason the fallback is off (live_installs). A
+ * status without listed_by_manager (an older deploy tool) counts as
+ * shown. */
 function tilesShow(line) {
     let s = null;
     try {
@@ -964,6 +987,14 @@ function tilesShow(line) {
         return { shown: true };
     }
     const fb = s && s.fallback;
+    if (fb && (s.unit || {}).hmi === 'ID8' && 'listed_by_manager' in fb) {
+        const apps = (s.components || []).filter((c) => c.kind === 'app');
+        const ours = ['robertn_store'].concat(fb.apps || []);
+        const shown = ours.every((id, i) => (i > 0 && !apps.some((c) => c.id === id)) ||
+            apps.some((c) => c.id === id && c.tile_visible === true));
+        const off = !shown && !fb.active && /^off: /.test((s.live_installs || {}).reason || '') ? s.live_installs.reason.slice(5) : null;
+        return off ? { shown, why: off } : { shown };
+    }
     if (!fb || !('manager_runs_copy' in fb) || (s.unit || {}).hmi === 'ID8' || !(fb.apps || []).length ||
         (s.retired_leftovers || []).length) {
         return { shown: true };
@@ -1007,6 +1038,131 @@ async function tokenCommand(o) {
         return ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`, { input: Buffer.alloc(0) }).status;
     }
     return addToken(o, token);
+}
+
+/* ---- uninstall ------------------------------------------------------------------------------ */
+
+/* Which deploy tool removes the setup, read on the unit: "installed" when
+ * the unit's own has remove-all, "old" when it has none, "absent" without
+ * a deploy tool. */
+const DEPLOY_HAS = `if [ ! -e ${DEPLOY} ]; then echo absent; elif sh ${DEPLOY} help 2>/dev/null | grep -q remove-all; then echo installed; ` +
+    'else echo old; fi';
+
+/* Runs the deploy tool's remove-all with args: the unit's own, or kit (the
+ * published deploy tool's files) sent like first-install's and removed
+ * after. The steps' lines show on stderr; stdout is returned. */
+function removeAllRun(o, kit, args) {
+    if (!kit) {
+        return ssh(o, `sh ${DEPLOY} remove-all ${args}`, { input: Buffer.alloc(0), capture: true });
+    }
+    // a published deploy tool without remove-all answers the listing with its whole usage
+    const quiet = args === '--json' ? ' 2>/dev/null' : '';
+    const q = shQuote(`/var/opt/mgu-deploy-kit-${process.pid}`);
+    return ssh(o, unpackKit(q) +
+        `{ sh ${q}/mgu-deploy.sh remove-all ${args}${quiet}; st=$?; rm -rf ${q}; exit $st; }`,
+    { input: tgz(kit, Math.floor(Date.now() / 1000)), capture: true });
+}
+
+/* The last line of a remove-all's stdout as JSON, or null. */
+function lastJson(stdout) {
+    try {
+        return JSON.parse(stdout.trim().split('\n').pop());
+    } catch (e) {
+        return null;
+    }
+}
+
+function versioned(list) {
+    return list.map((x) => (x.version ? `${x.id} ${x.version}` : x.id)).join(', ');
+}
+
+function showPlan(plan) {
+    const rest = [];
+    const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
+    const updater = [plan.sources && count(plan.sources, 'source'), plan.tokens && count(plan.tokens, 'token')].filter(Boolean);
+    if (updater.length) {
+        rest.push(`the updater's ${updater.join(' and ')}`);
+    }
+    if (plan.fallback) {
+        rest.push('the provisioning fallback');
+    }
+    rest.push(`the deploy tool ${plan.deploy_tool} with its backups`);
+    say('Uninstall removes what the Store setup put on the head unit:');
+    say(`  apps:  ${versioned(plan.apps) || 'none'}`);
+    say(`  tools: ${versioned(plan.tools) || 'none'}`);
+    say(`  and ${rest.join(', ')}`);
+    if ((plan.kept || []).length) {
+        say(`  It keeps what IterioDev's App Manager installed: ${plan.kept.join(', ')}`);
+    }
+}
+
+/* Without the Store there is no Restart head unit to point at. */
+const AFTER_UNINSTALL = 'restart the head unit later';
+
+async function uninstall(o) {
+    const from = o.from ? fromFolder(o.from) : null;
+    await reach(o);
+    const has = ssh(o, DEPLOY_HAS, { input: Buffer.alloc(0), capture: true });
+    const which = has.status === 0 ? has.stdout.trim() : '';
+    if (which === 'absent') {
+        say('The Store setup is not on this head unit: nothing to remove.');
+        return 0;
+    }
+    let kit = null;
+    if (which !== 'installed') {
+        // the deploy tool on the unit has no remove-all: the published one removes the setup
+        const { components } = from ? dirComponents(from) : await githubComponents(await githubRepo(STORE_REPO, null));
+        const c = components.find((x) => x.entry.id === 'mgu-deploy');
+        if (!c) {
+            throw new Error(`${from || STORE_REPO}: the catalog has no mgu-deploy`);
+        }
+        kit = deployToolFiles(await c.fetch());
+    }
+    const plan = lastJson(removeAllRun(o, kit, '--json').stdout);
+    if (!plan || !Array.isArray(plan.apps) || !Array.isArray(plan.tools)) {
+        say(kit ? 'The published deploy tool has no uninstall yet; nothing was removed.' :
+            'The deploy tool on the head unit did not say what is installed; nothing was removed.');
+        return 1;
+    }
+    showPlan(plan);
+    if (!o.yes) {
+        const term = process.env.CI ? null : terminal();
+        if (!term) {
+            say('Nothing was removed: run uninstall at a terminal to answer, or add --yes.');
+            return 2;
+        }
+        if (!/^y(es)?$/i.test((await promptLine('Remove all of it? [y/N] ', term)).trim())) {
+            say('Nothing was removed.');
+            return 0;
+        }
+    }
+    const run = removeAllRun(o, kit, '--yes');
+    const result = lastJson(run.stdout);
+    if (!result || !Array.isArray(result.left)) {
+        say(`The uninstall on the head unit ended with status ${run.status}. Run uninstall again to finish.`);
+        return 1;
+    }
+    if (result.left.length) {
+        const still = `Not finished: ${result.left.join(', ')} ${result.left.length === 1 ? 'is' : 'are'} still on the head unit. `;
+        if (!result.restart) {
+            say(still + 'Run uninstall again to finish.');
+            return 1;
+        }
+        say(still + 'Restart the head unit, then run uninstall again to finish.');
+        await offerRestart(o, AFTER_UNINSTALL);
+        return 1;
+    }
+    if (result.self === 'next-start') {
+        const going = (result.next_start || []).concat(['the deploy tool']);
+        say(`Restart the head unit to finish: ${going.slice(0, -1).join(', ')} and ${going[going.length - 1]} go at its next start.`);
+        return offerRestart(o, AFTER_UNINSTALL);
+    }
+    if (result.restart) {
+        say('Removed. Restart the head unit to finish.');
+        return offerRestart(o, AFTER_UNINSTALL);
+    }
+    say('Removed: nothing of the Store setup is left on the head unit.');
+    return 0;
 }
 
 /* ---- usb-repo ------------------------------------------------------------------------------ */
@@ -1364,7 +1520,7 @@ const USAGE = SOURCE === null ? 'usage: deploy/README.md, "mgu-install"' : SOURC
 
 function parse(argv) {
     const o = { command: argv[0], host: null, port: '22', bind: null, given: false, user: 'root', identity: null, sshOpts: [],
-        noRenderer: false, noUplink: false, token: false, noRestartPrompt: false, list: false, json: false, remove: null, from: null, rest: [] };
+        noRenderer: false, noUplink: false, token: false, noRestartPrompt: false, yes: false, list: false, json: false, remove: null, from: null, rest: [] };
     const value = (i, flag) => {
         if (i >= argv.length) {
             throw new Usage(`${flag} needs a value`);
@@ -1381,8 +1537,9 @@ function parse(argv) {
         else if (a === '--no-renderer' && o.command === 'first-install') o.noRenderer = true;
         else if (a === '--no-uplink' && o.command === 'first-install') o.noUplink = true;
         else if (a === '--token' && o.command === 'first-install') o.token = true;
-        else if (a === '--no-restart-prompt' && o.command === 'first-install') o.noRestartPrompt = true;
-        else if (a === '--from' && o.command === 'first-install') o.from = value(++i, a);
+        else if (a === '--no-restart-prompt' && ['first-install', 'uninstall'].includes(o.command)) o.noRestartPrompt = true;
+        else if (a === '--from' && ['first-install', 'uninstall'].includes(o.command)) o.from = value(++i, a);
+        else if (a === '--yes' && o.command === 'uninstall') o.yes = true;
         else if (a === '--list' && o.command === 'token') o.list = true;
         else if (a === '--json' && o.command === 'token') o.json = true;
         else if (a === '--remove' && o.command === 'token') o.remove = value(++i, a);
@@ -1415,11 +1572,11 @@ async function main(argv) {
     if (Number(process.versions.node.split('.')[0]) < 18) {
         throw new Usage(`Node 18 or newer is needed (this is ${process.version})`);
     }
-    if (o.command === 'first-install' || o.command === 'token') {
+    if (['first-install', 'token', 'uninstall'].includes(o.command)) {
         if (o.rest.length) {
             throw new Usage(`${o.command} takes no ${o.rest[0]}`);
         }
-        return o.command === 'first-install' ? firstInstall(o) : tokenCommand(o);
+        return { 'first-install': firstInstall, token: tokenCommand, uninstall }[o.command](o);
     }
     if (o.command === 'usb-repo') {
         if (!o.rest.length) {

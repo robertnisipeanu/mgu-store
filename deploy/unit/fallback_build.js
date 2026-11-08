@@ -53,6 +53,10 @@
  * behind them. Its two anchors are
  * optional, as the hook's: when either does not occur exactly once, the
  * copy is built without it, and says so on stdout.
+ *
+ * On iDrive 7 every edit of the copy also waits on its guard (guardSource7):
+ * when a manager mgu-deploy restarted died within the watch after its
+ * start, the copy runs as the stock file for the rest of the boot.
  */
 var fs = require('fs');
 var path = require('path');
@@ -75,8 +79,30 @@ var CONTROLLER_ANCHOR = 'this.queuedRecursiveRetry=makeMethodQueued_1.makeMethod
 var DEFAULT_FLAGS = { '-enabled': 'true', '-allowed': 'true', '-appStartType': 'manually',
     '-userLoginRequired': 'false', '-updateMechanism': 'PLATFORM' };
 
+/* oapcontroller wipes every app at the third MainApp death inside its alive
+ * window, and a bounce by mgu-deploy is the first. mgu-deploy records each
+ * bounce in the guard file ({boot, bounce: {at, pid, watchMs}}, and the
+ * manager it watches after it as watch: {pid, start}); the first load after
+ * the bounce claims it (first: {pid, start}). A later load whose process
+ * started within watchMs of that claimed or watched manager's start means
+ * it died there: the guard, evaluated once as the copy loads, is off and
+ * says so in the file (off), and the copy runs as the stock file for the
+ * rest of the boot. Without a bounce in this boot, or when the guard
+ * cannot read or write its file, it is on. */
+function guardSource7(guardPath) {
+    return 'const __mguDeployGuard=(()=>{try{const fs=require("fs"),G=' + JSON.stringify(guardPath) +
+        ',boot=fs.readFileSync("/proc/sys/kernel/random/boot_id","utf8").trim(),' +
+        'start=Date.now()-Math.round(1e3*process.uptime());let g=null;' +
+        'try{g=JSON.parse(fs.readFileSync(G,"utf8"))}catch(e){}' +
+        'if(!g||g.boot!==boot)return{on:!0,why:null};' +
+        'const b=g.bounce,save=()=>{fs.writeFileSync(G+".tmp",JSON.stringify(g)+"\\n"),fs.renameSync(G+".tmp",G)},' +
+        'gone=[g.first,g.watch].filter(m=>m&&m.pid!==process.pid&&b&&start<m.start+b.watchMs)[0];' +
+        'let why=g.off||(gone?`MainApp restarted ${Math.round((start-gone.start)/1e3)}s after mgu-deploy restarted it`:null);' +
+        'why?g.off||(g.off=why,save()):b&&!g.first&&start>=b.at-2e3&&(g.first={pid:process.pid,start:start},save());' +
+        'return{on:!why,why:why}}catch(e){return{on:!0,why:null}}})();global.__mguDeployGuard=__mguDeployGuard;';
+}
 function helperSource(listPath) {
-    return MARK +
+    return MARK + guardSource7(path.join(path.dirname(listPath), 'mgu-deploy-guard.json')) +
         'const __mguDeployFallbackList=()=>{try{' +
         'const c=JSON.parse(require("fs").readFileSync(' + JSON.stringify(listPath) + ',"utf8"));' +
         'return c&&typeof c==="object"?Object.keys(c).reduce((o,id)=>(o[id]=Object.assign({},' +
@@ -84,7 +110,7 @@ function helperSource(listPath) {
         'const __mguDeployFallbackApps=()=>{const c=__mguDeployFallbackList();' +
         'return Object.keys(c).map(id=>Object.assign({"#text":id,"-supportedECUs":"HU,RSE_LEFT,RSE_RIGHT"},c[id]))};';
 }
-var HOOK = 'if(isMainapp&&section===mainAppSection){' +
+var HOOK = 'if(!__mguDeployGuard.on);else if(isMainapp&&section===mainAppSection){' +
     'const __have=((newProvisioning.installable_apps||{}).app||[]);' +
     'const __haveList=Array.isArray(__have)?__have:[__have];' +
     'const __missing=__mguDeployFallbackApps().filter(a=>!__haveList.some(h=>h["#text"]===a["#text"]));' +
@@ -120,7 +146,7 @@ var HOOK = 'if(isMainapp&&section===mainAppSection){' +
 /* iDrive 7: the AppManagerStub is the controller's appManager, or on
  * MainApp 6.5.5, which has no controller (ID7_NO_CONTROLLER), the hook's
  * appManager itself. */
-var ID7 = { start: '', stub: '_', installer: 'mgr&&mgr.appManager', run: '"update"===r.action?mgr.update(r.app,"PLATFORM"):' +
+var ID7 = { start: 'const g=global.__mguDeployGuard;if(g&&!g.on)return void put({state:"off",why:g.why});', stub: '_', installer: 'mgr&&mgr.appManager', run: '"update"===r.action?mgr.update(r.app,"PLATFORM"):' +
     '"uninstall"===r.action?mgr.uninstall(r.app):mgr.install(r.app)', args: '(appManager,appRegistry,logger)' };
 var ID7_NO_CONTROLLER = Object.assign({}, ID7, { installer: 'mgr&&(mgr.appManager||mgr)' });
 /* MainApp-21: its provisioning handler's anchor, the hook's (the start-up's
@@ -138,7 +164,7 @@ var ID8 = { hookAnchor: 'this.isMainapp&&section===this.mainappSection&&(newProv
 var HOOK_21 = 'try{if(__mguDeployGuard.on&&this.isMainapp&&section!==this.mainappSection&&' +
     '(!newProvisioning||typeof newProvisioning!=="object"||!Object.keys(newProvisioning).length)){' +
     'const __own=__mguDeployFallbackList()[section];' +
-    '__own&&typeof __own==="object"&&(newProvisioning=Object.assign({},__own))}}catch(__e){}' + MARK + ';';
+    '__own&&typeof __own==="object"&&(newProvisioning=Object.assign({},__own),__mguDeployFilled(section))}}catch(__e){}' + MARK + ';';
 /* MainApp-21's crash handling (oapcontroller) wipes every app's ACLs and
  * data on the third crash in a row (a MainApp-21 up 30 s ends the row), so
  * a MainApp-21 that restarted on the copy in a way the copy may have caused
@@ -167,8 +193,17 @@ function guardSource(guardPath, statusPath) {
         'catch(e){return{on:!1,why:"its guard failed ("+e+")",ready:()=>{}}}})();' +
         'global.__mguDeployGuard=__mguDeployGuard;';
 }
+/* The sections the fallback filled in this MainApp-21, each once, in
+ * mgu-deploy-listed.json beside custom_apps.json ({pid, apps}): status
+ * reads from it whether an app the provisioning has no section for has
+ * its tile. */
+function filledSource(recordPath) {
+    return 'const __mguDeployFilledApps=[],__mguDeployFilled=s=>{try{if(__mguDeployFilledApps.indexOf(s)>=0)return;' +
+        '__mguDeployFilledApps.push(s);const fs=require("fs"),F=' + JSON.stringify(recordPath) + ';' +
+        'fs.writeFileSync(F+".tmp",JSON.stringify({pid:process.pid,apps:__mguDeployFilledApps})+"\\n"),fs.renameSync(F+".tmp",F)}catch(e){}};';
+}
 function helperSource21(listPath, guardPath, statusPath) {
-    return MARK + guardSource(guardPath, statusPath) +
+    return MARK + guardSource(guardPath, statusPath) + filledSource(path.join(path.dirname(listPath), 'mgu-deploy-listed.json')) +
         'const __mguDeployFallbackList=()=>{try{' +
         'const c=JSON.parse(require("fs").readFileSync(' + JSON.stringify(listPath) + ',"utf8"));' +
         'return c&&typeof c==="object"?Object.keys(c).reduce((o,id)=>(c[id]&&typeof c[id]==="object"&&' +
@@ -247,7 +282,7 @@ function inplaceSource(requestPath, statusPath, v) {
 function firstSources(listPath) {
     return { queue: 'try{global.__mguDeployFirst=(ctl,queued)=>function(resolve,reject,options){' +
         'const p=queued.apply(this,arguments);' +
-        'try{const app=options&&options.appId;if("string"!=typeof app||options.__mguDeployFirst)return p;' +
+        'try{const app=options&&options.appId,g=global.__mguDeployGuard;if("string"!=typeof app||options.__mguDeployFirst||g&&!g.on)return p;' +
         'let ours;try{ours=JSON.parse(require("fs").readFileSync(' + JSON.stringify(listPath) + ',"utf8"))}catch(e){return p}' +
         'if(!ours||"object"!=typeof ours||!Object.prototype.hasOwnProperty.call(ours,app))return p;' +
         'const q=getQueueDataForContext(ctl).queue,i=q.findIndex(x=>x.promise===p);if(i<0)return p;' +
