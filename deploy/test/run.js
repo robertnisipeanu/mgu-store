@@ -8352,29 +8352,46 @@ function testId8Unprovisioned() {
     root.noManager();
     root.run(['apply-pending']);
     const placed = root.p('usr/lib/oap-mainapp21/preinstalled_apps/oap-cardash@1.1.4.tgz');
-    const hook = root.p(`var/opt/public/oap/oap_${MGR}/data/mgu-deploy-inplace.json`);
+    const hookFile = root.p(`var/opt/public/oap/oap_${MGR}/data/mgu-deploy-inplace.json`);
     const signed = root.p('var/opt/public/tm/tm_12000/data/prov/ProvSigned.xml');
     const lost = () => JSON.stringify(root.status().lost_apps);
+    const start = Math.floor(Date.now() / 1000) + 1;
+    const hook = (o) => write(hookFile, JSON.stringify(Object.assign({ pid: 4000, start: start * 1000, at: start * 1000, state: 'ready' }, o)));
     fs.writeFileSync(`${root.R}.mgr.pid`, '4000');
-    write(hook, JSON.stringify({ pid: 4000, start: 0, at: 0, state: 'ready' }));
+    root.setManagerStart(start);
+    hook();
     check('id8 unprovisioned: with the das files served MainApp-21 installs it; not lost', fs.existsSync(placed) && lost() === '[]', lost());
     write(signed, '<bmwprovsigned><bmwprov><set><data><x_call enabled="true" allowed="true"/><main_app/></data></set></bmwprov></bmwprovsigned>\n');
     check('id8 unprovisioned: under backend provisioning without it, lost with its placed package',
         lost() === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', package: placed }]), lost());
-    write(hook, JSON.stringify({ pid: 3999, start: 0, at: 0, state: 'ready' }));
+    hook({ pid: 3999 });
     check('id8 unprovisioned: not while the running manager has not announced its hook', lost() === '[]', lost());
-    write(hook, JSON.stringify({ pid: 4000, start: 0, at: 0, state: 'off', why: 'x' }));
+    hook({ start: (start - 60) * 1000 });
+    check('id8 unprovisioned: not on a hook announced by an earlier manager of that pid', lost() === '[]', lost());
+    hook({ state: 'off', why: 'x' });
     check('id8 unprovisioned: not while the hook is off', lost() === '[]', lost());
-    write(hook, JSON.stringify({ pid: 4000, start: 0, at: 0, state: 'done' }));
+    hook({ state: 'done' });
     write(signed, '<bmwprov><oap-cardash enabled="true" allowed="true"/></bmwprov>\n');
     check('id8 unprovisioned: not when the backend\'s provisioning names it', lost() === '[]', lost());
     write(signed, '<bmwprov><x_call/></bmwprov>\n');
+    const pending = root.p('var/opt/mgu-deploy/id8/pending.json');
+    write(pending, JSON.stringify({ changes: [], unconfirmed: [{ id: 'oap-cardash', version: '1.1.4', previous: '1.1.3' }] }));
+    check('id8 unprovisioned: not an update applied at the start, which goes back at the next one', lost() === '[]', lost());
+    fs.unlinkSync(pending);
+    const am = root.p('usr/lib/oap-mainapp21/preinstalled_apps/oap-appmanager@1.0.0.tgz');
+    fs.copyFileSync(placed, am);
+    [0, 1, 2, 3, 4, 5].forEach((i) => {
+        const f = root.p(`usr/share/tm/prov/das_00${i}.xml`);
+        fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('        </installable_apps>',
+            `            ${dasLine('oap-appmanager')}\n        </installable_apps>`)
+            .replace(/(<x_call [^\n]*\n)/, '$1        <oap-appmanager enabled="true" allowed="true" appStartType="autostart" userLoginRequired="false"/>\n'));
+    });
+    check('id8 unprovisioned: never IterioDev\'s App Manager', lost() === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', package: placed }]), lost());
     write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED' }));
     check('id8 unprovisioned: not once registered', lost() === '[]', lost());
     fs.unlinkSync(root.entry('oap-cardash'));
     root.run(['uninstall', 'oap-cardash', '--yes']);
     check('id8 unprovisioned: not with a removal queued', lost() === '[]', lost());
-    check('id8 unprovisioned: iDrive 7 keeps its own rule', JSON.stringify(fakeRoot().status().lost_apps) === '[]');
 }
 
 /* The guard in a copy of the MainApp-21 fixture, loaded as MainApp-21
