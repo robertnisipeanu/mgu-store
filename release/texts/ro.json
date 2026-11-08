@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Aplicațiile și instrumentele unității principale din fiecare sursă, cu starea lor, și sursele; le instalează, actualizează și elimină prin mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Actualizator",
+    "description": "Instalează, actualizează și elimină aplicații și instrumente ale unității principale din sursele sale"
+  },
+  "mgu-deploy": {
+    "title": "Instrument de implementare",
+    "description": "Instalează, actualizează, readuce la versiunea anterioară și elimină instrumentele și aplicațiile noastre de pe unitatea principală, cu un snapshot înaintea fiecărei modificări"
+  },
+  "mgu-render": {
+    "title": "Renderer",
+    "description": "Desenează ecranele aplicațiilor pe GPU, peste HMI sau în pagina aplicației"
+  },
+  "mgu-uplink": {
+    "title": "Conexiune la internet",
+    "description": "Internet pentru aplicațiile selectate printr-un adaptor de rețea USB, un stick LTE, un telefon conectat prin USB sau Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "Confidențialitate aplicații",
+    "description": "Exclude aplicațiile noastre din raportarea aplicațiilor către backendul unității principale și le repornește după o blocare"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 pentru aplicațiile care se compilează pe unitatea principală cu Python"
+  }
+}

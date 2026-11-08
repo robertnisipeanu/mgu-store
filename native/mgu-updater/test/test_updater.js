@@ -2,7 +2,8 @@
 /**
  * Offline tests of mgu-updater on the head unit's Node 8.16.2, as root
  * (test/run.sh runs them in Docker):
- *  - catalog: parsing (schema 1 and 2), rejection of malformed entries, the plan;
+ *  - catalog: parsing (schema 1 and 2), rejection of malformed entries, the plan
+ *    (texts in other languages kept, bounded);
  *  - a version 1 App Manager index read again and again: only the newest
  *    package of each id kept, what each one is remembered, the cap;
  *  - build folders removed as the uid that owns each part (root's too, after
@@ -40,6 +41,11 @@
  *    that downloads through its proxy (and fails without the uplink), a
  *    service tool and a preload tool with the capability it needs.
  *    MGU_TEST_PROXY_OPEN lets that proxy reach the tests' local servers.
+ *  - the build proxy across a network switch: the lease read for each
+ *    connection, none, and a name server or an upstream that stays silent;
+ *  - the proxy setting: set and cleared through proxy-set, kept in
+ *    updater.local.conf, a source read through it (test_proxy.js covers
+ *    fetch.js and the build proxy through each kind of proxy).
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -83,6 +89,12 @@ function sh(cmd) {
 
 function sha256(buf) {
     return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+function rmIfThere(p) {
+    try {
+        fs.unlinkSync(p);
+    } catch (e) { /* not there */ }
 }
 
 function sleep(ms) {
@@ -173,6 +185,20 @@ function ghRepo(name, opts) {
 }
 
 /* A commit of files ({ path: content | [content, mode] }); returns its sha. */
+/* A git-like tree of files ({ path: bytes }) as GitHub's recursive
+ * listing gives it: a file's id from its bytes, a folder's from its entries'. */
+function gitTree(files) {
+    const ids = {};
+    Object.keys(files).forEach((rel) => {
+        ids[rel] = sha256(files[rel]).slice(0, 40);
+    });
+    const folders = new Set();
+    Object.keys(files).forEach((rel) => rel.split('/').slice(0, -1).forEach((x, i, a) => folders.add(a.slice(0, i + 1).join('/'))));
+    const idOf = (dir) => sha256(Object.keys(ids).filter((k) => k.indexOf(dir ? `${dir}/` : '') === 0).sort()
+        .map((k) => `${k} ${ids[k]}`).join('\n')).slice(0, 40);
+    return { sha: idOf(''), entries: Object.keys(ids).map((k) => ({ path: k, sha: ids[k] })).concat(Array.from(folders).map((d) => ({ path: d, sha: idOf(d) }))) };
+}
+
 function ghCommit(repo, files) {
     const tree = {};
     Object.keys(files).forEach((p) => {
@@ -414,6 +440,18 @@ function ghApi(req, res, auth) {
         // the raw media type gets the bytes; anything else the JSON object around them, as GitHub does
         const rawWanted = /^application\/vnd\.github(\.v3)?\.raw/.test(req.headers.accept || '');
         send(f ? 200 : 404, !f ? { message: 'Not Found' } : rawWanted ? f[0] : { type: 'file', encoding: 'base64', content: f[0].toString('base64') });
+    } else if (rest.indexOf('/git/trees/') === 0) {
+        const tree = repo.trees[rest.slice('/git/trees/'.length)];
+        if (!tree || u.searchParams.get('recursive') !== '1') {
+            send(404, { message: 'Not Found' });
+            return;
+        }
+        const files = {};
+        Object.keys(tree).forEach((rel) => {
+            files[rel] = tree[rel][0];
+        });
+        const t = gitTree(files);
+        send(200, { sha: t.sha, truncated: false, tree: t.entries });
     } else if (rest.indexOf('/tarball/') === 0) {
         const sha = rest.slice('/tarball/'.length);
         // GitHub refuses a tarball request that accepts only application/octet-stream
@@ -672,12 +710,58 @@ function testCatalog() {
     const rows = catalogLib.plan(good.components.map(r), [{ id: 'doom', kind: 'app', version: '1.0.0' }]);
     const described = catalogLib.plan([r(Object.assign({}, good.components[0], { description: 'Plays DOOM' }))], [])[0];
     ok('plan: a row carries the catalog\'s description', described.description === 'Plays DOOM' && rows[0].description === '');
+    const texted = catalogLib.plan([r(Object.assign({}, good.components[0], { texts: {
+        de: { title: '  DOOM\n(de) ', description: 'Spielt DOOM' }, 'pt-BR': { title: 'DOOM' }, 'zh-TW': { description: 'x'.repeat(1200) },
+        fr: { title: '' }, it: 'no', EN: { title: 'x' }, 'de-DE-x-y-z': { title: 'x' }, es: { title: 7 } } }))], [])[0];
+    ok('plan: a row carries the catalog\'s texts, each a title (one line) and a description of a language code',
+        JSON.stringify(texted.texts) === JSON.stringify({ de: { title: 'DOOM (de)', description: 'Spielt DOOM' }, 'pt-BR': { title: 'DOOM' },
+            'zh-TW': { description: 'x'.repeat(1000) } }));
+    ok('plan: no texts, or none usable: null', rows[0].texts === null &&
+        catalogLib.plan([r(Object.assign({}, good.components[0], { texts: ['de'] }))], [])[0].texts === null &&
+        catalogLib.plan([r(Object.assign({}, good.components[0], { texts: { de: {} } }))], [])[0].texts === null);
     ok('plan: an older installed version is an update', rows[0].status === 'update' && rows[0].installed === '1.0.0');
     ok('plan: a missing component is available', rows[1].status === 'available' && rows[1].installed === null);
     ok('plan: a row names its source', rows[0].source === 's' && rows[0].build === null && rows[0].optional === false);
     ok('plan: same version is installed', catalogLib.plan(good.components.map(r), [{ id: 'doom', version: '1.0.1' }])[0].status === 'installed');
     ok('plan: a local build ahead of the catalog is newer', catalogLib.plan(good.components.map(r), [{ id: 'doom', version: '1.2.0' }])[0].status === 'newer');
     ok('versions compare numerically', catalogLib.compareVersions('1.10.0', '1.9.9') === 1);
+}
+
+/* The tools an app's removal may take along: those it requires itself or
+ * through them that nothing else installed keeps, a tool before those it
+ * requires; one another app, a capability's need or its row keeps stays. */
+function testRequiredAlone() {
+    const { Updater } = require('../js/updater');
+    const rows = [
+        ['app', 'app', { mid: '1.0.0', low: '1.0.0', shared: '1.0.0', fixed: '1.0.0' }],
+        ['mid', 'tool', { low: '1.0.0' }],
+        ['low', 'tool', {}],
+        ['shared', 'tool', {}],
+        ['fixed', 'tool', {}],
+        ['other', 'app', { shared: '1.0.0' }],
+        ['renderer', 'tool', {}, 'gpu'],
+        ['viewer', 'app', { renderer: '1.0.0' }]
+    ];
+    const all = new Map(rows.map(([id, kind, requires, cap]) => [id, { entry: { id, kind, title: id, requires, mguProvides: cap || null } }]));
+    const u = Object.assign(Object.create(Updater.prototype), {
+        installedVersion: (id) => (id === 'viewer' ? null : '1.0.0'),
+        removableRow: (id) => id !== 'fixed',
+        providers: { gpu: [{ id: 'renderer' }] },
+        nextStart: {}
+    });
+    ok('required alone: the tools only the app needs, a tool before those it requires; shared, unremovable ones stay',
+        JSON.stringify(u.requiredAlone('app', all)) === '["mid","low"]', JSON.stringify(u.requiredAlone('app', all)));
+    all.get('app').entry.requires.renderer = '1.0.0';
+    all.get('viewer').entry.requires = {};
+    all.get('viewer').entry.mguNeeds = ['gpu'];
+    u.installedVersion = () => '1.0.0';
+    ok('required alone: the last provider of a capability another installed app needs stays',
+        u.requiredAlone('app', all).indexOf('renderer') < 0 && JSON.stringify(u.requiredAlone('other', all)) === '[]',
+        JSON.stringify(u.requiredAlone('app', all)));
+    u.nextStart = { other: 'remove' };
+    ok('required alone: an app whose removal waits for the next start (iDrive 8) keeps none of its tools',
+        u.keptBy('shared', all, ['shared', 'app']) === null && /^app needs mid$/.test(u.keptBy('mid', all, ['mid']) || ''),
+        JSON.stringify([u.keptBy('shared', all, ['shared', 'app']), u.keptBy('mid', all, ['mid'])]));
 }
 
 /* tar.js: what it packs it reads back; links, `..` and oversize archives are refused or left out. */
@@ -1106,6 +1190,41 @@ function testUidsDaemon() {
             return new Promise((r) => setTimeout(r, 50)).then(() => {
                 ok('queue: others first, then the updater before what needs it', order.join() === 'other,mgu-updater' &&
                     handed && handed.map((q) => q.id).join() === 'mgu-uplink', order.join());
+            });
+        })
+        .then(() => {
+            // queue: the Store's own install after every other request, the updater's own update and what waits for it included
+            const order = [];
+            u.src = new Map([['s', { components: [{ id: 'robertn_store', requires: {} }, { id: 'mgu-updater', requires: {} },
+                { id: 'app_a', requires: {} }, { id: 'app_b', requires: {} }, { id: 'mgu-uplink', requires: { 'mgu-updater': '99.0.0' } }] }]]);
+            u.install = (item) => {
+                order.push(item.id);
+                return Promise.resolve(item.id === 'mgu-updater');
+            };
+            u.rollback = (item) => {
+                order.push(`rollback:${item.id}`);
+                return Promise.resolve(false);
+            };
+            u.queue = [{ op: 'install', id: 'robertn_store', source: 's' }, { op: 'install', id: 'mgu-updater', source: 's' },
+                { op: 'install', id: 'app_a', source: 's' }, { op: 'rollback', id: 'robertn_store' }, { op: 'install', id: 'app_b', source: 's' },
+                { op: 'install', id: 'mgu-uplink', source: 's' }];
+            let handed = null;
+            u.handover = function () {
+                handed = this.queue.slice();
+            };
+            u.next();
+            return new Promise((r) => setTimeout(r, 50)).then(() => {
+                ok('queue: the Store\'s own install after the others and the updater\'s own update',
+                    order.join() === 'app_a,rollback:robertn_store,app_b,mgu-updater' &&
+                    handed && handed.map((q) => q.id).join() === 'robertn_store,mgu-uplink', `${order.join()} / ${handed && handed.map((q) => q.id).join()}`);
+                // the new version: what needed it, then the Store
+                order.length = 0;
+                u.queue = handed;
+                u.src.get('s').components.find((c) => c.id === 'mgu-uplink').requires = {};
+                u.next();
+                return new Promise((r) => setTimeout(r, 50));
+            }).then(() => {
+                ok('queue: after the handover, what needed the new updater, then the Store', order.join() === 'mgu-uplink,robertn_store', order.join());
             });
         })
         .then(() => {
@@ -2134,7 +2253,7 @@ function testSources(certs) {
     ].join('\n');
     const tTool = { id: 't_tool', kind: 'tool', version: '1.0.0', title: 'Tree tool',
         files: [{ path: 't.sh', from: 'bin/t.sh', mode: '0755' }], units: [{ name: 't.service', from: 'systemd/t.service' }], internet: true };
-    const branchFiles = (pVersion) => ({
+    const branchFiles = (pVersion, more) => Object.assign({
         'mgu-repo.json': JSON.stringify({ schema: 1, components: [
             { id: 'p_app', kind: 'app', path: 'apps/p_app', build: 'unit', uninstallable: true },
             { id: 't_tool', kind: 'tool', path: 'native/t_tool' },
@@ -2158,7 +2277,7 @@ function testSources(certs) {
         'apps/b_escape/app.json': JSON.stringify({ id: 'b_escape', version: '1.0.0' }),
         'apps/b_detach/app.json': JSON.stringify({ id: 'b_detach', version: '1.0.0' }),
         'tools/build.js': buildJs
-    });
+    }, more || {});
     ghRepo('third/branchy');
     const c1 = ghCommit('third/branchy', branchFiles('1.0.0'));
     gh.repos['third/branchy'].branches.main = c1;
@@ -2414,7 +2533,7 @@ function testSources(certs) {
             ok('requires: a requirement that fails to install is the app\'s error, with its reason; the app is not installed',
                 comp('needs_app').error === `needs base_tool 1.0.0 or newer, which did not install from ${src('mgu-store').label}: ` +
                 'install failed: test failure 1; ' +
-                'the previous version was kept' && lines.length === 1 && /base_tool@1\.0\.0/.test(lines[0]) &&
+                'nothing is installed' && lines.length === 1 && /base_tool@1\.0\.0/.test(lines[0]) &&
                 comp('needs_app').status === 'available', JSON.stringify([comp('needs_app').error, lines]));
             // Try again: the requirement installs first again
             fs.writeFileSync(deployLog, '');
@@ -2443,14 +2562,35 @@ function testSources(certs) {
             ok('uninstall: privileged; refused while something installed requires it, when not installed, and for a tool its source does not mark',
                 errs[0] === 'forbidden' && /Needs needs base_tool/.test(errs[1]) && errs[2] === 'robertn_demo is not installed' && /cannot be removed/.test(errs[3]),
                 JSON.stringify(errs));
+            ok('required alone: an installed app\'s row names the installed tools only it requires',
+                JSON.stringify(comp('needs_app').requiredAlone) === '["base_tool"]' && JSON.stringify(comp('base_tool').requiredAlone) === '[]',
+                JSON.stringify([comp('needs_app').requiredAlone, comp('base_tool').requiredAlone]));
+            return priv({ op: 'uninstall', id: 'needs_app', tools: ['opt_tool'] });
+        })
+        .then((err) => {
+            ok('required alone: a tool the app does not alone require is refused, nothing queued',
+                err === 'opt_tool cannot be removed with needs_app' && !st().components.some((c) => c.queued), err);
+            fs.writeFileSync(deployLog, '');
+            fs.writeFileSync(`${deployLog}.fail`, '1');
+            return priv({ op: 'uninstall', id: 'needs_app', tools: ['base_tool'] })
+                .then((err2) => until(st, () => !st().busy && !comp('needs_app').queued && !comp('base_tool').queued && comp('needs_app').error,
+                    20000, 'the failed removal').then(() => err2));
+        })
+        .then((err) => {
+            ok('required alone: when the app\'s removal fails, the tool it would take along stays', err === null &&
+                deployed().join() === 'uninstall needs_app --yes' && comp('base_tool').status === 'installed' && comp('base_tool').error === null,
+                JSON.stringify([err, deployed(), comp('base_tool')]));
+            fs.unlinkSync(`${deployLog}.fail`);
+            fs.writeFileSync(deployLog, '');
             const phases = [];
             const t = setInterval(() => {
                 if (u.busy && u.busy.id === 'needs_app' && phases.indexOf(u.busy.phase) < 0) {
                     phases.push(u.busy.phase);
                 }
             }, 5);
-            return priv({ op: 'uninstall', id: 'needs_app' })
-                .then((err) => until(st, () => !st().busy && comp('needs_app').status === 'available', 20000, 'needs_app removed')
+            return priv({ op: 'uninstall', id: 'needs_app', tools: ['base_tool'] })
+                .then((err) => until(st, () => !st().busy && comp('needs_app').status === 'available' && comp('base_tool').status === 'available',
+                    20000, 'needs_app removed with base_tool')
                     .then(() => {
                         clearInterval(t);
                         return { err, phases };
@@ -2461,6 +2601,45 @@ function testSources(certs) {
             ok('uninstall: through the deploy tool\'s uninstall; the row is available again', err === null &&
                 /^uninstall needs_app --yes$/m.test(fs.readFileSync(deployLog, 'utf8')) &&
                 !JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).needs_app);
+            ok('required alone: the tools asked for go after the app, through the deploy tool\'s uninstall',
+                deployed().join() === 'uninstall needs_app --yes,uninstall base_tool --yes', JSON.stringify(deployed()));
+            return ask(sock, { op: 'install', id: 'base_tool' }).then(() => installed('base_tool'));
+        })
+        .then(() => {
+            // a tool another origin installed, now updated from this one (its title leads): the deploy tool hears so
+            const cj = path.join(opt, 'base_tool', 'current', 'component.json');
+            fs.writeFileSync(cj, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(cj, 'utf8')), { title: 'Base' })));
+            u.origins.base_tool = { source: 'gone', commit: null };
+            fs.writeFileSync(deployLog, '');
+            return u.install({ op: 'install', id: 'base_tool', source: 'mgu-store' });
+        })
+        .then(() => {
+            ok('move: a tool another origin installed goes to the deploy tool with --other-source, and this origin is its own',
+                deployed().length === 1 && / --other-source$/.test(deployed()[0]) && u.origins.base_tool.source === 'mgu-store', JSON.stringify(deployed()));
+            fs.writeFileSync(deployLog, '');
+            return u.install({ op: 'install', id: 'base_tool', source: 'mgu-store' });
+        })
+        .then(() => {
+            ok('move: an install from its own origin has no --other-source', deployed().length === 1 && !/--other-source/.test(deployed()[0]),
+                JSON.stringify(deployed()));
+            // a failed update that leaves the new version current says so
+            const root = path.join(opt, 'base_tool');
+            cp.execFileSync('cp', ['-a', path.join(root, 'versions', '1.0.0'), path.join(root, 'versions', '0.9.0')]);
+            const cj = path.join(root, 'versions', '0.9.0', 'component.json');
+            fs.writeFileSync(cj, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(cj, 'utf8')), { version: '0.9.0' })));
+            fs.unlinkSync(path.join(root, 'current'));
+            fs.symlinkSync('versions/0.9.0', path.join(root, 'current'));
+            fs.writeFileSync(`${deployLog}.failafter`, '');
+            return u.refresh().then(() => u.install({ op: 'install', id: 'base_tool', source: 'mgu-store' }));
+        })
+        .then(() => {
+            fs.unlinkSync(`${deployLog}.failafter`);
+            ok('install: a failure that leaves the new version current says it stays current (a first one that leaves none, that nothing is)',
+                /^install failed: .*activate failed, and its deactivate too; 1\.0\.0 stays current$/.test(u.errors.base_tool || ''), u.errors.base_tool);
+            delete u.errors.base_tool;
+            return u.refresh();
+        })
+        .then(() => {
             // another source's row of an id whose install it queued for the next start (iDrive 8)
             process.env.FAKE_PENDING = 'dup_app=installs at the next start';
             u.origins.dup_app = { source: 'second', commit: null };
@@ -2517,18 +2696,33 @@ function testSources(certs) {
                 c.files[0].path === 't.sh' && c.files[0].sha256 === sha256(Buffer.from('#!/bin/sh\necho t\n')) && !c.files[0].from &&
                 c.units[0].name === 't.service' && c.internet === true && fs.readFileSync(path.join(dir, 't.sh'), 'utf8') === '#!/bin/sh\necho t\n');
             ok('github: the tarball came from codeload without the token', seen.some((x) => /^codeload/.test(x.host) && x.auth === null) && authLeaks().length === 0);
-            // the branch moves on, same versions
-            const c2 = ghCommit('third/branchy', branchFiles('1.0.0'));
+            // the branch moves on, same versions, a change outside both components
+            const c2 = ghCommit('third/branchy', branchFiles('1.0.0', { 'README.md': 'more\n', 'apps/b_ok/notes.txt': 'b\n' }));
             gh.repos['third/branchy'].branches.main = c2;
             return u.checkSource('branchy').then(() => c2);
         })
         .then((c2) => {
-            ok('branch: a new commit of the same version is an update, with its short commit',
-                comp('p_app').status === 'update' && comp('p_app').revision === c2.slice(0, 7) && comp('t_tool').status === 'update', JSON.stringify(comp('p_app')));
+            ok('branch: a new commit that changes nothing of an installed component is no update',
+                comp('p_app').status === 'installed' && comp('t_tool').status === 'installed', JSON.stringify([comp('p_app'), comp('t_tool')]));
+            const listed = (id) => u.src.get('branchy').components.find((c) => c.id === id).content;
+            ok('branch: an install recorded with its commit alone gets its content from that commit\'s tree',
+                /^[0-9a-f]{64}$/.test(listed('t_tool') || '') && u.origins.t_tool.content === listed('t_tool') && u.origins.p_app.content === listed('p_app') &&
+                JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).t_tool.content === listed('t_tool'), JSON.stringify(u.origins));
+            // one that changes p_app's folder, same versions
+            const c3 = ghCommit('third/branchy', branchFiles('1.0.0', { 'README.md': 'more\n', 'apps/p_app/src/p.js': 'module.exports = 2;\n' }));
+            gh.repos['third/branchy'].branches.main = c3;
+            return u.checkSource('branchy').then(() => c3);
+        })
+        .then((c2) => {
+            ok('branch: a new commit that changes a component of the same version is an update, with its short commit',
+                comp('p_app').status === 'update' && comp('p_app').revision === c2.slice(0, 7) && comp('t_tool').status === 'installed',
+                JSON.stringify([comp('p_app'), comp('t_tool')]));
             return ask(sock, { op: 'install', id: 'p_app' }).then(() => installed('p_app')).then(() => c2);
         })
         .then((c2) => {
-            ok('branch: installed at the new commit', JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).p_app.commit === c2);
+            const rec = JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).p_app;
+            ok('branch: installed at the new commit, with its content', rec.commit === c2 && rec.content === u.src.get('branchy').components.find((c) => c.id === 'p_app').content &&
+                comp('p_app').status === 'installed', JSON.stringify(rec));
             gh.repos['third/branchy'].branches.main = ghCommit('third/branchy', branchFiles('1.1.0'));
             return u.checkSource('branchy');
         })
@@ -3988,6 +4182,322 @@ function testAppRemove() {
         });
 }
 
+/* Apps of ours oapcontroller's wipe took, installed again from the package
+ * the deploy tool keeps (once per start, not while its guard holds app
+ * changes back, never one removed on purpose); and the tile line after an
+ * install that restarted the app manager, until the next start. */
+function testSelfRepair() {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'selfrepair');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const cat = path.join(M, 'cat');
+    const kept = path.join(M, 'kept');
+    [M, opt, oap, cat, kept, path.join(M, 'shm'), path.join(M, 'media')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog });
+    delete process.env.FAKE_LEASE;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    ['mgu-deploy', 'mgu-updater'].forEach((id) => {
+        mkdirp(path.join(opt, id, 'versions', '0.9.0'));
+        fs.writeFileSync(path.join(opt, id, 'versions', '0.9.0', 'component.json'), JSON.stringify({ id, kind: 'tool', version: '0.9.0' }));
+        fs.symlinkSync('versions/0.9.0', path.join(opt, id, 'current'));
+    });
+    const reg = (id) => path.join(oap, 'oap_12201', 'data', 'apps', `${id}.json`);
+    const installed = (id, version, uid) => {
+        mkdirp(path.dirname(reg(id)));
+        mkdirp(path.join(oap, `oap_${uid}`, 'source'));
+        fs.writeFileSync(reg(id), JSON.stringify({ userId: uid }));
+        fs.writeFileSync(path.join(oap, `oap_${uid}`, 'source', 'package.json'), JSON.stringify({ name: id, version, mguLocalOnly: true }));
+    };
+    installed('robertn_store', '0.9.0', 13001);
+    installed('cat_app', '1.0.0', 13002);
+    installed('gone_app', '1.0.0', 13003);
+    publish(cat, [entry(appTgz(cat, 'robertn_store', '0.9.0'), 'app', 'Store'), entry(appTgz(cat, 'cat_app', '1.1.0'), 'app', 'Cat'),
+        entry(appTgz(cat, 'gone_app', '1.0.0'), 'app', 'Gone')], { schema: 2 });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: cat, builtin: true }] }));
+    const bootFile = path.join(M, 'boot_id');
+    fs.writeFileSync(bootFile, 'boot-1\n');
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: path.join(M, 'state'), tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: '', boot_id: bootFile,
+        github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD, github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    fs.writeFileSync(conf.mounts, 'proc /proc proc rw 0 0\n');
+    // the packages the deploy tool keeps, and the wipe that leaves them
+    const keptStore = appTgz(kept, 'robertn_store', '0.9.0');
+    const keptCat = appTgz(kept, 'cat_app', '1.1.0');
+    const wipe = () => ['robertn_store', 'cat_app', 'gone_app'].forEach((id) => {
+        try {
+            fs.unlinkSync(reg(id));
+        } catch (e) { /* not registered */ }
+    });
+    fs.writeFileSync(`${deployLog}.lost`, JSON.stringify([{ id: 'cat_app', version: '1.1.0', package: keptCat },
+        { id: 'robertn_store', version: '0.9.0', package: keptStore }]));
+    fs.writeFileSync(`${deployLog}.tiles`, JSON.stringify({ cat_app: false, gone_app: 'withheld' }));
+    const installs = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^install --artifact/.test(l));
+    let u = new Updater(conf);
+    const comp = (id) => u.state().components.find((c) => c.id === id) || {};
+    const idle = (what) => until(() => u.busy || u.queue.length, (b) => !b, 30000, what);
+    return u.serve()
+        .then(() => u.refresh())
+        .then(() => u.check())
+        .then(() => {
+            ok('self-repair: nothing lost, nothing installed', installs().length === 0 && !u.state().mainappGuard, installs().join('\n'));
+            // the deploy tool's MainApp guard stops the run (exit 3)
+            fs.writeFileSync(`${deployLog}.fail`, '3');
+            return ask(conf.socket, { op: 'install', id: 'cat_app' });
+        })
+        .then(() => idle('cat_app stopped by the guard'))
+        .then(() => new Promise((r) => setTimeout(r, 1000)))
+        .then(() => {
+            ok('guard stop: an install the deploy tool\'s guard stopped is no error, and is not tried again',
+                installs().length === 1 && !comp('cat_app').error && !comp('cat_app').queued, JSON.stringify(comp('cat_app')));
+            fs.unlinkSync(`${deployLog}.fail`);
+            fs.writeFileSync(`${deployLog}.bounces`, '');
+            return ask(conf.socket, { op: 'install', id: 'cat_app' });
+        })
+        .then(() => idle('cat_app updated'))
+        .then(() => {
+            ok('tile: an update that restarted the app manager, an app of ours whose tile does not show: the row says so',
+                comp('cat_app').installed === '1.1.0' && comp('cat_app').tileHidden === true && comp('robertn_store').tileHidden === false,
+                JSON.stringify([comp('cat_app'), comp('robertn_store')]));
+            ok('tile: not an app provisioning\'s own section hides (a restart does not show it)', comp('gone_app').tileHidden === false,
+                JSON.stringify(comp('gone_app')));
+            fs.unlinkSync(`${deployLog}.bounces`);
+            wipe();
+            u.watchLost();
+            return until(() => [u.busy, u.queue.length, fs.existsSync(reg('robertn_store')), fs.existsSync(reg('cat_app'))],
+                (s) => !s[0] && !s[1] && s[2] && s[3], 30000, 'the lost apps back');
+        })
+        .then(() => {
+            const i = installs();
+            ok('self-repair: after a wipe the Store and our other lost app are installed again from their kept packages, the Store first',
+                i.length === 4 && /verified\/robertn_store@0\.9\.0\.tgz --yes$/.test(i[2]) && /verified\/cat_app@1\.1\.0\.tgz --yes$/.test(i[3]), i.join('\n'));
+            ok('self-repair: an app removed on purpose (no kept package) stays removed', !fs.existsSync(reg('gone_app')));
+            wipe();
+            u.watchLost();
+            return new Promise((r) => setTimeout(r, 1500)).then(() => idle('a second wipe looked at'));
+        })
+        .then(() => {
+            ok('self-repair: once per start: a second wipe in the same start installs nothing',
+                installs().length === 4 && !fs.existsSync(reg('robertn_store')), installs().join('\n'));
+            u.server.close();
+            // the next start, with the guard holding app changes back
+            fs.writeFileSync(bootFile, 'boot-2\n');
+            fs.writeFileSync(`${deployLog}.guard`, 'the app manager stopped 12s after mgu-deploy restarted it');
+            u = new Updater(conf);
+            return u.refresh();
+        })
+        .then(() => new Promise((r) => setTimeout(r, 1000)))
+        .then(() => {
+            ok('self-repair: not while the deploy tool\'s guard holds app changes back; the state says why',
+                installs().length === 4 && u.state().mainappGuard === 'the app manager stopped 12s after mgu-deploy restarted it', installs().join('\n'));
+            fs.unlinkSync(`${deployLog}.guard`);
+            return u.refresh();
+        })
+        .then(() => idle('repaired in the next start'))
+        .then(() => {
+            ok('self-repair: the next start installs them again',
+                installs().length === 6 && fs.existsSync(reg('robertn_store')) && fs.existsSync(reg('cat_app')), installs().join('\n'));
+            ok('tile: the next start clears the tile line, and an install without a restart of the app manager sets none',
+                comp('cat_app').installed === '1.1.0' && comp('cat_app').tileHidden === false, JSON.stringify(comp('cat_app')));
+            // going back stopped by the guard: the version it goes to comes back at the next start
+            fs.writeFileSync(`${deployLog}.previous`, JSON.stringify({ cat_app: '1.0.0' }));
+            fs.writeFileSync(`${deployLog}.rollbackexit`, '3');
+            return u.refresh().then(() => u.rollback({ id: 'cat_app', why: '1.1.0 did not start' }));
+        })
+        .then(() => {
+            ok('guard stop: going back the guard stopped says which version comes back at the next start',
+                u.errors.cat_app === '1.1.0 did not start; 1.0.0 comes back at the next start' && comp('cat_app').installed === '1.1.0',
+                JSON.stringify(u.errors.cat_app));
+            ['lost', 'tiles', 'previous', 'rollbackexit'].forEach((x) => fs.unlinkSync(`${deployLog}.${x}`));
+        });
+}
+
+/* A tool a firmware update left not working, or whose install step waits:
+ * updated from its source when the source lists a newer version and the
+ * unit is online; else its files laid again by the deploy tool (relay),
+ * its step left, and the row needsSetup until Set up (the setup op) or an
+ * install; an update that fails falls back to the files. */
+function testFirmwareSetup() {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'fwsetup');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const cat = path.join(M, 'cat');
+    [M, opt, oap, cat, path.join(M, 'shm'), path.join(M, 'media')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog });
+    delete process.env.FAKE_LEASE;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    const tool = (id, version) => {
+        mkdirp(path.join(opt, id, 'versions', version));
+        fs.writeFileSync(path.join(opt, id, 'versions', version, 'component.json'), JSON.stringify({ id, kind: 'tool', version }));
+        rmIfThere(path.join(opt, id, 'current'));
+        fs.symlinkSync(`versions/${version}`, path.join(opt, id, 'current'));
+    };
+    tool('mgu-deploy', '0.9.0');
+    tool('mgu-updater', '0.9.0');
+    tool('fw_tool', '1.0.0');
+    const listing = (v, req) => publish(cat, [Object.assign(entry(toolKit(cat, 'fw_tool', v, {}), 'tool', 'Firmware tool'), req ? { requires: req } : {}),
+        entry(toolKit(cat, 'mgu-deploy', '0.9.0', {}), 'tool', 'Deploy tool'), entry(toolKit(cat, 'mgu-updater', '0.9.0', {}), 'tool', 'Updater')], { schema: 2 });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: cat, builtin: true }] }));
+    const bootFile = path.join(M, 'boot_id');
+    fs.writeFileSync(bootFile, 'boot-1\n');
+    const lease = path.join(M, 'lease.json');
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: path.join(M, 'state'), tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease, ca_file: '', boot_id: bootFile,
+        github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD, github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+    };
+    fs.writeFileSync(conf.mounts, 'proc /proc proc rw 0 0\n');
+    const calls = () => fs.readFileSync(deployLog, 'utf8').split('\n').filter((l) => /^(install|relay|setup) /.test(l));
+    const stale = () => fs.writeFileSync(`${deployLog}.stale`, JSON.stringify({ fw_tool: { why: 'installed under firmware old', kept: true } }));
+    const online = (on) => (on ? fs.writeFileSync(lease, '{"dns":[]}') : rmIfThere(lease));
+    let u = null;
+    const comp = () => u.state().components.find((c) => c.id === 'fw_tool') || {};
+    const idle = (what) => until(() => u.busy || u.queue.length, (b) => !b, 30000, what);
+    const fresh = () => {
+        if (u) u.server.close();
+        u = new Updater(conf);
+        return u.serve().then(() => u.refresh()).then(() => u.check()).then(() => idle('repairs'));
+    };
+    // C: a newer version listed, online
+    listing('1.1.0');
+    stale();
+    online(true);
+    return fresh()
+        .then(() => {
+            ok('firmware: a stale tool its source lists newer, online, is updated from it, no files laid again',
+                calls().length === 1 && /^install --artifact .*fw_tool@1\.1\.0\.tgz --yes$/.test(calls()[0]) && comp().installed === '1.1.0' &&
+                !comp().needsSetup, calls().join('\n'));
+            // B: no newer version listed
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.0.0');
+            stale();
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: with no newer version its files are laid again (relay), no install, and the row needs setup',
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup === 'installed under firmware old',
+                `${calls().join('\n')} ${JSON.stringify(comp())}`);
+            return ask(conf.socket, { op: 'setup', id: 'fw_tool' }).then((e1) => ask(conf.socket, { op: 'setup', id: 'fw_tool', secret: u.secret })
+                .then((e2) => [e1, e2]));
+        })
+        .then((errs) => idle('set up').then(() => errs))
+        .then((errs) => {
+            ok('firmware: Set up needs the secret, then runs the deploy tool\'s setup, and the row needs it no more',
+                errs[0] === 'forbidden' && errs[1] === null && calls()[calls().length - 1] === 'setup fw_tool --yes' && !comp().needsSetup,
+                `${JSON.stringify(errs)} ${calls().join('\n')}`);
+            // offline with a newer version listed: files only
+            fs.writeFileSync(deployLog, '');
+            listing('1.1.0');
+            stale();
+            online(false);
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: offline, a stale tool its source lists newer has its files laid again, no download',
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup, calls().join('\n'));
+            // a tool that needs setup, its source then lists a newer version, online: updated
+            fs.writeFileSync(deployLog, '');
+            online(true);
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: a tool that needs setup is updated once its source lists a newer version and the unit is online',
+                calls().length === 1 && /fw_tool@1\.1\.0\.tgz/.test(calls()[0]) && !comp().needsSetup, calls().join('\n'));
+            // the update fails: its files are laid again
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.1.0');
+            stale();
+            fs.writeFileSync(`${deployLog}.fail`, '1');
+            return fresh();
+        })
+        .then(() => {
+            const c = calls();
+            ok('firmware: an update that fails falls back to laying its files again',
+                c.length === 2 && /fw_tool@1\.1\.0\.tgz/.test(c[0]) && c[1] === 'relay fw_tool --yes' && comp().needsSetup, c.join('\n'));
+            // the next check, the same updater: that version is not asked for again
+            fs.writeFileSync(deployLog, '');
+            return u.check().then(() => idle('a second check'));
+        })
+        .then(() => {
+            ok('firmware: a newer version whose update failed is not asked for again by the same updater', calls().length === 0, calls().join('\n'));
+            rmIfThere(`${deployLog}.fail`);
+            // one updater: a tool first-install left needing setup, offline at first, then online
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.1.0');
+            rmIfThere(`${deployLog}.stale`);
+            fs.writeFileSync(`${deployLog}.setup`, JSON.stringify({ fw_tool: 'installed under firmware old' }));
+            online(false);
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: one updater offline: a tool that needs setup is left as it is', calls().length === 0 && comp().needsSetup, calls().join('\n'));
+            return u.check().then(() => idle('offline again'));
+        })
+        .then(() => {
+            online(true);
+            return u.check().then(() => idle('online'));
+        })
+        .then(() => {
+            ok('firmware: the same updater, online: the tool that needs setup is updated from its source',
+                calls().length === 1 && /fw_tool@1\.1\.0\.tgz/.test(calls()[0]) && !comp().needsSetup, calls().join('\n'));
+            // a failing setup: the row's error, the Store's usual failed state
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.0.0');
+            stale();
+            return fresh();
+        })
+        .then(() => {
+            fs.writeFileSync(`${deployLog}.setupfail`, '');
+            return ask(conf.socket, { op: 'setup', id: 'fw_tool', secret: u.secret });
+        })
+        .then(() => idle('a failing setup'))
+        .then(() => {
+            ok('firmware: a setup that fails is the row\'s error, and it still needs setup', /setup failed/.test(comp().error || '') && comp().needsSetup,
+                JSON.stringify(comp()));
+            // a newer version that cannot be asked for (a requirement no source has): its files laid again instead
+            ['setupfail', 'setup'].forEach((x) => rmIfThere(`${deployLog}.${x}`));
+            fs.writeFileSync(deployLog, '');
+            tool('fw_tool', '1.0.0');
+            listing('1.1.0', { no_such_tool: '1.0.0' });
+            stale();
+            return fresh();
+        })
+        .then(() => {
+            ok('firmware: a newer version the updater cannot queue leaves the stale tool to its files laid again',
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup, calls().join('\n'));
+            ['fail', 'stale', 'setup', 'setupfail'].forEach((x) => rmIfThere(`${deployLog}.${x}`));
+            u.server.close();
+        }, (e) => {
+            if (u) u.server.close();
+            throw e;
+        });
+}
+
 /* Undo update: what offers it (the deploy tool keeps the version before,
  * nothing strands), the rollback op, the last start's failed check, and
  * the Store's update undone when the new Store starts but never says hello. */
@@ -4446,6 +4956,113 @@ function testPythonRepo() {
         });
 }
 
+/* The build proxy across a network switch: each new connection resolves
+ * through the lease as it is then; without a lease, or with a name server
+ * that never answers, it is refused within connectMs (1 s here); an
+ * upstream that goes quiet is cut after idleMs. One proxy for all. */
+function testProxyLease() {
+    const lease = path.join(T, 'proxy-lease.json');
+    const good = JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] });
+    fs.writeFileSync(lease, good);
+    let silentDns;
+    let upstream;
+    let quiet;
+    let web;
+    let webOpen = 0;
+    let child;
+    let port;
+    const token = 'secret';
+    const auth = { 'Proxy-Authorization': `Basic ${Buffer.from(`mgu:${token}`).toString('base64')}` };
+    // CONNECT host:port: { code, text, body, ms }, body what came through the tunnel before it closed
+    const tunnel = (target) => new Promise((resolve) => {
+        const t0 = Date.now();
+        const req = require('http').request({ host: '127.0.0.1', port, method: 'CONNECT', path: target, headers: auth });
+        req.on('connect', (res, socket, head) => {
+            // what came with the proxy's answer is the tunnel's first bytes
+            let body = String(head);
+            socket.on('data', (d) => { body += d; });
+            socket.on('error', () => {});
+            socket.on('close', () => resolve({ code: res.statusCode, text: res.statusMessage, body, ms: Date.now() - t0 }));
+        });
+        req.on('error', (e) => resolve({ code: 0, text: e.message, ms: Date.now() - t0 }));
+        req.end();
+    });
+    const get = (url) => new Promise((resolve) => {
+        const t0 = Date.now();
+        const req = require('http').request({ host: '127.0.0.1', port, path: url, headers: Object.assign({ Connection: 'keep-alive' }, auth) }, (res) => {
+            let body = '';
+            res.on('data', (d) => { body += d; });
+            res.on('end', () => resolve({ code: res.statusCode, body, ms: Date.now() - t0 }));
+        });
+        req.on('error', (e) => resolve({ code: 0, body: e.message, ms: Date.now() - t0 }));
+        req.end();
+    });
+    const listen = (srv) => new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve(srv.address().port)));
+    return Promise.resolve().then(() => new Promise((resolve) => {
+        // a name server that takes every query and answers none: the network the uplink has left
+        silentDns = dgram.createSocket('udp4');
+        silentDns.bind(0, '127.0.0.1', resolve);
+    })).then(() => {
+        upstream = net.createServer((c) => c.end('through\n'));
+        quiet = net.createServer((c) => c.on('error', () => {}));
+        web = require('http').createServer((req, res) => res.end(`got ${req.headers.host}${req.url}\n`));
+        web.on('connection', (c) => {
+            webOpen += 1;
+            c.on('close', () => { webOpen -= 1; });
+        });
+        return Promise.all([listen(upstream), listen(quiet), listen(web)]);
+    }).then(() => new Promise((resolve, reject) => {
+        child = cp.spawn(process.execPath, [path.join(ROOT, 'js', 'proxy.js')], { stdio: ['pipe', 'pipe', 'inherit'], env: {} });
+        let buf = '';
+        child.stdout.on('data', (d) => {
+            buf += d;
+            const m = /"listening":(\d+)/.exec(buf);
+            if (m && !port) {
+                port = Number(m[1]);
+                resolve();
+            }
+        });
+        child.on('exit', () => reject(new Error('the proxy did not start')));
+        child.stdin.end(JSON.stringify({ token, uid: process.getuid(), dns: [`127.0.0.1:${silentDns.address().port}`], lease,
+            maxBytes: 1 << 20, connectMs: 1000, idleMs: 1000, open: true }));
+    })).then(() => tunnel(`up.test:${upstream.address().port}`)).then((r) => {
+        ok('proxy: a CONNECT resolves through the lease, not the servers it started with', r.code === 200 && r.body === 'through\n',
+            JSON.stringify(r));
+        return get(`http://up.test:${web.address().port}/x?y`);
+    }).then((r) => {
+        ok('proxy: an http GET resolves through the lease', r.code === 200 && r.body === `got up.test:${web.address().port}/x?y\n`,
+            JSON.stringify(r));
+        return new Promise((resolve) => setTimeout(resolve, 300));
+    }).then(() => {
+        ok('proxy: an http GET from a keep-alive client leaves no upstream connection open', webOpen === 0, `${webOpen} open`);
+        // the uplink on a network whose name server is gone
+        fs.writeFileSync(lease, JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${silentDns.address().port}`] }));
+        return Promise.all([tunnel(`up.test:${upstream.address().port}`), get(`http://up.test:${web.address().port}/x`)]);
+    }).then(([c, g]) => {
+        ok('proxy: a name server that never answers refuses the connection within connectMs (502)',
+            c.code === 502 && c.text === 'up.test: no connection in 1 s' && c.ms < 2500 &&
+            g.code === 502 && g.body === 'up.test: no connection in 1 s\n' && g.ms < 2500, JSON.stringify([c, g]));
+        // a new network's lease, read by the next connection of the same proxy
+        fs.writeFileSync(lease, good);
+        return tunnel(`up.test:${upstream.address().port}`);
+    }).then((r) => {
+        ok('proxy: the next connection uses the lease that changed meanwhile', r.code === 200 && r.body === 'through\n', JSON.stringify(r));
+        fs.unlinkSync(lease);
+        return Promise.all([tunnel(`up.test:${upstream.address().port}`), get(`http://up.test:${web.address().port}/x`)]);
+    }).then(([c, g]) => {
+        ok('proxy: without a lease a connection is refused as having no internet (502)',
+            c.code === 502 && c.text === 'no internet (the uplink is down)' && g.code === 502 &&
+            g.body === 'no internet (the uplink is down)\n', JSON.stringify([c, g]));
+        fs.writeFileSync(lease, good);
+        return tunnel(`up.test:${quiet.address().port}`);
+    }).then((r) => {
+        ok('proxy: an upstream that sends nothing is cut after idleMs', r.code === 200 && r.body === '' && r.ms < 2500, JSON.stringify(r));
+    }).then(() => {
+        child.kill('SIGKILL');
+        [upstream, quiet, web, silentDns].forEach((srv) => srv.close());
+    });
+}
+
 /* Ids two origins share (README.md, "Ids"): mgu-apps' doom is installed
  * from a catalog; a repo laid out as idrive7-apps (an apps pattern, a
  * Python build taking {id}, deriving the package name and its UUIDs from
@@ -4640,7 +5257,7 @@ function testIdClash() {
             let got = view({});
             ok('ids: an app installed from outside is updated by the origin whose listing has its title (DOOM: mgu-apps, not Doom or ' +
                 'DOOM (App Manager)); the others are beside it', got.get('doom').source === 'mgu-apps' && !got.get('doom').entry.unlisted &&
-                got.get('doom2').entry.listedId === 'doom' && got.get('doom@iterio').entry.blocked === 'doom is already installed',
+                got.get('doom2').entry.listedId === 'doom' && got.get('doom@iterio').entry.blocked === `doom is already installed; its updates come from ${mguApps}`,
                 JSON.stringify(Array.from(got.keys())));
             got = view({}, { at: null, imported: ['doom'] });
             ok('ids: ...an imported one too', got.get('doom').source === 'mgu-apps' && !got.get('doom').entry.blocked);
@@ -4668,7 +5285,7 @@ function testIdClash() {
             titled('stubborn', 'Stubborn');
             got = view({});
             ok('ids: of two sources listing an id, the one whose listing has the installed title updates it',
-                got.get('stubborn').source === 'idrive7-apps' && got.get('stubborn@mgu-apps').entry.blocked === 'stubborn is already installed',
+                got.get('stubborn').source === 'idrive7-apps' && got.get('stubborn@mgu-apps').entry.blocked === `stubborn is already installed; its updates come from ${repo}`,
                 JSON.stringify(Array.from(got.keys()).filter((k) => /stubborn/.test(k))));
             titled('stubborn', 'Something else');
             got = view({});
@@ -4764,6 +5381,22 @@ function testIdClash() {
                 const py2 = lone.resolved().get('mgu-python');
                 ok('ids: ...unless its own origin is gone: then only a listing with its title updates it', py2.entry.unlisted === true,
                     JSON.stringify(py2));
+                // installed from outside (an installer), listed under its title by the built-in source and by another (a fork)
+                const titledPy = Object.assign({}, u.src.get('pytools').components.find((c) => c.id === 'mgu-python'), { title: 'Python runtime' });
+                const forked = new Map(u.src);
+                ['mgu-store', 'pytools'].forEach((s) => forked.set(s, Object.assign({}, u.src.get(s), { components: [titledPy] })));
+                Object.assign(lone, { src: forked, origins: {} });
+                let py3 = lone.resolved();
+                ok('ids: of two sources listing an installed id without an origin under its title, the built-in source updates it; ' +
+                    'the other is beside it, blocked, naming where its updates come from', py3.get('mgu-python').source === 'mgu-store' &&
+                    !py3.get('mgu-python').entry.unlisted && py3.get('mgu-python@pytools').entry.blocked ===
+                    `mgu-python is already installed; its updates come from ${store}`,
+                    JSON.stringify(Array.from(py3.entries()).filter(([k]) => /python/.test(k))));
+                Object.assign(lone, { stored: lone.stored.filter((d) => d.id !== 'mgu-store').concat([{ id: 'mgu-store', type: 'file', path: store }]) });
+                py3 = lone.resolved();
+                ok('ids: ...and with neither of them built in, it has no update: a row of its own, both beside it blocked',
+                    py3.get('mgu-python').entry.unlisted === true && py3.get('mgu-python@pytools').entry.blocked === 'mgu-python is already installed',
+                    JSON.stringify(Array.from(py3.entries()).filter(([k]) => /python/.test(k))));
                 fs.writeFileSync(py, pyWas);
                 tool('plain-tool', { title: 'Plain', uninstallable: true });
                 tool('bare-tool', { mguProvides: 'widget' });
@@ -5222,6 +5855,115 @@ function testRequests(certs) {
         });
 }
 
+/* The proxy setting (README.md, "Through a proxy"): proxy-set needs the secret,
+ * refuses what is not a proxy address, keeps it in updater.local.conf
+ * (root's alone, other keys kept), shows only its host:port; a source is
+ * read through it, the token inside the tunnel only; a refusal at the proxy
+ * shows as the source's error and the proxy's; '' turns it off. */
+function testProxySetting(certs) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'proxyset');
+    [M, path.join(M, 'state')].forEach(mkdirp);
+    // the lease's name server knows nothing: through the proxy only it looks names up
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: ['127.0.0.1:9'] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    const local = path.join(M, 'updater.local.conf');
+    fs.writeFileSync(local, '# mine\ncheck_interval_s = 999\nproxy = http://old:1\n');
+    ghRepo('px/cat', { private: true, tokens: ['tok-px'] });
+    gh.users['tok-px'] = 'tester';
+    gh.repos['px/cat'].catalog = Buffer.from(JSON.stringify({ schema: 1, components: [] }));
+    fs.writeFileSync(path.join(M, 'sources.json'), JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: 'px/cat', builtin: true }] }));
+    const conf = { state_dir: path.join(M, 'state'), sources: path.join(M, 'sources.json'), credentials_dir: path.join(M, 'cred'),
+        lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'), github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD,
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), local_conf: local };
+    // a SOCKS5 proxy (user u, password pw) to 127.0.0.1, which sees every byte it is sent
+    const log = [];
+    const socks = net.createServer((c) => {
+        const e = { bytes: '' };
+        log.push(e);
+        c.on('error', () => {});
+        let buf = Buffer.alloc(0);
+        let stage = 0;
+        const onData = (d) => {
+            e.bytes += d.toString('latin1');
+            buf = Buffer.concat([buf, d]);
+            if (stage === 0 && buf.length >= 2 + buf[1]) {
+                buf = buf.slice(2 + buf[1]);
+                c.write(Buffer.from([5, 2]));
+                stage = 1;
+            }
+            if (stage === 1 && buf.length >= 3 && buf.length >= 3 + buf[1] + buf[2 + buf[1]]) {
+                e.user = buf.slice(2, 2 + buf[1]).toString();
+                e.pass = buf.slice(3 + buf[1], 3 + buf[1] + buf[2 + buf[1]]).toString();
+                buf = buf.slice(3 + buf[1] + buf[2 + buf[1]]);
+                if (e.pass !== 'pw') {
+                    c.end(Buffer.from([1, 1]));
+                    return;
+                }
+                c.write(Buffer.from([1, 0]));
+                stage = 2;
+            }
+            if (stage === 2 && buf.length >= 5 && buf.length >= 7 + buf[4]) {
+                e.host = buf.slice(5, 5 + buf[4]).toString();
+                const port = buf.readUInt16BE(5 + buf[4]);
+                c.removeListener('data', onData);
+                c.on('data', (x) => { e.bytes += x.toString('latin1'); });
+                const up = net.connect(port, '127.0.0.1', () => {
+                    c.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]));
+                    c.pipe(up).pipe(c);
+                });
+                up.on('error', () => c.destroy());
+                stage = 3;
+            }
+        };
+        c.on('data', onData);
+    });
+    let u;
+
+    const lines = () => fs.readFileSync(local, 'utf8').split('\n').filter(Boolean);
+    return new Promise((r) => socks.listen(0, '127.0.0.1', r)).then(() => {
+        u = new Updater(conf);
+        u.tokens.add('tok-px', { login: 'tester', label: 'tester' });
+
+        const at = `127.0.0.1:${socks.address().port}`;
+        ok('proxy: refused without the secret', u.handle({ op: 'proxy-set', url: `socks5://u:pw@${at}` }, () => {}) === 'forbidden');
+        ok('proxy: not a proxy address is refused, nothing saved', u.setProxy('ftp://x:1') === 'a proxy address starts with http:// or socks5://' &&
+            lines().indexOf('proxy = http://old:1') >= 0);
+        const err = u.setProxy(`socks5://u:pw@${at}`);
+        const st = u.state().proxy;
+        const mode = fs.statSync(local).mode & 0o777;
+        ok('proxy: set, kept in updater.local.conf beside its other keys, root\'s alone', err === null &&
+            JSON.stringify(lines()) === JSON.stringify(['# mine', 'check_interval_s = 999', `proxy = socks5://u:pw@${at}`]) && mode === 0o600,
+        JSON.stringify([err, lines(), mode.toString(8)]));
+        ok('proxy: the state shows its host:port, never its user name or password', st.on && st.kind === 'socks5' && st.address === at &&
+            st.auth === true && JSON.stringify(u.state()).indexOf('pw') < 0 && JSON.stringify(u.state()).indexOf('u:') < 0, JSON.stringify(st));
+        log.length = 0;
+        return u.checkSource('mgu-store');
+    }).then(() => {
+        const rt = u.src.get('mgu-store');
+        ok('proxy: a private source is read through it, names looked up by the proxy', rt.status === 'ok' && log.length > 0 &&
+            log.every((e) => e.user === 'u' && /github\.com$/.test(e.host || '')), JSON.stringify([rt.status, rt.error, log.map((e) => e.host)]));
+        ok('proxy: the token never reaches the proxy', log.every((e) => e.bytes.indexOf('tok-px') < 0));
+        return new Promise((r) => setTimeout(r, 200)).then(() => {
+            fs.writeFileSync(local, fs.readFileSync(local, 'utf8').replace(':pw@', ':nope@'));
+            u.conf.proxy = u.conf.proxy.replace(':pw@', ':nope@');
+            return u.checkSource('mgu-store');
+        });
+    }).then(() => {
+        const rt = u.src.get('mgu-store');
+        const want = `proxy 127.0.0.1:${socks.address().port}: refused the user name and password`;
+        ok('proxy: a refusal at the proxy is the source\'s error and the proxy\'s', rt.status === 'error' && rt.error.indexOf(want) >= 0 &&
+            u.state().proxy.error === want, JSON.stringify([rt.error, u.state().proxy]));
+        ok('proxy: off with an empty address, the other keys kept', u.setProxy('') === null && !u.state().proxy.on &&
+            JSON.stringify(lines()) === JSON.stringify(['# mine', 'check_interval_s = 999']), JSON.stringify(lines()));
+        socks.close();
+        if (u.server) {
+            u.server.close();
+        }
+
+    });
+}
+
 /* The deploy tool still running after deploy_timeout_s: it and what it
  * started are stopped, and the run fails with that reason. */
 function testDeployTimeout() {
@@ -5261,6 +6003,21 @@ function testUplink() {
     ok('uplink: status.json read again when it changed', u.readUplink() === true && u.readUplink() === false);
     ok('uplink: its device, preferred kind and Wi-Fi in the state', JSON.stringify(u.state().uplink) === JSON.stringify({
         device: { kind: 'wifi', name: 'Car "Hotspot"' }, state: 'online', error: null, preferred: 'wifi', wifi }), JSON.stringify(u.state().uplink));
+    // a newer uplink's fields (the frequency joined) pass through as they are; without them the state is as before
+    const withFreq = Object.assign({}, wifi, { freq: 5745 });
+    fs.writeFileSync(status, JSON.stringify({ device: { kind: 'wifi', name: 'Car "Hotspot"' }, state: 'online', error: null, preferred: 'wifi', wifi: withFreq }));
+    ok('uplink: wifi.freq in the state', u.readUplink() === true && u.state().uplink.wifi.freq === 5745, JSON.stringify(u.state().uplink));
+    fs.writeFileSync(status, JSON.stringify({ device: { kind: 'usbecm', name: 'HUAWEI' }, state: 'online', error: null, preferred: '', wifi }));
+    ok('uplink: no freq without one (a USB uplink, an older uplink)', u.readUplink() === true && !('freq' in u.state().uplink.wifi),
+        JSON.stringify(u.state().uplink));
+    // phones over USB (mgu-uplink 0.7.7): in the state when the uplink says it, left out otherwise
+    fs.writeFileSync(status, JSON.stringify({ device: null, state: 'searching', error: null, usbPhone: false, wifi }));
+    ok('uplink: usbPhone in the state', u.readUplink() === true && u.state().uplink.usbPhone === false, JSON.stringify(u.state().uplink));
+    fs.writeFileSync(status, JSON.stringify({ device: null, state: 'searching', error: null, usbPhone: 'no', wifi }));
+    ok('uplink: no usbPhone that is not true or false', u.readUplink() === true && !('usbPhone' in u.state().uplink), JSON.stringify(u.state().uplink));
+    fs.writeFileSync(status, JSON.stringify({ device: { kind: 'wifi', name: 'Car "Hotspot"' }, state: 'online', error: null, preferred: 'wifi', wifi }));
+    u.readUplink();
+    ok('uplink: no usbPhone from an uplink without it', !('usbPhone' in u.state().uplink), JSON.stringify(u.state().uplink));
     const got = [];
     let answer = { ok: true };
     const server = net.createServer((s) => {
@@ -5294,7 +6051,7 @@ function testUplink() {
             ok('uplink: needs mgu-uplink 0.7.0 running (no ctl.sock)', r.type === 'error' && r.op === 'wifi-connect' && /0\.7\.0/.test(r.error), JSON.stringify(r));
             return new Promise((resolve) => server.listen(ctl, resolve));
         })
-        .then(() => Promise.all(['wifi-connect', 'wifi-enable', 'wifi-scan', 'wifi-forget', 'uplink-prefer'].map((op) => send({ op, ssid: 'x', psk }))))
+        .then(() => Promise.all(['wifi-connect', 'wifi-enable', 'wifi-5ghz', 'usb-phone', 'wifi-scan', 'wifi-forget', 'uplink-prefer'].map((op) => send({ op, ssid: 'x', psk }))))
         .then((rs) => {
             ok('uplink: every request needs the secret', rs.every((r) => r.error === 'forbidden') && got.length === 0, JSON.stringify(rs));
             return send({ op: 'wifi-connect', ssid: 'Cafe', psk, secret: u.secret, extra: 'no' });
@@ -5307,17 +6064,19 @@ function testUplink() {
             return send({ op: 'wifi-connect', ssid: 'Saved one', secret: u.secret });
         })
         .then(() => send({ op: 'wifi-enable', on: false, secret: u.secret }))
+        .then(() => send({ op: 'wifi-5ghz', on: true, secret: u.secret }))
+        .then(() => send({ op: 'usb-phone', on: false, secret: u.secret }))
         .then(() => send({ op: 'wifi-scan', secret: u.secret }))
         .then(() => send({ op: 'wifi-forget', ssid: 'Cafe', secret: u.secret }))
         .then(() => send({ op: 'uplink-prefer', kind: 'iphone', secret: u.secret }))
         .then(() => send({ op: 'uplink-prefer', kind: '', secret: u.secret }))
         .then(() => {
             ok('uplink: each request as the uplink takes it', JSON.stringify(got) === JSON.stringify([{ op: 'wifi-connect', ssid: 'Saved one' },
-                { op: 'wifi-enable', on: false }, { op: 'wifi-scan' }, { op: 'wifi-forget', ssid: 'Cafe' }, { op: 'prefer', kind: 'iphone' },
+                { op: 'wifi-enable', on: false }, { op: 'wifi-5ghz', on: true }, { op: 'usb-phone', on: false }, { op: 'wifi-scan' }, { op: 'wifi-forget', ssid: 'Cafe' }, { op: 'prefer', kind: 'iphone' },
                 { op: 'prefer', kind: '' }]), JSON.stringify(got));
             got.length = 0;
             return Promise.all([{ op: 'wifi-connect', ssid: 'Cafe', psk: 'short' }, { op: 'wifi-connect', ssid: 'Cafe', psk: `${psk}\n` },
-                { op: 'wifi-connect', ssid: 'x'.repeat(33), psk }, { op: 'wifi-connect', psk }, { op: 'wifi-enable', on: 'yes' },
+                { op: 'wifi-connect', ssid: 'x'.repeat(33), psk }, { op: 'wifi-connect', psk }, { op: 'wifi-enable', on: 'yes' }, { op: 'wifi-5ghz' }, { op: 'usb-phone', on: 1 },
                 { op: 'uplink-prefer', kind: 'Wi-Fi' }, { op: 'uplink-prefer' }, { op: 'wifi-forget', ssid: '' }]
                 .map((req) => send(Object.assign(req, { secret: u.secret }))));
         })
@@ -5649,6 +6408,75 @@ function testCarApps(certs) {
 
 /* ---- run ---------------------------------------------------------------------- */
 
+/* contentOf: what a repo-tree component is made of, from a commit's tree. */
+function testContent() {
+    const tree = gitTree;
+    const base = { 'mgu-repo.json': 'm', 'README.md': 'r', 'apps/a/app.json': 'a', 'apps/b/app.json': 'b', 'kit/runtime/x.js': 'x', 'kit/tools/build.py': 'p', 'apps/a/sub/y': 'y' };
+    const was = tree(base);
+    const at = (more) => tree(Object.assign({}, base, more));
+    const own = { paths: ['apps/a'], skip: [], listing: 'l' };
+    const built = { paths: [''], skip: ['apps/b'], listing: 'l' };
+    const named = { paths: ['apps/a', 'kit/runtime', 'oap-sdk', 'kit/tools/build.py'], skip: [], listing: 'l' };
+    const sourcesLib = require('../js/sources');
+    const { contentOf } = sourcesLib;
+    ok('content: a folder\'s content is the same at a commit that changes only things outside it',
+        contentOf(was, own) === contentOf(at({ 'README.md': 'r2', 'apps/b/app.json': 'b2', 'kit/runtime/x.js': 'x2' }), own));
+    ok('content: a change anywhere in the folder changes its content', contentOf(was, own) !== contentOf(at({ 'apps/a/sub/y': 'y2' }), own) &&
+        contentOf(was, own) !== contentOf(at({ 'apps/a/new': 'n' }), own));
+    ok('content: its mgu-repo.json entry is part of it', contentOf(was, own) !== contentOf(was, Object.assign({}, own, { listing: 'l2' })));
+    ok('content: a build script\'s app is the same when only another app changes',
+        contentOf(was, built) === contentOf(at({ 'apps/b/app.json': 'b2', 'apps/b/more': 'm' }), built));
+    ok('content: a build script\'s app changes with its shared files, the build script, the repo root and its own folder',
+        ['kit/runtime/x.js', 'kit/tools/build.py', 'README.md', 'apps/a/app.json', 'kit/new.js', 'apps/c/app.json']
+            .every((p) => contentOf(was, built) !== contentOf(at({ [p]: 'changed' }), built)));
+    ok('content: an app built with named shared files changes with them, its script and its folder, not with the rest',
+        ['kit/runtime/x.js', 'kit/tools/build.py', 'apps/a/app.json', 'oap-sdk/index.js'].every((p) => contentOf(was, named) !== contentOf(at({ [p]: 'changed' }), named)) &&
+        contentOf(was, named) === contentOf(at({ 'README.md': 'r2', 'apps/b/app.json': 'b2', 'kit/other.js': 'o' }), named));
+    ok('content: a folder that is not there has none', contentOf(was, { paths: ['apps/z'], skip: [], listing: 'l' }) === null);
+    const spec = (build) => sourcesLib.contentSpec({ id: 'a', kind: 'app', path: 'apps/a', build }, build ? {} : null);
+    ok('content: read from the folder; a build script\'s app from its shared files and script too, else the whole repo',
+        JSON.stringify(spec().paths) === '["apps/a"]' && JSON.stringify(spec({ python: 'kit/tools/build.py' }).paths) === '[""]' &&
+        JSON.stringify(spec({ python: 'kit/tools/build.py', shared: ['kit/runtime', 'oap-sdk'] }).paths) === '["apps/a","kit/runtime","oap-sdk","kit/tools/build.py"]' &&
+        JSON.stringify(spec({ python: 'b.py', shared: ['../x'] }).paths) === '[""]');
+    ok('content: a service or preload tool is the one file it packs', JSON.stringify(sourcesLib.contentSpec({ id: 's', kind: 'tool', path: 'kit/p',
+        service: { exec: 'd' } }, null).paths) === '["kit/p/d"]' && JSON.stringify(sourcesLib.contentSpec({ id: 'g', kind: 'tool', path: 'kit/p',
+        preload: { library: 'g.so' } }, null).paths) === '["kit/p/g.so"]');
+    const head = Object.assign({}, own, { repoId: tree(base).entries.find((e) => e.path === 'mgu-repo.json').sha });
+    ok('content: an older commit\'s, while mgu-repo.json is the same file, is its content with the newer listing; else \'-\'',
+        sourcesLib.contentThen(at({ 'README.md': 'old' }), head) === contentOf(was, own) && sourcesLib.contentThen(at({ 'apps/a/app.json': 'old' }), head) !== contentOf(was, own) &&
+        sourcesLib.contentThen(at({ 'mgu-repo.json': 'old' }), head) === '-' && sourcesLib.contentThen(tree({ 'mgu-repo.json': 'm' }), head) === '-' &&
+        sourcesLib.contentThen(was, own) === '-');
+    // two tools in one folder (idrive7-apps' kit/renderd/prebuilt): a tool kit and a preload tool
+    const doc = { schema: 1, components: [{ id: 'kit_tool', kind: 'tool', path: 'kit/p' }, { id: 'gate', kind: 'tool', path: 'kit/p', version: '1.0.0',
+        preload: { library: 'g.so', unit: 'hmi.service', process: 'HmiMain3D', strikes: 2, checkAfterSeconds: 120, healthySeconds: 60 } }] };
+    const files = { 'mgu-repo.json': JSON.stringify(doc), 'kit/p/component.json': JSON.stringify({ id: 'kit_tool', kind: 'tool', version: '1.0.0', files: [] }),
+        'kit/p/d': 'd', 'kit/p/g.so': 'g' };
+    const listed = (more) => {
+        const f = Object.assign({}, files, more);
+        return sourcesLib.repoCatalog((rel) => (f[rel] !== undefined ? Promise.resolve(Buffer.from(f[rel])) : Promise.reject(Object.assign(new Error('no'), { missing: true }))),
+            'a'.repeat(40), 'aaaaaaa', null, () => Promise.resolve(tree(f))).then((cat) => {
+            const of = (id) => (cat.components.find((c) => c.id === id) || {}).content;
+            return [of('kit_tool'), of('gate')];
+        });
+    };
+    // two apps a build script makes, without build.shared
+    const scripted = { 'mgu-repo.json': JSON.stringify({ schema: 1, components: [{ id: 'x_app', kind: 'app', path: 'apps/x', build: { node: 'b.js' } },
+        { id: 'y_app', kind: 'app', path: 'apps/y', build: { node: 'b.js' } }] }), 'apps/x/app.json': '{"version":"1.0.0"}', 'apps/y/app.json': '{"version":"1.0.0"}',
+        'b.js': 'b', 'README.md': 'r' };
+    const built2 = (more) => {
+        const f = Object.assign({}, scripted, more);
+        return sourcesLib.repoCatalog((rel) => (f[rel] !== undefined ? Promise.resolve(Buffer.from(f[rel])) : Promise.reject(Object.assign(new Error('no'), { missing: true }))),
+            'a'.repeat(40), 'aaaaaaa', null, () => Promise.resolve(tree(f))).then((cat) => ['x_app', 'y_app'].map((id) => (cat.components.find((c) => c.id === id) || {}).content));
+    };
+    return Promise.all([listed({}), listed({ 'kit/p/d': 'd2' }), listed({ 'kit/p/g.so': 'g2' }),
+        built2({}), built2({ 'apps/x/m.js': 'm' }), built2({ 'b.js': 'b2' })]).then(([a, b, c, x, y, z]) => {
+        ok('content: of two tools in one folder, a change to one\'s files is no change of the other',
+            a[0] && a[1] && b[0] !== a[0] && b[1] === a[1] && c[0] === a[0] && c[1] !== a[1], JSON.stringify([a, b, c]));
+        ok('content: of two apps a build script makes, a change to one\'s folder is no change of the other; the script changes both',
+            x[0] && x[1] && y[0] !== x[0] && y[1] === x[1] && z[0] !== x[0] && z[1] !== x[1], JSON.stringify([x, y, z]));
+    });
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -5657,7 +6485,9 @@ function main() {
     testCatalog();
     testCollect();
     testFileLog();
-    return testTar()
+    testRequiredAlone();
+    return testContent()
+        .then(() => testTar())
         .then(() => testDeployTimeout())
         .then(() => testIndexV1Cache().catch((e) => ok('index v1 cache scenario', false, e.stack)))
         .then(() => testBuildDisk().catch((e) => ok('build folders scenario', false, e.stack)))
@@ -5668,6 +6498,7 @@ function main() {
         .then(([dnsSrv, httpsSrv]) => testFetch(certs, pubDir)
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
             .then(() => testRequests(certs).catch((e) => ok('requests scenario', false, e.stack)))
+            .then(() => testProxySetting(certs).catch((e) => ok('proxy setting scenario', false, e.stack)))
             .then(() => testUnitServices(certs, pubDir).catch((e) => ok('unit and services scenario', false, e.stack)))
             .then(() => testIndexV2(certs, pubDir).catch((e) => ok('index v2 scenario', false, e.stack)))
             .then(() => testCrossSource(certs).catch((e) => ok('cross-source requirements scenario', false, e.stack)))
@@ -5675,8 +6506,11 @@ function main() {
             .then(() => testIdrive7(certs).catch((e) => ok('idrive7-apps installer scenario', false, e.stack)))
             .then(() => testIcons().catch((e) => ok('icons scenario', false, e.stack)))
             .then(() => testAppRemove().catch((e) => ok('app remove scenario', false, e.stack)))
+            .then(() => testSelfRepair().catch((e) => ok('self-repair scenario', false, e.stack)))
+            .then(() => testFirmwareSetup().catch((e) => ok('firmware setup scenario', false, e.stack)))
             .then(() => testUndo().catch((e) => ok('undo scenario', false, e.stack)))
             .then(() => testPythonRepo().catch((e) => ok('python repo scenario', false, e.stack)))
+            .then(() => testProxyLease().catch((e) => ok('build proxy lease scenario', false, e.stack)))
             .then(() => testIdClash().catch((e) => ok('id clash scenario', false, e.stack)))
             .then(() => testDefaultPrivate(certs).catch((e) => ok('default private source scenario', false, e.stack)))
             .then(() => testAnonymous(certs).catch((e) => ok('anonymous GitHub scenario', false, e.stack)))

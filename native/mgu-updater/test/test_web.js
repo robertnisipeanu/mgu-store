@@ -301,6 +301,12 @@ test('ops go to the updater with the web secret and only their own fields', () =
         .then((r) => {
             assert.deepStrictEqual(r.json, { ok: true });
             assert.strictEqual(received[received.length - 1].id, '3f9a01c2');
+            return post('/api/op', { token, body: { op: 'proxy-set', url: ' socks5://u:p@192.168.8.1:7891 \n', extra: 1 } });
+        })
+        .then((r) => {
+            assert.deepStrictEqual(r.json, { ok: true });
+            const q = received[received.length - 1];
+            assert.deepStrictEqual([q.op, q.url, 'extra' in q], ['proxy-set', 'socks5://u:p@192.168.8.1:7891', false]);
             return post('/api/op', { token, body: { op: 'login-start', source: 'idrive7-apps' } });
         })
         .then((r) => {
@@ -322,7 +328,7 @@ test('requests the page cannot make are refused before the updater', () => {
         { op: 'source-add', type: 'github', repo: 'a/b', channel: 3 },
         { op: 'source-add', type: 'https' },
         { op: 'source-add', type: 'file', path: '/' }, { op: 'token-set', source: 'x', token: 'y' }, { op: 'token-clear', source: 'x' },
-        { op: 'token-add' }, { op: 'token-add', token: 'y', label: 5 }, { op: 'token-remove' }, { op: 'toString' }, ['x']];
+        { op: 'token-add' }, { op: 'token-add', token: 'y', label: 5 }, { op: 'token-remove' }, { op: 'proxy-set' }, { op: 'proxy-set', url: 5 }, { op: 'toString' }, ['x']];
     return Promise.all(bad.map((body) => post('/api/op', { token, body }))).then((rs) => {
         rs.forEach((r) => assert.strictEqual(r.status, 400, r.text));
         assert.strictEqual(received.length, 0);

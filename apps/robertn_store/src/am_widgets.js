@@ -47,6 +47,12 @@ function fit(cv, s, w, size, font) {
     return s.slice(0, lo).replace(/\s+$/, '') + '…';
 }
 
+/** The size s takes to fit w, down to least (a share of size, three quarters unless given). */
+function shrink(cv, s, w, size, font, least) {
+    const tw = cv.textWidth(String(s), size, { font });
+    return tw > w ? Math.max(Math.round(size * (least || 0.75)), Math.floor(size * w / tw)) : size;
+}
+
 /** Words wrapped into w, from top y; at most max lines (the last one cut with …). Returns the lines drawn. */
 function wrap(cv, s, x, y, w, size, c, max, font) {
     let line = '', n = 0;
@@ -67,11 +73,14 @@ function surface(cv, t, x, y, w, h, r, sel, acc) {
 }
 
 /** icon + text centred on (cx, cy) */
-function content(cv, cx, cy, ic, text, sz, c, font) {
+function content(cv, cx, cy, ic, text, sz, c, font, w) {
     const is = ic && CP.has(String(ic).toUpperCase()) ? Math.round(sz * 1.35) : 0, gap = is && text ? sz * 0.4 : 0;
-    const tw = text ? cv.textWidth(text, sz, { font }) : 0, x0 = cx - (is + gap + tw) / 2;
+    const room = w ? w - is - gap : 0;
+    const ts = text && room ? shrink(cv, text, room, sz, font) : sz;
+    if (text && room) text = fit(cv, text, room, ts, font);
+    const tw = text ? cv.textWidth(text, ts, { font }) : 0, x0 = cx - (is + gap + tw) / 2;
     if (is) icon(cv, ic, x0, cy - is / 2, is, c);
-    if (text) mid(cv, text, x0 + is + gap, cy, sz, c, { font });
+    if (text) mid(cv, text, x0 + is + gap, cy, ts, c, { font });
 }
 
 function button(cv, t, b, o) {
@@ -81,7 +90,7 @@ function button(cv, t, b, o) {
     else if (o.style === 'secondary') { cv.roundRect(b.x, b.y, b.w, b.h, r, withAlpha(t.panelTop, 0.9)); cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 2, t.panelEdge); }
     else if (o.style === 'outline') { cv.roundRect(b.x, b.y, b.w, b.h, r, withAlpha(acc, 0.08)); cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 2, acc); fg = acc; }
     else fg = acc;                                                                                   // ghost: text only
-    content(cv, b.x + b.w / 2, b.y + b.h / 2, o.icon, o.text, sz, fg, 'bold');
+    content(cv, b.x + b.w / 2, b.y + b.h / 2, o.icon, o.text, sz, fg, 'bold', b.w - 2 * Math.max(r, 12));
 }
 
 function roundButton(cv, t, b, o) {
@@ -150,7 +159,9 @@ function tabs(cv, t, b, o) {
         if (on && style === 'underline') cv.roundRect(x + cw * 0.15, b.y + b.h - 5, cw * 0.7, 5, 2.5, acc);
         else if (on) { cv.card(x, b.y, cw, b.h, r, [[0, withAlpha(acc, 0.32)], [1, withAlpha(acc, 0.12)]]); cv.strokeRoundRect(x, b.y, cw, b.h, r, 2, acc); }
         else if (style === 'joined' && i) cv.fillRect(x, b.y + b.h * 0.22, 1.5, b.h * 0.56, t.panelEdge);
-        mid(cv, s, x + cw / 2, b.y + b.h / 2, sz, on ? t.text : t.dim, { align: 'center', font: on ? 'bold' : 'label' });
+        const font = on ? 'bold' : 'label';
+        const ts = shrink(cv, s, cw - 16, sz, font);
+        mid(cv, fit(cv, s, cw - 16, ts, font), x + cw / 2, b.y + b.h / 2, ts, on ? t.text : t.dim, { align: 'center', font });
     });
 }
 
@@ -262,7 +273,8 @@ function navRail(cv, t, b, o) {
         const sz = o.size || Math.round(Math.min(c.h * 0.15, c.w * 0.13)), is = Math.round(Math.min(c.h * 0.36, c.w * 0.4));
         const top = c.y + (c.h - is - sz * 1.5) / 2;
         icon(cv, ic, c.x + (c.w - is) / 2, top, is, on ? acc : t.dim);
-        cv.text(label, c.x + c.w / 2, top + is + sz * 1.3, sz, on ? acc : t.dim, { align: 'center' });
+        const ls = shrink(cv, label, c.w - 2 * m, sz);
+        cv.text(fit(cv, label, c.w - 2 * m, ls), c.x + c.w / 2, top + is + sz * 1.3, ls, on ? acc : t.dim, { align: 'center' });
     });
 }
 
@@ -506,4 +518,4 @@ const TRY = {
     }, { drag: true }),
 };
 
-module.exports = { DRAW, TRY, ICONS, icon, chevron, legend, surface, wrap, fit, picture, setPicture, tabCells };
+module.exports = { DRAW, TRY, ICONS, icon, chevron, legend, surface, wrap, fit, shrink, picture, setPicture, tabCells };

@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Các ứng dụng và công cụ hệ thống của mọi nguồn cùng trạng thái của chúng, và các nguồn; cài đặt, cập nhật và gỡ bỏ chúng qua mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Trình cập nhật",
+    "description": "Cài đặt, cập nhật và gỡ bỏ ứng dụng và công cụ hệ thống từ các nguồn của nó"
+  },
+  "mgu-deploy": {
+    "title": "Công cụ triển khai",
+    "description": "Cài đặt, cập nhật, khôi phục bản trước và gỡ bỏ các công cụ và ứng dụng của chúng tôi trên hệ thống, kèm bản chụp nhanh trước mỗi thay đổi"
+  },
+  "mgu-render": {
+    "title": "Trình kết xuất",
+    "description": "Vẽ màn hình của ứng dụng bằng GPU, đè lên HMI hoặc bên trong trang của ứng dụng"
+  },
+  "mgu-uplink": {
+    "title": "Kết nối Internet",
+    "description": "Internet cho các ứng dụng được chọn qua bộ chuyển đổi mạng USB, USB LTE, điện thoại chia sẻ mạng qua USB hoặc Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "Quyền riêng tư ứng dụng",
+    "description": "Giữ các ứng dụng của chúng tôi ngoài báo cáo ứng dụng gửi về máy chủ của hệ thống và khởi động lại chúng sau khi gặp sự cố"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 cho các ứng dụng được dựng trên hệ thống bằng Python"
+  }
+}

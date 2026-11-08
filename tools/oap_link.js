@@ -65,7 +65,10 @@ const vm = require('vm');
 const path = require('path');
 const zlib = require('zlib');
 const cp = require('child_process');
-const builtinModules = require('module').builtinModules;
+/* Node before 8.10 (the 2019 MGU's 8.9.4) has no module.builtinModules; the
+ * natives binding minus internal/ is the list Node 8.10 makes it from. */
+const builtinModules = require('module').builtinModules ||
+    Object.keys(process.binding('natives')).filter((name) => !/^internal\//.test(name));
 const { pack, tgz, stampPackage, MTIME } = require('./oap_pack.js');
 
 const ENTRY_ID = 10000;

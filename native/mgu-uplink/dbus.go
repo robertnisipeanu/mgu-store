@@ -23,6 +23,7 @@ var systemBusSocket = "/var/run/dbus/system_bus_socket"
 
 const (
 	dbusMethodCall   = 1
+	dbusNoAutoStart  = 0x2
 	dbusMethodReturn = 2
 	dbusError        = 3
 
@@ -208,7 +209,13 @@ func dbusMessage(serial uint32, dest string, path objPath, iface, member, sig st
 		field(dbusFieldSignature, "g", sig)
 	}
 	m := h.b
-	copy(m, []byte{'l', dbusMethodCall, 0, 1})
+	var flags byte
+	if dest == wpaDBus {
+		// a call must never start the car's wpa_supplicant (the firmware
+		// has a D-Bus activation file for it)
+		flags = dbusNoAutoStart
+	}
+	copy(m, []byte{'l', dbusMethodCall, flags, 1})
 	binary.LittleEndian.PutUint32(m[4:], uint32(len(body.b)))
 	binary.LittleEndian.PutUint32(m[8:], serial)
 	binary.LittleEndian.PutUint32(m[12:], uint32(len(m)-16))
@@ -278,6 +285,13 @@ func (e *dbusEnc) value(sig string, v any) error {
 		}
 		e.pad(2)
 		e.b = binary.LittleEndian.AppendUint16(e.b, uint16(x))
+	case "q":
+		x, ok := v.(uint16)
+		if !ok {
+			return bad
+		}
+		e.pad(2)
+		e.b = binary.LittleEndian.AppendUint16(e.b, x)
 	case "b":
 		x, ok := v.(bool)
 		if !ok {
@@ -553,6 +567,7 @@ func (d *dbusDec) value(sig string) (any, error) {
 
 type dbusMsg struct {
 	typ     byte
+	flags   byte
 	serial  uint32
 	replyTo uint32
 	path    objPath
@@ -589,7 +604,7 @@ func dbusRead(r io.Reader) (dbusMsg, error) {
 	if _, err := io.ReadFull(r, m[16:]); err != nil {
 		return dbusMsg{}, err
 	}
-	msg := dbusMsg{typ: h[1], serial: o.Uint32(h[8:])}
+	msg := dbusMsg{typ: h[1], flags: h[2], serial: o.Uint32(h[8:])}
 	var sig string
 	d := &dbusDec{b: m[:fieldsEnd], i: 16, o: o}
 	for d.i < fieldsEnd {
