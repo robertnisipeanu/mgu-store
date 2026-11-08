@@ -400,16 +400,74 @@ f = screen('usb');
 eq(f.labels.slice(4), ['Drive Recorder', 'GPU renderer'], 'not the one for another head unit only');
 eq(text(f, 'subtitle'), 'USB STICK · 2 packages');
 
-// Settings: sources, Add source, Wi-Fi, Accounts, Phone access, the unit; no restart while busy
+// Settings: sources, Add source, Wi-Fi, Accounts, Preferred connection, Phone access, the unit; no restart while busy
 f = screen('settings');
 // (a source's switch is a stop of its own after its row; the Store's own source and the stick have none)
 eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'cauliflower/idrive7-apps', 'mlurker/my-tools', 'mlurker/my-tools',
-    'IterioDev/car-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source', 'Wi-Fi', 'Accounts', 'Proxy', 'Phone access', 'Check now']);
+    'IterioDev/car-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source', 'Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access', 'Check now']);
 const acts = (label) => f.items.filter((i) => i.label === label).map((i) => i.act);
 eq(acts('mlurker/my-tools'), [{ do: 'open', page: { name: 'source', id: 'my-tools' } }, { do: 'source-enable', id: 'my-tools', enable: true }],
     'a source that is off: its row opens it, its switch turns it on');
 eq(acts('cauliflower/idrive7-apps')[1], { do: 'source-enable', id: 'idrive7-apps', enable: false }, 'a source that is on: its switch turns it off');
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
+// iDrive 8: the head unit's line, on the Access card's label's line, starts after the label in every language
+// (drawn in each language, ACCESS with rows and HEAD UNIT without)
+{
+    const i18n = require(path.join(__dirname, '..', 'src', 'i18n.js'));
+    const { Recorder } = require(path.join(__dirname, '..', 'src', 'kit_record.js'));
+    const set = SCREENS.screens.find((x) => x.name === 'settings').components;
+    const unit = set.find((c) => c.name === 'unit');
+    const versions = set.find((c) => c.name === 'versions');
+    const lab = set.find((c) => c.name === 'connLabel');
+    const draw = Recorder.prototype.text;
+    let end = 0, widest = '';
+    Recorder.prototype.text = function (str, x, y, size, color, opts) {
+        if (x === lab.x && Math.abs(y - (lab.y + lab.opts.size * 0.8)) < 1) {
+            const e = x + this.textWidth(String(str), size, opts);
+            if (e > end) {
+                end = e;
+                widest = String(str);
+            }
+        }
+        return draw.call(this, str, x, y, size, color, opts);
+    };
+    const m0 = fixture.screens().find((x) => x[0] === 'settings')[1];
+    try {
+        [null].concat(require(path.join(__dirname, '..', 'src', 'locales.js')).filter((l) => l.drawn !== false)).forEach((l) => {
+            i18n.setHmiLanguage(l ? l.hmiLanguages[0] : null);
+            i18n.useDrawn(true);
+            [{}, { uplink: null, web: null, proxy: null, tokens: null }].forEach((over) => {
+                const m = fixture.model(m0, Object.assign(fixture.state(), over));
+                m.language = i18n.language();
+                frame(m, { textScale: I8.scale, scroll: {}, layout: I8.layout });
+            });
+        });
+    } finally {
+        Recorder.prototype.text = draw;
+        i18n.useDrawn(false);
+        i18n.setHmiLanguage(null);
+    }
+    ok(end > lab.x && end + 16 <= unit.x && versions.y + versions.h <= unit.y,
+        `iDrive 8: the label (widest "${widest}", to x ${Math.round(end)}) clear of the head unit's line at ${unit.x}`);
+}
+// the Access card shows three rows: the controller's focus on each later row scrolls it into view, in order, on every unit
+Object.keys(UNITS).forEach((u) => {
+    const m = fixture.model(fixture.screens().find((x) => x[0] === 'settings')[1]);
+    const scroll = {};
+    const rows = ['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'];
+    const rest = frame(m, { textScale: UNITS[u].scale, scroll: {}, layout: UNITS[u].layout }).items;
+    const at = rest.map((i) => i.label);
+    eq(['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'].map((l) => !rest[at.indexOf(l)].reveal), [true, true, true, false, false],
+        `${u}: Wi-Fi, Accounts and Preferred connection in view at first, the rows after them scrolled to`);
+    const shown = rows.map((l) => {
+        const g = frame(m, { textScale: UNITS[u].scale, focus: at.indexOf(l), scroll, layout: UNITS[u].layout });
+        const it = g.items[at.indexOf(l)];
+        const box = it.box;
+        return it.label === l && !it.reveal && it.y >= box.y - 1 && it.y + it.h <= box.y + box.h + 1;
+    });
+    eq([rows.map((l) => at.indexOf(l) - at.indexOf('Wi-Fi')), shown, scroll['settings.access'] > 0], [[0, 1, 2, 3, 4], [true, true, true, true, true], true],
+        `${u}: Access scrolls with the focus`);
+});
 eq(text(f, 'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-renderd 1.1.0');
 eq(text(screen('settings', {}, { allProviders: { renderer: [{ id: 'mgu-render', version: '0.2.0' }, { id: 'mgu-renderd', version: '1.1.2' }] } }),
     'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-render 0.2.0, mgu-renderd 1.1.2', 'every installed renderer');
@@ -565,6 +623,14 @@ eq(f.items.find((i) => i.label === 'Wi-Fi').act, { do: 'open', page: { name: 'wi
 ok(screen('settings', {}, { uplink: null }).labels.indexOf('Wi-Fi') < 0, 'no Wi-Fi without the uplink (an updater before 0.8.0)');
 ok(screen('settings', {}, { uplink: { device: null, state: 'searching', error: null, preferred: '', wifi: null } }).labels.indexOf('Wi-Fi') < 0,
     'nor with an uplink without Wi-Fi (before 0.7.0, or not on auto)');
+// Preferred connection: Settings' row with the group tried first, below Accounts, and only with Wi-Fi (an uplink that takes prefer)
+eq([f.values.access.items[2].title, f.values.access.items[2].sub, f.items.find((i) => i.label === 'Preferred connection').act],
+    ['Preferred connection', 'Wi-Fi', { do: 'open', page: { name: 'prefer' } }]);
+eq(['', 'wifi', 'usb', 'phone'].map((p) => screen('settings', {}, { uplink: Object.assign({}, fixture.state().uplink, { preferred: p }) })
+    .values.access.items[2].sub), ['Automatic', 'Wi-Fi', 'USB', 'Phone']);
+ok(['Preferred connection', 'Wi-Fi'].every((l) => screen('settings', {}, { uplink: { device: null, state: 'searching', error: null, preferred: '',
+    wifi: null } }).labels.indexOf(l) < 0) && screen('settings', {}, { uplink: null }).labels.indexOf('Preferred connection') < 0,
+'no Preferred connection without the uplink, or with one that has no Wi-Fi (before 0.7.0, or not on auto)');
 const wifiSub = (w) => screen('settings', {}, { uplink: Object.assign({}, fixture.state().uplink, { wifi: Object.assign({}, fixture.state().uplink.wifi, w) }) })
     .values.access.items[0].sub;
 eq([{ link: 'connected' }, { link: 'connecting', ssid: 'Cafe' }, { enabled: false, link: 'off', ssid: '' },
@@ -600,16 +666,16 @@ f = screen('wifi-paused');
 eq([text(f, 'subtitle'), text(f, 'state'), own(f).indexOf('Scan') >= 0], ['Paused for wireless Android Auto', 'Not connected', true],
     'paused: the page says so; Scan stays');
 // the page: the network joined first, then the scan's, then saved ones out of range; a tap joins a saved or open one and asks a
-// secured one's password; a saved one has Forget; Don't use Wi-Fi, Scan, the preferred connection
+// secured one's password; a saved one has Forget; Don't use Wi-Fi, Scan
 f = screen('wifi');
-eq(own(f), ['Allow 5 GHz', 'Forget', 'FRITZ!Box 7590 XY', 'Cafe Free WiFi', 'Telekom_FON', 'Forget', "Don't use Wi-Fi", 'Scan', 'Preferred: Wi-Fi', 'Back']);
+eq(own(f), ['Allow 5 GHz', 'Forget', 'FRITZ!Box 7590 XY', 'Cafe Free WiFi', 'Telekom_FON', 'Forget', "Don't use Wi-Fi", 'Scan', 'Back']);
 eq(f.values.networks.items.map((n) => n.sub), ['Online · Strong', 'Secured · Strong', 'Open · Good', 'Open · Weak', 'Saved · not in range']);
 eq([text(f, 'subtitle'), text(f, 'state'), text(f, 'info')], ['5 networks', 'Online · Mario iPhone', 'IP 172.20.10.3 · -52 dBm']);
 eq([f.items[0].act, f.values.allow5.items[0].right], [{ do: 'wifi-5ghz' }, 'toggle:off'], 'Allow 5 GHz: a switch, off');
 eq(f.items.slice(1, 6).map((i) => i.act), [{ do: 'open', page: { name: 'confirm', kind: 'wifi-forget', ssid: 'Mario iPhone' } },
     { do: 'wifi-password', ssid: 'FRITZ!Box 7590 XY' }, { do: 'wifi-join', ssid: 'Cafe Free WiFi' }, { do: 'wifi-join', ssid: 'Telekom_FON' },
     { do: 'open', page: { name: 'confirm', kind: 'wifi-forget', ssid: 'Home' } }]);
-eq(f.items.slice(6, 9).map((i) => i.act), [{ do: 'wifi-power' }, { do: 'wifi-scan' }, { do: 'open', page: { name: 'prefer' } }]);
+eq(f.items.slice(6, 8).map((i) => i.act), [{ do: 'wifi-power' }, { do: 'wifi-scan' }]);
 eq(screen('wifi', {}, { uplink: Object.assign({}, fixture.state().uplink, { wifi: Object.assign({}, fixture.state().uplink.wifi,
     { allow5ghz: true }) }) }).values.allow5.items[0].right, 'toggle:on');
 eq(screen('wifi', {}, { uplink: Object.assign({}, fixture.state().uplink, { wifi: Object.assign({}, fixture.state().uplink.wifi,
@@ -619,7 +685,7 @@ eq(text(screen('wifi-5ghz-only'), 'note'), 'On the iPhone, turn on Maximize Comp
 eq(text(screen('wifi-5ghz-only-ap'), 'note'), 'This network is 5 GHz only: CarPlay audio may drop');
 eq(text(screen('wifi'), 'note'), '');
 f = screen('wifi-off');
-eq([own(f), f.values.networks.empty, text(f, 'state')], [['Use Wi-Fi', 'Preferred: Wi-Fi', 'Back'], 'Not used', 'Not used'],
+eq([own(f), f.values.networks.empty, text(f, 'state')], [['Use Wi-Fi', 'Back'], 'Not used', 'Not used'],
     'not used: no networks, no Scan, no Allow 5 GHz');
 // failed: the reason shown, no Scan
 f = screen('wifi', {}, { uplink: Object.assign({}, fixture.state().uplink, { wifi: { enabled: true, link: 'failed', networks: [], saved: [],
@@ -647,11 +713,21 @@ f = screen('confirm-wifi-forget');
 eq([f.labels, text(f, 'title'), text(f, 'text'), f.items[1].act], [['Cancel', 'Forget'], 'Forget network?', 'Home', { do: 'wifi-forget', ssid: 'Home' }]);
 // the preferred connection: Automatic and the uplink's three groups; the preferred one marked, the others a tap away
 f = screen('prefer');
-eq(own(f), ['Automatic', 'USB', 'Phone', 'Back']);
+eq(own(f), ['Automatic', 'USB', 'Phone', 'Phone over USB', 'Back']);
 eq([text(f, 'status'), f.values.list.items[1].right, f.values.list.items[1].sub], ['Online through Wi-Fi', 'chip:Preferred', 'In use']);
 eq([f.items[0].act, f.items[2].act], [{ do: 'uplink-prefer', kind: '' }, { do: 'uplink-prefer', kind: 'phone' }]);
 f = screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { device: { kind: 'iphone', name: 'iPhone' }, preferred: 'usb' }) });
 eq([text(f, 'status'), f.values.list.items[3].sub, f.values.list.items[2].right], ['Online through Phone', 'In use', 'chip:Preferred']);
+// Phone over USB: a switch below the groups, with an uplink and updater that report it (mgu-uplink 0.7.7, mgu-updater 0.8.32)
+f = screen('prefer');
+eq([f.values.usbPhone.items.map((i) => [i.title, i.right]), f.items[3].act], [[['Phone over USB', 'toggle:on']], { do: 'usb-phone' }]);
+eq(screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { usbPhone: false }) }).values.usbPhone.items[0].right, 'toggle:off');
+eq(screen('prefer', {}, { uplink: Object.assign({}, fixture.state().uplink, { usbPhone: undefined }) }).values.usbPhone.items, [],
+    'no Phone over USB with an uplink or updater without it');
+eq(screen('prefer', {}, { uplink: null }).values.usbPhone.items, [], 'no Phone over USB while the uplink does not run');
+eq(SCREENS.screens.concat(require(path.join(__dirname, '..', 'src', 'store_compact.js')).compact(1796, 632).screens)
+    .filter((s) => s.name === 'prefer').map((s) => s.components.find((c) => c.name === 'usbPhone').opts.empty), ['', ''],
+    'hidden, the row leaves no empty-list text');
 // unavailable: the reason shown, no Scan
 f = screen('wifi', {}, { uplink: Object.assign({}, fixture.state().uplink, { wifi: { enabled: true, link: 'unavailable', networks: [], saved: [],
     scanning: false, error: 'wlan1 is in access point mode' } }) });
@@ -660,13 +736,13 @@ eq([text(f, 'state'), text(f, 'note'), f.values.networks.empty, f.values.scan.di
 
 // the proxy (an updater from 0.8.27): a row in Settings' access card; its page turns it on or off and sets its address
 f = screen('settings');
-eq(f.values.access.items.map((i) => [i.title, i.sub]), [['Wi-Fi', 'Online · Mario iPhone'], ['Accounts', '2 accounts'], ['Proxy', 'Off'],
+eq(f.values.access.items.map((i) => [i.title, i.sub]), [['Wi-Fi', 'Online · Mario iPhone'], ['Accounts', '2 accounts'], ['Preferred connection', 'Wi-Fi'], ['Proxy', 'Off'],
     ['Phone access', 'Off']]);
 eq(f.items.find((i) => i.label === 'Proxy').act, { do: 'open', page: { name: 'proxy' } });
 ok(screen('settings', {}, { proxy: undefined }).labels.indexOf('Proxy') < 0, 'no Proxy row with an updater before 0.8.27');
-eq(screen('settings-proxy-on').values.access.items[2].sub, '192.168.8.1:7891');
+eq(screen('settings-proxy-on').values.access.items[3].sub, '192.168.8.1:7891');
 eq([screen('proxy-error').values.access, screen('settings', {}, { proxy: { on: true, kind: 'http', address: '10.0.0.1:3128', error: 'x' } })
-    .values.access.items[2].sub], [undefined, 'Error']);
+    .values.access.items[3].sub], [undefined, 'Error']);
 f = screen('proxy');
 eq([own(f), f.values.rows.items.map((i) => [i.title, i.sub, i.right]), text(f, 'error')],
     [['Proxy', 'Address', 'Back'], [['Proxy', '', 'toggle:off'], ['Address', 'None', 'chevron']], '']);

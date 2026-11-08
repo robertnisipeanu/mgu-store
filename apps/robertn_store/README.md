@@ -1,4 +1,4 @@
-# robertn_store 0.9.29
+# robertn_store 0.9.26
 
 The Store: every app and head-unit tool of every source, each with its
 state, the progress of the running install, the sources, the phone page
@@ -223,7 +223,7 @@ to add or remove one, a speller that could not open; hidden otherwise),
 one row per source, its label and the account that reads it (a GitHub
 login), else its status: `OK`, `USB` (a source on a plugged-in USB stick),
 `Checking`, `Sign in` (no account reaches it), `Error`, `Offline`, `Disabled`; a switch turns a source on or off
-(not the Store's own source or a USB source; with an updater that reports `disabled`, from 0.8.32), and an off
+(not the Store's own source or a USB source; with an updater that reports `disabled`), and an off
 source is not read and none of its components are listed; then
 **Add source**, **Accounts** and **Phone access** (the phone page, for
 pasting tokens and for logs). A source's page shows its label and status,
@@ -364,13 +364,19 @@ the HMI's speller. The password goes to the updater in that request and
 is kept nowhere, logged nowhere. A saved network has **Forget** (a confirm
 step, `wifi-forget`). The panel shows the state, address and signal, the
 uplink's error (a join that failed) or the refusal of the last request,
-and **Use Wi-Fi** / **Don't use Wi-Fi** (`wifi-enable`: whether the uplink uses Wi-Fi; Use Wi-Fi unblocks a soft-blocked radio and leaves it on), **Scan** (`wifi-scan`, also
-asked when the page opens) and **Preferred: <kind>**, which opens the
-preferred connection: Automatic, Wi-Fi, USB (adapters and LTE sticks),
+and **Use Wi-Fi** / **Don't use Wi-Fi** (`wifi-enable`: whether the uplink uses Wi-Fi; Use Wi-Fi unblocks a soft-blocked radio and leaves it on) and **Scan** (`wifi-scan`, also
+asked when the page opens).
+
+Settings' access card has **Preferred connection** below Accounts, while
+the Wi-Fi row is there. It shows the group the uplink tries first and
+opens its page: Automatic, Wi-Fi, USB (adapters and LTE sticks),
 Phone (Android and iPhone tethering): the uplink's `preferred` values
 `wifi`, `usb`, `phone`; the one preferred marked, the one in use said so; a press makes it the one the uplink tries first
-(`uplink-prefer`), the others staying fallbacks. The widget screens have
-none of this.
+(`uplink-prefer`), the others staying fallbacks. Below them, while the
+uplink has it (mgu-uplink 0.7.7, `usbPhone`, through mgu-updater 0.8.32),
+**Phone over USB** is a switch (`usb-phone`): off, the uplink leaves phones
+plugged in over USB alone, so they keep playing audio and are not asked to
+trust the car. The widget screens have none of this.
 
 An app installs or updates in place when the running MainApp can do it:
 only that app stops and starts. Otherwise the installer restarts MainApp's
@@ -401,7 +407,7 @@ src/locales.js             the languages, written by tools/gen_locales.js
 src/kit_*.js               the kit: record, canvas, vicons, png, themes (MIT, src/LICENSE-kit.txt);
                            kit_fonts.js maps its families onto Inter, and a language's font onto its own atlases
 src/font_regular.js, src/font_semibold.js   Inter glyph atlases (tools/bake_fonts.py)
-robertn_store@<version>/fonts/<font>.json   a language's glyph atlases (tools/bake_inter.py, tools/bake_cjk.py)
+package/fonts/<font>.json   a language's glyph atlases (tools/bake_inter.py, tools/bake_cjk.py)
 lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
 tools/gen_locales.js       src/locales.js from locales/*.json
 tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table, and the RHMI texts
@@ -422,15 +428,15 @@ tools/test_fit.js          every language's words on every drawn screen: nothing
 tools/shots.js             screenshots of the drawn screens through mgu-render --replay (STORE_LANGUAGE: in that language)
 tools/test_drag.js         a drag frame against the frame built whole, through mgu-render --replay
 tools/make_icon.py         the 140x140 tile icon
-robertn_store@0.9.29/       staged package tree (no javascript/: the build writes it)
+package/       staged package tree (no javascript/: the build writes it; the release names it robertn_store@<version>)
 ```
 
 ## Build
 
 ```sh
 cd apps/robertn_store
-node tools/build.js                                # robertn_store@0.9.29.src.tgz
-node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@0.9.29.tgz (MGU_SDK_DONOR)
+node tools/build.js                                # robertn_store@<version>.src.tgz
+node tools/build.js --sdk <donor .tgz|.js>         # and robertn_store@<version>.tgz (MGU_SDK_DONOR)
 node tools/test_view.js && node tools/test_rhmi.js && node tools/test_qr.js && node tools/test_speller.js &&
     node tools/test_screens.js && node tools/test_store.js && STORE_HMI=ID8 node tools/test_store.js &&
     node tools/test_i18n.js

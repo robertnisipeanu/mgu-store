@@ -97,7 +97,6 @@
     "Phone access": "Prístup z telefónu",
     "Preferred connection": "Preferované pripojenie",
     "Preferred": "Preferované",
-    "Preferred: {0}": "Preferované: {0}",
     "Rejected": "Odmietnuté",
     "Releases": "Vydania",
     "Remove": "Odstrániť",
@@ -198,6 +197,7 @@
     "Allow 5 GHz": "Povoliť 5 GHz",
     "May cause CarPlay issues": "Môže spôsobiť problémy s CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Na iPhone zapnite Maximalizovať kompatibilitu",
-    "This network is 5 GHz only: CarPlay audio may drop": "Táto sieť je len 5 GHz: zvuk CarPlay môže vypadávať"
+    "This network is 5 GHz only: CarPlay audio may drop": "Táto sieť je len 5 GHz: zvuk CarPlay môže vypadávať",
+    "Phone over USB": "Telefón cez USB"
   }
 }

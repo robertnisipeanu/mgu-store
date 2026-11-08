@@ -99,7 +99,6 @@
     "Phone access": "Telefoontoegang",
     "Preferred connection": "Voorkeursverbinding",
     "Preferred": "Voorkeur",
-    "Preferred: {0}": "Voorkeur: {0}",
     "Rejected": "Geweigerd",
     "Releases": "Releases",
     "Remove": "Verwijderen",
@@ -200,6 +199,7 @@
     "Allow 5 GHz": "5 GHz toestaan",
     "May cause CarPlay issues": "Kan problemen met CarPlay geven",
     "On the iPhone, turn on Maximize Compatibility": "Zet op de iPhone Maximaliseer compatibiliteit aan",
-    "This network is 5 GHz only: CarPlay audio may drop": "Dit netwerk is alleen 5 GHz: CarPlay-audio kan wegvallen"
+    "This network is 5 GHz only: CarPlay audio may drop": "Dit netwerk is alleen 5 GHz: CarPlay-audio kan wegvallen",
+    "Phone over USB": "Telefoon via USB"
   }
 }

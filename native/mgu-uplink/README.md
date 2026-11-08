@@ -116,6 +116,22 @@ CARRIER_CHECK, CLEAR_HALT on both bulk endpoints) follow IterioDev's
 at once: the unit has `Conflicts=ipheth-tether.service`, and the Store does
 not install the tether (deploy/README.md, "IterioDev's App Manager").
 
+#### Phones over USB switched off
+
+Taking a phone has a cost: an iPhone taken for its hotspot is no media
+device, so USB audio from it stops, and each time it is plugged in while
+it does not trust the unit, it asks "Trust This Computer?". It is taken
+whether Personal Hotspot is on or not. With phones over USB switched off
+(`usb_phone = off`, or the Store through `usb-phone`), the uplink leaves
+every phone alone: no Android phone's USB tethering is used, and no iPhone
+is taken from the media daemon, switched to configuration 4 or paired, so
+the car keeps it for media, iAP2 and wired CarPlay. USB Ethernet
+adapters, CDC-ECM sticks and Wi-Fi are used; a stick that presents RNDIS
+or NCM counts as a phone and is left alone too. Switched off while the
+uplink runs on a phone, that link ends at once as an unplug ends it (an
+iPhone goes back to the media daemon) and the uplink goes on with the next
+device; switched on again, a phone plugged in is taken at the next scan.
+
 ### Wi-Fi
 
 The unit joins a saved Wi-Fi network (a phone's hotspot, an access point)
@@ -236,8 +252,9 @@ association): a joined network stays as it is until it is left.
 A station scan takes the radio off the channel the phone projects on. So
 while wireless CarPlay or Android Auto is connected, the supplicant's own
 scans (looking for a saved network, or joining one again) keep off the
-phone's band; a `wifi-scan` request and a `wifi-connect` still cover every
-channel, at any time, and a joined network stays joined.
+phone's band (with Allow 5 GHz, all but the phone's own channel); a
+`wifi-scan` request and a `wifi-connect` still cover every channel, at any
+time, and a joined network stays joined.
 
 A session is the projection daemon connected to an address that is not a
 loopback one (`/proc/net/tcp`, `tcp6`: uid 13002 for CarPlay, `carplay`;
@@ -251,7 +268,10 @@ phone's.
   `fi.w1.wpa_supplicant1.Interface.P2PDevice.Group`, its `Frequency`),
   gives the band. Our networks get a `scan_freq` of the other band's
   channels (2412 to 2472 MHz, or 5180 to 5825 MHz), so the supplicant's
-  own scans cover only those. With the band not known (both groups
+  own scans cover only those; with Allow 5 GHz, the frequency of the
+  phone's group too (a station on the group's own channel shares it
+  without taking the radio off it), so an access point on that channel is
+  found and joined there. With the band not known (both groups
   receive, or the frequency can't be read), or a supplicant that refuses
   `scan_freq`, our networks are switched off while Wi-Fi is not joined, as
   above.
@@ -277,11 +297,12 @@ the Store and the phone page:
   "state": "trust-needed", "error": "Tap Trust on the iPhone and enter its passcode" }
 ```
 
-with `uplink = auto`, also `wifi`, and `preferred` while a group is preferred:
+with `uplink = auto`, also `wifi`, `usbPhone` (whether phones over USB are
+taken), and `preferred` while a group is preferred:
 
 ```json
 { "device": { "kind": "wifi", "name": "iPhone - Mario" }, "state": "online", "error": null,
-  "preferred": "wifi",
+  "preferred": "wifi", "usbPhone": true,
   "wifi": { "enabled": true, "link": "online", "ssid": "iPhone - Mario", "ip": "172.20.10.2", "signal": -45,
     "networks": [ { "ssid": "iPhone - Mario", "signal": -40, "secure": true, "saved": true, "current": true } ],
     "saved": [ "iPhone - Mario" ], "scanning": false, "error": null } }
@@ -334,12 +355,13 @@ updater only, which relays these; `status.json` shows the results.
 | `{"op": "prefer", "kind": "phone"}` | the group tried first (`wifi`, `usb`, `phone`; `""` for none); takes effect within 5 s |
 | `{"op": "wifi-enable", "on": true}` | Wi-Fi on or off |
 | `{"op": "wifi-5ghz", "on": true}` | Allow 5 GHz: joins on either band (The band, above) |
+| `{"op": "usb-phone", "on": false}` | phones over USB taken or left alone (Phones over USB switched off, above) |
 | `{"op": "wifi-scan"}` | scan now |
 | `{"op": "wifi-connect", "ssid": "…", "psk": "…"}` | join a network, with its password; saved once joined. Without `psk`: a saved network, or an open one |
 | `{"op": "wifi-forget", "ssid": "…"}` | forget a saved network |
 
 The reply is `{"ok": true}` or `{"ok": false, "error": "…"}`. `prefer`,
-`wifi-enable` and `wifi-5ghz` are kept in `settings_conf`. A password goes to wpa_supplicant
+`wifi-enable`, `wifi-5ghz` and `usb-phone` are kept in `settings_conf`. A password goes to wpa_supplicant
 only: no log line, reply or status names it.
 
 ## Config
@@ -350,7 +372,7 @@ replaced by every update. The unit's own settings go in
 replaces the shipped value, except `uids`, which adds to it), which updates keep.
 What the Store sets through requests goes in
 `/var/opt/mgu-uplink/mgu-uplink.settings.conf`, read after the local conf
-and kept by updates. Only `preferred`, `wifi` and `wifi_5ghz` are read from it; any other
+and kept by updates. Only `preferred`, `wifi`, `wifi_5ghz` and `usb_phone` are read from it; any other
 line, or a value this version does not know, is logged and skipped, so an
 older version still starts after a rollback.
 
@@ -362,6 +384,7 @@ older version still starts after a rollback.
 | `preferred` | `wifi`, `usb` or `phone`, tried first; empty (shipped) for the order above; any other value is logged and ignored |
 | `wifi` | `on` or `off` (shipped) |
 | `wifi_5ghz` | `on`: Wi-Fi joins on either band; `off` (shipped): on 2.4 GHz only where a network is seen there |
+| `usb_phone` | `on` (shipped): phones over USB are used; `off`: left alone |
 | `table`, `rule_pref` | routing table (110) and first rule priority (1100) |
 
 Components that need the internet add themselves without touching the
@@ -378,7 +401,7 @@ local conf is ignored, and the start logs it: the uplink takes whatever is
 plugged in.
 
 `uplink`, `table` and the other keys take effect at the next service
-restart; `preferred`, `wifi` and `wifi_5ghz` set by a request take effect at once.
+restart; `preferred`, `wifi`, `wifi_5ghz` and `usb_phone` set by a request take effect at once.
 
 ## Build, install, update
 

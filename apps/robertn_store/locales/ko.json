@@ -97,7 +97,6 @@
     "Phone access": "휴대폰 액세스",
     "Preferred connection": "우선 연결",
     "Preferred": "우선",
-    "Preferred: {0}": "우선: {0}",
     "Rejected": "거부됨",
     "Releases": "릴리스",
     "Remove": "제거",
@@ -198,6 +197,7 @@
     "Allow 5 GHz": "5 GHz 허용",
     "May cause CarPlay issues": "CarPlay에 문제가 생길 수 있습니다",
     "On the iPhone, turn on Maximize Compatibility": "iPhone에서 호환성 최대화를 켜세요",
-    "This network is 5 GHz only: CarPlay audio may drop": "이 네트워크는 5 GHz 전용입니다: CarPlay 오디오가 끊길 수 있습니다"
+    "This network is 5 GHz only: CarPlay audio may drop": "이 네트워크는 5 GHz 전용입니다: CarPlay 오디오가 끊길 수 있습니다",
+    "Phone over USB": "USB로 연결한 휴대폰"
   }
 }

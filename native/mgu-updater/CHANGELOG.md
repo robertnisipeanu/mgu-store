@@ -1,8 +1,21 @@
 # Updater changelog
 
-## 0.8.32
+## Unreleased
 
 - A source can be turned off and on (`source-enable`, with the secret: `{ id, enable }`, or `{ all: true, enable }` for every source but the Store's own). A source that is off stays in `sources.json` (`disabled: true`) with its kept catalog, is not read, and none of its components are listed; what it installed stays installed. The state reports `disabled` and status `disabled` for it. Turning one on lists its kept catalog as it is and reads the source only when it has none; the next check reads it again
+
+## 0.8.34
+
+No changes.
+
+## 0.8.33
+
+- On a branch, a new commit of the same version is an update only when it changes the component: its folder (without other components' folders or files inside it) or its `mgu-repo.json` entry; a service or preload tool's one file; for an app a build script makes, also the paths its `build.shared` names and the script, or, without `build.shared`, anything but the other apps' folders. The updater compares the git ids in each commit's tree: one GitHub API request for each new head commit while something is installed from the branch, and one for each older commit an install is recorded with alone. While a content cannot be read, a new commit is an update.
+
+## 0.8.32
+
+- `{"op":"usb-phone","on":true|false}` (privileged) is relayed to the uplink as it is: phones over USB used or left alone (mgu-uplink 0.7.7).
+- The state's `uplink` has `usbPhone` while the uplink's `status.json` says it.
 
 ## 0.8.31
 

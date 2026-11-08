@@ -43,7 +43,7 @@ function state() {
         login: null,
         web: { enabled: false, urls: [], error: null },
         proxy: { on: false, kind: null, address: null, auth: false, error: null },
-        uplink: { device: { kind: 'wifi', name: 'Mario iPhone' }, state: 'online', error: null, preferred: 'wifi',
+        uplink: { device: { kind: 'wifi', name: 'Mario iPhone' }, state: 'online', error: null, preferred: 'wifi', usbPhone: true,
             wifi: { enabled: true, link: 'online', ssid: 'Mario iPhone', ip: '172.20.10.3', signal: -52, scanning: false, error: null, allow5ghz: false,
                 networks: [{ ssid: 'Mario iPhone', signal: -52, secure: true, saved: true, current: true },
                     { ssid: 'FRITZ!Box 7590 XY', signal: -58, secure: true, saved: false, current: false },
@@ -135,7 +135,7 @@ function screens() {
         ['type-symbols', { tab: 'settings', stack: main.concat([{ name: 'type', title: 'Password', text: 'Wi-\\"`', layout: 'text', symbols: true,
             sym: true, go: 'Connect' }]) }],
         // Wi-Fi (the uplink's): its networks, off, a join that failed, paused for wireless Android Auto (and in Settings for
-        // CarPlay); a password; Forget; the preferred connection
+        // CarPlay); a password; Forget; the preferred connection (Settings' row)
         ['wifi', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) }],
         ['wifi-off', { tab: 'settings', stack: main.concat([{ name: 'wifi' }]) },
             wifiSt(st, { enabled: false, link: 'off', ssid: '', ip: '', signal: null, networks: [] })],
@@ -155,7 +155,7 @@ function screens() {
             label: 'Password', layout: 'text', symbols: true, go: 'Connect', min: 8, max: 63, secret: 'password' }]) }],
         ['confirm-wifi-forget', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'confirm', kind: 'wifi-forget', ssid: 'Home' }]),
             focus: 0 }],
-        ['prefer', { tab: 'settings', stack: main.concat([{ name: 'wifi' }, { name: 'prefer' }]) }],
+        ['prefer', { tab: 'settings', stack: main.concat([{ name: 'prefer' }]) }],
         // the proxy: off, on, failing; its address typed
         ['proxy', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }],
         ['proxy-on', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],

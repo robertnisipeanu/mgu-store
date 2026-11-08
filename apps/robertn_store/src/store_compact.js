@@ -104,9 +104,9 @@ function compact(W, H) {
         button('addRepo', X, B - SET_H, leftW, SET_H, 'Add source', 'tinted', 25, { vicon: 'plus', color: BLUE }),
         el('connPanel', 'rect', rx, HEAD + 4, rw, B - HEAD - 4, { color: 'panelTop', radius: 20 }),
         label('connLabel', rx + 18, HEAD + 18, 'ACCESS'),
-        list('access', rx + 12, HEAD + 52, rw - 24, 2 * LIST.rowH),
-        text('unit', rx + 18, HEAD + 60 + 2 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
-        text('versions', rx + 18, HEAD + 100 + 2 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
+        list('access', rx + 12, HEAD + 52, rw - 24, 3 * LIST.rowH),
+        text('unit', rx + 18, HEAD + 60 + 3 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
+        text('versions', rx + 18, HEAD + 100 + 3 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
         button('checkNow', rx + 16, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Check now', 'outline', 25, { vicon: 'refresh' }),
         button('restart', rx + 28 + (rw - 44) / 2, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Restart head unit', 'outline', 25,
             { vicon: 'refresh' })
@@ -222,7 +222,7 @@ function compact(W, H) {
         el('keyboard', 'keyboard', X, keysY, CW, B - keysY, { shift: false })
     ]);
     // Wi-Fi: the networks on the left, the state and its buttons in the panel on the right
-    const wbY = (k) => B - 14 - (3 - k) * BTN_H - (2 - k) * 12;      // the panel's k-th button (0, 1, 2)
+    const wbY = (k) => B - 14 - (3 - k) * BTN_H - (2 - k) * 12;      // the panel's k-th button slot (0, 1, 2; 2 is empty)
     const wifi = screen('wifi', 3, [
         back(),
         title('Wi-Fi', titleX),
@@ -235,14 +235,14 @@ function compact(W, H) {
         text('info', px + 132, M + 72, PW - 152, 30, '', 23, 'label', DIM),
         text('note', px + 20, M + 132, PW - 40, wbY(0) - 12 - M - 132, '', 23, 'label', AMBER, { wrap: true }),
         button('power', px + 20, wbY(0), PW - 40, BTN_H, '', 'outline', 28, { vicon: 'wifi' }),
-        button('scan', px + 20, wbY(1), PW - 40, BTN_H, 'Scan', 'outline', 28, { vicon: 'refresh' }),
-        button('prefer', px + 20, wbY(2), PW - 40, BTN_H, '', 'outline', 28, { vicon: 'route' })
+        button('scan', px + 20, wbY(1), PW - 40, BTN_H, 'Scan', 'outline', 28, { vicon: 'refresh' })
     ]);
     const prefer = screen('prefer', 3, [
         back(),
         title('Preferred connection', titleX),
         status('status', R - 420, 420),
-        list('list', X, HEAD + 14, Math.min(1100, CW), B - HEAD - 14, { empty: '' })
+        list('list', X, HEAD + 14, Math.min(1100, CW), 4 * LIST.rowH, { empty: '' }),
+        list('usbPhone', X, HEAD + 14 + 4 * LIST.rowH + 8, Math.min(1100, CW), LIST.rowH, { empty: '' })
     ]);
     const proxyW = Math.min(1100, CW);
     const proxy = screen('proxy', 3, [

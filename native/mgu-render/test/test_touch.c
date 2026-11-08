@@ -59,13 +59,16 @@ static int outs(void) { return count(slurp(), "delete table ip mgu_render") - lo
 
 int main(void)
 {
-    /* nft: a script that logs its arguments and what it reads */
-    char dir[] = "/tmp/mgu-touch-XXXXXX", nft_path[300], path[1200];
+    /* nft: a script that logs its arguments and the file it is given; while <dir>/gone exists, `nft list table`
+     * finds no table (nftables 0.7 given a script on "-": it reports the load done, and nothing went in) */
+    char dir[] = "/tmp/mgu-touch-XXXXXX", nft_path[300], path[1200], gone[300];
     if (!mkdtemp(dir)) { perror("mkdtemp"); return 1; }
     snprintf(nft_log, sizeof nft_log, "%s/nft.log", dir);
     snprintf(nft_path, sizeof nft_path, "%s/nft", dir);
+    snprintf(gone, sizeof gone, "%s/gone", dir);
     FILE *f = fopen(nft_path, "w");
-    fprintf(f, "#!/bin/sh\n{ echo \"nft $*\"; [ \"$1\" = -f ] && cat; } >> %s\n", nft_log);
+    fprintf(f, "#!/bin/sh\n{ echo \"nft $*\"; [ \"$1\" = -f ] && cat \"$2\"; } >> %s\n"
+               "[ \"$1 $2\" != \"list table\" ] || [ ! -e %s ]\n", nft_log, gone);
     fclose(f); chmod(nft_path, 0755);
     snprintf(path, sizeof path, "%s:%s", dir, getenv("PATH") ? getenv("PATH") : "/usr/bin:/bin");
     setenv("PATH", path, 1);
@@ -151,6 +154,13 @@ int main(void)
     CHECK(out_after, "renderer gone: the guard left the rule in");
     CHECK(!strstr(slurp(), "touchroute"), "a script names IterioDev's table");
     while (wait(NULL) > 0) {}
+
+    /* every script goes to nft in a file, and a load counts only when its table is there afterwards */
+    CHECK(count(slurp(), "nft -f /tmp/mgu-render-nft-") == count(slurp(), "nft -f "), "a script not given in a file");
+    fclose(fopen(gone, "w"));
+    CHECK(rule_in() != 0, "a load whose table is not there counted as in");
+    unlink(gone);
+    CHECK(rule_in() == 0, "a load whose table is there counted as failed");
 
     char cmd[64]; snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
     if (system(cmd) != 0) { /* the scratch folder stays */ }

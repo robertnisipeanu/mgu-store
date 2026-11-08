@@ -1,11 +1,34 @@
 # Changelog
 
-## 0.9.29
+## Unreleased
 
 - Settings, Sources: each source but the Store's own and a stick has a switch that turns it on or off, shown at once. An off source stays listed as Disabled, is not read, and none of its components are listed.
 - Store tab: a Sources drop-down (Sources selected number/total number) with a checkbox for each source, Select all and Uncheck all; open, it covers the tiles
 - Store tab: the All/Apps/Tools tabs are replaced by Show (each press: all, installed, not installed) and the Apps and Tools buttons, each on or off.
 - Fixed issue: An app page's notes (why it cannot be installed, restart pending, for another head unit) wrap over several lines in place of one cut line
+
+## 0.9.31
+
+The package's files are in `package/` in the repository, and the Store's fonts folder is found there through `mgu-app.json` when it runs from the repository. Nothing changes on the head unit.
+
+## 0.9.30
+
+**Preferred connection** is a row in Settings, below Accounts, showing the
+connection tried first; it opens the Preferred connection page. The
+Access card shows Wi-Fi, Accounts and Preferred connection at once: on
+iDrive 7 the head unit and version lines sit below them, on iDrive 8 in
+the card's header beside ACCESS. The page
+has **Phone over USB**, a switch for whether the uplink uses phones
+plugged in over USB (mgu-uplink 0.7.7, through mgu-updater 0.8.32); off,
+a plugged-in phone keeps playing audio and is not asked to trust the car.
+The switch shows only while the uplink and updater have it. The Wi-Fi
+page has no Preferred button: Settings' row is the way in. In every
+language.
+
+## 0.9.29
+
+The Store's tile keeps its name in the Apps menu after the app manager
+stops the Store: the tile shows the name and icon the app manager gives it.
 
 ## 0.9.28
 

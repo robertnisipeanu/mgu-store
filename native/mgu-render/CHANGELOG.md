@@ -1,5 +1,15 @@
 # mgu-render changelog
 
+## Unreleased
+
+## 0.6.14
+
+- The touch divert rule goes to nft in a file (`/tmp/mgu-render-nft-*`), and a load counts only when `nft list table ip mgu_render` finds the table afterwards; otherwise the journal says `touch: loading the nft rule failed, touch stays the HMI's` and the load is tried again 5 s later. nftables 0.7 on iDrive 7 units (MainApp 8.2.0; also reported on MainApp 6.5.5) reads a script given as `-` as a file of that name, fails and exits 0: the journal said `touch: diverted`, the table was never there, and no touch reached the Store or its apps.
+
+## 0.6.13
+
+- The car-test kit refuses a branch that requires the next release of a component the kit does not install, and builds a changed mgu-render at the version its release gives it.
+
 ## 0.6.12
 
 - The foreground gate maps an RHMI uuid that more than one `oap_<uid>` folder claims (an earlier install's folder left behind) to the install the app manager has registered (`oap_12201/data/apps/<id>.json`), when exactly one of them is registered; otherwise the uuid stays unmapped, so an app still cannot take another app's uuid. A left-behind folder of the Store kept it out of front for good, and its page stayed black under the HMI's title.

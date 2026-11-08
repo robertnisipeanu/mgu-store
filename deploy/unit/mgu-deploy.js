@@ -53,9 +53,8 @@ var cp = require('child_process');
  * their mode. */
 process.umask(0o022);
 
-/* deploy/component.json's version; bumped when a file under deploy/unit/
- * changes. */
-var VERSION = '0.8.4';
+/* deploy/component.json's version; the release sets both. */
+var VERSION = '0.8.5';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 

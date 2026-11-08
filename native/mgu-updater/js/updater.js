@@ -854,7 +854,7 @@ function under(entry, id) {
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
 const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'source-enable', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
-    'uplink-prefer', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
+    'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
  * the updater (README.md, "The uplink"): each one's ctl.sock request, built
@@ -865,6 +865,7 @@ const UPLINK_OPS = {
         : 'uplink-prefer needs a kind ("" for none)'),
     'wifi-enable': (r) => (typeof r.on === 'boolean' ? { op: 'wifi-enable', on: r.on } : 'wifi-enable needs on: true or false'),
     'wifi-5ghz': (r) => (typeof r.on === 'boolean' ? { op: 'wifi-5ghz', on: r.on } : 'wifi-5ghz needs on: true or false'),
+    'usb-phone': (r) => (typeof r.on === 'boolean' ? { op: 'usb-phone', on: r.on } : 'usb-phone needs on: true or false'),
     'wifi-scan': () => ({ op: 'wifi-scan' }),
     'wifi-connect': (r) => (!SSID_OK(r.ssid) ? 'a network name is 1 to 32 bytes'
         // a WPA passphrase: 8 to 63 printable ASCII characters; none for a saved or an open network
@@ -1532,8 +1533,10 @@ class Updater {
             const ours = !!row.installed || (rec ? rec.source === this.originOf(resolved[i].source) : row.id === unit);
             const placed = ours && !row.installed && this.placed(unit, entry.kind);
             const o = this.origins[row.id];
-            // a branch's new commit of the same version
-            if (row.status === 'installed' && entry.revision && o && o.source === row.source && o.commit && o.commit !== entry.commit) {
+            // a branch's new commit of the same version that changed what the component is made of
+            // (its content; the commit when either content is unknown)
+            if (row.status === 'installed' && entry.revision && o && o.source === row.source && o.commit && o.commit !== entry.commit &&
+                !(entry.content && o.content === entry.content)) {
                 row.status = 'update';
             }
             const icon = entry.icon ? this.iconFile(resolved[i].source, entry) : null;
@@ -1684,6 +1687,7 @@ class Updater {
         const attempt = (i) => {
             const text = cands[i] ? this.tokens.text(cands[i]) : '';
             const reader = sourcesLib.reader(rt.def, Object.assign({}, this.ctx, { tokenFor: () => text,
+                needContent: () => Object.keys(this.origins).some((k) => this.origins[k].source === this.originOf(rt.def.id) && !!this.origins[k].commit),
                 reuse: (key) => (rt.memo && rt.memo.key === key ? JSON.parse(JSON.stringify(rt.memo.cat)) : null) }));
             return reader.catalog().then((cat) => {
                 rt.tokenId = cands[i];
@@ -1742,6 +1746,7 @@ class Updater {
                     `${cat.apiRequests !== undefined ? `; ${cat.apiRequests} GitHub API requests` : ''}`);
                 // in the background: a slow icon host holds up no check
                 this.fetchIcons(rt);
+                return this.recordContents(id, rt);
             }, (err) => {
                 rt.status = err.auth ? 'auth-needed' : 'error';
                 rt.error = err.message;
@@ -1761,6 +1766,35 @@ class Updater {
                 }
             });
         return rt.checking;
+    }
+
+    /* The content (sourcesLib.contentThen) of each component installed from
+     * this source's branch at a commit whose content its origin does not
+     * record, from that commit's tree (read once for all of them). One that
+     * cannot be read is tried at the next check, and compared by commit
+     * until then; a commit GitHub does not have gets '-'. */
+    recordContents(id, rt) {
+        const origin = this.originOf(id);
+        const trees = {};
+        const todo = rt.components.filter((c) => c.contentSpec && c.content).map((c) => {
+            const o = this.origins[this.aliases[`${origin}:${c.id}`] || c.id];
+            return o && o.source === origin && o.commit && !o.content ? { c, o } : null;
+        }).filter(Boolean);
+        return todo.reduce((p, t) => p.then(() => {
+            if (t.o.commit === t.c.commit) {
+                return t.c.content;
+            }
+            trees[t.o.commit] = trees[t.o.commit] || rt.reader.treeAt(t.o.commit);
+            return trees[t.o.commit].then((tree) => sourcesLib.contentThen(tree, t.c.contentSpec), (err) => {
+                if (err.status === 404 || err.status === 422 || err.permanent) {
+                    return '-';
+                }
+                throw err;
+            });
+        }).then((content) => {
+            t.o.content = content;
+            this.saveOrigins();
+        }, (err) => console.log(`source ${id}: ${t.c.id} at ${t.o.commit.slice(0, 7)}: no content: ${err.message}`)), Promise.resolve());
     }
 
     /* Where an entry's icon is kept: <state_dir>/icons/<sha256>.png, named by
@@ -2818,7 +2852,7 @@ class Updater {
                 console.log(stopped ? `${id}@${entry.version}: the deploy tool's MainApp guard stopped it; what it did stays until the next start`
                     : `installed ${id}@${entry.version}`);
                 // installed from a stick's copy of a source: that source is its origin
-                this.origins[id] = { source: this.originOf(item.source), commit: entry.commit || null };
+                this.origins[id] = { source: this.originOf(item.source), commit: entry.commit || null, content: entry.content || null };
                 this.saveOrigins();
                 if (entry.listedId) {
                     this.aliases[`${this.originOf(item.source)}:${entry.listedId}`] = id;
@@ -3805,7 +3839,7 @@ class Updater {
     }
 
     /* Reads the uplink's status.json (uplink_status): { device, state, error,
-     * preferred, wifi }, null without one. True when it changed. One that
+     * preferred, usbPhone (mgu-uplink 0.7.7; left out before), wifi }, null without one. True when it changed. One that
      * does not parse is read again next time. */
     readUplink() {
         let text = '';
@@ -3824,6 +3858,9 @@ class Updater {
         this.uplinkText = text;
         this.uplink = st && typeof st === 'object' ? { device: st.device || null, state: st.state || null, error: st.error || null,
             preferred: st.preferred || '', wifi: st.wifi && typeof st.wifi === 'object' ? st.wifi : null } : null;
+        if (this.uplink && typeof st.usbPhone === 'boolean') {
+            this.uplink.usbPhone = st.usbPhone;
+        }
         return true;
     }
 
@@ -3914,6 +3951,7 @@ class Updater {
         case 'uplink-prefer':
         case 'wifi-enable':
         case 'wifi-5ghz':
+        case 'usb-phone':
         case 'wifi-scan':
         case 'wifi-connect':
         case 'wifi-forget': return this.uplinkRequest(req, reply);

@@ -222,9 +222,21 @@ commit). Without one: `releases` when the repo has a release, else
   an install downloads the repo tarball at that commit (`/tarball/<sha>`,
   at most `repo_max_bytes`; links in it are left out). A folder is read in
   place.
-- On a branch, a commit of the same version is an update too: a row's
-  `revision` is the short commit it would install, and
-  `state/origins.json` records the commit installed.
+- On a branch, a commit of the same version is an update too when it
+  changes the component: a row's `revision` is the short commit it would
+  install, and `state/origins.json` records the commit installed and the
+  component's content there. The content is the git ids, from the commit's
+  tree (`/git/trees/<sha>?recursive=1`), of the component's folder,
+  leaving out other components' folders or files inside it, and its
+  `mgu-repo.json` entry. A service or preload tool is the one file it packs.
+  For an app a build script makes, it is also the paths its `build.shared`
+  names and the script, or, without `build.shared`, the whole repo but the
+  other apps' folders. The tree is read, one API request, for each new head
+  commit while something is installed from the branch, and once for each
+  older commit an install is recorded with alone (its content is then that
+  commit's, while `mgu-repo.json` is the same file there, else `-`, which
+  matches nothing). While a content cannot be read, a new commit is an
+  update.
 
 **Building on the unit.** `build.node` runs under this Node, and
 `build.python` under `python` (`/var/opt/mgu-python/current/bin/python3`,
@@ -973,9 +985,10 @@ each request, and whenever it changes (at most every 250 ms):
   password, never shown), and `error`: what is wrong with the setting, else
   the last download's failure at the proxy until one gets through.
 - `uplink`: the uplink's `status.json` ("The uplink"): its `device`,
-  `state`, `error`, `preferred` (`""`: none) and `wifi` (null without it:
-  an uplink before 0.7.0, or not on `uplink = auto`); null while the
-  uplink does not run.
+  `state`, `error`, `preferred` (`""`: none), `usbPhone` (whether phones
+  over USB are used; left out before mgu-uplink 0.7.7 and without
+  `uplink = auto`) and `wifi` (null without it: an uplink before 0.7.0, or
+  not on `uplink = auto`); null while the uplink does not run.
 - `catalog`: the sources as one line, for the Store 0.3: `checking` while
   any is read, `error` the first source that failed (`<label>: <error>`).
 - `mainappGuard`: why app changes wait for the next start of the head unit
@@ -1011,6 +1024,7 @@ Store says it at each connection (below, "The Store's update").
 | `{"op":"logs","unit","lines"}` | `{"type":"logs","unit","text"}`: a journal for the phone page |
 | `{"op":"uplink-prefer","kind"}` | the uplink's preferred connection: `wifi`, `usb`, `phone` (`""` for none), relayed as its `prefer` ("The uplink") |
 | `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-5ghz","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi, relayed as they are ("The uplink") |
+| `{"op":"usb-phone","on":true\|false}` | phones over USB used by the uplink or left alone, relayed as it is ("The uplink") |
 
 A refused request gets `{"type":"error","op",…,"error"}`; one without the
 right secret, `"error":"forbidden"`. The direct answer to a request
@@ -1051,7 +1065,7 @@ requests take the secret as `opts.secret` or `setSecret()`).
 
 The Store talks to the updater only; the uplink's requests socket
 (`uplink_ctl`, `/run/mgu-uplink/ctl.sock`, root only, mgu-uplink 0.7.0)
-is the updater's to reach. `uplink-prefer`, `wifi-enable`, `wifi-5ghz` (mgu-uplink 0.7.6),
+is the updater's to reach. `uplink-prefer`, `usb-phone` (mgu-uplink 0.7.7), `wifi-enable`, `wifi-5ghz` (mgu-uplink 0.7.6),
 `wifi-scan`, `wifi-connect` and `wifi-forget` (privileged) are checked here (a kind of
 up to 16 lower-case letters, a network name of 1 to 32 bytes, a password
 of 8 to 63 printable ASCII characters or none, `on` true or false), then
@@ -1129,7 +1143,7 @@ files), with
   refresh token), no token anywhere but `api.github.com`, and the
   per-source files of 0.2 converted; public repos read with a stored
   token; the requests each check makes; the releases layout, a branch (a new commit of the same
-  version is an update) and tags, repo-tree apps and tools, build scripts
+  version is an update when it changes the component) and tags, repo-tree apps and tools, build scripts
   that succeed, fail, run too long or write outside their folder,
   requirements installed first, uninstall and its refusals, USB media
   (a stick's root and `mgu-repo/<name>`, a stick's `oap/` with a renderer

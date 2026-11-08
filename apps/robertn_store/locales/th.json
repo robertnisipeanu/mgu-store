@@ -97,7 +97,6 @@
     "Phone access": "เข้าถึงจากโทรศัพท์",
     "Preferred connection": "การเชื่อมต่อที่ต้องการ",
     "Preferred": "ที่ต้องการ",
-    "Preferred: {0}": "ที่ต้องการ: {0}",
     "Rejected": "ถูกปฏิเสธ",
     "Releases": "รุ่นที่เผยแพร่",
     "Remove": "ลบ",
@@ -198,6 +197,7 @@
     "Allow 5 GHz": "อนุญาต 5 GHz",
     "May cause CarPlay issues": "อาจทำให้ CarPlay มีปัญหา",
     "On the iPhone, turn on Maximize Compatibility": "เปิด เพิ่มความเข้ากันได้สูงสุด บน iPhone",
-    "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย"
+    "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย",
+    "Phone over USB": "โทรศัพท์ผ่าน USB"
   }
 }
