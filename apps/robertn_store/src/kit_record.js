@@ -238,7 +238,7 @@ class Recorder {
         const fl = this.f, u = this.u;
         let i = head + 4;
         for (const ch of s) {
-            const g = f.glyphs[ch.codePointAt(0)] || f.glyphs[63];
+            const g = fonts.glyph(f, ch);
             if (!g) continue;
             const gx = g[0], gy = g[1], gw = g[2], gh = g[3];
             if (gw && gh) {

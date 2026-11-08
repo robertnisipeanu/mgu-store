@@ -4,6 +4,10 @@
 
 - A source can be turned off and on (`source-enable`, with the secret: `{ id, enable }`, or `{ all: true, enable }` for every source but the Store's own). A source that is off stays in `sources.json` (`disabled: true`) with its kept catalog, is not read, and none of its components are listed; what it installed stays installed. The state reports `disabled` and status `disabled` for it. Turning one on lists its kept catalog as it is and reads the source only when it has none; the next check reads it again
 
+## 0.8.35
+
+- Lost apps are installed again only while the app manager runs on a data folder of its own: not while it has not started or created its home after a factory reset. The updater looks again when it comes up.
+
 ## 0.8.34
 
 No changes.

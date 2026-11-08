@@ -1090,6 +1090,14 @@ both the app's record and its kept packages, so an app removed on purpose
 is never one. An uninstall that
 fails and is rolled back keeps both, and its registry entry is back.
 
+On iDrive 8, `lost_apps` lists the apps placed at a start for MainApp-21
+(their package in `preinstalled_apps`, their das lines) that it did not
+install because Telematics serves BMW's backend provisioning
+(`ProvSigned.xml`), which does not list them, once the running manager
+runs the in-place hook. An app with a change queued, an update applied at
+the start (it goes back at the next one) and IterioDev's App Manager are
+left out. The updater installs them in place from that package.
+
 ### app-privacy
 
 The `app-privacy` tool must be in effect before the manager sees an app
@@ -1156,6 +1164,18 @@ manager again (a respawned child restarts the wait). With no manager
 running there is no bounce and no wait. This is why an install can pause for
 up to 60 s. The rule lives only here: the updater adds no timer of its own
 and gets the spacing by calling this tool.
+
+**MainApp idle (iDrive 7).** Every bounce also waits until MainApp's install
+worker (the node child running `src/AppManagement/AppManagement`) has not
+run for 5 s (`MGU_DEPLOY_IDLE_QUIET_S`), for at most 3 minutes
+(`MGU_DEPLOY_IDLE_MAX_S`). An app update deletes the app's registry entry and
+writes it again later in the worker's run; a restart in between loses the
+entry, and MainApp installs the app again from its firmware package under a
+new uid. Still busy at the bound, MainApp is not restarted, and the run's
+later bounces do not wait again. What needs the restart takes effect at the
+next start of the head unit (`mgu-deploy` pending for the rest of the boot);
+an app install or update that needed it fails and is rolled back, to be run
+again later.
 
 **The MainApp guard (iDrive 7).** After every bounce the respawned child
 is watched until it has been up 60 s (`MGU_DEPLOY_GUARD_WATCH_S`), so a

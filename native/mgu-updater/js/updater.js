@@ -900,6 +900,35 @@ function storeTileShows(conf) {
     }
 }
 
+/* The app manager runs on its own home: its data folder is there and its
+ * own (it creates it at its first start after a factory reset), and node
+ * runs its main.js (oap-mainapp on iDrive 7, oap-mainapp21 on iDrive 8). */
+function mainappReady(conf) {
+    const proc = conf.proc || '/proc';
+    try {
+        if (fs.statSync(path.join(conf.oap_root, `oap_${conf.mainapp_uid}`, 'data')).uid !== Number(conf.mainapp_uid)) {
+            return false;
+        }
+        return fs.readdirSync(proc).filter((n) => /^\d+$/.test(n)).some((pid) => {
+            try {
+                const argv = fs.readFileSync(path.join(proc, pid, 'cmdline'), 'utf8').split('\0');
+                let i = 1;
+                for (; i < argv.length && argv[i].charAt(0) === '-'; i++) {
+                    if (argv[i] === '-r' || argv[i] === '--require') {
+                        i++;
+                    }
+                }
+                const script = argv[i] || '';
+                return /(^|\/)node$/.test(argv[0]) && /\/oap-mainapp(21)?\/src\/main\.js$/.test(script);
+            } catch (e) {
+                return false;
+            }
+        });
+    } catch (e) {
+        return false;
+    }
+}
+
 /* A process of the Store runs: one whose command line names its home's source. */
 function storeRunning(conf) {
     const uid = storeUid(conf);
@@ -3075,9 +3104,10 @@ class Updater {
      * more, their package still kept; one removed on purpose has none):
      * each installed again from that package, once per start of the head
      * unit, the Store first. Not while the deploy tool's guard holds app
-     * changes back. */
+     * changes back, nor while the app manager does not run on its own home
+     * (after a factory reset): the next refresh looks again. */
     repairLost() {
-        if (this.guard) {
+        if (this.guard || !this.lost.length || !mainappReady(this.conf)) {
             return;
         }
         const busy = (id) => (this.busy && this.busy.id === id) || this.queue.some((q) => q.id === id);
@@ -3100,7 +3130,7 @@ class Updater {
     }
 
     /* Installs a lost app again from the package the deploy tool keeps for
-     * it, when it is still lost. */
+     * it, when it is still lost and the app manager runs on its own home. */
     restore(item) {
         this.busy = { id: item.id, op: 'install', phase: 'install', progress: 0, total: null };
         this.changed();
@@ -3109,6 +3139,12 @@ class Updater {
         return this.refresh()
             .then(() => {
                 if (this.guard || !this.lost.some((l) => l.id === item.id && l.version === item.version)) {
+                    return 0;
+                }
+                if (!mainappReady(this.conf)) {
+                    // looked at again once the app manager runs (watchLost)
+                    this.boot.restored = this.boot.restored.filter((id) => id !== item.id);
+                    this.saveBoot();
                     return 0;
                 }
                 mkdirp(path.dirname(verified), 0o700);
@@ -3140,10 +3176,19 @@ class Updater {
     }
 
     /* Our installed apps looked at between checks: one gone from MainApp's
-     * registry has the deploy tool asked at once, so a lost one is
-     * installed again without waiting for the next check. */
+     * registry, the app manager coming up on its own home (after a factory
+     * reset), or a lost app waiting while it runs, has the deploy tool asked
+     * at once, so a lost one is installed again without waiting for the next
+     * check. */
     watchLost() {
-        if (this.watchingLost || !this.ownApps.some((id) => !this.installedOf(id, 'app'))) {
+        if (this.watchingLost) {
+            return;
+        }
+        const ready = mainappReady(this.conf);
+        const cameUp = ready && this.mainappWasReady === false;
+        const waiting = ready && this.lost.some((l) => this.boot.restored.indexOf(l.id) < 0);
+        this.mainappWasReady = ready;
+        if (!(cameUp || waiting || this.ownApps.some((id) => !this.installedOf(id, 'app')))) {
             return;
         }
         this.watchingLost = true;

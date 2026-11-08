@@ -336,6 +336,7 @@ function fakeRoot(opts) {
         MGU_DEPLOY_PS: path.join(HERE, 'fake_ps.sh'),
         MGU_DEPLOY_KILL: path.join(HERE, 'fake_kill.sh'),
         MGU_DEPLOY_SYNC: path.join(HERE, 'fake_sync.sh'),
+        MGU_DEPLOY_LOGGER: 'true',
         MGU_DEPLOY_STOCK_UNITS: p('lib/systemd/system'),
         MGU_DEPLOY_STOCK_BINS: `${p('bin')}:${p('usr/bin')}`,
         FAKE_SYNC_LOG: `${R}.sync.log`,
@@ -724,6 +725,63 @@ function testBounceGuard() {
     const r = none.run(['fallback', 'on', '--yes']);
     check('bounce: no manager running: no bounce, no wait', r.status === 0 && r.out.includes('not found') &&
         !r.out.includes('waiting') && Date.now() - n0 < MIN * 1000 && none.kills().length === 0, r.out);
+}
+
+/* Every bounce waits until MainApp's install worker has not run for
+ * idleQuietS, up to idleMaxS; still busy then, nothing is restarted and the
+ * change waits for the next start (pending). */
+function testIdleWait() {
+    const src = fs.readFileSync(UNIT_JS, 'utf8');
+    check('idle: the defaults are 5 s quiet and 180 s at most',
+        src.includes("env('MGU_DEPLOY_IDLE_QUIET_S', '5')") && src.includes("env('MGU_DEPLOY_IDLE_MAX_S', '180')"));
+    const nowS = () => Math.floor(Date.now() / 1000);
+    const W = { MGU_DEPLOY_IDLE_QUIET_S: '1', MGU_DEPLOY_IDLE_MAX_S: '30' };
+
+    const idle = fakeRoot();
+    const t0 = Date.now();
+    const r0 = idle.run(['fallback', 'on', '--yes'], Object.assign({
+        FAKE_PS_EXTRA: '  90 root      1000 S    grep /usr/lib/oap-mainapp/src/AppManagement/AppManagement' }, W));
+    check('idle: no worker running: the bounce does not wait', r0.status === 0 && idle.kills().length === 1 &&
+        !r0.out.includes('waiting for the app manager') && Date.now() - t0 < 5000, r0.out);
+
+    const busy = fakeRoot();
+    const until = nowS() + 3;
+    const r1 = busy.run(['fallback', 'on', '--yes'], Object.assign({ FAKE_WORKER_UNTIL: String(until) }, W));
+    const k1 = busy.kills();
+    check('idle: a running worker is waited out, then 1 s of quiet, then the bounce', r1.status === 0 && k1.length === 1 &&
+        k1[0].at >= until * 1000 + 400, `${until} ${r1.out}\n${JSON.stringify(k1)}`);
+    check('idle: the wait is said once', (r1.out.match(/waiting for the app manager to finish installing or updating apps/g) || []).length === 1,
+        r1.out);
+    check('idle: nothing pending after a bounce that waited', !busy.status().pending_reboot.length, JSON.stringify(busy.status().pending_reboot));
+
+    const stuck = fakeRoot();
+    const t2 = Date.now();
+    const r2 = stuck.run(['fallback', 'on', '--yes'], { FAKE_WORKER_UNTIL: String(nowS() + 3600), MGU_DEPLOY_IDLE_QUIET_S: '1',
+        MGU_DEPLOY_IDLE_MAX_S: '2' });
+    check('idle: still busy at the bound: no bounce, exit 0', r2.status === 0 && stuck.kills().length === 0 &&
+        Date.now() - t2 >= 2000, r2.out);
+    check('idle: the defer is said', r2.out.includes('still installing or updating apps after 2s: it is not restarted'), r2.out);
+    const p2 = stuck.status().pending_reboot;
+    check('idle: the restart is pending under mgu-deploy', p2.some((p) => p.id === 'mgu-deploy' && /next start/.test(p.reason)),
+        JSON.stringify(p2));
+    check('idle: the change itself stays (the fallback is on)', fs.existsSync(stuck.p('etc/systemd/system/mgu-app-fallback.service')), r2.out);
+
+    // an app install through a bounce, MainApp busy past the bound: refused and rolled back
+    const app = fakeRoot();
+    const custom = () => readJsonOrNull(app.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`)) || {};
+    const r3 = app.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes'],
+        { FAKE_WORKER_UNTIL: String(nowS() + 3600), MGU_DEPLOY_IDLE_QUIET_S: '1', MGU_DEPLOY_IDLE_MAX_S: '2' });
+    check('idle: a deferred app install fails with no bounce, and says to run it again', r3.status === 1 && app.kills().length === 0 &&
+        r3.out.includes('the app manager is busy installing or updating apps, so fixture_app 1.0.0 cannot be installed now'), r3.out);
+    const st3 = app.status();
+    check('idle: the deferred app install is rolled back: not placed, listed, recorded or lost; the restart stays pending',
+        !fs.existsSync(app.preinstalled('fixture_app', '1.0.0')) && !('fixture_app' in custom()) && !app.state().apps.fixture_app &&
+        !st3.lost_apps.length && !st3.pending_reboot.some((p) => p.id === 'fixture_app') &&
+        st3.pending_reboot.some((p) => p.id === 'mgu-deploy'),
+        `${r3.out}\n${JSON.stringify(st3.pending_reboot)}`);
+    const r4 = app.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes'], W);
+    check('idle: once MainApp is idle the same install goes through', r4.status === 0 && app.kills().length === 1 &&
+        app.state().apps.fixture_app.version === '1.0.0', r4.out);
 }
 
 /* After every bounce the respawned manager is watched: one that dies within
@@ -8285,6 +8343,130 @@ function testId8Listing() {
     check('id8 listing: relist does nothing on iDrive 7', seven.status === 0 && seven.out.includes('not iDrive 8'), seven.out);
 }
 
+/* iDrive 8 under backend provisioning: an app placed at the start that
+ * MainApp-21 did not install (its provisioning does not list it) is a lost
+ * app, for the updater to install in place once the hook is up. */
+function testId8Unprovisioned() {
+    const root = id8Root();
+    const art = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097 });
+    root.run(['install', '--artifact', art, '--yes']);
+    root.noManager();
+    root.run(['apply-pending']);
+    const placed = root.p('usr/lib/oap-mainapp21/preinstalled_apps/oap-cardash@1.1.4.tgz');
+    const hookFile = root.p(`var/opt/public/oap/oap_${MGR}/data/mgu-deploy-inplace.json`);
+    const signed = root.p('var/opt/public/tm/tm_12000/data/prov/ProvSigned.xml');
+    const lost = () => JSON.stringify(root.status().lost_apps);
+    const start = Math.floor(Date.now() / 1000) + 1;
+    const hook = (o) => write(hookFile, JSON.stringify(Object.assign({ pid: 4000, start: start * 1000, at: start * 1000, state: 'ready' }, o)));
+    fs.writeFileSync(`${root.R}.mgr.pid`, '4000');
+    root.setManagerStart(start);
+    hook();
+    check('id8 unprovisioned: with the das files served MainApp-21 installs it; not lost', fs.existsSync(placed) && lost() === '[]', lost());
+    write(signed, '<bmwprovsigned><bmwprov><set><data><x_call enabled="true" allowed="true"/><main_app/></data></set></bmwprov></bmwprovsigned>\n');
+    check('id8 unprovisioned: under backend provisioning without it, lost with its placed package',
+        lost() === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', package: placed }]), lost());
+    hook({ pid: 3999 });
+    check('id8 unprovisioned: not while the running manager has not announced its hook', lost() === '[]', lost());
+    hook({ start: (start - 60) * 1000 });
+    check('id8 unprovisioned: not on a hook announced by an earlier manager of that pid', lost() === '[]', lost());
+    hook({ state: 'off', why: 'x' });
+    check('id8 unprovisioned: not while the hook is off', lost() === '[]', lost());
+    hook({ state: 'done' });
+    write(signed, '<bmwprov><oap-cardash enabled="true" allowed="true"/></bmwprov>\n');
+    check('id8 unprovisioned: not when the backend\'s provisioning names it', lost() === '[]', lost());
+    write(signed, '<bmwprov><x_call/></bmwprov>\n');
+    const pending = root.p('var/opt/mgu-deploy/id8/pending.json');
+    write(pending, JSON.stringify({ changes: [], unconfirmed: [{ id: 'oap-cardash', version: '1.1.4', previous: '1.1.3' }] }));
+    check('id8 unprovisioned: not an update applied at the start, which goes back at the next one', lost() === '[]', lost());
+    fs.unlinkSync(pending);
+    const am = root.p('usr/lib/oap-mainapp21/preinstalled_apps/oap-appmanager@1.0.0.tgz');
+    fs.copyFileSync(placed, am);
+    [0, 1, 2, 3, 4, 5].forEach((i) => {
+        const f = root.p(`usr/share/tm/prov/das_00${i}.xml`);
+        fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('        </installable_apps>',
+            `            ${dasLine('oap-appmanager')}\n        </installable_apps>`)
+            .replace(/(<x_call [^\n]*\n)/, '$1        <oap-appmanager enabled="true" allowed="true" appStartType="autostart" userLoginRequired="false"/>\n'));
+    });
+    check('id8 unprovisioned: never IterioDev\'s App Manager', lost() === JSON.stringify([{ id: 'oap-cardash', version: '1.1.4', package: placed }]), lost());
+    write(root.entry('oap-cardash'), JSON.stringify({ userId: 13001, installationSource: 'PREINSTALLED' }));
+    check('id8 unprovisioned: not once registered', lost() === '[]', lost());
+    fs.unlinkSync(root.entry('oap-cardash'));
+    root.run(['uninstall', 'oap-cardash', '--yes']);
+    check('id8 unprovisioned: not with a removal queued', lost() === '[]', lost());
+}
+
+/* After a factory reset the app manager's home is gone until its first
+ * start creates it: nothing of this tool creates it, no app counts as lost
+ * and no app installs meanwhile. A home owned by root is given back to
+ * the manager, and the manager started again. */
+function testFactoryReset() {
+    const art = appArtifact('fixture_app', '1.0.0', true);
+    const root = fakeRoot();
+    const ins = root.run(['install', '--artifact', art, '--yes']);
+    if (ins.status !== 0) throw new Error(ins.out);
+    const home = root.home(MGR);
+    fs.rmSync(home, { recursive: true });
+    const sr = root.run(['status', '--json']);
+    check('factory reset: status reports no lost app and creates nothing while the app manager\'s home is missing',
+        sr.status === 0 && JSON.parse(sr.stdout).lost_apps.length === 0 && !fs.existsSync(home), sr.out);
+    const again = root.run(['install', '--artifact', art, '--yes']);
+    check('factory reset: an app install is refused and creates nothing', again.status === 2 &&
+        again.out.includes('the app manager has not created its data folder yet') && !fs.existsSync(home), again.out);
+    fs.mkdirSync(path.join(home, 'data', 'apps'), { recursive: true });
+    const lost = root.status().lost_apps;
+    check('factory reset: once the app manager has created its home the app counts as lost', lost.length === 1 && lost[0].id === 'fixture_app',
+        JSON.stringify(lost));
+
+    // a home made as root: the test's own uid stands for root
+    const asRoot = { MGU_DEPLOY_FAKE_ROOT_UID: String(process.getuid()) };
+    const broken = fakeRoot();
+    const bh = broken.home(MGR);
+    fs.chmodSync(bh, 0o755);
+    fs.chmodSync(path.join(bh, 'data'), 0o755);
+    const rr = broken.run(['status', '--json'], asRoot);
+    check('factory reset: status gives a root-owned home back with the manager\'s modes and restarts the manager that started before',
+        rr.status === 0 && mode(bh) === 0o3770 && mode(path.join(bh, 'data')) === 0o750 && broken.kills().length === 1 &&
+        rr.stderr.includes('and its data folder were owned by root: given back to uid 12201') &&
+        !JSON.parse(rr.stdout).pending_reboot.length, rr.out);
+    check('factory reset: the repair touches nothing inside the data folder', mode(broken.entry('stock_app')) === 0o660);
+    const idle = fakeRoot({ noManager: true });
+    fs.chmodSync(idle.home(MGR), 0o755);
+    const ir = idle.run(['status', '--json'], asRoot);
+    check('factory reset: with no app manager coming up the restart is pending', mode(idle.home(MGR)) === 0o3770 &&
+        JSON.parse(ir.stdout).pending_reboot.some((x) => x.id === 'mgu-deploy' && /folders were repaired/.test(x.reason)), ir.out);
+    check('factory reset: a home not owned by root is left as it is', (() => {
+        const ok = fakeRoot();
+        fs.chmodSync(ok.home(MGR), 0o755);
+        ok.run(['status', '--json']);
+        return mode(ok.home(MGR)) === 0o755 && !ok.kills().length;
+    })());
+
+    // iDrive 8: the boot unit's relist, before MainApp-21
+    const id8 = id8Root();
+    const custom = id8.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`);
+    const cardash = rhmiApp('oap-cardash', '1.1.4', ['ID8'], { npm: true, acl: ACL, appletId: 20097 });
+    id8.run(['install', '--artifact', cardash, '--yes']);
+    id8.noManager();
+    id8.run(['apply-pending']);
+    const h8 = id8.home(MGR);
+    fs.rmSync(h8, { recursive: true });
+    const rl = id8.run(['relist']);
+    check('factory reset: iDrive 8 relist creates nothing while the app manager\'s home is missing', rl.status === 0 &&
+        rl.out.includes('has not created its data folder yet') && !fs.existsSync(h8), rl.out);
+    const s8 = id8.status();
+    check('factory reset: iDrive 8 status lists nothing meanwhile', s8.listing.state === 'pending' && !fs.existsSync(h8), JSON.stringify(s8.listing));
+    fs.mkdirSync(path.join(h8, 'data'), { recursive: true, mode: 0o755 });
+    fs.chmodSync(h8, 0o755);
+    const fixed = id8.run(['relist'], asRoot);
+    check('factory reset: iDrive 8 relist gives a root-owned home back before it lists', fixed.status === 0 && mode(h8) === 0o3770 &&
+        mode(path.join(h8, 'data')) === 0o750 && fixed.out.includes('listed for the provisioning fallback: oap-cardash') &&
+        !!(readJsonOrNull(custom) || {})['oap-cardash'], fixed.out);
+    fs.chmodSync(h8, 0o755);
+    const p8 = JSON.parse(id8.run(['status', '--json'], asRoot).stdout);
+    check('factory reset: iDrive 8 status repairs it with the restart pending', mode(h8) === 0o3770 && !id8.kills().length &&
+        p8.pending_reboot.some((x) => x.id === 'mgu-deploy' && /folders were repaired/.test(x.reason)), JSON.stringify(p8.pending_reboot));
+}
+
 /* The guard in a copy of the MainApp-21 fixture, loaded as MainApp-21
  * loads it, one process per start. */
 function testId8Guard() {
@@ -8819,7 +9001,8 @@ function testId8Complete() {
     const noHomes = id8Root();
     fs.rmSync(noHomes.p('var/opt/public/oap'), { recursive: true });
     const nh = install(noHomes, 'nh');
-    check('id8: the apps\' homes folder missing fails the install', nh.status === 1 && nh.out.includes('var/opt/public/oap is missing'), nh.out);
+    check('id8: the apps\' homes folder missing refuses the install', nh.status === 2 &&
+        nh.out.includes('the app manager has not created its data folder yet'), nh.out);
 
     // a unit whose RHMI applets folder is missing under the HMI's data has none there
     const noRhmi = id8Root({ builtin: [] });
@@ -9045,6 +9228,7 @@ const SUITES = [
     testPendingReboot,
     testApps,
     testBounceGuard,
+    testIdleWait,
     testMainAppGuard,
     testGuardStops,
     testGuardNested,
@@ -9141,6 +9325,8 @@ const SUITES = [
     testId8Inplace,
     testId8Guard,
     testId8Listing,
+    testId8Unprovisioned,
+    testFactoryReset,
     testId8LiveOn,
     testAppManager,
     testId8Complete,
