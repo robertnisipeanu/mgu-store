@@ -170,6 +170,9 @@ class RenderClient extends EventEmitter {
 // FrontCCU: the sample callback the app subscribes with; HMIContext: the display language's, and its proxy's instance
 let frontCcu = null;
 let displayLanguage = null;
+// KombiIF: the cluster's display time callback, and the value its getter answers
+let clusterTime = null;
+let clusterTimeNow = null;
 const hmiContext = [];
 // interfaces the head unit lacks: building their proxy fails
 const absent = new Set();
@@ -179,6 +182,10 @@ const someipBuilders = {
         init: () => Promise.resolve(),
         waitUntilAvailable: () => Promise.resolve(),
         statusRotaryEncoderState: { subscribe: (cb) => { frontCcu = cb; return Promise.resolve(); } },
+        statusShowTimeDate: {
+            subscribe: (cb) => { clusterTime = cb; return Promise.resolve(); },
+            getValue: () => Promise.resolve(clusterTimeNow)
+        },
         currentDisplayLanguage: {
             subscribe: (cb) => { displayLanguage = cb; hmiContext.push(`${iface} ${instance}`); return Promise.resolve(); },
             getValue: () => Promise.resolve('ENGLISCH__UK')
@@ -1898,6 +1905,41 @@ function runAbsentContext() {
     });
 }
 
+/* The status line's time as the HMI's clock shows it: the cluster's display
+ * time at start and on each change; the system's time zone without it. */
+function runClusterClock() {
+    const status = () => last(/storeStatus\.\d*\.?Text/).split('=')[1];
+    const checkedAt = Date.now() - 60000;
+    const show = (ms, status) => { const d = new Date(ms); return { displayHour: d.getUTCHours(), displayMinute: d.getUTCMinutes(),
+        displaySecond: d.getUTCSeconds(), displayDateDay: d.getUTCDate(), displayDateWeekDay: 'MONTAG',
+        displayDateMonth: d.getUTCMonth() + 1, displayDateYear: d.getUTCFullYear(), statusDisplayClockTimeDate: status }; };
+    const hhmm = (ms) => { const d = new Date(ms); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
+    const H = 3600000;
+    clusterTimeNow = show(Date.now() + 5.75 * H, 1);
+    app._setVisible(true);
+    app._client.emit('state', Object.assign({}, ST, { catalog: { checking: false, checkedAt } }));
+    app._setupClusterClock();
+    return tick().then(() => {
+        eq(status(), `Up to date, checked ${hhmm(checkedAt + 5.75 * H)}`, 'the cluster time at start: UTC+5:45');
+        clusterTime(show(Date.now() - 5.5 * H, 1));
+        return tick();
+    }).then(() => {
+        eq(status(), `Up to date, checked ${hhmm(checkedAt - 5.5 * H)}`, 'a change follows: UTC-5:30');
+        clusterTime(show(Date.now(), 0));
+        return tick();
+    }).then(() => {
+        const d = new Date(checkedAt);
+        eq(status(), `Up to date, checked ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+            'no valid cluster time: the system time zone');
+        absent.add('de.bmw.infotainment.KombiIF');
+        app._setupClusterClock();
+        return tick();
+    }).then(() => {
+        absent.clear();
+        clusterTime = null;
+    });
+}
+
 /* The tile keeps the name and icon the app manager gave it: the app maps its
  * state and enables it, and never points it at the app's own bundles. */
 function runEntryPoint() {
@@ -1920,7 +1962,7 @@ function runEntryPoint() {
     });
 }
 
-run().then(runWidgetsExtra).then(runLanguage).then(runAbsentContext).then(runEntryPoint).then(runDrawn).then(runTiming).then(() => {
+run().then(runWidgetsExtra).then(runLanguage).then(runAbsentContext).then(runClusterClock).then(runEntryPoint).then(runDrawn).then(runTiming).then(() => {
     cleanUp();
     console.log(`store: ${checks} checks pass`);
     process.exit(0);
