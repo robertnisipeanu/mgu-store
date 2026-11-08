@@ -1671,7 +1671,7 @@ int main(int argc, char **argv) {
     }
     if (touch_on) touch_stop();
     for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) client_free(clients[i]);
-    if (ctl_gate_on) unlink(cfg.controller_gate);
+    ctl_gate_update(now_us());                           /* no clients left: the controller goes back to the HMI */
     gate_stop();
     embed_disconnect();
     if (own_socket) {                                    /* run by hand: its socket and the link to it go */
