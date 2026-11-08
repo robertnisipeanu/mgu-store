@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.7
+
 - iDrive 8: an app placed for MainApp-21 at a start that it does not install, because the head unit's provisioning comes from BMW's backend and does not list it, is reported as not registered (`status`), and the updater installs it in place. This covers the Store after `first-install` on a car that has synced its apps with BMW.
 
 ## 0.8.6
