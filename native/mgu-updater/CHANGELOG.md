@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Default sources: JustAnotherPU/mgu-apps and JustAnotherPU/moonride on their releases channel, added once at the first start of an updater that names them (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. Their apps are for iDrive 7. Like any source each can be removed; once removed it is not added again.
+
 ## 0.8.34
 
 No changes.
