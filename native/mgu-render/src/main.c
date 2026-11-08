@@ -825,24 +825,30 @@ static int grabbing(const client *c, uint64_t t) { return c->grab_t && t - c->gr
  * only while one of our apps grabs, and the file only while the event socket is ours. Bound by another renderer,
  * the controller stays the HMI's (and that renderer's) for our apps. */
 static void ctl_gate_update(uint64_t t) {
+    static char holder[sizeof ((client *)0)->app];    /* the app the controller was last held for */
     if (!cfg.controller_gate[0]) return;
-    int want = 0;
-    for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] && grabbing(clients[i], t)) want = 1;
+    const client *by = NULL;
+    for (int i = 0; i < MAX_CLIENTS && !by; i++) if (clients[i] && grabbing(clients[i], t)) by = clients[i];
+    int want = by != NULL;
     if (want && ccu_fd < 0 && t >= ccu_retry) {
         ccu_open();
         if (ccu_fd < 0) ccu_retry = t + 5000000;
     }
     if (ccu_fd < 0) want = 0;
     if (want) {
+        int was = ctl_gate_on;
         if (!ctl_gate_on || t - ctl_gate_t >= GATE_TOUCH_US) {
             int fd = open(cfg.controller_gate, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0644);
             if (fd >= 0) { futimens(fd, NULL); close(fd); }
-            if (!ctl_gate_on) log_info("controller: held for an app");
             ctl_gate_on = 1; ctl_gate_t = t;
+        }
+        if (!was || strcmp(holder, by->app)) {
+            log_info("controller: held for %s%s", by->app, was ? "" : " (@mgu-renderd-ccu bound)");
+            snprintf(holder, sizeof holder, "%s", by->app);
         }
     } else if (ctl_gate_on) {
         unlink(cfg.controller_gate); ctl_gate_on = 0;
-        log_info("controller: back to the HMI");
+        log_info("controller: back to the HMI, @mgu-renderd-ccu released (was held for %s)", holder);
     }
     if (!want && ccu_fd >= 0) { close(ccu_fd); ccu_fd = -1; }
 }
@@ -1665,7 +1671,7 @@ int main(int argc, char **argv) {
     }
     if (touch_on) touch_stop();
     for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) client_free(clients[i]);
-    if (ctl_gate_on) unlink(cfg.controller_gate);
+    ctl_gate_update(now_us());                           /* no clients left: the controller goes back to the HMI */
     gate_stop();
     embed_disconnect();
     if (own_socket) {                                    /* run by hand: its socket and the link to it go */
