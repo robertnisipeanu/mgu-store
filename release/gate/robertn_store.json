@@ -1,27 +1,27 @@
 {
   "id": "robertn_store",
-  "version": "0.9.32",
-  "source": "4bbb3a8b3c7f2c79e6e6eb8b9a018c9caf227495",
+  "version": "0.9.33",
+  "source": "55425391b2f3babe2bb9dd211f19278a0814d41c",
   "result": "pass",
   "unit": "id7",
   "emulator": "deb756780bddf43178501ea43b40b952e04d7df2",
-  "artifactSha256": "91c2be79d1dc39aac91772da61951c0c98f41c052de6fe586fc37501bb1c5dba",
-  "minutes": 6.1,
+  "artifactSha256": "29731875ae3046d4c368179f6727d07addc092b685c8513d7da821cd92a9f439",
+  "minutes": 8.4,
   "cases": [
     {
       "name": "installed on its own over the published release",
       "ok": true,
-      "detail": "robertn_store 0.9.32 updated in place by the app manager (pid 865) as uid 12204 (source PREINSTALLED)"
+      "detail": "robertn_store 0.9.33 updated in place by the app manager (pid 773) as uid 12204 (source PREINSTALLED)"
     },
     {
       "name": "after the head-unit restart, the Store in its page (embed)",
       "ok": true,
-      "detail": "in front, 682 colours"
+      "detail": "in front, 686 colours"
     },
     {
       "name": "renderer restarted, the Store on its own layer",
       "ok": true,
-      "detail": "in front, 668 colours, layers 0x64 0x4d520000"
+      "detail": "in front, 674 colours, layers 0x64 0x4d520000"
     },
     {
       "name": "another program sets the screen's layers without ours while shown",
