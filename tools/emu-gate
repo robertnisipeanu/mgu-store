@@ -254,7 +254,8 @@ function main(ids) {
     const all = components();
     const started = Date.now();
     const tmp = path.join(os.tmpdir(), 'emu-gate');
-    if (run('git', ['-C', EMULATOR, 'status', '--porcelain', '--untracked-files=no']).trim()) {
+    const emuChanged = () => run('git', ['-C', EMULATOR, 'status', '--porcelain', '--untracked-files=no']).trim();
+    if (emuChanged()) {
         console.error(`emu-gate: ${EMULATOR} has changes; the gate runs a commit of the emulator`);
         return 1;
     }
@@ -264,6 +265,7 @@ function main(ids) {
         run('limactl', ['delete', '-f', VM], { allowFail: true });
         fs.rmSync(tmp, { recursive: true, force: true });
         run('git', ['worktree', 'prune'], { cwd: REPO, allowFail: true });
+        run('git', ['-C', EMULATOR, 'worktree', 'prune'], { allowFail: true });
     };
     clean();
     fs.mkdirSync(tmp);
@@ -303,6 +305,12 @@ function main(ids) {
             if (!out.results.every((r) => r.ok)) { failed++; continue; }
             if (run('git', ['rev-parse', 'HEAD'], { cwd: REPO }).trim() !== head) {
                 console.log(`FAIL ${id}: HEAD moved during the run; run the gate again`);
+                failed++;
+                continue;
+            }
+            // the shared emulator checkout ran the whole case at the commit the record names
+            if (run('git', ['-C', EMULATOR, 'rev-parse', 'HEAD']).trim() !== emuCommit || emuChanged()) {
+                console.log(`FAIL ${id}: ${EMULATOR} changed during the run; run the gate again`);
                 failed++;
                 continue;
             }
