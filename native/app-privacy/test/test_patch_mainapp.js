@@ -255,7 +255,7 @@ test('the patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS);
     assert.strictEqual(sha, PATCH_SETS_SHA256,
         'PATCH_SETS differs from the released one: when the text an edit writes or HELPER_JS changes, add the ' +
-        'released sets to EARLIER_PATCH_SETS under the last version that shipped them and bump the version; ' +
+        'released sets to EARLIER_PATCH_SETS under the last version that shipped them; ' +
         'then record ' + sha + ' here (the reference firmware case checks the edits\' output)');
 });
 
@@ -271,7 +271,7 @@ test('the MainApp-21 patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS_21);
     assert.strictEqual(sha, PATCH_SETS_21_SHA256,
         'PATCH_SETS_21 differs from the released one: keep the released sets as MainApp-21\'s earlier release ' +
-        '(UNITS.ID8.mainapps[0].sets.earlier) and bump the version; then record ' + sha + ' here');
+        '(UNITS.ID8.mainapps[0].sets.earlier); then record ' + sha + ' here');
 });
 
 // sha256 of JSON.stringify(PATCH_SETS_8_1_1) as shipped by 1.6.0, and of
@@ -290,7 +290,7 @@ test('the MainApp 8.1.1 patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS_8_1_1);
     assert.strictEqual(sha, PATCH_SETS_8_1_1_SHA256,
         'PATCH_SETS_8_1_1 differs from the released one: keep the released sets as 8.1.1\'s earlier release ' +
-        '(its UNITS.ID7.mainapps entry\'s sets.earlier) and bump the version; then record ' + sha + ' here');
+        '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
 });
 
 // sha256 of JSON.stringify(PATCH_SETS_8_2_10) as shipped by 1.6.2, and of
@@ -305,7 +305,7 @@ test('the MainApp 8.2.10 patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS_8_2_10);
     assert.strictEqual(sha, PATCH_SETS_8_2_10_SHA256,
         'PATCH_SETS_8_2_10 differs from the released one: keep the released sets as 8.2.10\'s earlier release ' +
-        '(its UNITS.ID7.mainapps entry\'s sets.earlier) and bump the version; then record ' + sha + ' here');
+        '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
 });
 
 // sha256 of JSON.stringify(PATCH_SETS_21_9_2_15) as shipped by 1.6.1, and of
@@ -320,7 +320,7 @@ test('the MainApp-21 9.2.15 patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS_21_9_2_15);
     assert.strictEqual(sha, PATCH_SETS_21_9_2_15_SHA256,
         'PATCH_SETS_21_9_2_15 differs from the released one: keep the released sets as 9.2.15\'s earlier release ' +
-        '(its UNITS.ID8.mainapps entry\'s sets.earlier) and bump the version; then record ' + sha + ' here');
+        '(its UNITS.ID8.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
 });
 
 /* Synthetic bundles of one release's anchors as the given MainApp release. */

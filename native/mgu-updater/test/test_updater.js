@@ -185,6 +185,20 @@ function ghRepo(name, opts) {
 }
 
 /* A commit of files ({ path: content | [content, mode] }); returns its sha. */
+/* A git-like tree of files ({ path: bytes }) as GitHub's recursive
+ * listing gives it: a file's id from its bytes, a folder's from its entries'. */
+function gitTree(files) {
+    const ids = {};
+    Object.keys(files).forEach((rel) => {
+        ids[rel] = sha256(files[rel]).slice(0, 40);
+    });
+    const folders = new Set();
+    Object.keys(files).forEach((rel) => rel.split('/').slice(0, -1).forEach((x, i, a) => folders.add(a.slice(0, i + 1).join('/'))));
+    const idOf = (dir) => sha256(Object.keys(ids).filter((k) => k.indexOf(dir ? `${dir}/` : '') === 0).sort()
+        .map((k) => `${k} ${ids[k]}`).join('\n')).slice(0, 40);
+    return { sha: idOf(''), entries: Object.keys(ids).map((k) => ({ path: k, sha: ids[k] })).concat(Array.from(folders).map((d) => ({ path: d, sha: idOf(d) }))) };
+}
+
 function ghCommit(repo, files) {
     const tree = {};
     Object.keys(files).forEach((p) => {
@@ -426,6 +440,18 @@ function ghApi(req, res, auth) {
         // the raw media type gets the bytes; anything else the JSON object around them, as GitHub does
         const rawWanted = /^application\/vnd\.github(\.v3)?\.raw/.test(req.headers.accept || '');
         send(f ? 200 : 404, !f ? { message: 'Not Found' } : rawWanted ? f[0] : { type: 'file', encoding: 'base64', content: f[0].toString('base64') });
+    } else if (rest.indexOf('/git/trees/') === 0) {
+        const tree = repo.trees[rest.slice('/git/trees/'.length)];
+        if (!tree || u.searchParams.get('recursive') !== '1') {
+            send(404, { message: 'Not Found' });
+            return;
+        }
+        const files = {};
+        Object.keys(tree).forEach((rel) => {
+            files[rel] = tree[rel][0];
+        });
+        const t = gitTree(files);
+        send(200, { sha: t.sha, truncated: false, tree: t.entries });
     } else if (rest.indexOf('/tarball/') === 0) {
         const sha = rest.slice('/tarball/'.length);
         // GitHub refuses a tarball request that accepts only application/octet-stream
@@ -2227,7 +2253,7 @@ function testSources(certs) {
     ].join('\n');
     const tTool = { id: 't_tool', kind: 'tool', version: '1.0.0', title: 'Tree tool',
         files: [{ path: 't.sh', from: 'bin/t.sh', mode: '0755' }], units: [{ name: 't.service', from: 'systemd/t.service' }], internet: true };
-    const branchFiles = (pVersion) => ({
+    const branchFiles = (pVersion, more) => Object.assign({
         'mgu-repo.json': JSON.stringify({ schema: 1, components: [
             { id: 'p_app', kind: 'app', path: 'apps/p_app', build: 'unit', uninstallable: true },
             { id: 't_tool', kind: 'tool', path: 'native/t_tool' },
@@ -2251,7 +2277,7 @@ function testSources(certs) {
         'apps/b_escape/app.json': JSON.stringify({ id: 'b_escape', version: '1.0.0' }),
         'apps/b_detach/app.json': JSON.stringify({ id: 'b_detach', version: '1.0.0' }),
         'tools/build.js': buildJs
-    });
+    }, more || {});
     ghRepo('third/branchy');
     const c1 = ghCommit('third/branchy', branchFiles('1.0.0'));
     gh.repos['third/branchy'].branches.main = c1;
@@ -2670,18 +2696,33 @@ function testSources(certs) {
                 c.files[0].path === 't.sh' && c.files[0].sha256 === sha256(Buffer.from('#!/bin/sh\necho t\n')) && !c.files[0].from &&
                 c.units[0].name === 't.service' && c.internet === true && fs.readFileSync(path.join(dir, 't.sh'), 'utf8') === '#!/bin/sh\necho t\n');
             ok('github: the tarball came from codeload without the token', seen.some((x) => /^codeload/.test(x.host) && x.auth === null) && authLeaks().length === 0);
-            // the branch moves on, same versions
-            const c2 = ghCommit('third/branchy', branchFiles('1.0.0'));
+            // the branch moves on, same versions, a change outside both components
+            const c2 = ghCommit('third/branchy', branchFiles('1.0.0', { 'README.md': 'more\n', 'apps/b_ok/notes.txt': 'b\n' }));
             gh.repos['third/branchy'].branches.main = c2;
             return u.checkSource('branchy').then(() => c2);
         })
         .then((c2) => {
-            ok('branch: a new commit of the same version is an update, with its short commit',
-                comp('p_app').status === 'update' && comp('p_app').revision === c2.slice(0, 7) && comp('t_tool').status === 'update', JSON.stringify(comp('p_app')));
+            ok('branch: a new commit that changes nothing of an installed component is no update',
+                comp('p_app').status === 'installed' && comp('t_tool').status === 'installed', JSON.stringify([comp('p_app'), comp('t_tool')]));
+            const listed = (id) => u.src.get('branchy').components.find((c) => c.id === id).content;
+            ok('branch: an install recorded with its commit alone gets its content from that commit\'s tree',
+                /^[0-9a-f]{64}$/.test(listed('t_tool') || '') && u.origins.t_tool.content === listed('t_tool') && u.origins.p_app.content === listed('p_app') &&
+                JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).t_tool.content === listed('t_tool'), JSON.stringify(u.origins));
+            // one that changes p_app's folder, same versions
+            const c3 = ghCommit('third/branchy', branchFiles('1.0.0', { 'README.md': 'more\n', 'apps/p_app/src/p.js': 'module.exports = 2;\n' }));
+            gh.repos['third/branchy'].branches.main = c3;
+            return u.checkSource('branchy').then(() => c3);
+        })
+        .then((c2) => {
+            ok('branch: a new commit that changes a component of the same version is an update, with its short commit',
+                comp('p_app').status === 'update' && comp('p_app').revision === c2.slice(0, 7) && comp('t_tool').status === 'installed',
+                JSON.stringify([comp('p_app'), comp('t_tool')]));
             return ask(sock, { op: 'install', id: 'p_app' }).then(() => installed('p_app')).then(() => c2);
         })
         .then((c2) => {
-            ok('branch: installed at the new commit', JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).p_app.commit === c2);
+            const rec = JSON.parse(fs.readFileSync(path.join(state, 'origins.json'), 'utf8')).p_app;
+            ok('branch: installed at the new commit, with its content', rec.commit === c2 && rec.content === u.src.get('branchy').components.find((c) => c.id === 'p_app').content &&
+                comp('p_app').status === 'installed', JSON.stringify(rec));
             gh.repos['third/branchy'].branches.main = ghCommit('third/branchy', branchFiles('1.1.0'));
             return u.checkSource('branchy');
         })
@@ -6367,6 +6408,75 @@ function testCarApps(certs) {
 
 /* ---- run ---------------------------------------------------------------------- */
 
+/* contentOf: what a repo-tree component is made of, from a commit's tree. */
+function testContent() {
+    const tree = gitTree;
+    const base = { 'mgu-repo.json': 'm', 'README.md': 'r', 'apps/a/app.json': 'a', 'apps/b/app.json': 'b', 'kit/runtime/x.js': 'x', 'kit/tools/build.py': 'p', 'apps/a/sub/y': 'y' };
+    const was = tree(base);
+    const at = (more) => tree(Object.assign({}, base, more));
+    const own = { paths: ['apps/a'], skip: [], listing: 'l' };
+    const built = { paths: [''], skip: ['apps/b'], listing: 'l' };
+    const named = { paths: ['apps/a', 'kit/runtime', 'oap-sdk', 'kit/tools/build.py'], skip: [], listing: 'l' };
+    const sourcesLib = require('../js/sources');
+    const { contentOf } = sourcesLib;
+    ok('content: a folder\'s content is the same at a commit that changes only things outside it',
+        contentOf(was, own) === contentOf(at({ 'README.md': 'r2', 'apps/b/app.json': 'b2', 'kit/runtime/x.js': 'x2' }), own));
+    ok('content: a change anywhere in the folder changes its content', contentOf(was, own) !== contentOf(at({ 'apps/a/sub/y': 'y2' }), own) &&
+        contentOf(was, own) !== contentOf(at({ 'apps/a/new': 'n' }), own));
+    ok('content: its mgu-repo.json entry is part of it', contentOf(was, own) !== contentOf(was, Object.assign({}, own, { listing: 'l2' })));
+    ok('content: a build script\'s app is the same when only another app changes',
+        contentOf(was, built) === contentOf(at({ 'apps/b/app.json': 'b2', 'apps/b/more': 'm' }), built));
+    ok('content: a build script\'s app changes with its shared files, the build script, the repo root and its own folder',
+        ['kit/runtime/x.js', 'kit/tools/build.py', 'README.md', 'apps/a/app.json', 'kit/new.js', 'apps/c/app.json']
+            .every((p) => contentOf(was, built) !== contentOf(at({ [p]: 'changed' }), built)));
+    ok('content: an app built with named shared files changes with them, its script and its folder, not with the rest',
+        ['kit/runtime/x.js', 'kit/tools/build.py', 'apps/a/app.json', 'oap-sdk/index.js'].every((p) => contentOf(was, named) !== contentOf(at({ [p]: 'changed' }), named)) &&
+        contentOf(was, named) === contentOf(at({ 'README.md': 'r2', 'apps/b/app.json': 'b2', 'kit/other.js': 'o' }), named));
+    ok('content: a folder that is not there has none', contentOf(was, { paths: ['apps/z'], skip: [], listing: 'l' }) === null);
+    const spec = (build) => sourcesLib.contentSpec({ id: 'a', kind: 'app', path: 'apps/a', build }, build ? {} : null);
+    ok('content: read from the folder; a build script\'s app from its shared files and script too, else the whole repo',
+        JSON.stringify(spec().paths) === '["apps/a"]' && JSON.stringify(spec({ python: 'kit/tools/build.py' }).paths) === '[""]' &&
+        JSON.stringify(spec({ python: 'kit/tools/build.py', shared: ['kit/runtime', 'oap-sdk'] }).paths) === '["apps/a","kit/runtime","oap-sdk","kit/tools/build.py"]' &&
+        JSON.stringify(spec({ python: 'b.py', shared: ['../x'] }).paths) === '[""]');
+    ok('content: a service or preload tool is the one file it packs', JSON.stringify(sourcesLib.contentSpec({ id: 's', kind: 'tool', path: 'kit/p',
+        service: { exec: 'd' } }, null).paths) === '["kit/p/d"]' && JSON.stringify(sourcesLib.contentSpec({ id: 'g', kind: 'tool', path: 'kit/p',
+        preload: { library: 'g.so' } }, null).paths) === '["kit/p/g.so"]');
+    const head = Object.assign({}, own, { repoId: tree(base).entries.find((e) => e.path === 'mgu-repo.json').sha });
+    ok('content: an older commit\'s, while mgu-repo.json is the same file, is its content with the newer listing; else \'-\'',
+        sourcesLib.contentThen(at({ 'README.md': 'old' }), head) === contentOf(was, own) && sourcesLib.contentThen(at({ 'apps/a/app.json': 'old' }), head) !== contentOf(was, own) &&
+        sourcesLib.contentThen(at({ 'mgu-repo.json': 'old' }), head) === '-' && sourcesLib.contentThen(tree({ 'mgu-repo.json': 'm' }), head) === '-' &&
+        sourcesLib.contentThen(was, own) === '-');
+    // two tools in one folder (idrive7-apps' kit/renderd/prebuilt): a tool kit and a preload tool
+    const doc = { schema: 1, components: [{ id: 'kit_tool', kind: 'tool', path: 'kit/p' }, { id: 'gate', kind: 'tool', path: 'kit/p', version: '1.0.0',
+        preload: { library: 'g.so', unit: 'hmi.service', process: 'HmiMain3D', strikes: 2, checkAfterSeconds: 120, healthySeconds: 60 } }] };
+    const files = { 'mgu-repo.json': JSON.stringify(doc), 'kit/p/component.json': JSON.stringify({ id: 'kit_tool', kind: 'tool', version: '1.0.0', files: [] }),
+        'kit/p/d': 'd', 'kit/p/g.so': 'g' };
+    const listed = (more) => {
+        const f = Object.assign({}, files, more);
+        return sourcesLib.repoCatalog((rel) => (f[rel] !== undefined ? Promise.resolve(Buffer.from(f[rel])) : Promise.reject(Object.assign(new Error('no'), { missing: true }))),
+            'a'.repeat(40), 'aaaaaaa', null, () => Promise.resolve(tree(f))).then((cat) => {
+            const of = (id) => (cat.components.find((c) => c.id === id) || {}).content;
+            return [of('kit_tool'), of('gate')];
+        });
+    };
+    // two apps a build script makes, without build.shared
+    const scripted = { 'mgu-repo.json': JSON.stringify({ schema: 1, components: [{ id: 'x_app', kind: 'app', path: 'apps/x', build: { node: 'b.js' } },
+        { id: 'y_app', kind: 'app', path: 'apps/y', build: { node: 'b.js' } }] }), 'apps/x/app.json': '{"version":"1.0.0"}', 'apps/y/app.json': '{"version":"1.0.0"}',
+        'b.js': 'b', 'README.md': 'r' };
+    const built2 = (more) => {
+        const f = Object.assign({}, scripted, more);
+        return sourcesLib.repoCatalog((rel) => (f[rel] !== undefined ? Promise.resolve(Buffer.from(f[rel])) : Promise.reject(Object.assign(new Error('no'), { missing: true }))),
+            'a'.repeat(40), 'aaaaaaa', null, () => Promise.resolve(tree(f))).then((cat) => ['x_app', 'y_app'].map((id) => (cat.components.find((c) => c.id === id) || {}).content));
+    };
+    return Promise.all([listed({}), listed({ 'kit/p/d': 'd2' }), listed({ 'kit/p/g.so': 'g2' }),
+        built2({}), built2({ 'apps/x/m.js': 'm' }), built2({ 'b.js': 'b2' })]).then(([a, b, c, x, y, z]) => {
+        ok('content: of two tools in one folder, a change to one\'s files is no change of the other',
+            a[0] && a[1] && b[0] !== a[0] && b[1] === a[1] && c[0] === a[0] && c[1] !== a[1], JSON.stringify([a, b, c]));
+        ok('content: of two apps a build script makes, a change to one\'s folder is no change of the other; the script changes both',
+            x[0] && x[1] && y[0] !== x[0] && y[1] === x[1] && z[0] !== x[0] && z[1] !== x[1], JSON.stringify([x, y, z]));
+    });
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -6376,7 +6486,8 @@ function main() {
     testCollect();
     testFileLog();
     testRequiredAlone();
-    return testTar()
+    return testContent()
+        .then(() => testTar())
         .then(() => testDeployTimeout())
         .then(() => testIndexV1Cache().catch((e) => ok('index v1 cache scenario', false, e.stack)))
         .then(() => testBuildDisk().catch((e) => ok('build folders scenario', false, e.stack)))

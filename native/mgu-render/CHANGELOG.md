@@ -3,6 +3,9 @@
 ## Unreleased
 
 - The foreground gate tries again every 5 s a `RemoteHmiApplication` instance whose proxy failed (as while the HMI still starts), and reads an instance's stack again when it becomes available. Before, such an instance was never watched until the renderer restarted: an app the HMI then showed there was never in front, so the kit drew it in the HMI's own page with the HMI's button bar, not full screen. Seen after an iDrive start (Redline stayed so for the whole drive).
+## 0.6.14
+
+- The touch divert rule goes to nft in a file (`/tmp/mgu-render-nft-*`), and a load counts only when `nft list table ip mgu_render` finds the table afterwards; otherwise the journal says `touch: loading the nft rule failed, touch stays the HMI's` and the load is tried again 5 s later. nftables 0.7 on iDrive 7 units (MainApp 8.2.0; also reported on MainApp 6.5.5) reads a script given as `-` as a file of that name, fails and exits 0: the journal said `touch: diverted`, the table was never there, and no touch reached the Store or its apps.
 
 ## 0.6.13
 

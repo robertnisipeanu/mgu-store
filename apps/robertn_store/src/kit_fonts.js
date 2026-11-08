@@ -47,13 +47,13 @@ function family(name) {
 }
 
 /* The package's fonts folder: beside javascript/ in the installed app, in
- * the staged tree in this repository. */
+ * the staged tree mgu-app.json names in this repository. */
 function fontDir() {
     const up = path.join(__dirname, '..');
     if (fs.existsSync(path.join(up, 'fonts'))) {
         return path.join(up, 'fonts');
     }
-    return path.join(up, fs.readdirSync(up).find((n) => /^robertn_store@/.test(n) && fs.statSync(path.join(up, n)).isDirectory()), 'fonts');
+    return path.join(up, JSON.parse(fs.readFileSync(path.join(up, 'mgu-app.json'), 'utf8')).tree, 'fonts');
 }
 
 /* A language font's atlases (fonts/<name>.json): every face's, or "all"

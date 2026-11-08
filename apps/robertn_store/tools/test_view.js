@@ -8,7 +8,7 @@
 const assert = require('assert');
 const { listed, sourceAuthor, sourceNames, withSources, rowState, rowAction, removable, undoable, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
     sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress,
-    parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, proxyUrlError } = require('../src/store_view.js');
+    parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, proxyUrlError, setClusterTime, clock } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
@@ -324,4 +324,54 @@ const cases = [
         .map(proxyUrlError).filter((e) => e === 'Use http://host:port or socks5://host:port').length, 9]
 ];
 cases.forEach(([got, want], i) => assert.strictEqual(got, want, `case ${i}: ${JSON.stringify(got)} != ${JSON.stringify(want)}`));
-console.log(`store_view: ${cases.length} cases pass`);
+
+/* The HMI's clock: the instrument cluster's display time in the head unit's time zone. */
+const NOW = Date.UTC(2026, 10, 7, 23, 22, 40);
+const show = (o) => Object.assign({ displayHour: 1, displayMinute: 22, displaySecond: 41, displayDateDay: 8,
+    displayDateWeekDay: 'SONNTAG', displayDateMonth: 11, displayDateYear: 2026, statusDisplayClockTimeDate: 1 }, o);
+const local = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const CHECKED = Date.UTC(2026, 10, 7, 23, 2);
+const clockCases = [
+    // no cluster time yet: the system's time zone
+    () => [clock(CHECKED), local(CHECKED)],
+    // UTC+2 across midnight
+    () => [setClusterTime(show({}), NOW), true],
+    () => [clock(CHECKED), '01:02'],
+    () => [statusLine(st({ catalog: { checking: false, error: null, checkedAt: CHECKED } }), true), 'Up to date, checked 01:02'],
+    () => [statusLine(st({ online: false, catalog: { checking: false, error: null, checkedAt: CHECKED } }), true), 'Offline, checked 01:02'],
+    // the same offset again: no change
+    () => [setClusterTime(show({ displayMinute: 23, displaySecond: 40 }), NOW + 60000), false],
+    // the cluster's reading a few seconds behind still gives whole quarter hours
+    () => [setClusterTime(show({ displayMinute: 22, displaySecond: 30 }), NOW), false],
+    // UTC-3:30 (Newfoundland), UTC+5:45 (Kathmandu), UTC+13 (New Zealand summer)
+    () => [setClusterTime(show({ displayHour: 19, displayMinute: 52, displayDateDay: 7 }), NOW), true],
+    () => [clock(CHECKED), '19:32'],
+    () => [setClusterTime(show({ displayHour: 5, displayMinute: 7, displayDateDay: 8 }), NOW), true],
+    () => [clock(CHECKED), '04:47'],
+    () => [setClusterTime(show({ displayHour: 12, displayMinute: 22, displayDateDay: 8 }), NOW), true],
+    () => [clock(CHECKED), '12:02'],
+    // UTC: offset 0, formatted in UTC
+    () => [setClusterTime(show({ displayHour: 23, displayDateDay: 7 }), NOW), true],
+    () => [clock(CHECKED), '23:02'],
+    // no valid date: the time of day is enough
+    () => [setClusterTime(show({ displayHour: 1, displayDateDay: 255, displayDateMonth: 15, displayDateYear: 65535 }), NOW), true],
+    () => [clock(CHECKED), '01:02'],
+    // unfilled (15): the clock stays as it is
+    () => [setClusterTime(show({ displayHour: 9, statusDisplayClockTimeDate: 15 }), NOW), false],
+    () => [clock(CHECKED), '01:02'],
+    // an odd status shows the time, an even one does not (the HMI shows --:--): the system's time zone
+    () => [setClusterTime(show({ displayHour: 3, statusDisplayClockTimeDate: 3 }), NOW), true],
+    () => [clock(CHECKED), '03:02'],
+    () => [setClusterTime(show({ statusDisplayClockTimeDate: 0 }), NOW), true],
+    () => [clock(CHECKED), local(CHECKED)],
+    // out of range fields: none
+    () => [setClusterTime(show({ displayHour: 255 }), NOW), false],
+    () => [setClusterTime(show({ displayMinute: 60 }), NOW), false],
+    () => [setClusterTime(null, NOW), false],
+    () => [clock(CHECKED), local(CHECKED)]
+];
+clockCases.forEach((f, i) => {
+    const [got, want] = f();
+    assert.strictEqual(got, want, `clock case ${i}: ${JSON.stringify(got)} != ${JSON.stringify(want)}`);
+});
+console.log(`store_view: ${cases.length + clockCases.length} cases pass`);

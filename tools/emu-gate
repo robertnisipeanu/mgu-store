@@ -10,8 +10,8 @@
  * its page drawn (not the HMI's empty page, not black) and, on a layer, its
  * layer listed and visible. All passing, it writes
  * release/gate/<id>.json for the component's exact source, which
- * `release.js publish` requires. Commit that file. A release-time component
- * is built at the version the release would give it (a patch).
+ * `release.js publish` requires. Commit that file. The component is built
+ * at the version the release would give it (a patch).
  * HEAD needs its <id>@<version> tags (git fetch --tags).
  *
  *   tools/emu-gate <id>...
@@ -281,10 +281,9 @@ function main(ids) {
         for (const id of ids) {
             const c = all.find((x) => x.id === id);
             const source = sourceCommit(c);
-            // a release-time component is tested at the version the release
-            // gives it, stamped into a scratch checkout of HEAD
-            const built = c.stamped ? stampedCheckout(id, tmp) : REPO;
-            const version = c.stamped ? components(built).find((x) => x.id === id).version : c.version;
+            // tested at the version the release gives it, stamped into a scratch checkout of HEAD
+            const built = stampedCheckout(id, tmp);
+            const version = components(built).find((x) => x.id === id).version;
             console.log(`\n== ${id}@${version}`);
             run('node', ['release/release.js', 'build', id], { cwd: built, stdio: ['ignore', 'inherit', 'inherit'] });
             const entry = readCatalog(built).find((e) => e.id === id);
