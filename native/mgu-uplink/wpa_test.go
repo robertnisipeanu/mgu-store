@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,9 @@ const fakeWPAEnv = "MGU_UPLINK_FAKE_WPA"
 
 // fakeRfkillEnv: the rfkill soft file the fake wpa_supplicant reads.
 const fakeRfkillEnv = "MGU_UPLINK_FAKE_RFKILL"
+
+// fakeNoFreqEnv: set, the fake wpa_supplicant refuses a freq_list.
+const fakeNoFreqEnv = "MGU_UPLINK_FAKE_NOFREQ"
 
 func TestMain(m *testing.M) {
 	if scan := os.Getenv(fakeWPAEnv); scan != "" && len(os.Args) > 1 && os.Args[1] == "-i" {
@@ -201,6 +205,7 @@ type fakeNet struct {
 	ssid, psk, keyMgmt string
 	prio               int
 	off                bool
+	freqList, scanFreq string
 }
 
 // printfEncode escapes a name as wpa_supplicant's printf_encode does in
@@ -327,6 +332,10 @@ func fakeWPA(scanFile string, args []string) int {
 				n.keyMgmt = v
 			case n != nil && k == "priority":
 				n.prio, _ = strconv.Atoi(v)
+			case n != nil && k == "freq_list":
+				n.freqList = v
+			case n != nil && k == "scan_freq":
+				n.scanFreq = v
 			}
 		}
 		return true
@@ -341,18 +350,25 @@ func fakeWPA(scanFile string, args []string) int {
 		}
 		return rows
 	}
-	state, cur := "INACTIVE", -1
+	// disconnected: as wpa_supplicant's after DISCONNECT, until RECONNECT or
+	// SELECT_NETWORK; RECONFIGURE keeps it
+	state, cur, curFreq, disconnected := "INACTIVE", -1, "", false
 	try := func() {
-		best := -1
+		if disconnected {
+			state, cur = "DISCONNECTED", -1
+			return
+		}
+		best, freq := -1, ""
 		for id, n := range nets {
 			for _, r := range scanRows() {
 				if !n.off && r[4] == n.ssid && (r[5] == "" && n.keyMgmt == "NONE" || r[5] != "" && r[5] == n.psk) &&
+					(n.freqList == "" || slices.Contains(strings.Fields(n.freqList), r[1])) &&
 					(best < 0 || n.prio > nets[best].prio) {
-					best = id
+					best, freq = id, r[1]
 				}
 			}
 		}
-		state, cur = "INACTIVE", best
+		state, cur, curFreq = "INACTIVE", best, freq
 		for _, n := range nets {
 			if !n.off {
 				state = "SCANNING"
@@ -412,6 +428,9 @@ func fakeWPA(scanFile string, args []string) int {
 			reply = "wpa_state=" + state + "\n"
 			if state == "COMPLETED" {
 				reply += "ssid=" + printfEncode(nets[cur].ssid) + "\n"
+				if curFreq != "0" {
+					reply += "freq=" + curFreq + "\n"
+				}
 			}
 		case "SIGNAL_POLL":
 			reply = "FAIL\n"
@@ -453,8 +472,23 @@ func fakeWPA(scanFile string, args []string) int {
 				nn.keyMgmt = f[3]
 			case "priority":
 				nn.prio, _ = strconv.Atoi(f[3])
+			case "freq_list", "scan_freq":
+				v := strings.Trim(f[3], `"`)
+				if os.Getenv(fakeNoFreqEnv) != "" && v != "" {
+					reply = "FAIL\n"
+				} else if f[2] == "freq_list" {
+					nn.freqList = v
+				} else {
+					nn.scanFreq = v
+				}
+			}
+		case "GET_NETWORK":
+			reply = "FAIL\n"
+			if nn := nets[id]; nn != nil && len(f) > 2 && f[2] == "freq_list" && nn.freqList != "" {
+				reply = nn.freqList
 			}
 		case "SELECT_NETWORK":
+			disconnected = false
 			for i, nn := range nets {
 				nn.off = i != id
 			}
@@ -462,7 +496,12 @@ func fakeWPA(scanFile string, args []string) int {
 				try()
 			}
 		case "DISCONNECT":
-			state, cur = "DISCONNECTED", -1
+			state, cur, disconnected = "DISCONNECTED", -1, true
+		case "RECONNECT":
+			if disconnected {
+				disconnected = false
+				try()
+			}
 		case "ENABLE_NETWORK":
 			for _, nn := range nets {
 				nn.off = false
@@ -484,6 +523,12 @@ func fakeWPA(scanFile string, args []string) int {
 					out += fmt.Sprintf("\nnetwork={\n\tssid=%s\n", wpaConfString(nn.ssid))
 					if nn.psk != "" {
 						out += fmt.Sprintf("\tpsk=\"%s\"\n", nn.psk)
+					}
+					if nn.freqList != "" {
+						out += "\tfreq_list=" + nn.freqList + "\n"
+					}
+					if nn.scanFreq != "" {
+						out += "\tscan_freq=" + nn.scanFreq + "\n"
 					}
 					out += fmt.Sprintf("\tkey_mgmt=%s\n\tpriority=%d\n}\n", nn.keyMgmt, nn.prio)
 				}

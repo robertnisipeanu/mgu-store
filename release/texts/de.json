@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Die Apps und Headunit-Tools aller Quellen mit ihrem Status sowie die Quellen; installiert, aktualisiert und entfernt sie über mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Updater",
+    "description": "Installiert, aktualisiert und entfernt Apps und Headunit-Tools aus seinen Quellen"
+  },
+  "mgu-deploy": {
+    "title": "Deploy-Tool",
+    "description": "Installiert, aktualisiert, setzt zurück und entfernt unsere Tools und Apps auf der Headunit, mit einem Snapshot vor jeder Änderung"
+  },
+  "mgu-render": {
+    "title": "Renderer",
+    "description": "Zeichnet die Bildschirme von Apps auf der GPU, über dem HMI oder in der Seite der App"
+  },
+  "mgu-uplink": {
+    "title": "Internet-Uplink",
+    "description": "Internet für ausgewählte Apps über einen USB-Netzwerkadapter, einen LTE-Stick, ein per USB-Tethering verbundenes Telefon oder Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "App-Datenschutz",
+    "description": "Hält unsere Apps aus der App-Meldung der Headunit an das Backend heraus und startet sie nach einem Absturz neu"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 für Apps, die auf der Headunit mit Python gebaut werden"
+  }
+}

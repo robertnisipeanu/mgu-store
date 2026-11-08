@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "Aplikacje i narzędzia jednostki głównej ze wszystkich źródeł wraz ze stanem oraz same źródła; instaluje, aktualizuje i usuwa je przez mgu-updater"
+  },
+  "mgu-updater": {
+    "title": "Usługa aktualizacji",
+    "description": "Instaluje, aktualizuje i usuwa aplikacje oraz narzędzia jednostki głównej ze swoich źródeł"
+  },
+  "mgu-deploy": {
+    "title": "Narzędzie wdrażania",
+    "description": "Instaluje, aktualizuje, przywraca i usuwa nasze narzędzia i aplikacje na jednostce głównej, tworząc migawkę przed każdą zmianą"
+  },
+  "mgu-render": {
+    "title": "Renderer",
+    "description": "Rysuje ekrany aplikacji na GPU, nad HMI lub wewnątrz strony aplikacji"
+  },
+  "mgu-uplink": {
+    "title": "Łącze internetowe",
+    "description": "Internet dla wybranych aplikacji przez kartę sieciową USB, modem LTE, telefon udostępniający internet przez USB lub Wi-Fi"
+  },
+  "app-privacy": {
+    "title": "Prywatność aplikacji",
+    "description": "Wyłącza nasze aplikacje z raportowania aplikacji przez jednostkę główną do serwera i uruchamia je ponownie po awarii"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "Python 3.12 dla aplikacji budowanych na jednostce głównej w Pythonie"
+  }
+}

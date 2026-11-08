@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "모든 소스의 앱과 헤드 유닛 도구를 상태와 함께 보여 주고 소스를 관리하며, mgu-updater를 통해 설치, 업데이트, 제거합니다"
+  },
+  "mgu-updater": {
+    "title": "업데이터",
+    "description": "소스에서 앱과 헤드 유닛 도구를 설치, 업데이트, 제거합니다"
+  },
+  "mgu-deploy": {
+    "title": "배포 도구",
+    "description": "헤드 유닛에서 자체 도구와 앱을 설치, 업데이트, 롤백, 제거하며 변경할 때마다 먼저 스냅샷을 만듭니다"
+  },
+  "mgu-render": {
+    "title": "렌더러",
+    "description": "GPU로 앱 화면을 그려 HMI 위 또는 앱 페이지 안에 표시합니다"
+  },
+  "mgu-uplink": {
+    "title": "인터넷 연결",
+    "description": "USB 네트워크 어댑터, LTE 동글, USB 테더링 휴대폰 또는 Wi-Fi를 통해 선택한 앱에 인터넷을 제공합니다"
+  },
+  "app-privacy": {
+    "title": "앱 개인정보 보호",
+    "description": "자체 앱을 헤드 유닛의 백엔드 앱 보고에서 제외하고 충돌 후 다시 시작합니다"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "헤드 유닛에서 Python으로 빌드되는 앱을 위한 Python 3.12"
+  }
+}

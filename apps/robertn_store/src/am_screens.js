@@ -6,7 +6,7 @@
  * app, confirm (the sheet), installed, usb and settings are IterioDev's App
  * Manager 2 screens (mgu-app-store apps/oap-appmanager/renderer/screens.json
  * @ 4d5f508, the HMI UI builder's export of projects/app-manager.json) with the Store's labels; source, pick, accounts, login, phone,
- * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page) and prefer are the Store's
+ * type (his Add repository page's text box and keyboard), wifi (his App Manager 2.0.6's Wi-Fi page), prefer and proxy are the Store's
  * own in the same frame. Each element is drawn by am_gpu.js; src/store_ui.js gives their values.
  */
 module.exports = {
@@ -67,6 +67,25 @@ module.exports = {
       "align": "left",
       "color": "dim"
      }
+    },
+    {
+     "name": "restartNow",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 936,
+     "y": 134,
+     "w": 540,
+     "h": 84,
+     "opts": {
+      "text": "Restart now",
+      "vicon": "refresh",
+      "style": "primary",
+      "size": 34,
+      "color": "#3d9bff",
+      "hidden": true,
+      "shift": {}
+     },
+     "onTap": "event:restartNow"
     },
     {
      "name": "filter",
@@ -466,7 +485,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1150,
-     "y": 325,
+     "y": 290,
      "w": 1200,
      "h": 70,
      "opts": {
@@ -482,16 +501,34 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1150,
-     "y": 401,
+     "y": 362,
      "w": 1200,
-     "h": 45,
+     "h": 90,
      "opts": {
       "text": "",
       "size": 36,
       "font": "label",
       "align": "left",
-      "color": "dim"
+      "color": "dim",
+      "wrap": true
      }
+    },
+    {
+     "name": "also",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 1150,
+     "y": 466,
+     "w": 1190,
+     "h": 80,
+     "opts": {
+      "text": "Remove all",
+      "vicon": "trash",
+      "style": "outline",
+      "size": 32,
+      "hidden": true
+     },
+     "onTap": "event:also"
     },
     {
      "name": "now",
@@ -610,6 +647,34 @@ module.exports = {
       "color": "#3d9bff"
      },
      "onTap": "event:updateAll"
+    },
+    {
+     "name": "restartNow",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 2300,
+     "y": 140,
+     "w": 540,
+     "h": 100,
+     "opts": {
+      "text": "Restart now",
+      "vicon": "refresh",
+      "style": "primary",
+      "size": 34,
+      "color": "#3d9bff",
+      "hidden": true,
+      "shift": {
+       "updateAll": [
+        -564,
+        0
+       ],
+       "subtitle": [
+        0,
+        -70
+       ]
+      }
+     },
+     "onTap": "event:restartNow"
     },
     {
      "name": "appsLabel",
@@ -860,7 +925,7 @@ module.exports = {
      "x": 1880,
      "y": 412,
      "w": 920,
-     "h": 260,
+     "h": 360,
      "opts": {
       "items": [],
       "rowH": 120
@@ -870,15 +935,15 @@ module.exports = {
      "name": "unit",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 1880,
-     "y": 668,
-     "w": 920,
-     "h": 40,
+     "x": 2293,
+     "y": 374,
+     "w": 507,
+     "h": 30,
      "opts": {
       "text": "",
-      "size": 32,
+      "size": 22,
       "font": "bold",
-      "align": "left",
+      "align": "right",
       "color": "text"
      }
     },
@@ -887,14 +952,14 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1880,
-     "y": 714,
+     "y": 341,
      "w": 920,
-     "h": 38,
+     "h": 28,
      "opts": {
       "text": "",
-      "size": 28,
+      "size": 22,
       "font": "label",
-      "align": "left",
+      "align": "right",
       "color": "dim"
      }
     },
@@ -1762,13 +1827,26 @@ module.exports = {
      }
     },
     {
-     "name": "networks",
+     "name": "allow5",
      "rtype": "gpu",
      "gpu": "appList",
      "x": 480,
      "y": 292,
      "w": 1560,
-     "h": 540,
+     "h": 108,
+     "opts": {
+      "items": [],
+      "rowH": 108
+     }
+    },
+    {
+     "name": "networks",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 480,
+     "y": 412,
+     "w": 1560,
+     "h": 420,
      "opts": {
       "items": [],
       "rowH": 108,
@@ -1880,21 +1958,6 @@ module.exports = {
       "style": "outline"
      },
      "onTap": "event:scan"
-    },
-    {
-     "name": "prefer",
-     "rtype": "gpu",
-     "gpu": "vbutton",
-     "x": 2140,
-     "y": 720,
-     "w": 660,
-     "h": 96,
-     "opts": {
-      "text": "",
-      "vicon": "route",
-      "style": "outline"
-     },
-     "onTap": "event:prefer"
     }
    ]
   },
@@ -1972,11 +2035,109 @@ module.exports = {
      "x": 610,
      "y": 292,
      "w": 1500,
-     "h": 540,
+     "h": 432,
      "opts": {
       "items": [],
       "rowH": 108,
       "empty": ""
+     }
+    },
+    {
+     "name": "usbPhone",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 610,
+     "y": 732,
+     "w": 1500,
+     "h": 108,
+     "opts": {
+      "items": [],
+      "rowH": 108,
+      "empty": ""
+     }
+    }
+   ]
+  },
+  {
+   "kind": "gpu",
+   "name": "proxy",
+   "theme": "m_tricolour",
+   "bg": "theme",
+   "components": [
+    {
+     "name": "nav",
+     "rtype": "gpu",
+     "gpu": "sideNav",
+     "x": 126,
+     "y": 114,
+     "w": 300,
+     "h": 726,
+     "opts": {
+      "items": "Store, grid\nInstalled, check\nUSB, usb\nSettings, gear",
+      "sel": 0
+     }
+    },
+    {
+     "name": "back",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 480,
+     "y": 138,
+     "w": 96,
+     "h": 96,
+     "opts": {
+      "text": "",
+      "vicon": "back",
+      "style": "round",
+      "color": "#f4f7fb"
+     },
+     "onTap": "event:back"
+    },
+    {
+     "name": "title",
+     "rtype": "gpu",
+     "gpu": "text",
+     "x": 610,
+     "y": 138,
+     "w": 1600,
+     "h": 90,
+     "opts": {
+      "text": "Proxy",
+      "size": 72,
+      "font": "bold",
+      "align": "left",
+      "color": "text"
+     }
+    },
+    {
+     "name": "rows",
+     "rtype": "gpu",
+     "gpu": "appList",
+     "x": 610,
+     "y": 292,
+     "w": 1500,
+     "h": 240,
+     "opts": {
+      "items": [],
+      "rowH": 120,
+      "empty": ""
+     }
+    },
+    {
+     "name": "error",
+     "rtype": "gpu",
+     "gpu": "text",
+     "x": 610,
+     "y": 570,
+     "w": 1500,
+     "h": 160,
+     "opts": {
+      "text": "",
+      "size": 34,
+      "font": "label",
+      "align": "left",
+      "color": "#ffb020",
+      "wrap": true
      }
     }
    ]

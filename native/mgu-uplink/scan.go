@@ -21,6 +21,11 @@ package main
 // takes over, and a change of the preferred group takes effect within 5 s. An unplugged device ends its link and the next scan
 // finds whatever is there, so devices can be unplugged, replugged and
 // swapped while the service runs.
+//
+// With phones over USB switched off (config USBPhone, the usb-phone
+// request) the phone kinds are not looked at: no phone is switched to
+// another USB configuration, paired with or tethered, and a phone link
+// running when the switch goes off ends as an unplug would end it.
 
 import (
 	"context"
@@ -44,6 +49,10 @@ const (
 )
 
 var autoKinds = []string{kindWiFi, kindUSB, kindECM, kindRNDIS, kindNCM, kindIPhone}
+
+// errPhoneOff ends a phone's link, or the take of one, when phones over USB
+// are switched off.
+var errPhoneOff = errors.New("phones over USB are switched off")
 
 // preferGroups are the choices of preferred and the kinds each puts first.
 var preferGroups = map[string][]string{
@@ -75,15 +84,20 @@ type scanUplink struct {
 
 	mu       sync.Mutex
 	prefer   string               // the group tried first (preferGroups)
+	phones   bool                 // phones over USB are taken
+	phoneOff chan struct{}        // closed while phones over USB are switched off
 	failed   map[string]time.Time // device key -> last failed open
 	switched map[string]time.Time
 	logged   map[string]string // device key -> last message logged
 }
 
 func newScanUplink(c config) *scanUplink {
-	return &scanUplink{record: c.linkFile(), pairDir: c.pairDir(), prefer: c.Preferred,
+	u := &scanUplink{record: c.linkFile(), pairDir: c.pairDir(), prefer: c.Preferred,
+		phones: true, phoneOff: make(chan struct{}),
 		failed: map[string]time.Time{}, switched: map[string]time.Time{},
 		logged: map[string]string{}}
+	u.setUSBPhone(c.USBPhone)
+	return u
 }
 
 func (u *scanUplink) String() string { return "auto" }
@@ -93,6 +107,30 @@ func (u *scanUplink) setPreferred(group string) {
 	u.prefer = group
 	u.mu.Unlock()
 }
+
+// setUSBPhone switches phones over USB on or off. Off ends a phone's link
+// at once (watchPreferred), and the scans pass phones by.
+func (u *scanUplink) setUSBPhone(on bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	switch {
+	case on && !u.phones:
+		u.phoneOff = make(chan struct{})
+	case !on && u.phones:
+		close(u.phoneOff)
+	}
+	u.phones = on
+}
+
+// phoneGate reports whether phones over USB are taken, and a channel closed
+// once they are switched off.
+func (u *scanUplink) phoneGate() (bool, <-chan struct{}) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.phones, u.phoneOff
+}
+
+func isPhoneKind(kind string) bool { return slices.Contains(preferGroups["phone"], kind) }
 
 // rank orders kinds: the preferred group's first, then the others, each in
 // autoKinds' order.
@@ -133,13 +171,14 @@ func (u *scanUplink) candidates() []candidate {
 	}
 	devs := scanUSBDevices()
 	iphoneForgetGone(devs)
+	phones, _ := u.phoneGate()
 	for _, info := range devs {
 		apple := strings.HasPrefix(info.vidpid, "05ac:")
 		for _, kind := range []string{kindECM, kindRNDIS, kindNCM, kindIPhone} {
 			// An Apple device's own CDC functions (a Mac's, an iPhone's reverse
 			// tethering) are not internet for the unit: Apple devices are taken
 			// only as iPhones.
-			if apple && kind != kindIPhone {
+			if apple && kind != kindIPhone || !phones && isPhoneKind(kind) {
 				continue
 			}
 			// The iPhone's attempt is keyed on its bus position, so a
@@ -243,9 +282,9 @@ func (u *scanUplink) Open(ctx context.Context) (Link, error) {
 				return nil, ctx.Err()
 			}
 			var pe *preferredError
-			if errors.As(err, &pe) {
+			if errors.As(err, &pe) || errors.Is(err, errPhoneOff) {
 				u.say(c.key, fmt.Sprintf("%s: %v", c.info, err))
-				break // the next scan opens the preferred device first
+				break // the next scan opens the preferred device first, or passes the phone by
 			}
 			u.mu.Lock()
 			u.failed[c.key] = time.Now()
@@ -289,6 +328,9 @@ func (u *scanUplink) open(ctx context.Context, c candidate) (Link, error) {
 		return u.wifi.openLink(c.dev.Name), nil
 	case kindIPhone:
 		return openIPhoneLink(ctx, c.info, c.fn, u.pairDir, func() error {
+			if on, _ := u.phoneGate(); !on {
+				return errPhoneOff
+			}
 			if p := u.preferred(c); p != nil {
 				return &preferredError{*p}
 			}
@@ -345,7 +387,8 @@ func (e *preferredError) Error() string {
 	return fmt.Sprintf("%s %s is preferred", e.c.kind, e.c.dev.Name)
 }
 
-// preferLink is a link ended when a device of an earlier kind appears.
+// preferLink is a link ended when a device of an earlier kind appears, or
+// when phones over USB are switched off while it runs on a phone.
 type preferLink struct {
 	Link
 	done chan struct{}
@@ -356,12 +399,20 @@ type preferLink struct {
 
 func (u *scanUplink) watchPreferred(l Link, cur candidate) Link {
 	p := &preferLink{Link: l, done: make(chan struct{}), stop: make(chan struct{})}
+	var phoneOff <-chan struct{} // nil: never, for a device that is no phone
+	if isPhoneKind(cur.kind) {
+		_, phoneOff = u.phoneGate()
+	}
 	go func() {
 		t := time.NewTicker(preferEvery)
 		defer t.Stop()
 		for {
 			select {
 			case <-p.stop:
+				return
+			case <-phoneOff:
+				p.err = errPhoneOff
+				close(p.done)
 				return
 			case <-l.Done():
 				p.err = l.Err()

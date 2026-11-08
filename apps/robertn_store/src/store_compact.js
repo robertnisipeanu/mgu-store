@@ -50,12 +50,19 @@ function compact(W, H) {
     const list = (name, x, y, w, h, extra) => el(name, 'appList', x, y, w, h, Object.assign({ items: '' }, LIST, extra || {}));
     const label = (name, x, y, t) => text(name, x, y, 400, 26, t, 20, 'bold', DIM);
 
+    // Update all's button, and Restart now beside it while a restart waits (store_ui.js restartNow); shown, it moves shift
+    const HB_W = 360;
+    const HB_H = 66;
+    const restartNow = (x, shift) => button('restartNow', x, M, HB_W, HB_H, 'Restart now', 'primary', 25,
+        { vicon: 'refresh', color: BLUE, hidden: true, shift });
+
     const FILTER_W = 420;
     const ONLINE_W = 190;
     const filterX = R - ONLINE_W - 20 - FILTER_W;
     const store = screen('store', 0, [
         title('Store'),
         after('subtitle', X + 160, filterX - X - 180),
+        restartNow(filterX - 16 - HB_W, { subtitle: [0, -HB_W - 16] }),
         el('filter', 'tabs', filterX, M + 2, FILTER_W, 60, { items: 'All,Apps,Tools', sel: 0, style: 'joined', size: 24 }),
         el('online', 'chips', R - ONLINE_W, M + 8, ONLINE_W, 48, { items: '', align: 'right' }),
         grid()
@@ -67,7 +74,8 @@ function compact(W, H) {
     const installed = screen('installed', 1, [
         title('Installed'),
         after('subtitle', X + 240, CW - 240 - 380),
-        button('updateAll', R - 360, M, 360, 66, '', 'primary', 25, { vicon: 'arrowDown', color: BLUE }),
+        button('updateAll', R - HB_W, M, HB_W, HB_H, '', 'primary', 25, { vicon: 'arrowDown', color: BLUE }),
+        restartNow(R - HB_W, { updateAll: [-HB_W - 16, 0], subtitle: [0, -HB_W - 16] }),
         label('appsLabel', X, HEAD + 8, 'APPS'),
         list('apps', X, LIST_Y, colW, B - LIST_Y, { empty: 'No apps installed' }),
         label('svcLabel', X + colW + 24, HEAD + 8, 'HEAD-UNIT TOOLS'),
@@ -86,9 +94,9 @@ function compact(W, H) {
         button('addRepo', X, B - SET_H, leftW, SET_H, 'Add source', 'tinted', 25, { vicon: 'plus', color: BLUE }),
         el('connPanel', 'rect', rx, HEAD + 4, rw, B - HEAD - 4, { color: 'panelTop', radius: 20 }),
         label('connLabel', rx + 18, HEAD + 18, 'ACCESS'),
-        list('access', rx + 12, HEAD + 52, rw - 24, 2 * LIST.rowH),
-        text('unit', rx + 18, HEAD + 60 + 2 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
-        text('versions', rx + 18, HEAD + 100 + 2 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
+        list('access', rx + 12, HEAD + 52, rw - 24, 3 * LIST.rowH),
+        text('unit', rx + 18, HEAD + 60 + 3 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
+        text('versions', rx + 18, HEAD + 100 + 3 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
         button('checkNow', rx + 16, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Check now', 'outline', 25, { vicon: 'refresh' }),
         button('restart', rx + 28 + (rw - 44) / 2, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Restart head unit', 'outline', 25,
             { vicon: 'refresh' })
@@ -125,7 +133,7 @@ function compact(W, H) {
 
     // the confirm sheet over the page
     const SW = Math.min(1200, CW);
-    const SH = 380;
+    const SH = 400;
     const sx = X + (CW - SW) / 2;
     const sy = (H - SH) / 2;
     const BW = (SW - 100) / 2;
@@ -133,7 +141,8 @@ function compact(W, H) {
         el('sheet', 'sheet', sx, sy, SW, SH, { radius: 24 }),
         el('icon', 'appIcon', sx + 40, sy + 36, 110, 110, { vicon: '', colors: '#3a4352,#232a35' }),
         text('title', sx + 176, sy + 44, SW - 216, 50, '', 41, 'bold'),
-        text('text', sx + 176, sy + 104, SW - 216, 32, '', 26, 'label', DIM),
+        text('text', sx + 176, sy + 100, SW - 216, 66, '', 26, 'label', DIM, { wrap: true }),
+        button('also', sx + 176, sy + 176, SW - 216, 76, '', 'outline', 28, { vicon: 'trash', hidden: true }),
         button('now', sx + 40, sy + SH - 126, BW, 90, '', 'primary', 31, { color: BLUE }),
         button('later', sx + 60 + BW, sy + SH - 126, BW, 90, 'Cancel', 'outline', 31),
         text('note', sx + 40, sy + SH - 30, SW - 80, 24, '', 21, 'label', DIM, { align: 'center' })
@@ -205,29 +214,37 @@ function compact(W, H) {
         el('keyboard', 'keyboard', X, keysY, CW, B - keysY, { shift: false })
     ]);
     // Wi-Fi: the networks on the left, the state and its buttons in the panel on the right
-    const wbY = (k) => B - 14 - (3 - k) * BTN_H - (2 - k) * 12;      // the panel's k-th button (0, 1, 2)
+    const wbY = (k) => B - 14 - (3 - k) * BTN_H - (2 - k) * 12;      // the panel's k-th button slot (0, 1, 2; 2 is empty)
     const wifi = screen('wifi', 3, [
         back(),
         title('Wi-Fi', titleX),
         after('subtitle', titleX + 170, px - titleX - 194),
-        list('networks', X, HEAD + 14, px - X - 24, B - HEAD - 14, { empty: '' }),
+        list('allow5', X, HEAD + 14, px - X - 24, LIST.rowH),
+        list('networks', X, HEAD + 14 + LIST.rowH + 8, px - X - 24, B - HEAD - 22 - LIST.rowH, { empty: '' }),
         el('panel', 'rect', px, M, PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
         el('icon', 'appIcon', px + 20, M + 20, 96, 96, { vicon: 'wifi', kind: 'service', colors: '#7a808a,#3a3f47' }),
         text('state', px + 132, M + 30, PW - 152, 36, '', 28, 'bold'),
         text('info', px + 132, M + 72, PW - 152, 30, '', 23, 'label', DIM),
         text('note', px + 20, M + 132, PW - 40, wbY(0) - 12 - M - 132, '', 23, 'label', AMBER, { wrap: true }),
         button('power', px + 20, wbY(0), PW - 40, BTN_H, '', 'outline', 28, { vicon: 'wifi' }),
-        button('scan', px + 20, wbY(1), PW - 40, BTN_H, 'Scan', 'outline', 28, { vicon: 'refresh' }),
-        button('prefer', px + 20, wbY(2), PW - 40, BTN_H, '', 'outline', 28, { vicon: 'route' })
+        button('scan', px + 20, wbY(1), PW - 40, BTN_H, 'Scan', 'outline', 28, { vicon: 'refresh' })
     ]);
     const prefer = screen('prefer', 3, [
         back(),
         title('Preferred connection', titleX),
         status('status', R - 420, 420),
-        list('list', X, HEAD + 14, Math.min(1100, CW), B - HEAD - 14, { empty: '' })
+        list('list', X, HEAD + 14, Math.min(1100, CW), 4 * LIST.rowH, { empty: '' }),
+        list('usbPhone', X, HEAD + 14 + 4 * LIST.rowH + 8, Math.min(1100, CW), LIST.rowH, { empty: '' })
+    ]);
+    const proxyW = Math.min(1100, CW);
+    const proxy = screen('proxy', 3, [
+        back(),
+        title('Proxy', titleX),
+        list('rows', X, HEAD + 14, proxyW, 2 * LIST.rowH, { empty: '' }),
+        text('error', X, HEAD + 14 + 2 * LIST.rowH + 20, proxyW, 130, '', 26, 'label', AMBER, { wrap: true })
     ]);
     return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, pick, login, phone, type,
-        wifi, prefer] };
+        wifi, prefer, proxy] };
 }
 
 module.exports = { compact };

@@ -1,0 +1,30 @@
+{
+  "robertn_store": {
+    "title": "Store",
+    "description": "列出每個來源的應用程式與主機工具及其狀態，以及各來源；透過 mgu-updater 安裝、更新及移除它們"
+  },
+  "mgu-updater": {
+    "title": "更新服務",
+    "description": "從其來源安裝、更新及移除應用程式與主機工具"
+  },
+  "mgu-deploy": {
+    "title": "部署工具",
+    "description": "在主機上安裝、更新、回復及移除我們的工具與應用程式，每次變更前都會建立快照"
+  },
+  "mgu-render": {
+    "title": "渲染器",
+    "description": "在 GPU 上繪製應用程式畫面，疊加於 HMI 之上或顯示在應用程式頁面內"
+  },
+  "mgu-uplink": {
+    "title": "網際網路連線",
+    "description": "透過 USB 網路卡、LTE 網卡、以 USB 網路共用的手機或 Wi-Fi，為選定的應用程式提供網際網路"
+  },
+  "app-privacy": {
+    "title": "應用程式隱私",
+    "description": "讓我們的應用程式不被主機回報給後端，並在當機後重新啟動它們"
+  },
+  "mgu-python": {
+    "title": "Python",
+    "description": "為在主機上以 Python 建置的應用程式提供 Python 3.12"
+  }
+}
