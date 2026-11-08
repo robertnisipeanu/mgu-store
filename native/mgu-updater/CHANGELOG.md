@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Lost apps are installed again only while the app manager runs on a data folder of its own: not while it has not started or created its home after a factory reset. The updater looks again when it comes up.
+
 ## 0.8.34
 
 No changes.
