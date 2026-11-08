@@ -134,12 +134,15 @@ type wifiBackend interface {
 // request showing), so its scans may stop; other, the uplink is online on a
 // device that outranks Wi-Fi; session, a wireless CarPlay or Android Auto
 // session (projection.go) is up, with the phone on band (2: 2.4 GHz, 5:
-// 5 GHz, 0: not known).
+// 5 GHz, 0: not known); same, with Allow 5 GHz, the frequencies of the
+// phone's groups, which the scans cover too: a station on the group's own
+// channel shares it without taking the radio off it.
 type scanHold struct {
 	idle    bool
 	other   bool
 	session string
 	band    int
+	same    []int
 }
 
 type wifiProvider struct {
@@ -464,8 +467,9 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	// of wireless CarPlay and Android Auto. While the uplink is online on a
 	// device Wi-Fi can't take over from, and during a wireless session, the
 	// supplicant's own scans stop or keep to the band the phone is not on
-	// (scanHold); they go on as usual as soon as neither is so, for a scan
-	// request, and never under a join the owner asked for.
+	// (with Allow 5 GHz, and the phone's own channel; scanHold); they go on
+	// as usual as soon as neither is so, for a scan request, and never under
+	// a join the owner asked for.
 	sess := p.session()
 	if joining == "" {
 		p.mu.Lock()
@@ -475,6 +479,16 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		h := scanHold{idle: idle && !st.Scanning, other: other != "" && (p.outranks == nil || p.outranks(other)), session: sess.kind}
 		if h.session != "" && p.wpa == wifiBackend(p.car) {
 			h.band = p.phoneBand(sess)
+			p.mu.Lock()
+			allow5 := p.allow5
+			p.mu.Unlock()
+			if h.band != 0 && allow5 {
+				for _, ifname := range sess.ifaces {
+					if f := p.freqs[ifname]; !slices.Contains(h.same, f) {
+						h.same = append(h.same, f)
+					}
+				}
+			}
 		}
 		held := p.wpa.hold(h)
 		if held && h.session != "" {

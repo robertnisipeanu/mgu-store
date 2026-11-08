@@ -53,9 +53,8 @@ var cp = require('child_process');
  * their mode. */
 process.umask(0o022);
 
-/* deploy/component.json's version; bumped when a file under deploy/unit/
- * changes. */
-var VERSION = '0.8.4';
+/* deploy/component.json's version; the release sets both. */
+var VERSION = '0.8.6';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -113,6 +112,8 @@ var CFG = {
     verifyAfterS: Number(env('MGU_DEPLOY_VERIFY_AFTER_S', '150')),
     bounceMinUpS: Number(env('MGU_DEPLOY_BOUNCE_MIN_UP_S', '60')),
     guardWatchS: Number(env('MGU_DEPLOY_GUARD_WATCH_S', '60')),
+    idleQuietS: Number(env('MGU_DEPLOY_IDLE_QUIET_S', '5')),
+    idleMaxS: Number(env('MGU_DEPLOY_IDLE_MAX_S', '180')),
     lockWaitMs: Number(env('MGU_DEPLOY_LOCK_WAIT_MS', '3600000')),
     migrateSettleMs: Number(env('MGU_DEPLOY_MIGRATE_SETTLE_MS', '45000'))
 };
@@ -330,6 +331,10 @@ function saveState(s) {
     mkdirp(DEPLOY_DIR);
     var lb = lastBounceAt();
     if (lb) s.lastBounceAt = lb;
+    if (restartDeferred && Array.isArray(s.pending_reboot)) {
+        s = Object.assign({}, s, { pending_reboot: s.pending_reboot.slice() });
+        addPending(s, 'mgu-deploy', PENDING_MANAGER_BUSY);
+    }
     writeAtomic(STATE_FILE, JSON.stringify(s, null, 2) + '\n', 0o644);
 }
 /* When the app manager's node child was last killed by this tool, in
@@ -464,18 +469,34 @@ function psLines() {
  * script (the first argument that is not an option or a -r preload), not a
  * command that only names the file, as the fallback copy's build does. */
 function managerPid() {
-    var lines = psLines(), head = (lines[0] || '').trim().split(/\s+/), col = head.indexOf('PID'), i, f, a, pid;
-    var cmd = head.indexOf('COMMAND'), script = path.basename(mainappRoot()) + '/src/main.js';
-    if (col < 0 || cmd < 0) return null;
+    return nodePids([path.basename(mainappRoot()) + '/src/main.js'])[0] || null;
+}
+/* node processes whose script (the first argument past options and -r
+ * preloads) ends with one of scripts. */
+function nodePids(scripts) {
+    var lines = psLines(), head = (lines[0] || '').trim().split(/\s+/), col = head.indexOf('PID'), i, f, a, pid, out = [];
+    var cmd = head.indexOf('COMMAND');
+    var ends = function (s) { return scripts.some(function (x) { return s.slice(-x.length) === x; }); };
+    if (col < 0 || cmd < 0) return out;
     for (i = 1; i < lines.length; i++) {
         f = lines[i].trim().split(/\s+/);
         if (!/(^|\/)node$/.test(f[cmd] || '')) continue;
         for (a = cmd + 1; a < f.length && f[a].charAt(0) === '-'; a++) if (f[a] === '-r' || f[a] === '--require') a++;
-        if (!f[a] || f[a].slice(-script.length) !== script) continue;
+        if (!f[a] || !ends(f[a])) continue;
         pid = Number(f[col]);
-        if (pid > 0 && pid !== process.pid) return pid;
+        if (pid > 0 && pid !== process.pid) out.push(pid);
     }
-    return null;
+    return out;
+}
+/* MainApp's install worker: the node child main.js forks for app installs,
+ * updates and removals (src/AppManagement/AppManagement), which exits 30 s
+ * after its last one. An update deletes the app's registry entry and writes
+ * it again seconds later (up to about 35 s on the car), within the worker's
+ * run; a restart of MainApp in between loses the entry, and MainApp then
+ * installs the app again from its firmware package under a new uid. */
+function workerRunning() {
+    var w = path.basename(mainappRoot()) + '/src/AppManagement/AppManagement';
+    return nodePids([w, w + '.js']).length > 0;
 }
 function nowS() { return Date.now() / 1000; }
 function monoS() { var t = process.hrtime(); return t[0] + t[1] / 1e9; }
@@ -545,8 +566,15 @@ function bounceManager() {
         bounceOwed = true;
         return true;
     }
-    var old = bounceWait(), waited = 0, cur;
-    if (!old) { warn('app manager node child not found; nothing to bounce'); return false; }
+    if (restartDeferred) return false;
+    var old, waited = 0, cur, idleBy = null;
+    for (;;) {
+        old = bounceWait();
+        if (!old) { warn('app manager node child not found; nothing to bounce'); return false; }
+        if (idleBy === null) idleBy = monoS() + CFG.idleMaxS;
+        if (!idleWait(idleBy)) return deferBounce();
+        if (managerPid() === old) break;
+    }
     say('bouncing the app manager node child (pid ' + old + ')');
     recordBounce(Math.ceil(nowS()));
     guardBounce(old);
@@ -565,6 +593,37 @@ function bounceManager() {
 }
 /* remove-all makes the bounces its steps ask for once, at its end. */
 var bounceDeferred = false, bounceOwed = false;
+/* Until MainApp's install worker has not run for idleQuietS, up to the
+ * monotonic time by: true once idle. A worker not running at the first
+ * look has been idle 30 s already (it exits 30 s after its last job). */
+function idleWait(by) {
+    var seen = null, said = false;
+    for (;;) {
+        if (workerRunning()) seen = monoS();
+        else if (seen === null || monoS() - seen >= CFG.idleQuietS) return true;
+        if (monoS() >= by) return false;
+        if (!said) {
+            say('waiting for the app manager to finish installing or updating apps before restarting it (up to ' +
+                Math.max(0, Math.ceil(by - monoS())) + 's)');
+            said = true;
+        }
+        sleepMs(Math.min(500, CFG.idleQuietS * 1000));
+    }
+}
+/* MainApp still busy at the bound: not restarted, and no later bounce of
+ * this run waits again. The restart is pending for the rest of the boot
+ * (saveState keeps the entry), also when a change that needed it is rolled
+ * back. */
+var restartDeferred = false;
+var PENDING_MANAGER_BUSY = 'the app manager takes it at the next start (it was busy installing apps)';
+function deferBounce() {
+    warn('the app manager is still installing or updating apps after ' + CFG.idleMaxS + 's: it is not restarted, ' +
+        'and what needs its restart takes effect at the next start of the head unit');
+    restartDeferred = true;
+    privacyBounceOwed = false;
+    saveState(loadState());
+    return false;
+}
 
 /* ---- the MainApp guard (iDrive 7) ------------------------------------------- */
 /* oapcontroller wipes every app at the third death of the app manager
@@ -4121,6 +4180,10 @@ function installApp(a, state, decision) {
             say('registry entry re-seeded for the update (uid ' + entry.userId + ')');
         }
         bounceManager();
+        if (restartDeferred) {
+            throw fail('the app manager is busy installing or updating apps, so ' + a.id + ' ' + a.version +
+                ' cannot be ' + (existing ? 'updated' : 'installed') + ' now: run the install again later');
+        }
         uid = existing && !managerRecordsSource() ? updateAfterBounce(a, existing) :
             !existing && bytecodeStubs() ? installAfterBounce(a) : watchInstall(a);
         if (existing && uid !== existing.uid) warn(a.id + ' runs as uid ' + uid + ' now; its data stays in ' + appHome(existing.uid));
@@ -6102,6 +6165,7 @@ function migrateRetired(state, plan) {
             var deferred = bounceDeferred;
             bounceDeferred = false;
             try { bounceManager(); } finally { bounceDeferred = deferred; }
+            if (restartDeferred) { bounced = false; throw fail('the app manager was not restarted to check it'); }
             verifyMigration(before);
         } else {
             var problems = migrationProblems(before);
@@ -7163,6 +7227,7 @@ function removeAll(plan) {
         /* stopped by the MainApp guard: the result says what went, on stdout as at the end */
         try {
             onGuardStop(function () { fs.writeSync(1, JSON.stringify(removeAllLeft(plan, removed)) + '\n'); }, bounceManager);
+            if (restartDeferred) bounced = false;
         }
         catch (e) { bounced = false; process.stderr.write('mgu-deploy: the app manager was not restarted: ' + e.message + '\n'); }
     }

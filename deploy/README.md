@@ -811,11 +811,11 @@ no answer, renames `current` back itself.
 `remove-all`, with everything it installed ("Removing the Store setup").
 `restore` puts back what the tool changed and keeps the tool.
 
-**Version rule.** Bump `deploy/component.json`'s version, and `VERSION` with
-it (`node release/release.js bump mgu-deploy <x.y.z>` sets both), whenever a
-file under `deploy/unit/`, `tools/oap_link.js` or `tools/oap_pack.js`
-changes; `deploy/hu`, `mgu-install.js`, the tests and this README are not part
-of the artifact.
+**Version rule.** The release sets `deploy/component.json`'s version and
+`VERSION` with it (release/README.md, "Versions"). A change to a file under
+`deploy/unit/`, `tools/oap_link.js` or `tools/oap_pack.js` adds its line
+under `## Unreleased` in `deploy/CHANGELOG.md`; `deploy/hu`, `mgu-install.js`,
+the tests and this README are not part of the artifact.
 
 ### Tools
 
@@ -1156,6 +1156,18 @@ manager again (a respawned child restarts the wait). With no manager
 running there is no bounce and no wait. This is why an install can pause for
 up to 60 s. The rule lives only here: the updater adds no timer of its own
 and gets the spacing by calling this tool.
+
+**MainApp idle (iDrive 7).** Every bounce also waits until MainApp's install
+worker (the node child running `src/AppManagement/AppManagement`) has not
+run for 5 s (`MGU_DEPLOY_IDLE_QUIET_S`), for at most 3 minutes
+(`MGU_DEPLOY_IDLE_MAX_S`). An app update deletes the app's registry entry and
+writes it again later in the worker's run; a restart in between loses the
+entry, and MainApp installs the app again from its firmware package under a
+new uid. Still busy at the bound, MainApp is not restarted, and the run's
+later bounces do not wait again. What needs the restart takes effect at the
+next start of the head unit (`mgu-deploy` pending for the rest of the boot);
+an app install or update that needed it fails and is rolled back, to be run
+again later.
 
 **The MainApp guard (iDrive 7).** After every bounce the respawned child
 is watched until it has been up 60 s (`MGU_DEPLOY_GUARD_WATCH_S`), so a

@@ -2,18 +2,10 @@
 
 ## Versions
 
-Two kinds of components, with different rules:
-
-- **Release-time versions:** `app-privacy`, `mgu-python`, `mgu-render` and
-  `mgu-uplink`. Leave their version numbers alone. The release gives each
-  one it publishes its next version and writes it into the tree. CI fails a
-  pull request that changes their `"version"` in `component.json`.
-- **Hand-versioned:** the Store (`robertn_store`), `mgu-updater` and
-  `mgu-deploy`. A pull request that changes one of these raises its version
-  itself (`node release/release.js bump <id> <x.y.z>`) and adds the
-  CHANGELOG entry under that version.
-
-For release-time components:
+Leave every version number alone: the release gives each component it
+publishes its next version and writes it into the tree. CI fails a pull
+request that changes a version (a tool's `component.json`, the Store's
+`mgu-app.json` and `package/` files).
 
 - **Patch** is the default.
 - **Minor or major:** say so in the pull request; the maintainer adds the
@@ -22,7 +14,8 @@ For release-time components:
 
 ## CHANGELOG
 
-A release-time component with a CHANGELOG (`native/<id>/CHANGELOG.md`)
+A component with a CHANGELOG (`native/<id>/CHANGELOG.md`,
+`deploy/CHANGELOG.md`, the Store's `apps/robertn_store/package/CHANGELOG.md`)
 lists what your pull request changes under `## Unreleased` at the top:
 
 ```md
@@ -56,11 +49,8 @@ with `"next"` in `"requires"` (a tool's `component.json`, the Store's
 "requires": { "mgu-python": "next" }
 ```
 
-The release writes the real version in and publishes both. This works
-between any two components: the Store or the updater can require a
-release-time tool's next release, and a release-time tool can require the
-version a hand-versioned component's pull request set. Keep a component
-that is already released at its number (`"mgu-deploy": "0.8.4"`).
+The release writes the real version in and publishes both. Keep a
+component that is already released at its number (`"mgu-deploy": "0.8.4"`).
 
 ## Updates in any order
 

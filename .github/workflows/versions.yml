@@ -1,4 +1,4 @@
-# A pull request leaves release-time versions as its base has them, and a
+# A pull request leaves versions as its base has them, and a
 # changed component with a CHANGELOG says what changes under
 # "## Unreleased" (release/README.md, "Versions").
 name: Versions

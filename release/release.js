@@ -10,14 +10,13 @@
  *   node release/release.js list                      components, versions, publish state
  *   node release/release.js build [<id>...]           reproducible build of HEAD into release/out/
  *   node release/release.js check [<id>...]           build twice, compare the artifacts
- *   node release/release.js bump <id> <version>       set a hand-versioned component's version
  *   node release/release.js versions <base>           a pull request's checks against its base commit
  *   node release/release.js stamp [<id>...]           next versions into the tree, the release commit
  *   node release/release.js publish [<id>...|--stamped] [--dry-run]
  *                                                     upload new versions, then the catalog
  *
  * A component in GATED publishes a new version to GitHub only with a passing
- * emulator gate record for its exact build, release/gate/<id>.json
+ * emulator gate record for its source, release/gate/<id>.json
  * (tools/emu-gate).
  *
  * Builds run on a clean `git archive HEAD` export, never on the working tree,
@@ -25,13 +24,12 @@
  * component ships (an app's staged tree, a tool's folder): the same tree
  * always gives the same bytes, so one version has exactly one artifact.
  *
- * Apps and the tools in HAND_VERSIONED carry the version their pull requests
- * give them. Every other tool's version is set by the release: `stamp` gives
- * each one changed since its last release (its <id>@<version> tag), or named,
- * the next version, writes it into the tree with the CHANGELOG's Unreleased
- * section under it and each "requires" of "next" resolved, and commits that.
- * A pull request's labels release:minor and release:major raise the step
- * from a patch.
+ * Every component's version is set by the release: `stamp` gives each one
+ * changed since its last release (its <id>@<version> tag), or named, the
+ * next version, writes it into the tree with the CHANGELOG's Unreleased
+ * section under it and each "requires" of "next" resolved, and commits
+ * that. A pull request's labels release:minor and release:major raise the
+ * step from a patch.
  */
 const fs = require('fs');
 const os = require('os');
@@ -43,8 +41,8 @@ const REPO = path.resolve(__dirname, '..');
 const OUT = path.join(__dirname, 'out');
 // what draws an app's picture: published only after tools/emu-gate passed on its source
 const GATED = ['mgu-render', 'robertn_store'];
-// tools whose pull requests set their versions, as every app's do (release/README.md, "Versions")
-const HAND_VERSIONED = ['mgu-deploy', 'mgu-updater'];
+// an app's staged tree (mgu-app.json "tree"); the build names it <id>@<version> (stageTree)
+const APP_TREE = 'package';
 const DEPLOY = path.join('deploy', 'hu');
 const publishTarget = require('./publish');
 const { compareVersions, hmiList, textsOf, SEMVER } = require('../native/mgu-updater/js/catalog.js');
@@ -149,29 +147,29 @@ function components(root = REPO) {
         if (!fs.existsSync(releaseFile)) {
             return;
         }
-        const staged = fs.readdirSync(dir).filter((n) => n.startsWith(`${id}@`) && isDir(path.join(dir, n)));
-        if (staged.length !== 1) {
-            throw new Error(`apps/${id}: expected one staged tree ${id}@<version>/, found ${staged.length}`);
+        // with mgu-app.json the artifact is the source package, built on the unit
+        const manifestFile = path.join(dir, 'mgu-app.json');
+        const manifest = fs.existsSync(manifestFile) ? readJson(manifestFile) : null;
+        const tree = manifest ? manifest.tree : APP_TREE;
+        if (typeof tree !== 'string' || !/^[A-Za-z0-9._@-]+$/.test(tree) || !isDir(path.join(dir, tree))) {
+            throw new Error(`apps/${id}: no staged tree (mgu-app.json "tree", or ${APP_TREE}/)`);
         }
-        const version = staged[0].slice(id.length + 1);
-        const stagedDir = path.join(dir, staged[0]);
+        const stagedDir = path.join(dir, tree);
         const pkg = readJson(path.join(stagedDir, 'package.json'));
-        if (!SEMVER.test(version) || pkg.name !== id || pkg.version !== version) {
-            throw new Error(`apps/${id}: ${staged[0]} holds package.json ${pkg.name}@${pkg.version}`);
+        const version = pkg.version;
+        if (!SEMVER.test(version || '') || pkg.name !== id) {
+            throw new Error(`apps/${id}: ${tree}/package.json is ${pkg.name}@${pkg.version}, not ${id}@<x.y.z>`);
         }
         // installers refuse an unmarked app (native/app-privacy/INTEGRATION.md)
         if (pkg.mguLocalOnly !== true) {
-            throw new Error(`apps/${id}: ${staged[0]}/package.json lacks "mguLocalOnly": true`);
+            throw new Error(`apps/${id}: ${tree}/package.json lacks "mguLocalOnly": true`);
         }
         if (!id.startsWith(APP_ID_PREFIX)) {
             throw new Error(`apps/${id}: an app id starts with ${APP_ID_PREFIX} (release/README.md)`);
         }
         const release = readJson(releaseFile);
-        // with mgu-app.json the artifact is the source package, built on the unit
-        const manifestFile = path.join(dir, 'mgu-app.json');
-        const manifest = fs.existsSync(manifestFile) ? readJson(manifestFile) : null;
-        if (manifest && (manifest.id !== id || manifest.version !== version || manifest.tree !== staged[0])) {
-            throw new Error(`apps/${id}/mgu-app.json names ${manifest.id}@${manifest.version} (tree ${manifest.tree}), not ${staged[0]}`);
+        if (manifest && (manifest.id !== id || manifest.version !== version)) {
+            throw new Error(`apps/${id}/mgu-app.json names ${manifest.id}@${manifest.version}, not ${id}@${version} as ${tree}/package.json`);
         }
         out.push(Object.assign({
             id,
@@ -181,10 +179,11 @@ function components(root = REPO) {
             title: appTitle(stagedDir),
             description: pkg.description || '',
             release,
-            // the staged tree's folder names its version: set by the pull request
-            stamped: false,
             build: manifest ? 'unit' : null,
-            shipped: [`apps/${id}/${id}@${version}`].concat(manifest ?
+            tree,
+            manifest: !!manifest,
+            changelog: `apps/${id}/${tree}/CHANGELOG.md`,
+            shipped: [`apps/${id}/${tree}`].concat(manifest ?
                 [`apps/${id}/mgu-app.json`].concat(manifest.modules.map((m) => `apps/${id}/${m}`)) : []),
             artifact: `apps/${id}/${id}@${version}${manifest ? '.src' : ''}.tgz`
         }, catalogFields(Object.assign({ mguHmi: rhmiHmi(stagedDir) }, release), `apps/${id}/release.json`)));
@@ -205,7 +204,6 @@ function components(root = REPO) {
             dir,
             title: c.title || id,
             description: c.description || '',
-            stamped: !HAND_VERSIONED.includes(id),
             build: null,
             // source files that carry the version too, as VERSION = 'x.y.z'
             versionFiles: c.versionFiles || [],
@@ -259,27 +257,55 @@ function sourceEpoch(c) {
 /* The last commit that touched what the component ships, and for a tool its
  * packer: its source, as the emulator gate tested it. A merge commit that
  * brings the change in unaltered keeps it (history simplification follows the
- * parent it came from). An app's build also copies files in from elsewhere;
- * its artifact builds to the same bytes on the Mac and in CI (Reproducible
- * builds), so its record names those. A release commit that only wrote the
- * component's version and resolved its "requires" (stamp) is passed over: the
- * gate tests what the component does, built at the version it would get. */
+ * parent it came from). An app's build may write files it ships (copies, generated
+ * files) only as they are committed (buildIn), so what it ships is that
+ * commit's. A release commit that only wrote the component's version and
+ * resolved its "requires" (stamp) is passed over: the gate tests what the
+ * component does, built at the version it would get. */
 function sourceCommit(c, repo = REPO) {
     const paths = c.shipped.concat(c.kind === 'tool' ? ['deploy/hu', 'tools/oap_pack.js'] : []);
     const commits = git(['log', '--format=%H', 'HEAD', '--'].concat(paths), { cwd: repo }).split('\n').filter(Boolean);
     return commits.find((sha) => !stampOnly(c, sha, paths, repo)) || '';
 }
 
+/* The files that carry c's version, from the repository root, each with what
+ * names it there: [rel, text or pattern] (writeVersion). */
+function versionFilesOf(c) {
+    if (c.kind === 'tool') {
+        return [[`${c.dir}/component.json`, `"version": "${c.version}"`]]
+            .concat((c.versionFiles || []).map((f) => [`${c.dir}/${f}`, `VERSION = '${c.version}'`]));
+    }
+    return (c.manifest ? [[`${c.dir}/mgu-app.json`, /("version": )"\d+\.\d+\.\d+"/]] : [])
+        .concat(APP_VERSION_FILES.map(([rel, field]) => [`${c.dir}/${c.tree}/${rel}`, field]));
+}
+
 /* Whether a commit is a release commit that changes nothing of what c ships
- * but its version (component.json "version", each versionFiles' VERSION) and
- * a "requires" of "next" turned into a version: each changed line is the line
- * before with only those values replaced. */
+ * but its version (versionFilesOf: "version", VERSION) and a "requires" of
+ * "next" turned into a version, each changed line the line before with only
+ * those values replaced, and a shipped CHANGELOG's Unreleased lines put under
+ * that version (releaseChangelog). */
 function stampOnly(c, sha, paths, repo) {
     const [subject, parents] = git(['show', '-s', '--format=%s%n%P', sha], { cwd: repo }).split('\n');
     if (!subject.startsWith('release: ') || parents.split(' ').length !== 1) {
         return false;
     }
-    const files = [`${c.dir}/component.json`].concat((c.versionFiles || []).map((f) => `${c.dir}/${f}`));
+    const files = versionFilesOf(c).map(([rel]) => rel);
+    const log = c.changelog;
+    const at = (rev, rel) => {
+        const r = cp.spawnSync('git', ['show', `${rev}:${rel}`], { cwd: repo, encoding: 'utf8', maxBuffer: 64 << 20 });
+        return r.status === 0 ? r.stdout : null;
+    };
+    if (log && paths.some((p) => log === p || log.startsWith(`${p}/`))) {
+        const was = at(`${sha}^`, log);
+        const now = at(sha, log);
+        if (was !== now) {
+            const version = /^## Unreleased\n\n## (\d+\.\d+\.\d+)\n/m.exec(now || '');
+            if (!version || (releaseChangelog(was || '', version[1]) !== now && sameContentChangelog(was || '', version[1]) !== now)) {
+                return false;
+            }
+        }
+        paths = paths.concat([`:(exclude)${log}`]);
+    }
     const VALUE = /("(?:next|\d+\.\d+\.\d+)"|'\d+\.\d+\.\d+')/;
     const same = (was, now) => {
         const a = was.split(VALUE);
@@ -314,9 +340,9 @@ function stampOnly(c, sha, paths, repo) {
 }
 
 /* Why a gated component's version may not be published: no gate record, or
- * one for another version, source or (an app) artifact, or one that did not
- * pass. null: it may. */
-function gateProblem(c, record, source, sha256) {
+ * one for another component or source, or one that did not pass. null: it
+ * may. The record names the source; the release picks the version. */
+function gateProblem(c, record, source) {
     if (!GATED.includes(c.id)) {
         return null;
     }
@@ -324,14 +350,9 @@ function gateProblem(c, record, source, sha256) {
     if (!record) {
         return `${c.id}@${c.version} has no emulator gate record: ${run}`;
     }
-    // a release-time component's record names the source; the release picks the version
-    if (record.id !== c.id || (!c.stamped && record.version !== c.version) || record.source !== source) {
+    if (record.id !== c.id || record.source !== source) {
         return `${c.id}@${c.version}: the gate record is for ${record.id}@${record.version} at ${String(record.source).slice(0, 12)}, ` +
             `not this source (${source.slice(0, 12)}): ${run}`;
-    }
-    if (c.kind === 'app' && record.artifactSha256 !== sha256) {
-        return `${c.id}@${c.version}: the gate tested the artifact ${String(record.artifactSha256).slice(0, 12)}, ` +
-            `this build is ${sha256.slice(0, 12)}: ${run}`;
     }
     if (record.result !== 'pass') {
         return `${c.id}@${c.version}: the emulator gate did not pass: ${run}`;
@@ -355,6 +376,41 @@ function exportHead(commit = 'HEAD') {
     return dir;
 }
 
+/* An app's staged tree in the build export, named <id>@<version> as the
+ * package carries it (mgu-app.json "tree" too). */
+function stageTree(c, exportDir) {
+    const staged = `${c.id}@${c.version}`;
+    if (c.tree === staged) {
+        return;
+    }
+    fs.renameSync(path.join(exportDir, c.dir, c.tree), path.join(exportDir, c.dir, staged));
+    if (c.manifest) {
+        const file = path.join(exportDir, c.dir, 'mgu-app.json');
+        const m = readJson(file);
+        m.tree = staged;
+        fs.writeFileSync(file, JSON.stringify(m, null, 2) + '\n');
+    }
+}
+
+/* An app's shipped files in the build export (its staged tree named as the
+ * package carries it), by path: their sha256. */
+function shippedFiles(c, exportDir) {
+    const out = new Map();
+    const walk = (rel) => {
+        const p = path.join(exportDir, rel);
+        if (!fs.existsSync(p)) {
+            return;
+        }
+        if (isDir(p)) {
+            fs.readdirSync(p).forEach((n) => walk(`${rel}/${n}`));
+        } else {
+            out.set(rel, sha256(p));
+        }
+    };
+    c.shipped.map((rel) => rel.replace(`${c.dir}/${c.tree}`, `${c.dir}/${c.id}@${c.version}`)).forEach(walk);
+    return out;
+}
+
 function buildOne(c, exportDir) {
     // A private TMPDIR: app harnesses keep scratch files there by uid, which
     // concurrent builds and harness runs would otherwise share. Short, as
@@ -373,11 +429,19 @@ function buildOne(c, exportDir) {
 function buildIn(c, exportDir, env) {
     let artifact;
     if (c.kind === 'app') {
+        stageTree(c, exportDir);
+        const before = shippedFiles(c, exportDir);
         const r = cp.spawnSync(c.release.build, { cwd: path.join(exportDir, c.dir), env, shell: true,
             stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20 });
         if (r.status !== 0) {
             process.stderr.write(String(r.stdout).slice(-4000) + String(r.stderr).slice(-4000));
             throw new Error(`${c.id}: build "${c.release.build}" failed (${r.error ? r.error.message : r.signal || `exit ${r.status}`})`);
+        }
+        const after = shippedFiles(c, exportDir);
+        const changed = [...new Set([...before.keys(), ...after.keys()])].filter((f) => before.get(f) !== after.get(f));
+        if (changed.length) {
+            throw new Error(`${c.id}: the build wrote ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}: ` +
+                'build it in the repository and commit what it writes');
         }
         artifact = path.join(exportDir, c.artifact);
     } else {
@@ -541,101 +605,27 @@ function cmdCheck(ids) {
     }
 }
 
-/* Text files that name an app's staged tree by <id>@<version>. Historical
- * investigation notes keep the version they describe. */
-function filesNaming(token) {
-    let out = '';
-    try {
-        out = git(['grep', '-l', '-F', token]);
-    } catch (e) {
-        return [];
-    }
-    return out.split('\n').filter((f) => f && !f.startsWith('docs/investigations/') &&
-        !f.endsWith('/javascript/app.js'));
-}
+/* An app's files under its staged tree that carry its version, and the field. */
+const APP_VERSION_FILES = [['package.json', /("version": )"\d+\.\d+\.\d+"/], ['npm-shrinkwrap.json', /^(  "version": )"\d+\.\d+\.\d+"/m],
+    ['rhmiData/application.json', /^(    "version": )"\d+\.\d+\.\d+"/m]];
 
-function moveLeftovers(from, to) {
-    if (!fs.existsSync(from)) {
-        return;
-    }
-    fs.readdirSync(from).forEach((name) => {
-        const src = path.join(from, name);
-        const dest = path.join(to, name);
-        if (fs.existsSync(dest) && isDir(src)) {
-            moveLeftovers(src, dest);
-        } else {
-            fs.renameSync(src, dest);
-        }
-    });
-    fs.rmdirSync(from);
-}
-
-function cmdBump(id, version) {
-    if (!SEMVER.test(version || '')) {
-        throw new Error('usage: bump <id> <x.y.z>');
-    }
-    const c = components().find((x) => x.id === id);
-    if (!c) {
-        throw new Error(`no component "${id}"`);
-    }
-    if (c.stamped) {
-        throw new Error(`${id}: the release sets its version (release/README.md, "Versions")`);
-    }
-    if (compareVersions(version, c.version) <= 0) {
-        throw new Error(`${id} is at ${c.version}; the new version must be higher`);
-    }
-    if (c.kind === 'tool') {
-        writeToolVersion(REPO, c, version).forEach((rel) => console.log(`${c.dir}/${rel}: ${c.version} -> ${version}`));
-        return;
-    }
-    const oldToken = `${id}@${c.version}`;
-    const newToken = `${id}@${version}`;
-    const files = filesNaming(oldToken);
-    git(['mv', path.join(c.dir, oldToken), path.join(c.dir, newToken)]);
-    // untracked files move along
-    moveLeftovers(path.join(REPO, c.dir, oldToken), path.join(REPO, c.dir, newToken));
-    files.forEach((f) => {
-        const p = path.join(REPO, f.split(oldToken).join(newToken));
-        fs.writeFileSync(p, fs.readFileSync(p, 'utf8').split(oldToken).join(newToken));
-    });
-    // The version fields inside the staged tree; build.json is rewritten by the build.
-    const staged = path.join(REPO, c.dir, newToken);
-    const manifest = path.join(REPO, c.dir, 'mgu-app.json');
-    if (fs.existsSync(manifest)) {
-        const j = readJson(manifest);
-        j.version = version;
-        fs.writeFileSync(manifest, JSON.stringify(j, null, 2) + '\n');
-    }
-    [['package.json', (j) => { j.version = version; }],
-        ['npm-shrinkwrap.json', (j) => { j.version = version; }],
-        [path.join('rhmiData', 'application.json'), (j) => { j.application.version = version; }]
-    ].forEach(([rel, edit]) => {
-        const p = path.join(staged, rel);
-        if (fs.existsSync(p)) {
-            const j = readJson(p);
-            edit(j);
-            fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
-        }
-    });
-    console.log(`${oldToken} -> ${newToken}: renamed the staged tree, updated ${files.length} files`);
-    console.log(`next: add a ${version} entry to ${c.dir}/${newToken}/CHANGELOG.md, rebuild (${c.release.build}), commit`);
-}
-
-/* Writes a tool's version into the tree at root: its component.json and its
- * versionFiles' VERSION = 'x.y.z'. Returns the files written. */
-function writeToolVersion(root, c, version) {
-    const edits = [['component.json', `"version": "${c.version}"`, `"version": "${version}"`]]
-        .concat(c.versionFiles.map((rel) => [rel, `VERSION = '${c.version}'`, `VERSION = '${version}'`]));
+/* Writes a component's version into the tree at root: a tool's
+ * component.json and its versionFiles' VERSION = 'x.y.z'; an app's
+ * mgu-app.json and its staged tree's package.json, npm-shrinkwrap.json and
+ * rhmiData/application.json, each in place, so only that line changes. */
+function writeVersion(root, c, version) {
+    const edits = versionFilesOf(c).filter(([rel]) => c.kind === 'tool' || fs.existsSync(path.join(root, rel)));
     // every file names the old version once, or none is written
     const texts = edits.map(([rel, from]) => {
-        const text = fs.readFileSync(path.join(root, c.dir, rel), 'utf8');
-        if (text.split(from).length !== 2) {
-            throw new Error(`${c.dir}/${rel}: expected ${from} once`);
+        const text = fs.readFileSync(path.join(root, rel), 'utf8');
+        const n = typeof from === 'string' ? text.split(from).length - 1 : (text.match(new RegExp(from.source, `g${from.flags}`)) || []).length;
+        if (n !== 1) {
+            throw new Error(`${rel}: expected ${from} once`);
         }
         return text;
     });
-    edits.forEach(([rel, from, to], i) => fs.writeFileSync(path.join(root, c.dir, rel), texts[i].replace(from, to)));
-    return edits.map(([rel]) => rel);
+    edits.forEach(([rel, from], i) => fs.writeFileSync(path.join(root, rel), typeof from === 'string'
+        ? texts[i].replace(from, from.replace(c.version, version)) : texts[i].replace(from, `$1"${version}"`)));
 }
 
 /* ---- release-time versions ---------------------------------------------------- */
@@ -700,6 +690,15 @@ function releaseChangelog(text, version) {
     return `${text.slice(0, u.start)}## Unreleased\n\n${heading}\n\n${u.body}\n\n${rest}`;
 }
 
+/* The CHANGELOG of a release of the same content (a component named with no
+ * change): "No changes." under the version. */
+const NO_CHANGES = 'No changes.';
+function sameContentChangelog(text, version) {
+    const u = unreleasedOf(text);
+    return releaseChangelog(u ? `${text.slice(0, u.start)}## Unreleased\n\n${NO_CHANGES}\n\n${text.slice(u.end)}`
+        : text.replace(/^## /m, `## Unreleased\n\n${NO_CHANGES}\n\n## `), version);
+}
+
 function tagExists(tag, repo) {
     return cp.spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}^{commit}`], { cwd: repo }).status === 0;
 }
@@ -733,23 +732,16 @@ function levelOf(commits) {
 }
 
 /* What a release of the selected components (none: all) does. A
- * release-time component changed since its tag <id>@<version>, or named,
- * gets the next version; one whose version has no tag yet (stamped, not
- * published; or new) keeps it. A hand-versioned component keeps its
- * version and is in the plan only to resolve its "requires" of "next". A
- * component that requires another one "next" brings that one along.
- * Returns [{ c, version, level, resolved }]. */
+ * component changed since its tag <id>@<version>, or named, gets the next
+ * version; one whose version has no tag yet (stamped, not published; or
+ * new) keeps it. A component that requires another one "next" brings that
+ * one along. Returns [{ c, version, level, resolved, same }]; same: named
+ * with no change. */
 function plan(all, ids, repo = REPO) {
     const byId = new Map(all.map((c) => [c.id, c]));
     const chosen = new Set(select(all, ids).map((c) => c.id));
     const out = new Map();
     const consider = (c) => {
-        if (!c.stamped) {
-            if (Object.keys(c.requires || {}).some((id) => c.requires[id] === NEXT)) {
-                out.set(c.id, { c, version: c.version, level: 'hand' });
-            }
-            return;
-        }
         const tag = `${c.id}@${c.version}`;
         if (!tagExists(tag, repo)) {
             out.set(c.id, { c, version: c.version, level: 'new' });
@@ -763,7 +755,7 @@ function plan(all, ids, repo = REPO) {
             return;
         }
         const level = changed ? levelOf(commits) : 'patch';
-        out.set(c.id, { c, version: bumpVersion(c.version, level), level });
+        out.set(c.id, { c, version: bumpVersion(c.version, level), level, same: !changed });
     };
     all.filter((c) => chosen.has(c.id)).forEach(consider);
     // what a chosen component requires "next" is released with it
@@ -792,10 +784,10 @@ function plan(all, ids, repo = REPO) {
 /* Writes a plan into the tree at root: versions, "requires", CHANGELOGs. */
 function writePlan(root, steps) {
     steps.forEach((p) => {
-        const changelog = p.c.stamped && path.join(root, p.c.changelog);
-        if (changelog && fs.existsSync(changelog)) {
+        const changelog = path.join(root, p.c.changelog);
+        if (fs.existsSync(changelog)) {
             const text = fs.readFileSync(changelog, 'utf8');
-            const released = releaseChangelog(text, p.version);
+            const released = releaseChangelog(text, p.version) || (p.same ? sameContentChangelog(text, p.version) : null);
             if (released === null && !text.includes(`\n## ${p.version}\n`)) {
                 throw new Error(`${p.c.changelog}: no "## Unreleased" section with what ${p.c.id} ${p.version} changes`);
             }
@@ -804,7 +796,7 @@ function writePlan(root, steps) {
             }
         }
         if (p.version !== p.c.version) {
-            writeToolVersion(root, p.c, p.version);
+            writeVersion(root, p.c, p.version);
         }
         if (Object.keys(p.resolved).length) {
             writeRequires(root, p.c, p.resolved);
@@ -812,9 +804,7 @@ function writePlan(root, steps) {
     });
 }
 
-/* The ids the last stamp chose for publish --stamped (release/out/stamped):
- * the release-time components it stamped and the hand-versioned ones
- * selected, which publish as their pull requests set them. */
+/* The ids the last stamp chose for publish --stamped (release/out/stamped). */
 const STAMPED = path.join(OUT, 'stamped');
 
 function cmdStamp(ids) {
@@ -825,18 +815,14 @@ function cmdStamp(ids) {
     const steps = plan(all, ids);
     steps.forEach((p) => {
         const req = Object.keys(p.resolved).map((id) => `, requires ${id} ${p.resolved[id]}`).join('');
-        const how = p.level === 'hand' ? 'its version from its pull requests' :
-            p.level === 'new' ? 'not released yet' : `${p.level} from ${p.c.version}`;
+        const how = p.level === 'new' ? 'not released yet' : `${p.level} from ${p.c.version}${p.same ? ', no change' : ''}`;
         console.log(`releasing ${p.c.id}@${p.version} (${how}${req})`);
     });
-    if (!steps.some((p) => p.c.stamped)) {
-        console.log('no release-time component changed since its last release');
+    if (!steps.length) {
+        console.log('no component changed since its last release');
     }
-    // and the hand-versioned components a "next" names, published with them
-    const hand = select(all, ids).filter((c) => !c.stamped).map((c) => c.id)
-        .concat(...steps.map((p) => Object.keys(p.resolved).filter((id) => !all.find((x) => x.id === id).stamped)));
     fs.mkdirSync(OUT, { recursive: true });
-    fs.writeFileSync(STAMPED, [...new Set(steps.map((p) => p.c.id).concat(hand))].join(' ') + '\n');
+    fs.writeFileSync(STAMPED, steps.map((p) => p.c.id).join(' ') + '\n');
     writePlan(REPO, steps);
     git(['add', '-u']);
     if (!git(['status', '--porcelain', '--untracked-files=no'])) {
@@ -846,12 +832,10 @@ function cmdStamp(ids) {
     console.log(`committed ${git(['rev-parse', '--short', 'HEAD'])}`);
 }
 
-/* A pull request's checks against its base commit: a release-time
- * component's version stays as the base has it, and a changed one with a
- * CHANGELOG says what changed under "## Unreleased". mgu-repo.json lists
- * hand-versioned components only: a branch lists what it holds, so it
- * would offer a release-time component's merged changes before a release
- * gives them a version. */
+/* A pull request's checks against its base commit: a component's version
+ * stays as the base has it, a changed one with a CHANGELOG says what
+ * changed under "## Unreleased", and an app's staged tree has no version in
+ * its folder's name. */
 function cmdVersions(base) {
     if (!base) {
         throw new Error('usage: versions <base commit>');
@@ -861,12 +845,23 @@ function cmdVersions(base) {
     try {
         const before = new Map(components(baseDir).map((c) => [c.id, c.version]));
         const all = components();
-        all.filter((c) => c.stamped).forEach((c) => {
+        all.forEach((c) => {
             const was = before.get(c.id);
             if (was && was !== c.version) {
                 problems.push(`${c.id}: the release sets its version; keep ${was}`);
             }
-            c.versionFiles.forEach((rel) => {
+            if (c.kind === 'app') {
+                versionFilesOf(c).filter(([rel]) => fs.existsSync(path.join(REPO, rel))).forEach(([rel, field]) => {
+                    const m = fs.readFileSync(path.join(REPO, rel), 'utf8').match(field);
+                    if (!m || !m[0].includes(`"${c.version}"`)) {
+                        problems.push(`${rel}: the release sets its version; keep ${c.version}`);
+                    }
+                });
+            }
+            if (c.kind === 'app' && c.tree !== APP_TREE) {
+                problems.push(`${c.dir}: the staged tree is ${APP_TREE}/ (mgu-app.json "tree"); the build names it ${c.id}@<version>`);
+            }
+            (c.versionFiles || []).forEach((rel) => {
                 const text = fs.readFileSync(path.join(REPO, c.dir, rel), 'utf8');
                 if (text.split(`VERSION = '${c.version}'`).length !== 2) {
                     problems.push(`${c.dir}/${rel}: the release sets its version; keep VERSION = '${c.version}' (once)`);
@@ -880,13 +875,6 @@ function cmdVersions(base) {
                 if (!u || !u.body) {
                     problems.push(`${c.id}: add what changes under "## Unreleased" at the top of ${c.changelog}`);
                 }
-            }
-        });
-        const repoFile = path.join(REPO, 'mgu-repo.json');
-        (fs.existsSync(repoFile) ? readJson(repoFile).components || [] : []).forEach((e) => {
-            const c = all.find((x) => x.id === e.id);
-            if (c && c.stamped) {
-                problems.push(`mgu-repo.json: ${e.id} gets its version at release; a branch lists hand-versioned components only`);
             }
         });
     } finally {
@@ -964,7 +952,7 @@ function cmdPublish(ids, dryRun, stamped) {
         const next = Object.keys(e.requires || {}).filter((id) => e.requires[id] === NEXT);
         // the gate binds what reaches cars; a folder (a test stick) takes any build
         const gate = publishTarget.describe().startsWith('github:') && (!p || p.version !== e.version) &&
-            gateProblem(c, gateRecord(c.id), sourceCommit(c), e.artifact.sha256);
+            gateProblem(c, gateRecord(c.id), sourceCommit(c));
         if (!b || b.artifact.sha256 !== e.artifact.sha256) {
             skipped.push(`${e.id}@${e.version} builds differently each time`);
         } else if (next.length) {
@@ -972,8 +960,7 @@ function cmdPublish(ids, dryRun, stamped) {
         } else if (gate) {
             skipped.push(gate);
         } else if (p && p.version === e.version && p.artifact.sha256 !== e.artifact.sha256) {
-            skipped.push(`${e.id}@${e.version} is published with other content: ` +
-                (c.stamped ? 'the release gives it its next version' : 'bump its version to publish it'));
+            skipped.push(`${e.id}@${e.version} is published with other content: the release gives it its next version`);
         } else if (p && compareVersions(e.version, p.version) < 0) {
             skipped.push(`${e.id}@${e.version} is older than the published ${p.version}`);
         } else if (!p || p.version !== e.version) {
@@ -1039,12 +1026,12 @@ function main(argv) {
     case 'list': return cmdList();
     case 'build': return cmdBuild(args);
     case 'check': return cmdCheck(args);
-    case 'bump': return cmdBump(args[0], args[1]);
     case 'versions': return cmdVersions(args[0]);
     case 'stamp': return cmdStamp(args);
     case 'publish': return cmdPublish(args, flags.includes('--dry-run'), flags.includes('--stamped'));
     default:
-        process.stdout.write(fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').slice(2, 18)
+        const head = fs.readFileSync(__filename, 'utf8').split('*/')[0].split('\n').slice(2);
+        process.stdout.write(head.slice(0, head.indexOf(' *', head.findIndex((l) => /release\.js list/.test(l))))
             .map((l) => l.replace(/^ \* ?/, '')).join('\n') + '\n');
         process.exitCode = cmd ? 2 : 0;
     }
@@ -1060,5 +1047,5 @@ if (require.main === module) {
     }
 }
 
-module.exports = { components, catalogTexts, compareVersions, unmetRequires, sourceCommit, gateProblem, GATED, bumpVersion,
+module.exports = { buildIn, components, catalogTexts, compareVersions, unmetRequires, sourceCommit, gateProblem, GATED, bumpVersion,
     releaseChangelog, plan, writePlan, prLabels };

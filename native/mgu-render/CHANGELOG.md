@@ -4,6 +4,10 @@
 
 - iDrive 7 too: a yield surface hides the layer apps only while it is visible and has a buffer (as on iDrive 8 since 0.6.10). On a G05 (iDrive 7) dasvideo keeps SID_VIDEO_DIGITAL_HU 0x198 visible from boot with no buffer (`ivi-control scene`: visibility 1, size 0x0, frames 0), which hid every layer app for good: their pages stayed black under the HMI's title. While a yield surface is visible with no buffer, its properties are asked again every second (a new proxy gets them at once), so a picture that starts is seen within 1 s even where the compositor does not report the size change.
 
+## 0.6.15
+
+- The journal names the app the iDrive controller is held for and says when `@mgu-renderd-ccu` is bound and released: `controller: held for <app> (@mgu-renderd-ccu bound)`, `controller: held for <app>` when another of its apps takes it over, and `controller: back to the HMI, @mgu-renderd-ccu released (was held for <app>)`.
+
 ## 0.6.14
 
 - The touch divert rule goes to nft in a file (`/tmp/mgu-render-nft-*`), and a load counts only when `nft list table ip mgu_render` finds the table afterwards; otherwise the journal says `touch: loading the nft rule failed, touch stays the HMI's` and the load is tried again 5 s later. nftables 0.7 on iDrive 7 units (MainApp 8.2.0; also reported on MainApp 6.5.5) reads a script given as `-` as a file of that name, fails and exits 0: the journal said `touch: diverted`, the table was never there, and no touch reached the Store or its apps.

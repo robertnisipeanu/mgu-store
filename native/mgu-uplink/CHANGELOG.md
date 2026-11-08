@@ -1,5 +1,11 @@
 # mgu-uplink changelog
 
+## Unreleased
+
+## 0.7.8
+
+- With Allow 5 GHz on, the car's supplicant's automatic scans during wireless CarPlay or Android Auto also cover the phone's own P2P group channel(s), not only the other band: a station on the group's channel shares it without taking the radio off it. A home access point on the same 5 GHz channel as the CarPlay group (e.g. 5785 MHz) is joined there instead of on 2.4 GHz. With Allow 5 GHz off, as before.
+
 ## 0.7.7
 
 - Phones over USB can be switched off (`usb_phone = off`; the `usb-phone` request; shipped on). Off, the uplink leaves every phone alone: no Android phone's USB tethering is used, and no iPhone is taken from the media daemon, switched to its tethering configuration or paired, so USB audio keeps playing and the phone does not ask "Trust This Computer?". USB Ethernet adapters, CDC-ECM sticks and Wi-Fi are used; a stick presenting RNDIS or NCM counts as a phone and is left alone too. Switched off while the uplink runs on a phone, the link ends as an unplug ends it and the uplink goes on with the next device; switched on, a phone is taken again at the next scan.

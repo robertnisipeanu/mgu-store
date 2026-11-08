@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -749,12 +750,18 @@ func (s *carSupplicant) hold(h scanHold) bool {
 	}
 	want := ""
 	if h.session != "" && !s.noFreq {
-		want = freqList(otherBand(h.band))
+		if other := otherBand(h.band); other != nil {
+			want = freqList(append(slices.Clone(other), h.same...))
+		}
 	}
 	if want != s.scanFreq {
 		s.scanFreq = want
 		if want != "" {
-			logf("wifi: automatic scans on %s keep to %s during wireless %s", s.iface, bandName(7-h.band), projectionName(h.session))
+			also := ""
+			for _, f := range h.same {
+				also += fmt.Sprintf(" and %d MHz", f)
+			}
+			logf("wifi: automatic scans on %s keep to %s%s during wireless %s", s.iface, bandName(7-h.band), also, projectionName(h.session))
 		} else {
 			logf("wifi: automatic scans on %s on every channel", s.iface)
 		}
