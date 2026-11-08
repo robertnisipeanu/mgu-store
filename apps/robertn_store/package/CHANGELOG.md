@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.32
+
 The time after *checked* in the status line is in the head unit's time
 zone, the same as the HMI's clock.
 
