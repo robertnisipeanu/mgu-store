@@ -997,50 +997,61 @@ function stockRecmgr() {
             here: Object.prototype.hasOwnProperty.call(data, 'firmware') && data.firmware === unitInfo().firmware };
     } catch (err) { return null; }
 }
-/* The names of ours in the list (text), by section, and what says so
- * (basis: 'record', 'stock', or null when nothing does). */
+/* The names of ours in the list (text), by section, what says so (basis:
+ * 'record', 'stock', or null when nothing does), whether the record is from
+ * other firmware (moved), and the stock snapshot's list (stockRecmgr). */
 function recmgrOwned(text) {
-    var o = readJsonOrNull(RECMGR_OWNED), fw = unitInfo().firmware, names = {};
+    var o = readJsonOrNull(RECMGR_OWNED), fw = unitInfo().firmware, stock = stockRecmgr(), names = {};
     if (o && o.names && typeof o.names === 'object') {
         var moved = !!(o.firmware && fw && o.firmware !== fw);
         RECMGR_LIST.edited.forEach(function (sec) {
             names[sec] = !moved && Array.isArray(o.names[sec]) ? o.names[sec].filter(function (n) { return typeof n === 'string'; }) : [];
         });
-        return { names: names, basis: 'record' };
+        return { names: names, basis: 'record', moved: moved, stock: stock };
     }
-    var stock = stockRecmgr(), now = recmgrSections(text), basis = stock && stock.here ? 'stock' : null;
+    var now = recmgrSections(text), basis = stock && stock.here ? 'stock' : null;
     RECMGR_LIST.edited.forEach(function (sec) {
         names[sec] = basis ? (now[sec] || []).filter(function (n) { return (stock.sections[sec] || []).indexOf(n) < 0; }) : [];
     });
-    return { names: names, basis: basis };
+    return { names: names, basis: basis, moved: false, stock: stock };
 }
 /* Of names (ones no installed tool has any more), those to take out of
  * each section of the list (text): ours, and not the stock snapshot's.
- * The others there stay, said in one line. */
+ * The others there stay, each with why, in one line. */
 function recmgrRemovals(names, text) {
-    var now = recmgrSections(text), out = {}, kept = {};
+    var now = recmgrSections(text), out = {}, kept = [];
     if (!names.length) return out;
-    var owned = recmgrOwned(text), stock = stockRecmgr();
+    var owned = recmgrOwned(text), stock = owned.stock;
+    function why(n, sec) {
+        if (stock && (stock.sections[sec] || []).indexOf(n) >= 0) return 'in the stock list';
+        if (owned.moved) return "mgu-deploy's record is from other firmware";
+        if (owned.basis === 'record') return "not in mgu-deploy's record; an earlier version may have added it";
+        return 'no record, and no stock backup from this firmware';
+    }
     RECMGR_LIST.edited.forEach(function (sec) {
         out[sec] = names.filter(function (n) {
             if ((now[sec] || []).indexOf(n) < 0) return false;
             var ours = owned.names[sec].indexOf(n) >= 0 && !(stock && (stock.sections[sec] || []).indexOf(n) >= 0);
-            if (!ours) (kept[n] = kept[n] || []).push('[' + sec + ']');
+            if (!ours) {
+                var w = why(n, sec), k = kept.filter(function (x) { return x.name === n && x.why === w; })[0];
+                if (k) k.secs.push('[' + sec + ']');
+                else kept.push({ name: n, why: w, secs: ['[' + sec + ']'] });
+            }
             return ours;
         });
     });
-    var said = Object.keys(kept).map(function (n) { return n + ' in ' + kept[n].join(' and '); });
-    if (said.length) {
-        say('recmgr list: kept ' + said.join(', ') + ': ' + (owned.basis ? 'not added by mgu-deploy' :
-            'no record of the names mgu-deploy added, and no stock backup of the list from this firmware'));
+    if (kept.length) {
+        say('recmgr list: kept ' + kept.map(function (k) { return k.name + ' in ' + k.secs.join(' and ') + ' (' + k.why + ')'; }).join(', '));
     }
     return out;
 }
-/* After a window that wrote the list, from was (its text before, whose
- * names of ours were owned): the record of the names of ours it has now,
- * those and the ones the window added. */
-function recmgrOwnedDone(was, owned) {
-    var before = recmgrSections(was), now = recmgrSections(recmgrText()), names = {};
+/* After a window that wrote the list, from was (its text before it): the
+ * record of the names of ours it has now, those of was and the ones the
+ * window added. What says which names of was are ours reads the same here
+ * as before the window: the window writes neither the record nor the stock
+ * snapshot, and a stock snapshot taken by this run counts for nothing. */
+function recmgrOwnedDone(was) {
+    var owned = recmgrOwned(was), before = recmgrSections(was), now = recmgrSections(recmgrText()), names = {};
     RECMGR_LIST.edited.forEach(function (sec) {
         names[sec] = (now[sec] || []).filter(function (n, i, all) {
             return all.indexOf(n) === i && (owned.names[sec].indexOf(n) >= 0 || (before[sec] || []).indexOf(n) < 0);
@@ -1374,7 +1385,7 @@ function bootListsPlan() {
     try { rec = recmgrOp(names, []); } catch (e) { errors.push(e.message); }
     return {
         crash: crash, rec: rec, ops: [rec, crash && crash.op].filter(Boolean), errors: errors,
-        recText: recText, recOwned: rec ? recmgrOwned(recText) : null,
+        recText: recText,
         record: !!crash && JSON.stringify(crash.owned) !== JSON.stringify(crashOwned().slice().sort())
     };
 }
@@ -1419,7 +1430,7 @@ function syncBootLists() {
         takeSnapshot('crash-list', [CFG.crashList, CFG.recmgr, CRASH_OWNED, RECMGR_OWNED]);
         var remounts = rootMountMode() === 'ro';
         rootfsWindow(plan.ops);
-        if (plan.rec) recmgrOwnedDone(plan.recText, plan.recOwned);
+        if (plan.rec) recmgrOwnedDone(plan.recText);
         var lines = [], line = crashListDone(plan.crash, remounts);
         if (line) lines.push('crash handler whitelist: ' + line);
         if (plan.rec) lines.push('recmgr list: added ' + plan.rec.added.join(', '));
@@ -3014,8 +3025,7 @@ function installTool(a, state, tx) {
      * and only when the desired bytes differ: the payload and the lists'
      * entries on disk first, so no power cut leaves a unit enabled without
      * them; the units going are out before their entries. */
-    var recText = recmgrText(), recOwned = recmgrPresent() ? recmgrOwned(recText) : null;
-    var rec = recmgrOp(recmgrNamesOf(c), []);
+    var recText = recmgrText(), rec = recmgrOp(recmgrNamesOf(c), []);
     var crash = crashListPlan(installedTools()), remounts = rootMountMode() === 'ro';
     var crashAdd = crash && crash.op && crash.add.length ? crash.op : null, crashRemove = crash && crash.op && !crashAdd ? crash.op : null;
     if (crashAdd && crash.remove.length) {
@@ -3061,7 +3071,7 @@ function installTool(a, state, tx) {
     }
     if (crashRemove) ops.push(crashRemove);
     if (ops.length) { syncDisks(); rootfsWindow(ops); }
-    if (ops.some(function (op) { return op.path === CFG.recmgr; })) recmgrOwnedDone(recText, recOwned);
+    if (ops.some(function (op) { return op.path === CFG.recmgr; })) recmgrOwnedDone(recText);
     crashListDone(crash, remounts);
     if (unitChanged) runOk(CFG.systemctl, ['daemon-reload']);
     if (del.length) pruneCreatedDirs(state);
@@ -3198,9 +3208,9 @@ function layMissing(t, state) {
             { type: 'copy', src: path.join(kept.dir, 'dropins', d.unit + '.d', d.name), path: dest, mode: 0o644 });
     });
     if (!ops.length) return [];
-    var recText = recmgrText(), rec = recmgrOp(recmgrNamesOf(c), []), recOwned = rec ? recmgrOwned(recText) : null;
+    var recText = recmgrText(), rec = recmgrOp(recmgrNamesOf(c), []);
     rootfsWindow((rec ? [rec] : []).concat(ops, limitsPlan(installedTools(), limitedUnits(c)).ops));
-    if (rec) recmgrOwnedDone(recText, recOwned);
+    if (rec) recmgrOwnedDone(recText);
     runOk(CFG.systemctl, ['daemon-reload']);
     say(t.id + ' ' + t.version + ': laid again from the copy kept here: ' +
         ops.filter(function (op) { return op.type !== 'mkdir'; }).map(function (op) { return path.relative(CFG.systemd, op.path); }).join(', '));
@@ -4711,14 +4721,13 @@ function recmgrNamesGone(c, rest) {
  * list entries. */
 function removeToolPieces(c, rest, state) {
     var ops = deleteOps(c).concat(limitsPlan(rest, limitedUnits(c)).ops);
-    var recText = recmgrText(), recOwned = recmgrPresent() ? recmgrOwned(recText) : null;
-    var rec = recmgrOp([], recmgrRemovals(recmgrNamesGone(c, rest), recText));
+    var recText = recmgrText(), rec = recmgrOp([], recmgrRemovals(recmgrNamesGone(c, rest), recText));
     if (rec) ops.push(rec);
     var unitOps = ops.length;
     var crash = crashListPlan(rest), remounts = rootMountMode() === 'ro';
     if (crash && crash.op) ops.push(crash.op);
     if (ops.length) rootfsWindow(ops);
-    if (rec) recmgrOwnedDone(recText, recOwned);
+    if (rec) recmgrOwnedDone(recText);
     crashListDone(crash, remounts);
     if (unitOps) runOk(CFG.systemctl, ['daemon-reload']);
     pruneCreatedDirs(state);
@@ -7072,8 +7081,10 @@ function installRun(args, afresh) {
         try {
             try { settlePrivacyBounce(); }
             catch (e) { warn('the app manager was not restarted for app-privacy: ' + e.message); }
-            if (done.length) selfInstall();
-            if (attempted) saveState(state);
+            /* the record of what this run installed is kept even when the
+             * deploy tool's own install fails; that failure still fails the run */
+            try { if (done.length) selfInstall(); }
+            finally { if (attempted) saveState(state); }
         } finally { rmrf(stage); }
     }
     return 0;

@@ -6001,8 +6001,10 @@ function testListSafety() {
         root = setup(REC_STOCK, CRASH_LIST);
         r = root.run(['install', '--artifact', art, '--yes'], { FAKE_SYNC_FAIL_AT: String(k) });
         // the deploy tool's own install, after the tool's: the tool stays whole, the deploy tool's current not switched
+        const saved = readJsonOrNull(root.p('var/opt/mgu-deploy/state.json'));
         const selfFailed = /fixture-tool 0\.2\.0 installed\n/.test(r.out) && root.rec() === recNew && root.crash() === crashNew &&
-            unitThere(root) && !lstatOrNullT(root.p('var/opt/mgu-deploy/current'));
+            unitThere(root) && !lstatOrNullT(root.p('var/opt/mgu-deploy/current')) &&
+            !!(saved && saved.tools && saved.tools['fixture-tool'] && saved.tools['fixture-tool'].version === '0.2.0');
         if (r.status === 0 || (!selfFailed && (root.rec() !== REC_STOCK || root.crash() !== CRASH_LIST || unitThere(root)))) {
             failed.push(`install, sync ${k} failing: exit ${r.status} unit ${unitThere(root)}`);
         }
@@ -6030,7 +6032,7 @@ function testListSafety() {
     check(`list safety: a power cut at each of an install's ${installSyncs} and an uninstall's ${uninstallSyncs} syncs leaves each list old or new, ` +
         'never a unit enabled without its entries', installSyncs > 3 && uninstallSyncs > 2 && !cut.length, cut.join('\n'));
     check('list safety: a sync failing at each of those points fails the change and leaves the lists and units as they were ' +
-        '(at the deploy tool\'s own install after it, the tool whole and the deploy tool not switched)',
+        '(at the deploy tool\'s own install after it, the tool whole and recorded, the deploy tool not switched)',
         !failed.length, failed.join('\n'));
 
     // a fresh install whose activate fails is rolled back: a power cut, or a failing sync, at each sync of it
@@ -6321,7 +6323,7 @@ function testRecmgrOwned() {
     `${r.out}\n${root.rec()}\n${JSON.stringify(root.owned())}`);
     r = root.run(['install', '--artifact', tool('1.0.1', ['cp-tool']), '--yes']);
     check('recmgr names: an update that drops a firmware name it listed keeps it in the list',
-        r.status === 0 && both(root.rec(), 'carplay') && both(root.rec(), 'cp-tool') && /recmgr list: kept carplay in \[Whitelist\] and \[WhitelistExitSuccess\]: not added by mgu-deploy/.test(r.out),
+        r.status === 0 && both(root.rec(), 'carplay') && both(root.rec(), 'cp-tool') && r.out.includes('recmgr list: kept carplay in [Whitelist] and [WhitelistExitSuccess] (in the stock list)\n'),
         `${r.out}\n${root.rec()}`);
     r = root.run(['install', '--artifact', tool('1.0.2', ['carplay', 'cp-tool', 'cp-extra']), '--yes']);
     r = root.run(['rollback', 'cp-tool', '--yes']);
@@ -6330,7 +6332,7 @@ function testRecmgrOwned() {
         both(root.rec(), 'carplay') && both(root.rec(), 'cp-tool'), `${r.out}\n${root.rec()}`);
     r = root.run(['uninstall', 'cp-tool', '--yes']);
     check('recmgr names: the uninstall leaves the list as the firmware\'s, carplay in it, byte for byte',
-        r.status === 0 && root.rec() === BOTH && /kept carplay in \[Whitelist\] and \[WhitelistExitSuccess\]: not added/.test(r.out) &&
+        r.status === 0 && root.rec() === BOTH && r.out.includes('recmgr list: kept carplay in [Whitelist] and [WhitelistExitSuccess] (in the stock list)\n') &&
         JSON.stringify(root.owned().names) === JSON.stringify({ Whitelist: [], WhitelistExitSuccess: [] }), `${r.out}\n${root.rec()}`);
 
     // a name the firmware has in one section: added to the other, and taken out of that one only
@@ -6362,7 +6364,8 @@ function testRecmgrOwned() {
     r = root.run(['uninstall', 'cp-tool', '--yes']);
     check('recmgr names: without a record or a stock backup, the uninstall keeps the names and says why',
         r.status === 0 && root.rec() === installed && !fs.existsSync(root.tool('cp-tool')) &&
-        /kept carplay in \[Whitelist\] and \[WhitelistExitSuccess\], cp-tool in \[Whitelist\] and \[WhitelistExitSuccess\]: no record of the names mgu-deploy added, and no stock backup of the list from this firmware/.test(r.out),
+        r.out.includes('recmgr list: kept carplay in [Whitelist] and [WhitelistExitSuccess] (no record, and no stock backup from this firmware), ' +
+            'cp-tool in [Whitelist] and [WhitelistExitSuccess] (no record, and no stock backup from this firmware)\n'),
     `${r.out}\n${root.rec()}`);
 
     // a stock backup from another firmware tells nothing
@@ -6373,7 +6376,9 @@ function testRecmgrOwned() {
     write(root.p('etc/os-release-id-dlt'), 'fw-B\n');
     r = root.run(['uninstall', 'cp-tool', '--yes']);
     check('recmgr names: without a record, a stock backup from another firmware keeps the names',
-        r.status === 0 && root.rec() === installed && /no stock backup of the list from this firmware/.test(r.out), `${r.out}\n${root.rec()}`);
+        r.status === 0 && root.rec() === installed && r.out.includes('recmgr list: kept carplay in [Whitelist] (in the stock list), ' +
+            'cp-tool in [Whitelist] and [WhitelistExitSuccess] (no record, and no stock backup from this firmware), carplay in [WhitelistExitSuccess] (no record, and no stock backup from this firmware)\n'),
+        `${r.out}\n${root.rec()}`);
 
     // a record from another firmware: the firmware update put its own list back
     root = setup(HALF, 'fw-A');
@@ -6381,8 +6386,19 @@ function testRecmgrOwned() {
     installed = root.rec();
     write(root.p('etc/os-release-id-dlt'), 'fw-B\n');
     r = root.run(['uninstall', 'cp-tool', '--yes']);
-    check('recmgr names: a record written under another firmware takes nothing out',
-        r.status === 0 && root.rec() === installed, `${r.out}\n${root.rec()}`);
+    check('recmgr names: a record written under another firmware takes nothing out, and says so',
+        r.status === 0 && root.rec() === installed &&
+        r.out.includes("cp-tool in [Whitelist] and [WhitelistExitSuccess] (mgu-deploy's record is from other firmware)"), `${r.out}\n${root.rec()}`);
+    // a record that does not hold a name in the list: an earlier deploy tool may have added it
+    root = setup(HALF);
+    root.run(['install', '--artifact', v1, '--yes']);
+    installed = root.rec();
+    write(root.p('var/opt/mgu-deploy/recmgr-names.json'), JSON.stringify({ firmware: null, names: { Whitelist: [], WhitelistExitSuccess: [] } }) + '\n');
+    r = root.run(['uninstall', 'cp-tool', '--yes']);
+    check('recmgr names: a name the record does not hold stays, said as not in the record',
+        r.status === 0 && root.rec() === installed && r.out.includes('recmgr list: kept carplay in [Whitelist] (in the stock list), ' +
+            "cp-tool in [Whitelist] and [WhitelistExitSuccess] (not in mgu-deploy's record; an earlier version may have added it), " +
+            "carplay in [WhitelistExitSuccess] (not in mgu-deploy's record; an earlier version may have added it)\n"), `${r.out}\n${root.rec()}`);
     // the next edit under this firmware records what it adds
     root = setup(HALF, 'fw-A');
     root.run(['install', '--artifact', v1, '--yes']);
