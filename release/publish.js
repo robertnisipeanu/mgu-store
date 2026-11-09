@@ -134,6 +134,17 @@ const targets = {
     },
     github: {
         preflight: githubPreflight,
+        /* The newest status named context on a commit of the repository
+         * ({ state, description }), or null. */
+        commitStatus(sha, context) {
+            let statuses;
+            try {
+                statuses = JSON.parse(gh(['api', `repos/${WHERE}/commits/${sha}/statuses?per_page=100`]));
+            } catch (e) {
+                throw new Error(`cannot read the statuses of ${sha.slice(0, 12)} in ${WHERE}: ${String(e.stderr || e.message).trim()}`);
+            }
+            return statuses.find((st) => st.context === context) || null;
+        },
         fetchCatalogText() {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-catalog-'));
             try {

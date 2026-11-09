@@ -15,7 +15,6 @@ node release/release.js check [<id>...]         # build twice, compare the artif
 node release/release.js versions <base>         # a pull request's version checks against its base
 node release/release.js stamp [<id>...]         # (the Release workflow) next versions, the release commit
 node release/release.js publish --stamped [--dry-run]  # (the Release workflow) upload the new versions, then the catalog
-tools/emu-gate <id>...                          # (this Mac) the emulator gate for mgu-render / robertn_store
 ```
 
 Contributors: [`CONTRIBUTING.md`](../CONTRIBUTING.md).
@@ -58,32 +57,23 @@ The store shows the app under the en_GB text of its first entry point.
 `uids` (deploy/README.md, "Internet for selected components") and the
 catalog fields `requires`, `optional`, `uninstallable`, `mguHmi`, `mguProvides`.
 
-## The emulator gate
+## Gated components
 
-A new version of `mgu-render` or `robertn_store` is published to GitHub only
-after it passed in the head-unit emulator, which runs on the owner's Mac:
+`mgu-render` and `robertn_store` publish a new version to GitHub only when
+the component's source commit has a successful commit status
+`release-check/<id>` whose description is the sha256 of the artifact the
+release builds. `release.js publish` reads it through the GitHub API and
+refuses the version without it, or when its own build has other bytes.
 
-```sh
-tools/emu-gate mgu-render          # 4 to 8 min a component
-git add release/gate/mgu-render.json && git commit -m "mgu-render: emulator gate"
-```
-
-It installs this commit's build on its own over the published release (built
-at the version the release would give it, a patch) and
-checks that the Store's picture stays on the screen when other programs
-change the screen's layers and when the renderer and head unit restart
-(the cases: `tools/emu-gate`). Passing, it writes `release/gate/<id>.json`
-for that source; `release.js publish` refuses a new version without one, so
-any later change to what the component ships needs the gate again. The
-record holds for the version the release gives that source: the release
-commit, which only writes the version, resolves `"next"` and moves a shipped
-CHANGELOG's Unreleased lines, leaves the source as it was (`release.js`
-`sourceCommit`). The gate needs Docker, `gh` signed in and the mgu-emulator
-checkout (`MGU_EMULATOR`, default `~/workspaces/personal/mgu-emulator`).
+The source commit is the last commit that changed what the component ships
+(`release.js` `sourceCommit`); the release commit, which only writes the
+version, resolves `"next"` and moves a shipped CHANGELOG's Unreleased lines,
+leaves it as it was. Any later change to what the component ships needs the
+check again.
 
 An app's release build may not write a file the app ships (a copy from
 another folder, a generated file) other than as it is committed: commit what
-its build writes, so the source the record names is what ships.
+its build writes, so the source the check names is what ships.
 
 ## Versions
 

@@ -536,24 +536,26 @@ function testReleaseTexts() {
     });
 }
 
-/* release.js publish: a gated component needs a passing emulator gate record for its exact source. */
+/* release.js publish: a gated component needs a successful release-check/<id>
+ * status on its source commit, for the artifact it publishes. */
 function testReleaseGate() {
     const { gateProblem } = require(path.join(__dirname, '..', '..', 'release', 'release.js'));
     const c = { id: 'mgu-render', kind: 'tool', version: '0.6.8' };
     const src = 'a'.repeat(40);
-    const record = (o) => Object.assign({ id: 'mgu-render', version: '0.6.8', source: src, result: 'pass' }, o);
-    check('release gate: a passing record for this version and source lets it publish', gateProblem(c, record({}), src) === null);
-    check('release gate: no record refuses it', /no emulator gate record/.test(gateProblem(c, null, src)));
-    check('release gate: a record for another source refuses it', /not this source/.test(gateProblem(c, record({}), 'b'.repeat(40))));
-    check('release gate: a record for another component refuses it', /not this source/.test(gateProblem(c, record({ id: 'mgu-updater' }), src)));
-    check('release gate: a record that did not pass refuses it', /did not pass/.test(gateProblem(c, record({ result: 'fail' }), src)));
-    check('release gate: the record names the source; the release picks the version',
-        gateProblem(Object.assign({}, c, { version: '0.6.9' }), record({}), src) === null);
-    const app = { id: 'robertn_store', kind: 'app', version: '0.9.15' };
-    check('release gate: an app\'s record names its source too, whatever artifact the gate built',
-        gateProblem(app, { id: 'robertn_store', version: '0.9.14', source: src, result: 'pass', artifactSha256: 'f'.repeat(64) }, src) === null);
-    check('release gate: a component outside the gate needs no record',
-        gateProblem({ id: 'mgu-updater', version: '0.8.7' }, null, src) === null);
+    const sha = 'c'.repeat(64);
+    const status = (o) => Object.assign({ context: 'release-check/mgu-render', state: 'success', description: sha }, o);
+    check('release gate: a successful status for this build lets it publish', gateProblem(c, status({}), src, sha) === null);
+    check('release gate: no status refuses it', /release-check\/mgu-render on aaaaaaaaaaaa is missing/.test(gateProblem(c, null, src, sha)));
+    check('release gate: a failed status refuses it', /is failure/.test(gateProblem(c, status({ state: 'failure' }), src, sha)));
+    check('release gate: a pending status refuses it', /is pending/.test(gateProblem(c, status({ state: 'pending' }), src, sha)));
+    check('release gate: a status for another build refuses it', /another build/.test(gateProblem(c, status({}), src, 'd'.repeat(64))));
+    check('release gate: an empty description refuses it', /another build/.test(gateProblem(c, status({ description: null }), src, sha)));
+    check('release gate: the status names the build; the release picks the version',
+        gateProblem(Object.assign({}, c, { version: '0.6.9' }), status({}), src, sha) === null);
+    check('release gate: an app is gated too',
+        /missing/.test(gateProblem({ id: 'robertn_store', kind: 'app', version: '0.9.15' }, null, src, sha)));
+    check('release gate: a component outside the gate needs no status',
+        gateProblem({ id: 'mgu-updater', version: '0.8.7' }, null, src, sha) === null);
 }
 
 /* A git repository with tools a (1.0.0, with a CHANGELOG) and b (2.0.0,

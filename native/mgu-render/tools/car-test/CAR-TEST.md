@@ -80,8 +80,7 @@ and the time from one frame to the next.
   `apps/robertn_store`.
 - Docker is running (the mgu-render build), the Mac has internet (`install`
   copies the published release first), and `node test_probe.js` passes.
-- Rehearse once in your own emulator (`./emu.py up --preset store` in your
-  own emulator checkout), with the options `up` prints as the target:
+- Rehearse once on a test head unit, with its SSH options as the target:
 
   ```sh
   H=(--host 127.0.0.1 --port <ssh> --identity <key> --ssh-opt StrictHostKeyChecking=no
