@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A tool's new version is on disk, every file of it, before its `current` points to it, at every install and update and at the deploy tool's own; each switch of `current` is on disk before the deploy tool goes on. A power cut or ignition off right after an update leaves the version before or the new one whole, never a file the head unit had not written yet.
+- recmgr's restart list keeps the firmware's own entries: an update, rollback or uninstall takes out of each of its sections only the names the deploy tool put there, recorded in `/var/opt/mgu-deploy/recmgr-names.json`, and never a name the stock backup's copy of the list has. For tools installed before that record, a name goes only when the stock backup, taken on the firmware running, lacks it; without such a backup the name stays, and the run says so.
+
 ## 0.8.8
 
 - The deploy tool never creates the app manager's home or data folder (`/var/opt/public/oap/oap_12201`, its `data`), which the app manager creates at its first start after a factory reset. While they are missing, `custom_apps.json` and `local-only-apps.json` are not written (on iDrive 8 `relist` and `status` list our apps once the folder is there), app installs are refused, and `status` reports no lost app.
