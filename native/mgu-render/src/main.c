@@ -57,6 +57,7 @@
 #include "embed_gl.h"
 #include "gate.h"
 #include "gfx.h"
+#include "kit.h"
 #include "log.h"
 #include "trace.h"
 #include "proto.h"
@@ -76,6 +77,7 @@
 #define SHARE_US 2000000ull          /* the community socket's rule is applied this often */
 #define DROP_WINDOW_US 10000000ull   /* a layer taken off while shown goes back at once at most DROP_MAX times in this */
 #define DROP_MAX 10
+#define OAP_DIR "/var/opt/public/oap"
 #ifndef GL_BGRA_EXT
 #define GL_BGRA_EXT 0x80E1
 #endif
@@ -136,6 +138,7 @@ typedef struct client {
     uint64_t last_msg; int stale;
     /* touch claims, logical px (CLAIM) */
     int nclaim; float claim[16][4];
+    int kit;                /* an idrive7-apps kit app (kit.h): 1, 2 once it came back too often to be sent again */
     int overlay;            /* a root client named in overlay_apps: shown over camera surfaces, never closed by an HMI
                                touch, its claims first and outside touch_area too, its layer kept above the others */
     /* frame cap (MI_FPS): at least min_us between two frames drawn; 0 = none */
@@ -162,6 +165,7 @@ typedef struct client {
 } client;
 
 static client *clients[MAX_CLIENTS];
+static struct kit kit;
 static int listen_fd = -1, own_socket;
 static uint64_t show_counter;
 static client *embed_owner;
@@ -1372,6 +1376,12 @@ static void accept_client(void) {
     c->fd = fd; c->slot = slot; c->xf.s = 1; c->es = EGL_NO_SURFACE; c->mode = MODE_LAYER; c->uid = UINT32_MAX; c->g.name = c->app;
     struct ucred cr; socklen_t cl = sizeof cr;
     if (!getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cr, &cl)) c->uid = cr.uid;
+    if (cfg.shared_path[0] && c->uid && c->uid != UINT32_MAX && kit_app(OAP_DIR, c->uid)) {
+        c->kit = 1;
+        int strikes = kit_connected(&kit, c->uid, now_us());
+        if (strikes >= KIT_STRIKES) c->kit = 2;
+        if (strikes == KIT_STRIKES) log_warn("uid %u: kit app came straight back %d times: it stays here", c->uid, KIT_STRIKES);
+    }
     clients[slot] = c;
 }
 
@@ -1523,6 +1533,25 @@ static void share_tick(void) {
     }
 }
 
+/* Kit apps on our socket go back to the community socket's own renderer once it listens there steadily (kit.h).
+ * The kernel's table of unix sockets is read only while a kit app is connected here. */
+static void kit_tick(uint64_t t) {
+    int any = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] && clients[i]->kit == 1) any = 1;
+    if (!any) { kit_listener(&kit, 0, t); return; }
+    unsigned long ino = share_listener(cfg.shared_path);
+    if (ino == SHARE_UNKNOWN) return;
+    kit_listener(&kit, ino, t);
+    if (!kit_steady(&kit, t)) return;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        client *c = clients[i];
+        if (!c || c->kit != 1 || !kit_may_send(&kit, c->uid, t)) continue;
+        log_info("%s: kit app sent back to %s, which has its own renderer again", c->app[0] ? c->app : "client", cfg.shared_path);
+        kit_sent(&kit, c->uid, t);
+        client_free(c);
+    }
+}
+
 /* ---------------- main ---------------- */
 static volatile sig_atomic_t quit;
 static void on_sig(int s) { (void)s; quit = 1; }
@@ -1612,7 +1641,7 @@ int main(int argc, char **argv) {
         ctl_gate_update(tnow);
         if (touch_on) touch_tick(any_claim());
         trace_check(now_us());
-        if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); }
+        if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); kit_tick(tnow); }
         if (cfg.foreground_gate[0] && !gate_unavailable() && gate_fd() < 0 && tnow > gate_retry) {
             gate_retry = tnow + 5000000;
             gate_start(cfg.foreground_gate);

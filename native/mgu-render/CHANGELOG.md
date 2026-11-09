@@ -3,6 +3,7 @@
 ## Unreleased
 
 - The car-test guide rehearses on any test head unit reached over SSH.
+- An idrive7-apps kit app on our socket goes back to the community socket `/run/mgu-renderd/renderd.sock` once another renderer (idrive7-renderd) has listened there for 5 s: its connection is closed, and the kit connects again, to that socket unless an earlier failed try there turned it to ours (`<app>: kit app sent back to /run/mgu-renderd/renderd.sock, which has its own renderer again`). Kit apps came to us whenever idrive7-renderd restarted (each of its updates, a crash) and stayed until mgu-render restarted, drawn for the wrong screen on cars whose display differs. An app that comes back within 60 s is sent again only after 30 s, then 2 min; after a third time it stays. Without another renderer there, and for every app that is not a kit app (the Store included), nothing changes.
 
 ## 0.6.16
 
