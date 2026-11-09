@@ -27,4 +27,10 @@ int share_drop(const struct share *s);
 int share_is_ours(const struct share *s, const char *path);
 const char *share_name(int r);
 
+#define SHARE_UNKNOWN ((unsigned long)-1)
+/* The inode of the socket listening at path, from the kernel's table of unix sockets (/proc/net/unix), without
+ * connecting to it: 0 when nothing listens there (a symlink to another socket included), SHARE_UNKNOWN when the
+ * table cannot be read. */
+unsigned long share_listener(const char *path);
+
 #endif
