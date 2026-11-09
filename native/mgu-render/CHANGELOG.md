@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+No changes.
+
 ## 0.6.17
 
 - The car-test guide rehearses on any test head unit reached over SSH.

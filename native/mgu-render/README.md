@@ -134,8 +134,8 @@ An embed app's frames reach the HMI's compositor one of two ways, decided when m
 
 Both draw top-down and give the same bytes (`test/test_embed.c`). display-bridge's apps' pixels go into whichever
 kind is in use (with zero-copy, uploaded at the app's own size and scaled into the GPU buffer by GL): the HMI's compositor shows a GPU buffer
-with red and blue swapped once the same surface id has shown a shared-memory buffer in that HMI run (seen in the
-emulator and on the car), so a connection never mixes the two. Once reading back, mgu-render stays so until it restarts, and
+with red and blue swapped once the same surface id has shown a shared-memory buffer in that HMI run (seen on a
+test unit and on the car), so a connection never mixes the two. Once reading back, mgu-render stays so until it restarts, and
 zero-copy after a readback shows right only on a freshly started HMI. The journal names the path (`embed: zero-copy` or `embed: readback fallback (<why>)`);
 apps see it in X_READY's caps (32) and STATS' fourth word.
 
@@ -176,7 +176,7 @@ and serves those apps, unchanged.
   drawn and waiting for the compositor's frame callback, one committed. A
   newer frame replaces the one waiting, or is drawn over the one not yet
   committed (DROPPED either way). The committed one is PRESENTED on the
-  frame callback, or DROPPED when the picture goes first. In the emulator,
+  frame callback, or DROPPED when the picture goes first. On a test unit
   whose HMI repaints its embedded surfaces about 20 times a second, 10 s of
   DOOM play showed 16.9 frames a second (3 dropped), display-bridge 17.9.
 - **Touch.** The picture is the app's claim: a touch that starts there comes
@@ -251,7 +251,7 @@ and ports 30570 in, 30571 out, so neither removes the other's rule or takes
 its ports. Each diverts only while one of its own apps is shown with claims:
 ours only while one of its apps is in front (the foreground gate), his while
 his app shows its screen. They take turns. Were both in at once, the first
-chain to see a PDU takes it; on the emulator's `lo` our rule passes both
+chain to see a PDU takes it; on a test unit's `lo` our rule passes both
 renderers' re-injections (from 30569 and 30571) to the HMI and his catches
 ours, so a PDU passes each renderer at most once and nothing loops. Neither
 leaves its rule behind: each has a guard process that removes it when its
@@ -279,7 +279,7 @@ logged and skipped; the renderer still starts. The unit-specific ones:
 | Key | iDrive 7 | iDrive 8 |
 |---|---|---|
 | screen, app area | read from Winston's output: 1920×720, area 108,82,1790,638 | 2880×960, area 0,76,2880,764 |
-| `touch_iface`, `touch_saddr` | `vlan73`, `160.48.199.115` (`auto`: `lo` when there is no vlan73, as in the emulator) | same |
+| `touch_iface`, `touch_saddr` | `vlan73`, `160.48.199.115` (`auto`: `lo` when there is no vlan73, as on a test unit) | same |
 | `touch_area` | 84,0,1836,720 (`auto` by screen size) | 0,76,2880,764 |
 | `embed`, `embed_area` | 1, 104,88,1796,632 | never offered: no HmiMain3D, so no template is loaded |
 | `embed_zero_copy`, `tick_early`, `readback_pbo`, `embed_finish` | 1, 1, 1, 0 (embed: "Embed buffers") | same |
@@ -342,14 +342,14 @@ HMI only where the HMI's controller gate is loaded (`info.controller`).
 | `make target` | `build/target/mgu-render`: x86-64, glibc 2.27, loader `/lib/ld-linux-x86-64.so.2`, built in Ubuntu 18.04 (Docker, linux/amd64) |
 | `make check-target` | the binary's architecture, loader, libraries (`libwayland-client`, `libwayland-egl`, `libEGL`, `libGLESv2`, libc, libm, libdl) and glibc versions |
 | `make test` | in Ubuntu 24.04 with Mesa's llvmpipe (Docker): `test/test_embed.c` (embed's buffer paths against a mock HMI compositor, `test/mock_hmi.c`: zero-copy through `wl_drm` with memfds standing in for dmabufs, readback with and without a pixel buffer, no `wl_drm`, no PRIME, buffers refused; every committed frame's CRC equal to the frame GL drew), `test/test_dialect.c`, `test/test_touch.c` (routing; our table and ports only, in while claimed, out when not and when the renderer dies), `test/test_share.c` (the community socket beside a fake second renderer: handover, restart, take-back, the drop race, foreign sockets kept), `test/test_video.c` (a frame file shorter than its header, the frame file's owner, the video limits), `test/test_hmi.sh` (the page-template script: built at install, only mounted at boot, a refused build not retried, a timeout or signal retried, the template and the boot's copy readable by the HMI's user under umask 077), and `test/replay.sh`: every session in `test/sessions/` (recorded from upstream's and IterioDev's kits, `test/sessions/README.md`) and the synthetic ones (`test/gen_sessions.js`) replayed through the original daemons (`test/reference/`) and mgu-render, every frame compared byte for byte; native pixmaps compared with the same pictures sent as IterioDev pictures; video sessions read frame files in `/dev/shm` and their last frame is checked for the videos' colours; a frame file of another uid is refused |
-| `deploy/hu install mgu-render` | build and install on a unit or the emulator (deploy/README.md) |
+| `deploy/hu install mgu-render` | build and install on a unit (deploy/README.md) |
 
 `mgu-render --replay FILE --out F.pam [--raw F.rgba]` draws a recorded
 stream offscreen. `record_dir` in the conf records each connection.
 
 ## On the car
 
-Settled offline and in the emulator: both legacy protocols (frames identical
+Settled offline and on a test unit: both legacy protocols (frames identical
 to the originals), native pixmaps, the embed and layer placements, the
 foreground gate, the template service, socket activation and packaging. Only
 the car can show:

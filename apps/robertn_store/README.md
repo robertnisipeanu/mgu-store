@@ -72,8 +72,8 @@ state of the next depth (`ST_OnlineApps_StoreLayer1..3`, on iDrive 7 also
 leaves it. Each host state's focusable buttons stand for what the page has
 to press, in focus order: the controller moves the HMI's focus over them
 and the drawn page shows it as a ring; a press presses it. In embed mode,
-until the HMI reports a press on one of the page template's buttons (the
-emulator's HMI routes them neither focus nor presses), the dial and push come from
+until the HMI reports a press on one of the page template's buttons (some
+HMIs route them neither focus nor presses), the dial and push come from
 FrontCCU (`statusRotaryEncoderState`, the manifest's proxy) while the page
 has the HMI's focus, and move the ring themselves. A page's focus
 starts on what it is for, a tab's on the side menu. Touch in the box goes
@@ -451,7 +451,7 @@ oap-sdk of an app already there and installs the result
 so a source following a branch builds it straight from a checkout
 (`mgu-repo.json`). With a donor on the build machine (an OAP app's tgz or
 `javascript/app.js`, never committed) the build writes the same OAP tgz
-the unit builds, for the emulator: the modules linked against the donor's
+the unit builds, for a test unit: the modules linked against the donor's
 oap-sdk modules with its module ids, the donor package's own entry point
 as `javascript/runner.js` (the package's `main`) with a `runnerConfig.json`
 naming the bundle and data folder, `node --check`, `javascript/build.json`.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+No changes.
+
 ## 0.9.33
 
 Text with ‘ ’ “ ” or a no-break space, such as an iPhone hotspot named

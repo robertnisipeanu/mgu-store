@@ -139,7 +139,7 @@ deploy/hu connect --arm-debug --keep-armed --hold 1800   # bootstrap only, see a
 until interrupted). Over the hotspot there is nothing to hold, and it
 returns.
 
-The emulator:
+A unit on a local SSH port:
 
 ```sh
 deploy/hu status --host 127.0.0.1 --port 2225 \
@@ -2082,15 +2082,15 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
 ## [on-car-unconfirmed]
 
 - The manager's fresh install of an app listed only by the fallback, and an
-  update re-seeded with `installationSource: null`, on the car (both proven in
-  the emulator).
-- The in-place install and update on the car (proven in the emulator): the
+  update re-seeded with `installationSource: null`, on the car (both proven on
+  a test unit).
+- The in-place install and update on the car (proven on a test unit): the
   running manager installing with the other apps up, its trigger_service
   check at each install, and only that app stopping and starting.
-- The in-place uninstall on the car (proven in the emulator): the
+- The in-place uninstall on the car (proven on a test unit): the
   tile leaving the HMI at once and the other apps staying up.
-- oapcontroller's crash counting and alive window on the car (proven in the
-  emulator; the 60 s spacing covers it, with room for a slower start).
+- oapcontroller's crash counting and alive window on the car (proven on a
+  test unit; the 60 s spacing covers it, with room for a slower start).
 - recmgr's rules: an entry counts once it was in the list at boot; a stopped,
   unlisted service rebooting the unit.
 - The rootfs window (`mount -o remount,rw /` and back to `ro`).
@@ -2106,7 +2106,7 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
 - `deploy/hu`'s `--arm-debug` flow end to end on the car.
 - The migration of the retired installer's leftovers on the car: its
   backups' names and content, and our apps keeping their tiles through the
-  fallback once the stock bundles are back (proven in the emulator on a
+  fallback once the stock bundles are back (proven on a test unit with a
   reproduction of the car's state).
 - The car's donors: which preinstalled package resolves the Store's sdk
   names first (on a replica of the car's rootfs it is
@@ -2118,7 +2118,7 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
   resolved for the app as for a stock app).
 - `/run/mgu-deploy` writable and readable by other uids on the car.
 
-On an iDrive 8 head unit (IterioDev's car; none in the emulator), the
+On an iDrive 8 head unit (IterioDev's car), the
 whole iDrive 8 path:
 
 - the detection (`/usr/lib/oap-mainapp21` present and

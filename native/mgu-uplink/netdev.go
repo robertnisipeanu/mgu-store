@@ -3,7 +3,7 @@ package main
 // Kernel-driven USB network adapters: an adapter the kernel has a driver
 // for appears as an Ethernet interface under its driver's name (eth1, ...).
 // The uplink renames it to Ifname, so the rules, firewall and files apps
-// read name the same interface on every unit and in the emulator, and
+// read name the same interface on every unit, and
 // gives the name back when it lets go.
 //
 // The unit's kernel has the asix, ax88179_178a and smsc95xx USB Ethernet

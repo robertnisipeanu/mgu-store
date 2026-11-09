@@ -1,6 +1,6 @@
 'use strict';
 /*
- * A game-like native client for the emulator and the car: a 320x200 INDEX8 pixmap redrawn in
+ * A game-like native client for a test unit and the car: a 320x200 INDEX8 pixmap redrawn in
  * regions at 35 Hz (as DOOM does), its palette cycled, a touch claim over the picture.
  *
  *   node pixel_client.js [--mode embed|layer] [--seconds N] [--socket PATH]
