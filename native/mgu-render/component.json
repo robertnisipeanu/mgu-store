@@ -32,7 +32,8 @@
   "dropins": [
     { "unit": "display-bridge.socket", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" },
     { "unit": "display-bridge.service", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" },
-    { "unit": "display-bridge-hmi.service", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" }
+    { "unit": "display-bridge-hmi.service", "name": "mgu-render.conf", "from": "systemd/display-bridge-standdown.conf" },
+    { "unit": "var-opt-ro.service", "name": "50-mgu-render.conf", "from": "systemd/var-opt-ro-mark.conf" }
   ],
   "recmgr": ["mgu-render", "mgu-render-hmi"],
   "restart": ["mgu-render.service"],
