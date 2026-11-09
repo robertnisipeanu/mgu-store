@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+No changes.
+
 ## 0.7.8
 
 - With Allow 5 GHz on, the car's supplicant's automatic scans during wireless CarPlay or Android Auto also cover the phone's own P2P group channel(s), not only the other band: a station on the group's channel shares it without taking the radio off it. A home access point on the same 5 GHz channel as the CarPlay group (e.g. 5785 MHz) is joined there instead of on 2.4 GHz. With Allow 5 GHz off, as before.
