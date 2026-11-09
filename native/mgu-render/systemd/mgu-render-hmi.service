@@ -2,6 +2,9 @@
 Description=mgu-render page template for the HMI
 DefaultDependencies=no
 Before=hmi.service
+# stopped (ExecStop) at every systemd shutdown, as DefaultDependencies=yes would
+Conflicts=shutdown.target
+Before=shutdown.target
 RequiresMountsFor=/var/opt/mgu-render /mnt/dataro/data/hmi
 
 [Service]
@@ -12,7 +15,7 @@ RemainAfterExit=yes
 # leaves mgu-render-hmi.sh --confirm running here until the HMI is confirmed healthy (at most about 12 min).
 TimeoutStartSec=30
 ExecStart=-/bin/sh /var/opt/mgu-render/current/mgu-render-hmi.sh /var/opt/mgu-render/current /var/opt/mgu-render/hmi
-# A systemd stop of the head unit (systemctl reboot or poweroff) before that: this start counts no failure.
+# A systemd shutdown (systemctl reboot or poweroff) before that: this start counts no failure.
 ExecStop=-/bin/sh /var/opt/mgu-render/current/mgu-render-hmi.sh --stop /var/opt/mgu-render/current /var/opt/mgu-render/hmi
 TimeoutStopSec=10
 

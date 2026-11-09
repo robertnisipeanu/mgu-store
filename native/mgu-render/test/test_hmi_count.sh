@@ -14,7 +14,7 @@ ok() { if eval "$2"; then pass=$((pass + 1)); else echo "FAIL: $1"; cat "$T/log"
 
 ROOT=$T/opt/mgu-render
 CUR=$ROOT/current
-mkdir -p "$ROOT/versions/1" "$T/bin" "$T/widget" "$T/run" "$T/sin/recmgr" "$T/sin/crashhandler" "$T/proc/700"
+mkdir -p "$ROOT/versions/1" "$T/bin" "$T/widget" "$T/run" "$T/sin/recmgr" "$T/sin/crashhandler" "$T/proc/700" "$T/proc/701"
 ln -s versions/1 "$CUR"
 cp "$SCRIPT" "$CUR/mgu-render-hmi.sh"
 echo 'generator 1' > "$CUR/hmi_template.js"
@@ -42,12 +42,13 @@ esac
 EOF
 chmod +x "$T/bin/node" "$T/bin/mount" "$T/bin/systemctl"
 echo HmiMain3D > "$T/proc/700/comm"
+echo HmiMain3D > "$T/proc/701/comm"
 echo running > "$T/system"
 : > "$T/job"
 echo 'inactive 0 0' > "$T/hmi"
 export MGU_RENDER_HMI=$T/HmiMain3D MGU_RENDER_WIDGETS=$T/widget MGU_RENDER_RUN=$T/run/hmi-widget \
 	MGU_RENDER_MARKER=$T/run/hmi-template MGU_RENDER_NODE=$T/bin/node MGU_RENDER_SIN=$T/sin \
-	MGU_RENDER_BOOT=$T/run/boot MGU_RENDER_UPTIME=$T/uptime MGU_RENDER_PROC=$T/proc \
+	MGU_RENDER_BOOT=$T/run/boot MGU_RENDER_PROC=$T/proc \
 	MGU_RENDER_SYSTEMCTL=$T/bin/systemctl MGU_RENDER_WAIT_S=0 MGU_RENDER_POLL_S=1 MGU_RENDER_HEALTHY_S=0 PATH=$T/bin:$PATH
 # A call of run with a variable set before it goes in a subshell: ash keeps such a variable after a function call.
 run() { sh "$CUR/mgu-render-hmi.sh" "$@" "$CUR" "$ROOT/hmi" >> "$T/log" 2>&1; }
@@ -59,7 +60,6 @@ mounted() { [ -s "$T/mount.log" ] && [ -e "$T/run/hmi-template" ]; }
 # A new boot of the head unit: /run starts empty (the boot run makes its id), nothing mounted.
 newboot() {
 	rm -f "$T/run/boot" "$T/run/hmi-template" "$T/mount.log"
-	echo '1.00 1.00' > "$T/uptime"
 	echo 'inactive 0 0' > "$T/hmi"
 	echo running > "$T/system"
 	: > "$T/job"
@@ -94,7 +94,7 @@ ok 'build: the template made' '[ -s "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw" ] &&
 boot
 ok 'first boot: mounted, counted from 0' \
 	'mounted && [ "$(get state)" = mounted ] && [ "$(get fails)" = 0 ] && [ -s "$T/run/boot" ] && [ "$(get boot)" = "$(cat "$T/run/boot")" ] &&
-	 [ "$(get template)" = "1 $(cat "$ROOT/hmi/stamp") $(cat "$ROOT/hmi"/*.pbw | md5sum | cut -d" " -f1)" ]'
+	 [ "$(get template)" = "$(cat "$ROOT/hmi/stamp") $(cat "$ROOT/hmi"/*.pbw | md5sum | cut -d" " -f1)" ]'
 healthy
 ok 'confirm: the same HmiMain3D run active after the window: confirmed' '[ "$(get state)" = confirmed ] && [ "$(get fails)" = 0 ]'
 run --shutdown
@@ -126,11 +126,14 @@ newboot
 boot
 ok 'an orderly reboot (systemd stopping) with the HMI dumped on its way down: not counted' \
 	'mounted && [ "$(get fails)" = 1 ]'
+records hmi.service HmiMain3D
 echo 42 > "$T/job"
 run --stop
+ok 'an orderly reboot (shutdown.target queued): marked clean' '[ "$(get state)" = clean ]'
 newboot
 boot
-ok 'an orderly reboot (shutdown.target queued): not counted' 'mounted && [ "$(get fails)" = 1 ]'
+ok 'an orderly reboot (shutdown.target queued) with HMI restart records written after the mount: not counted' \
+	'mounted && [ "$(get fails)" = 1 ]'
 records vsomeipd vsomeipd
 nsm_down
 boot
@@ -147,10 +150,11 @@ ok 'stop outside a system stop (an uninstall): nothing written' '[ "$(get state)
 
 # --confirm only for the same, unbroken HmiMain3D run with the template in place
 echo 'active 700 5000000' > "$T/hmi"
-( sleep 1; echo 'active 701 9000000' > "$T/hmi" ) &
-(MGU_RENDER_WAIT_S=2 MGU_RENDER_HEALTHY_S=2 run --confirm)
+# seen at 1 s, then another run (HmiMain3D too) from 2 s, checked at 4 s
+( sleep 2; echo 'active 701 9000000' > "$T/hmi" ) &
+(MGU_RENDER_WAIT_S=2 MGU_RENDER_HEALTHY_S=3 run --confirm)
 wait
-ok 'confirm: another HMI run at the end of the window: unconfirmed' '[ "$(get state)" = mounted ] && [ "$(get fails)" = 1 ]'
+ok 'confirm: another HmiMain3D run at the end of the window: unconfirmed' '[ "$(get state)" = mounted ] && [ "$(get fails)" = 1 ]'
 echo 'active 702 5000000' > "$T/hmi"
 (MGU_RENDER_WAIT_S=2 run --confirm)
 ok 'confirm: a main PID that is not HmiMain3D: unconfirmed' '[ "$(get state)" = mounted ]'
@@ -186,7 +190,7 @@ ok 'no shutdown record, an HMI restart record written in that boot: failure 2, n
 	 grep -q "failure 2 of 2" "$T/log" && grep -q "not mounted" "$T/log"'
 ok 'failed: status.json says so, its build fields kept' \
 	'[ "$(field hmi)" = failed ] && [ "$(field template)" = ok ] && [ "$(field retry)" = false ] &&
-	 [ "$(field stamp)" = "$(cat "$ROOT/hmi/stamp")" ] && [ "$(field problem)" = "In-page drawing unavailable: the HMI failed twice with the page template" ]'
+	 [ "$(field stamp)" = "$(cat "$ROOT/hmi/stamp")" ] && [ "$(field problem)" = "In-page drawing unavailable: the HMI failed with the page template" ]'
 run --shutdown
 ok 'failed: no shutdown record written' '[ "$(cut -d" " -f1 "$ROOT/hmi-shutdown")" != "$(cat "$T/run/boot")" ]'
 nsm_down
@@ -200,7 +204,7 @@ newboot
 boot
 ok 'failed: status.json says so again after an install rewrote it' '! mounted && [ "$(field hmi)" = failed ]'
 
-# a new template clears the mark: a regenerated .pbw, then another mgu-render version
+# a new template clears the mark: a regenerated .pbw, then another generator; another mgu-render version does not
 echo 'template 2' > "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw"
 newboot
 boot
@@ -218,14 +222,34 @@ rm "$CUR"
 ln -s versions/2 "$CUR"
 newboot
 boot
-ok 'another mgu-render version: mounted, counted from 0' 'mounted && [ "$(get fails)" = 0 ] && [ "$(get template | cut -d" " -f1)" = 2 ]'
+ok 'another mgu-render version with the same template: still failed, not mounted' '! mounted && [ "$(get state)" = failed ]'
+echo 'generator 2' > "$CUR/hmi_template.js"
+build
+newboot
+boot
+ok 'another generator: mounted, counted from 0' 'mounted && [ "$(get fails)" = 0 ] && [ "$(get state)" = mounted ]'
+hmi_crash
+boot
+hmi_crash
+boot
+ok 'marked failed again' '! mounted && [ "$(get state)" = failed ]'
+
+# a template marked failed is never mounted
+newboot
+(MGU_RENDER_BOOT=$T/HmiMain3D/boot run)
+ok 'failed, no boot id: not mounted' '! mounted && [ "$(get state)" = failed ]'
+newboot
+# a firmware update: another HmiMain3D, no template for it until the next install
+touch -d @1000000000 "$T/HmiMain3D"
+boot
+ok 'failed, then another HmiMain3D: status.json no longer says failed' \
+	'! mounted && [ "$(field hmi)" = "" ] && [ "$(field problem)" = "" ] && [ "$(field template)" = ok ]'
+build
+newboot
+boot
+ok 'another HmiMain3D, its template made: mounted, counted from 0' 'mounted && [ "$(get fails)" = 0 ] && [ "$(get state)" = mounted ]'
 
 # unreadable state: mounts
-hmi_crash
-boot
-hmi_crash
-boot
-ok 'marked failed for version 2' '! mounted && [ "$(get state)" = failed ]'
 printf 'template=\001garbage\nfails=x\n' > "$ROOT/hmi-boot"
 newboot
 boot
@@ -250,6 +274,17 @@ mkdir "$ROOT/hmi-boot.tmp"
 boot
 ok 'a count that cannot be written: mounted' 'mounted && grep -q "not written" "$T/log"'
 rmdir "$ROOT/hmi-boot.tmp"
+
+# a restart record rewritten within the second it was seen in at the mount
+rm -f "$ROOT/hmi-boot"
+records vsomeipd.service vsomeipd
+newboot
+run
+printf '<RestartInfo>\n    <ServiceName value="hmi.service"/>\n</RestartInfo>\n' > "$T/sin/recmgr/restartInfo.xml"
+touch -d "@$written" "$T/sin/recmgr/restartInfo.xml"
+nsm_down
+boot
+ok 'a restart record rewritten with the same modification time: counted' 'mounted && [ "$(get fails)" = 1 ]'
 
 # iDrive 8: no HmiMain3D, no count
 rm -f "$ROOT/hmi-boot"

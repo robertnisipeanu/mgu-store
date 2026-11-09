@@ -24,20 +24,20 @@
 #
 # Boot count (hmi-boot beside OUT). An HMI that fails with the template at every start would restart
 # the head unit at every start, so each boot that mounts it is counted:
-#   - the boot run records the template it mounts (its key: mgu-render's version, the stamp and the
-#     MD5 of the .pbw files), this boot's id (a random id it keeps in /run/mgu-render/boot, which every
+#   - the boot run records the template it mounts (its key: the stamp and the MD5 of the .pbw
+#     files), this boot's id (a random id it keeps in /run/mgu-render/boot, which every
 #     boot starts without) and the time, state "mounted", and starts --confirm;
 #   - --confirm (in the background, in mgu-render-hmi.service) waits for hmi.service to be active,
 #     notes its main PID and start time, and HEALTHY s later, when the same HmiMain3D run is still
 #     active and the template still in place, marks the boot "confirmed" and clears the count;
-#   - --stop (the service's ExecStop) marks an unconfirmed boot "clean" when systemd stops the system
-#     (a systemctl reboot or poweroff);
+#   - --stop (the service's ExecStop, which every systemd shutdown runs: Conflicts=shutdown.target)
+#     marks an unconfirmed boot "clean" when systemd stops the system (a systemctl reboot or poweroff);
 #   - --shutdown (a drop-in of var-opt-ro.service, which runs at every NodeStateManager shutdown, a
 #     switch-off and a crash restart alike, before /var/opt goes read-only) writes hmi-shutdown,
-#     "<boot id> hmi|other|none up <s>": whether a restart record of recmgr or crashhandler
+#     "<boot id> hmi|other|none": whether a restart record of recmgr or crashhandler
 #     (restartInfo.xml) written since the mount names the HMI (hmi, hmi.service or HmiMain3D). A
-#     record is written since the mount when it was not there then or its modification time changed
-#     (seen: each record's at the mount), whatever the clock did in between;
+#     record is written since the mount when it was not there then or its modification time, size or
+#     inode changed (seen: each record's at the mount), whatever the clock did in between;
 #   - the next boot run counts the last mounted boot as one failure only when it was neither
 #     confirmed nor clean and the HMI is named: by its hmi-shutdown line, or, with no line for that
 #     boot, by a restart record still on disk written since its mount (recmgr and crashhandler delete
@@ -45,9 +45,11 @@
 #     menu, the Store, an update), a power cut or a slow HMI leaves no such record and counts nothing.
 #     Only a confirmed boot clears the count.
 # At FAILS failures the template is marked failed ("failed") and not mounted again, the HMI keeping its
-# stock widgets, until the key changes (another mgu-render version, HmiMain3D or template). Any other
-# error in the count mounts the template.
-#   hmi-boot: template=<key>, fails=<n>, boot=<boot id>, at=<s>, seen=<recmgr's> <crashhandler's>,
+# stock widgets, until the key changes (another generator, HmiMain3D, embed_surface_id or template) or
+# mgu-render is removed and installed again. A template marked failed is never mounted; any other error
+# in the count mounts the template.
+#   hmi-boot: template=<key>, fails=<n>, boot=<boot id>, at=<s>, seen=<recmgr's> <crashhandler's>
+#             (each <mtime>.<size>.<inode> or -),
 #             state=mounted|confirmed|clean|failed
 set -eu
 MODE=boot
@@ -70,7 +72,6 @@ NODE=${MGU_RENDER_NODE:-node}
 LIMIT=${MGU_RENDER_LIMIT:-120}
 SIN=${MGU_RENDER_SIN:-/var/opt/public/sin}
 BOOT=${MGU_RENDER_BOOT:-/run/mgu-render/boot}
-UPTIME=${MGU_RENDER_UPTIME:-/proc/uptime}
 SYSTEMCTL=${MGU_RENDER_SYSTEMCTL:-systemctl}
 PROC=${MGU_RENDER_PROC:-/proc}
 HEALTHY=${MGU_RENDER_HEALTHY_S:-120}
@@ -86,7 +87,7 @@ status() {
 	if [ "$1" = failed ]; then
 		problem="In-page drawing unavailable: $2"
 	elif [ "${5:-}" = failed ]; then
-		problem="In-page drawing unavailable: the HMI failed twice with the page template"
+		problem="In-page drawing unavailable: the HMI failed with the page template"
 	fi
 	printf '{\n"template": "%s",\n"stamp": "%s",\n"reason": "%s",\n"retry": %s,\n"problem": "%s",\n"hmi": "%s"\n}\n' \
 		"$1" "$(json "${4:-$stamp}")" "$(json "$2")" "$3" "$(json "$problem")" "$(json "${5:-}")" > "$STATUS.tmp"
@@ -99,7 +100,6 @@ readable() { chmod 0755 "$OUT" && chmod 0644 "$OUT"/*.pbw "$OUT/stamp"; }
 
 # ---- the boot count ----
 
-# hmi-boot into s_*; anything unreadable or malformed reads as no count at all
 load() {
 	s_template= s_fails= s_boot= s_at= s_seen= s_state=
 	[ -f "$STATE" ] || return 0
@@ -116,7 +116,7 @@ load() {
 	ok=1
 	case $s_fails in '' | *[!0-9]* | ????*) ok= ;; esac
 	case $s_at in '' | *[!0-9]*) ok= ;; esac
-	case $s_seen in *[!0-9' '-]* | *' '*' '* | ' '* | *' ') ok= ;; esac
+	case $s_seen in *[!0-9' '.-]* | *' '*' '* | ' '* | *' ') ok= ;; esac
 	case $s_seen in *' '*) ;; *) ok= ;; esac
 	case $s_boot in '' | *[!0-9a-f-]*) ok= ;; esac
 	case $s_state in mounted | confirmed | clean | failed) ;; *) ok= ;; esac
@@ -134,11 +134,12 @@ new_boot() {
 	mkdir -p "$(dirname "$BOOT")" && cat /proc/sys/kernel/random/uuid > "$BOOT.tmp" && mv -f "$BOOT.tmp" "$BOOT"
 }
 # Whether restart record $1 names the HMI: recmgr's names the unit (<ServiceName value="hmi.service"/>),
-# crashhandler's the program (HmiMain3D).
+# crashhandler's the program as dlt-cdh, the kernel's core handler, gives it: the file name of
+# /proc/<pid>/exe (HmiMain3D).
 names_hmi() { grep -q -E '<ServiceName[^>]*value="(hmi|hmi\.service|HmiMain3D)"' "$1" 2>/dev/null; }
-# a restart record's modification time, "-" when it is not there
-mtime() { t=$(stat -c %Y "$1" 2>/dev/null) || t=-; case $t in '' | *[!0-9]*) t=- ;; esac; echo "$t"; }
-# each restart record's: "<recmgr's> <crashhandler's>"
+# "<mtime>.<size>.<inode>" of a restart record, "-" when it is not there: a record rewritten within the
+# same second is still told apart
+mtime() { t=$(stat -c %Y.%s.%i "$1" 2>/dev/null) || t=-; case $t in *[!0-9.]* | *..* | .* | *.) t=- ;; esac; echo "$t"; }
 seen() { echo "$(mtime "$SIN/recmgr/restartInfo.xml") $(mtime "$SIN/crashhandler/restartInfo.xml")"; }
 # The restart records written since they were as $1 (seen): "hmi" when one names the HMI, "other" when
 # one names something else, else "none".
@@ -170,8 +171,11 @@ ended() {
 may_mount() {
 	key=$1
 	boot=$(boot_id)
-	[ -n "$key" ] && [ -n "$boot" ] || return 0
 	load
+	if [ "$s_state" = failed ] && { [ "$s_template" = "$key" ] || [ -z "$key" ]; }; then
+		return 1
+	fi
+	[ -n "$key" ] && [ -n "$boot" ] || return 0
 	if [ -z "$s_template" ] && [ -f "$STATE" ]; then
 		echo "mgu-render-hmi: $STATE unreadable; the count starts again"
 	fi
@@ -200,7 +204,6 @@ may_mount() {
 	save || echo "mgu-render-hmi: $STATE not written; this start is not counted"
 	return 0
 }
-# status.json's hmi field as $1 ("failed" or ""), its build fields kept
 report() {
 	[ "$(field hmi)" != "$1" ] || return 0
 	t=$(field template) r=$(field retry)
@@ -208,7 +211,7 @@ report() {
 	case $r in true | false) ;; *) r=false ;; esac
 	status "$t" "$(field reason)" "$r" "$(field stamp)" "$1"
 }
-# systemctl show hmi.service: "<ActiveState> <MainPID> <ExecMainStartTimestampMonotonic>", numbers 0 when unknown
+# "<ActiveState> <MainPID> <ExecMainStartTimestampMonotonic>" of hmi.service, numbers 0 when unknown
 hmi_run() {
 	show=$("$SYSTEMCTL" show hmi.service -p ActiveState -p MainPID -p ExecMainStartTimestampMonotonic 2>/dev/null)
 	a=$(printf '%s\n' "$show" | sed -n 's/^ActiveState=//p')
@@ -225,8 +228,7 @@ if [ "$MODE" = shutdown ]; then
 	load
 	boot=$(boot_id)
 	[ -n "$boot" ] && [ "$s_boot" = "$boot" ] && [ "$s_state" = mounted ] || exit 0
-	up=$(cut -d. -f1 "$UPTIME" 2>/dev/null)
-	printf '%s %s up %s\n' "$boot" "$(records "$s_seen")" "${up:-0}" > "$MARK.tmp" && mv -f "$MARK.tmp" "$MARK"
+	printf '%s %s\n' "$boot" "$(records "$s_seen")" > "$MARK.tmp" && mv -f "$MARK.tmp" "$MARK"
 	exit 0
 fi
 if [ "$MODE" = stop ]; then
@@ -347,6 +349,8 @@ if [ "$MODE" = build ]; then
 fi
 
 if ! built; then
+	# a template marked failed was for another stamp
+	report "" || :
 	echo "mgu-render-hmi: no page template for this HmiMain3D; the stock widgets stay"
 	exit 0
 fi
@@ -354,11 +358,11 @@ fi
 ours() { grep -q " /mgu-render/hmi-widget $WIDGETS " /proc/self/mountinfo; }
 key= boot= s_state= s_boot=
 new_boot || :
-ver=$(cd "$DIR" 2>/dev/null && pwd -P) && key="${ver##*/} $stamp $(cat "$OUT"/*.pbw | md5sum | cut -d' ' -f1)" || key=
+pbw=$(cat "$OUT"/*.pbw | md5sum | cut -d' ' -f1) && key="$stamp $pbw" || key=
 if ! may_mount "$key"; then
 	if ours; then umount "$WIDGETS" || :; fi
 	report failed || :
-	echo "mgu-render-hmi: the HMI failed $FAILS times with this page template; it is not mounted, and the stock widgets stay until mgu-render, HmiMain3D or the template changes"
+	echo "mgu-render-hmi: the HMI failed $FAILS times with this page template; it is not mounted, and the stock widgets stay until HmiMain3D or the template changes"
 	exit 0
 fi
 report "" || :
