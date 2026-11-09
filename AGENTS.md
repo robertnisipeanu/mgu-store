@@ -9,10 +9,6 @@ the owner's hardware.
   names on the build machine); never commit a built `javascript/app.js`.
 - Everything on the car happens through the Store's UI or its updates: never
   hand the owner SSH, shell steps or files to place.
-- Test in the head-unit emulator before calling anything done, in a VM of
-  your own (`EMU_LIMA=mgu-emu-<name> ./emu.py up --systemd`, mgu-emulator
-  `AGENTS.md`; `--unit id8` for iDrive 8): `up` prints the SSH port and the
-  `deploy/hu` options to use.
 - Describe the final state in comments and docs (no "changed from" /
   "previously"), build the smallest thing that solves the problem, and don't
   add UI helper text that restates a label.
@@ -34,12 +30,12 @@ every release has to be safe whichever component is updated first:
   files and options working, or require the newer partner.
 - When a change touches the Store and one of its dependencies (updater,
   deploy tool, renderer, uplink, Python) in ways that depend on each other,
-  test it in the emulator before publishing: start from the published
-  release (`./emu.py up --preset store`), publish every component of the
+  test it on a head unit before publishing: start from the published
+  release, publish every component of the
   branch to a folder from a scratch checkout of it (`MGU_RELEASE_LABELS=off
   node release/release.js stamp`, so the changed components carry
   their next versions and every `"next"` is resolved, then
-  `MGU_PUBLISH=dir:<folder> node release/release.js publish` there), give the emulator that
+  `MGU_PUBLISH=dir:<folder> node release/release.js publish` there), give the unit that
   folder as a USB stick, and update ONLY
   the changed component from it in the Store (its requirements come along).
   Restart when asked, and check that the updater runs, the Store opens with

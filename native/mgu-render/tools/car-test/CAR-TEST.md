@@ -80,8 +80,7 @@ and the time from one frame to the next.
   `apps/robertn_store`.
 - Docker is running (the mgu-render build), the Mac has internet (`install`
   copies the published release first), and `node test_probe.js` passes.
-- Rehearse once in your own emulator (`./emu.py up --preset store` in your
-  own emulator checkout), with the options `up` prints as the target:
+- Rehearse once on a test head unit, with its SSH options as the target:
 
   ```sh
   H=(--host 127.0.0.1 --port <ssh> --identity <key> --ssh-opt StrictHostKeyChecking=no
@@ -266,7 +265,7 @@ DRI driver HmiMain3D has loaded ______.
 - The whole round trip (status, probe, install of mgu-render and a newer
   Store, restart guard and restart, the runtime settings, drag with stats
   lines, restore with the Store reinstalled, the checks, `k reboot`) ran in
-  the emulator. The car's own connection (`--car`) is deploy/hu's. `k
+  a test unit. The car's own connection (`--car`) is deploy/hu's. `k
   reboot` sends the request the updater's `reboot` sends (`nsm_control
   --requestRestart 7 --normal`) and waits for a new boot id or a new start
   of the HMI.

@@ -15,9 +15,8 @@
  *   node release/release.js publish [<id>...|--stamped] [--dry-run]
  *                                                     upload new versions, then the catalog
  *
- * A component in GATED publishes a new version to GitHub only with a passing
- * emulator gate record for its source, release/gate/<id>.json
- * (tools/emu-gate).
+ * A component in GATED publishes a new version to GitHub only when its
+ * source commit has a successful commit status release-check/<id>.
  *
  * Builds run on a clean `git archive HEAD` export, never on the working tree,
  * with SOURCE_DATE_EPOCH set to the last commit that touched what the
@@ -39,7 +38,7 @@ const crypto = require('crypto');
 
 const REPO = path.resolve(__dirname, '..');
 const OUT = path.join(__dirname, 'out');
-// what draws an app's picture: published only after tools/emu-gate passed on its source
+// what draws an app's picture: published only with a passing release-check/<id> status on its source
 const GATED = ['mgu-render', 'robertn_store'];
 // an app's staged tree (mgu-app.json "tree"); the build names it <id>@<version> (stageTree)
 const APP_TREE = 'package';
@@ -255,12 +254,12 @@ function sourceEpoch(c) {
 }
 
 /* The last commit that touched what the component ships, and for a tool its
- * packer: its source, as the emulator gate tested it. A merge commit that
+ * packer: its source, as the release check tested it. A merge commit that
  * brings the change in unaltered keeps it (history simplification follows the
  * parent it came from). An app's build may write files it ships (copies, generated
  * files) only as they are committed (buildIn), so what it ships is that
  * commit's. A release commit that only wrote the component's version and
- * resolved its "requires" (stamp) is passed over: the gate tests what the
+ * resolved its "requires" (stamp) is passed over: the check tests what the
  * component does, built at the version it would get. */
 function sourceCommit(c, repo = REPO) {
     const paths = c.shipped.concat(c.kind === 'tool' ? ['deploy/hu', 'tools/oap_pack.js'] : []);
@@ -339,31 +338,22 @@ function stampOnly(c, sha, paths, repo) {
     return hunkOk();
 }
 
-/* Why a gated component's version may not be published: no gate record, or
- * one for another component or source, or one that did not pass. null: it
- * may. The record names the source; the release picks the version. */
-function gateProblem(c, record, source) {
+/* Why a gated component's version may not be published: its source commit
+ * has no successful release-check/<id> status. null: it may. status: the
+ * newest release-check/<id> status of the source commit, or null. The
+ * status names the source; the release picks the version. */
+function gateProblem(c, status, source) {
     if (!GATED.includes(c.id)) {
         return null;
     }
-    const run = `run tools/emu-gate ${c.id} and commit release/gate/${c.id}.json`;
-    if (!record) {
-        return `${c.id}@${c.version} has no emulator gate record: ${run}`;
+    const where = `${c.id}@${c.version}: release-check/${c.id} on ${String(source).slice(0, 12)}`;
+    if (!status) {
+        return `${where} is missing`;
     }
-    if (record.id !== c.id || record.source !== source) {
-        return `${c.id}@${c.version}: the gate record is for ${record.id}@${record.version} at ${String(record.source).slice(0, 12)}, ` +
-            `not this source (${source.slice(0, 12)}): ${run}`;
-    }
-    if (record.result !== 'pass') {
-        return `${c.id}@${c.version}: the emulator gate did not pass: ${run}`;
+    if (status.state !== 'success') {
+        return `${where} is ${status.state}`;
     }
     return null;
-}
-
-/* the record committed at HEAD: publish builds HEAD, so a record only on disk does not count */
-function gateRecord(id) {
-    const r = cp.spawnSync('git', ['show', `HEAD:release/gate/${id}.json`], { cwd: REPO, encoding: 'utf8' });
-    return r.status === 0 ? JSON.parse(r.stdout) : null;
 }
 
 /* A commit's tree (HEAD's) in a new folder. */
@@ -951,8 +941,9 @@ function cmdPublish(ids, dryRun, stamped) {
         const b = again.find((x) => x.id === e.id);
         const next = Object.keys(e.requires || {}).filter((id) => e.requires[id] === NEXT);
         // the gate binds what reaches cars; a folder (a test stick) takes any build
-        const gate = publishTarget.describe().startsWith('github:') && (!p || p.version !== e.version) &&
-            gateProblem(c, gateRecord(c.id), sourceCommit(c));
+        const checked = GATED.includes(c.id) && publishTarget.describe().startsWith('github:') && (!p || p.version !== e.version);
+        const source = checked ? sourceCommit(c) : '';
+        const gate = checked && gateProblem(c, source ? publishTarget.commitStatus(source, `release-check/${c.id}`) : null, source);
         if (!b || b.artifact.sha256 !== e.artifact.sha256) {
             skipped.push(`${e.id}@${e.version} builds differently each time`);
         } else if (next.length) {
