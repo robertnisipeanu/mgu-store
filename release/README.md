@@ -61,9 +61,8 @@ catalog fields `requires`, `optional`, `uninstallable`, `mguHmi`, `mguProvides`.
 
 `mgu-render` and `robertn_store` publish a new version to GitHub only when
 the component's source commit has a successful commit status
-`release-check/<id>` whose description is the sha256 of the artifact the
-release builds. `release.js publish` reads it through the GitHub API and
-refuses the version without it, or when its own build has other bytes.
+`release-check/<id>`. `release.js publish` reads it through the GitHub API
+and refuses the version without it.
 
 The source commit is the last commit that changed what the component ships
 (`release.js` `sourceCommit`); the release commit, which only writes the
@@ -218,7 +217,7 @@ the car reads like any public repository.
 | Target (`MGU_PUBLISH`) | Layout | The unit reads it with |
 |---|---|---|
 | `github:<owner>/<repo>` (the workflow's repository) | release `<id>@<version>` per version, its artifact the one asset; release `catalog` holding `catalog.json` | a `github` source |
-| `dir:<path>` (relative paths: to the repository) | `catalog.json` and the artifacts side by side in a local folder, for the emulator or a USB stick | a `file` source, a USB stick, or the folder served over HTTPS (`https` source) |
+| `dir:<path>` (relative paths: to the repository) | `catalog.json` and the artifacts side by side in a local folder, for a test unit or a USB stick | a `file` source, a USB stick, or the folder served over HTTPS (`https` source) |
 
 `publish` requires a clean working tree, builds HEAD, uploads each new
 artifact, and uploads `catalog.json` last, so the published catalog never
@@ -229,7 +228,7 @@ rest is published. Nothing is published when the resulting catalog would list a 
 whose requirements it doesn't hold at that version or newer, so a car can
 always install a component's requirements first.
 An interrupted run can be run again: a release left behind is completed,
-its asset checked against the new artifact's sha256. For the emulator,
+its asset checked against the new artifact's sha256. For a test unit,
 `MGU_PUBLISH=dir:release/published` (git-ignored) writes a local catalog.
 
 The entries of the published catalog carry over into the next one;

@@ -265,7 +265,7 @@ DRI driver HmiMain3D has loaded ______.
 - The whole round trip (status, probe, install of mgu-render and a newer
   Store, restart guard and restart, the runtime settings, drag with stats
   lines, restore with the Store reinstalled, the checks, `k reboot`) ran in
-  the emulator. The car's own connection (`--car`) is deploy/hu's. `k
+  a test unit. The car's own connection (`--car`) is deploy/hu's. `k
   reboot` sends the request the updater's `reboot` sends (`nsm_control
   --requestRestart 7 --normal`) and waits for a new boot id or a new start
   of the HMI.

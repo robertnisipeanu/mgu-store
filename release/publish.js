@@ -135,7 +135,7 @@ const targets = {
     github: {
         preflight: githubPreflight,
         /* The newest status named context on a commit of the repository
-         * ({ state, description }), or null. */
+         * (GitHub's status object: state, description, ...), or null. */
         commitStatus(sha, context) {
             let statuses;
             try {

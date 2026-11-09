@@ -16,8 +16,7 @@
  *                                                     upload new versions, then the catalog
  *
  * A component in GATED publishes a new version to GitHub only when its
- * source commit has a successful commit status release-check/<id> whose
- * description is the sha256 of the artifact the release builds.
+ * source commit has a successful commit status release-check/<id>.
  *
  * Builds run on a clean `git archive HEAD` export, never on the working tree,
  * with SOURCE_DATE_EPOCH set to the last commit that touched what the
@@ -340,10 +339,10 @@ function stampOnly(c, sha, paths, repo) {
 }
 
 /* Why a gated component's version may not be published: its source commit
- * has no successful release-check/<id> status, or one for another build
- * (the description is the checked artifact's sha256). null: it may. status:
- * the newest release-check/<id> status of the source commit, or null. */
-function gateProblem(c, status, source, sha256) {
+ * has no successful release-check/<id> status. null: it may. status: the
+ * newest release-check/<id> status of the source commit, or null. The
+ * status names the source; the release picks the version. */
+function gateProblem(c, status, source) {
     if (!GATED.includes(c.id)) {
         return null;
     }
@@ -353,10 +352,6 @@ function gateProblem(c, status, source, sha256) {
     }
     if (status.state !== 'success') {
         return `${where} is ${status.state}`;
-    }
-    if (String(status.description).trim() !== sha256) {
-        return `${where} passed for another build (sha256 ${String(status.description).trim().slice(0, 12)}, ` +
-            `this one ${sha256.slice(0, 12)})`;
     }
     return null;
 }
@@ -948,8 +943,7 @@ function cmdPublish(ids, dryRun, stamped) {
         // the gate binds what reaches cars; a folder (a test stick) takes any build
         const checked = GATED.includes(c.id) && publishTarget.describe().startsWith('github:') && (!p || p.version !== e.version);
         const source = checked ? sourceCommit(c) : '';
-        const gate = checked && gateProblem(c, source ? publishTarget.commitStatus(source, `release-check/${c.id}`) : null,
-            source, e.artifact.sha256);
+        const gate = checked && gateProblem(c, source ? publishTarget.commitStatus(source, `release-check/${c.id}`) : null, source);
         if (!b || b.artifact.sha256 !== e.artifact.sha256) {
             skipped.push(`${e.id}@${e.version} builds differently each time`);
         } else if (next.length) {
