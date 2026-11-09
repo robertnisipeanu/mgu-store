@@ -3,7 +3,7 @@
 // Shared by the browser (window.GPU) and the server (require). Each element type is one kit drawing
 // (kit/gauges.js template or a canvas primitive); fields are its options as the editor shows them.
 (function (root) {
-    // HMI geometry the renderer's surface sits over. ID8: measured on the emulator's centre screen
+    // HMI geometry the renderer's surface sits over. ID8: measured on a test unit's centre screen
     // (2880 x 960); ID7: kit/runtime/display.js (measured on a G20's 1920 x 720 HMI).
     // app: the part the HMI's own menus (title strip, back arrow, bottom bar) leave free. ID8: the HMI's side menu
     // (x < 288, some screens) is app area - apps draw over it and take its touch (renderd --touch-area 0,76,2880,764).

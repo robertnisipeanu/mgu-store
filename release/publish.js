@@ -10,7 +10,7 @@
  *                          the workflow's GITHUB_TOKEN (GH_TOKEN).
  *   dir:<path>             A local folder (relative paths: to the repository):
  *                          catalog.json and the artifacts side by side, a
- *                          catalog for the emulator or a USB stick.
+ *                          catalog for a test unit or a USB stick.
  *
  * Catalogs are not signed: the unit trusts a source over HTTPS (and its
  * token), and checks every artifact against the catalog's size and sha256.

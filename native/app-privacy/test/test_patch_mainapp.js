@@ -668,7 +668,7 @@ test('a predicate call without its helper is a mismatch', () => withBundles((b) 
     assert.strictEqual(b.read('main'), stray);
 }));
 
-/* A /proc with MainApp started secondsAgo (as the emulator starts it,
+/* A /proc with MainApp started secondsAgo (as a test unit starts it,
  * relative to its folder, or with a node option, as given), and a process
  * that only names main.js in its arguments. */
 function fakeProc(dir, secondsAgo, mainapp) {
@@ -691,15 +691,15 @@ function fakeProc(dir, secondsAgo, mainapp) {
     return proc;
 }
 
-const MAINAPP_EMU = { argv: ['node', 'src/main.js'], cwd: '/usr/lib/oap-mainapp' };
+const MAINAPP_RELATIVE = { argv: ['node', 'src/main.js'], cwd: '/usr/lib/oap-mainapp' };
 const MAINAPP21 = { argv: ['/usr/bin/node', '--expose-gc', '/usr/lib/oap-mainapp21/src/main.js'], cwd: '/' };
-// as the emulator starts it: a module preloaded with -r
-const MAINAPP21_EMU = { argv: ['/usr/bin/node', '-r', '/usr/local/libexec/emu/emu-dlt-print.js', '--expose-gc',
+// as a test unit starts it: a module preloaded with -r
+const MAINAPP21_PRELOAD = { argv: ['/usr/bin/node', '-r', '/usr/local/libexec/dlt-print.js', '--expose-gc',
     '/usr/lib/oap-mainapp21/src/main.js'], cwd: '/' };
 const MAINAPP_OPTS = { argv: ['/usr/bin/node', '--max-old-space-size=256', '/usr/lib/oap-mainapp/src/main.js'], cwd: '/' };
 
 test('restartNeeded while MainApp runs code older than the bundles', () => withBundles((b) => {
-    let r = patcher.run('apply', b.paths, quiet, fakeProc(b.dir, 60, MAINAPP_EMU));
+    let r = patcher.run('apply', b.paths, quiet, fakeProc(b.dir, 60, MAINAPP_RELATIVE));
     assert.strictEqual(r.code, 0);
     assert.strictEqual(r.result.restartNeeded, true);
     // Without a write, a MainApp started before the last write still needs it.
@@ -1308,7 +1308,7 @@ test('on iDrive 8 MainApp-21 is never to be bounced: nextStart instead of change
             paths[kind] = path.join(dir, kind + '.js');
             fs.writeFileSync(paths[kind], syntheticBundle(patcher.PATCH_SETS_21[kind]));
         });
-        const running = fakeProc(dir, 60, MAINAPP21_EMU);
+        const running = fakeProc(dir, 60, MAINAPP21_PRELOAD);
         let r = patcher.run('apply', paths, quiet, running, null, 'ID8');
         assert.strictEqual(r.code, 0);
         assert.strictEqual(r.written, true);

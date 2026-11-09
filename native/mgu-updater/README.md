@@ -42,8 +42,7 @@ core, the deploy tool's on-unit `mgu-deploy.js` (`deploy/README.md`):
 Both take the same artifacts (`release.js` packs tools with `deploy/hu
 artifact`), the same `component.json`, the same `versions/<v>` + `current`
 layout and the same `"mguLocalOnly": true` marking, so a component
-installed by one is updated or removed by the other. The emulator's image
-provisioning installs apps for testing only.
+installed by one is updated or removed by the other.
 
 ## Sources
 
@@ -62,7 +61,7 @@ them:
 - `github`: a repo ("GitHub without a token" below for how a public one is
   read). `https`: a
   `catalog.json` URL, or an App Manager index (below). `file`: a local
-  folder (tests, the emulator).
+  folder (tests).
 - `builtin`: the Store's own source (`builtin_repo`, id `mgu-store`),
   always there and not removable.
 - **Default sources** (`default_sources`: `<owner>/<repo>[:<channel>]`
@@ -322,7 +321,7 @@ lists the id.
   is removed. Its state row has that id as `id`, the source's as
   `listedId`, and the title its source gives.
 - An installed component without an origin (installed from outside the
-  updater: the installers, the emulator's provisioning; `imported`), or
+  updater: the installers; `imported`), or
   whose origin lists its id no more (a stick that is gone, a source
   removed), is updated by the origin whose listing has its title (an
   app's en_GB entry-point text, a tool's `component.json` title), of

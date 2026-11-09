@@ -6,8 +6,8 @@
  * goes to that app (E_TOUCH) and the HMI never sees it; everything else is forwarded to the HMI unchanged.
  */
 
-/* iface: where the display's PDUs arrive (the car: "vlan73", from saddr 160.48.199.115; "lo": a local sender, as in
- * the emulator); saddr may be empty. area x,y,w,h (screen px) apps may claim, w 0 = all. Forks the guard: call
+/* iface: where the display's PDUs arrive (the car: "vlan73", from saddr 160.48.199.115; "lo": a local sender);
+ * saddr may be empty. area x,y,w,h (screen px) apps may claim, w 0 = all. Forks the guard: call
  * before the compositor connection. -1 = off. */
 int touch_init(const char *iface, const char *saddr, const int area[4]);
 int touch_fd(void);                  /* the diverted PDUs (poll it), -1 when off */
