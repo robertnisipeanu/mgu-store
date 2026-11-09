@@ -1640,6 +1640,7 @@ int main(int argc, char **argv) {
         /* controller held: keep its file fresh; a video's next frame: look every 5 ms.
            ponytail: polling the frame file's header, an eventfd from the player if it ever costs */
         int wait_ms = video_on ? 5 : ctl_gate_on ? 100 : 250;
+        if (touch_on && touch_busy() && wait_ms > 20) wait_ms = 20;   /* nft's answer, seen within 20 ms */
         for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) {   /* in time for a capped app's waiting frame */
             uint64_t us = cap_wait(clients[i], tnow);
             if (us && (int)(us / 1000) + 1 < wait_ms) wait_ms = (int)(us / 1000) + 1;
