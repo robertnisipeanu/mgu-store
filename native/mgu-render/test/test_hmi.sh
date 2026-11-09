@@ -40,7 +40,8 @@ echo "mount \$*" >> "$T/mount.log"
 EOF
 chmod +x "$T/bin/node" "$T/bin/mount"
 export MGU_RENDER_HMI=$T/HmiMain3D MGU_RENDER_WIDGETS=$T/widget MGU_RENDER_RUN=$T/run/hmi-widget \
-	MGU_RENDER_MARKER=$T/run/hmi-template MGU_RENDER_NODE=$T/bin/node PATH=$T/bin:$PATH
+	MGU_RENDER_MARKER=$T/run/hmi-template MGU_RENDER_NODE=$T/bin/node MGU_RENDER_BOOT=$T/run/boot MGU_RENDER_WAIT_S=0 \
+	MGU_RENDER_SIN=$T/sin PATH=$T/bin:$PATH
 runs() { cat "$T/gen.log" 2>/dev/null | wc -l | tr -d ' '; }
 boot() { sh "$CUR/mgu-render-hmi.sh" "$CUR" "$ROOT/hmi"; }
 build() { sh "$CUR/mgu-render-hmi.sh" --build; }

@@ -98,6 +98,11 @@ from the installed HmiMain3D.
   readable by the HMI's user (0644, 0755) whatever the installer's umask. Embed is
   offered from the next HMI start: after the first install, the next
   head-unit start. `umount /mnt/dataro/data/hmi/bmw/widget` undoes it.
+- The boot count ("The HMI and the page template", below) stops the mount
+  after the HMI failed twice with the template: `/var/opt/mgu-render/hmi-boot`,
+  `hmi-shutdown`, and `"hmi": "failed"` with its `problem` in `status.json`.
+- Drop-in `/etc/systemd/system/var-opt-ro.service.d/50-mgu-render.conf`: the
+  shutdown record the boot count reads.
 - Drop-ins `/etc/systemd/system/display-bridge{.socket,.service,-hmi.service}.d/mgu-render.conf`:
   display-bridge's units stand down while mgu-render is installed ("display-bridge's apps").
 - Logs: `journalctl -u mgu-render -u mgu-render-hmi`. `embed:` lines name the HMI compositor's globals and the
@@ -118,6 +123,81 @@ socket unit restarts: at once when the daemon is not running (the deploy
 tool restarts a changed socket whose service is stopped), else at the next
 head-unit start; meanwhile apps reach it through the community socket, which
 the client tries next.
+
+## The HMI and the page template
+
+The template goes into HmiMain3D's widgets before the HMI starts, at every
+boot. An HMI build that failed with it would restart the head unit at every
+start (recmgr and crashhandler restart the head unit for any failure of
+`hmi.service` or HmiMain3D), so `mgu-render-hmi.sh` counts the boots that
+mount it and stops mounting it after two that ended in an HMI failure.
+
+**Which template.** The count is kept for one key: the template's stamp
+(HmiMain3D, the generator, `embed_surface_id`) and the MD5 of its `.pbw`
+files. Another key (a firmware update, another generator or
+`embed_surface_id`, a template that comes out different) starts the count
+again at 0 and mounts it, as does a new install after a removal, which takes
+`/var/opt/mgu-render` with it. An mgu-render update that leaves the template
+as it was keeps the count.
+
+**Healthy.** After mounting, `mgu-render-hmi.sh --confirm` waits in
+`mgu-render-hmi.service` (in the background; the unit is already started)
+for `hmi.service` to be active, notes its main PID and
+`ExecMainStartTimestampMonotonic`, and 120 s later checks that the same run
+is still active, that its main PID is HmiMain3D and that the template is
+still in place. The boot is then confirmed healthy and the count goes to 0.
+`hmi.service` has no `Restart=`, and a failure of it restarts the head unit,
+so the same main PID and start time 120 s apart is one unbroken HMI run
+with the template. It asks systemd every 5 s until the HMI is active, for
+up to 600 s, then once more 120 s later.
+
+**Failed.** A boot that mounted the template counts one failure only when
+it was not confirmed healthy, was not stopped by systemd, and a restart
+record names the HMI: recmgr's `/var/opt/public/sin/recmgr/restartInfo.xml`
+with `<ServiceName value="hmi.service"/>` (recmgr writes it before it asks
+for the restart, for any failure of `hmi.service`: a crash, a watchdog
+timeout, a start timeout) or crashhandler's
+`/var/opt/public/sin/crashhandler/restartInfo.xml` naming `HmiMain3D`. Only
+a record written in that boot after the mount counts: one that was not there
+at the mount or whose modification time, size or inode changed since
+(`seen` in `hmi-boot`), whatever the clock did. crashhandler names the
+process as dlt-cdh, the kernel's core handler, gives it: the file name of
+`/proc/<pid>/exe`. The boot's evidence is read:
+
+- at its end, by the drop-in of `var-opt-ro.service` (`--shutdown`), which
+  the NodeStateManager runs at every shutdown of the head unit (a
+  switch-off, a restart asked for, a restart recmgr or crashhandler asked
+  for) before `/var/opt` goes read-only: `hmi-shutdown` holds `<boot>
+  hmi|other|none`;
+- without such a line for that boot, at the next boot (before the HMI
+  starts, and before recmgr and crashhandler delete their records, some
+  10 s into the boot), from the records on disk.
+
+| How the boot ended | Counted |
+|---|---|
+| the HMI ran 120 s unbroken with the template (confirmed) | the count goes to 0 |
+| a switch-off or suspend, a restart from BMW's menu, the Store or an update (the NodeStateManager's restart: no restart record) | no |
+| `systemctl reboot` or `poweroff` (`--stop`, the unit's `ExecStop`, which `Conflicts=shutdown.target` runs at every systemd shutdown, marks the boot; `hmi.service`'s stop signal, SIGABRT, may leave a core) | no |
+| a power cut (no shutdown record, no new restart record) | no |
+| an HMI that starts slowly, then any of the above | no |
+| a restart for another program (the record names it) | no |
+| a record already there at the mount, left by an earlier boot | no |
+| a restart record naming the HMI, written after the mount | 1 |
+
+At two failures with no confirmed boot between them, the template is marked
+failed (`state=failed`) and not mounted: the HMI starts with its stock
+widgets, the marker is not written, and apps that ask for the embed
+placement get their layer, as with no template. `status.json` gets `"hmi":
+"failed"` and the `problem` `In-page drawing unavailable: the HMI failed
+with the page template`, which the Store shows on the Renderer's page, until
+the key changes. A template marked failed is never mounted, whatever else
+fails. A count that cannot be read (a missing or corrupt `hmi-boot`, no boot
+id) mounts the template, as does any other error in the count.
+
+`hmi-boot` is `template=<key>`, `fails=<n>`, `boot=<id>` (a random id kept
+in `/run/mgu-render/boot`, which every boot starts without), `at=<s>`,
+`seen=<recmgr's record's mtime.size.inode or -> <crashhandler's>` and
+`state=mounted|confirmed|clean|failed`.
 
 ## Embed buffers
 
