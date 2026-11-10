@@ -1,5 +1,7 @@
 # mgu-store
 
+English | [简体中文](README.zh-CN.md)
+
 An app store for BMW iDrive 7 and iDrive 8 head units (MGU). Browse,
 install, update and remove apps on the car's screen, from GitHub
 repositories, web addresses or a USB stick.
