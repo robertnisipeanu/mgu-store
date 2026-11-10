@@ -268,6 +268,7 @@ which the unit's sshd needs.
 node mgu-install.js first-install [--from <folder>] [--no-renderer] [--no-uplink] [--token] [ssh options]
 node mgu-install.js token [--list [--json] | --remove <id>] [ssh options]
 node mgu-install.js uninstall [--yes] [--from <folder>] [--no-restart-prompt] [ssh options]
+node mgu-install.js status [ssh options]
 node mgu-install.js usb-repo <stick folder> [<input>...]
 ```
 
@@ -397,6 +398,23 @@ curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/depl
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.ps1))) uninstall --identity $HOME\.ssh\mgu_root_key
 ```
 
+**status** prints the deploy tool's report from the head unit: each tool
+and app, each app's tile (`tile=provisioned`, `fallback` or `hidden`) and
+what waits for a restart. It finds the unit like `first-install` and
+changes nothing there (`mgu-deploy.sh status --read-only`). A deploy tool
+without `--read-only` runs its plain `status`, which may repair things as
+the updater's does at its start; a line after the report says so. Without
+a deploy tool it says the Store is not installed (exit 1). Paste the
+output when asking for help:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.sh | sh -s -- status --identity ~/.ssh/mgu_root_key
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.ps1))) status --identity $HOME\.ssh\mgu_root_key
+```
+
 **token** adds a GitHub token for the updater: read from a hidden prompt
 (not echoed), or from stdin when stdin is not a terminal and the script
 came from a file, never from an
@@ -446,7 +464,7 @@ and the stick's other files stay. A root-service package of another
 ```
 mgu-deploy.sh check [--artifact <file>...]
 mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--leave <id>...] [--yes]
-mgu-deploy.sh status [--json]
+mgu-deploy.sh status [--read-only] [--json]   # --read-only: changes nothing
 mgu-deploy.sh relay [<id>...] --yes           # a stale tool's files from the copy kept here, no install step
 mgu-deploy.sh setup <id> --yes                # a tool laid again from that copy, its install step included
 mgu-deploy.sh uninstall <id> [--yes]

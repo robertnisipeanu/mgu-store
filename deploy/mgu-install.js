@@ -9,6 +9,7 @@
  *   node mgu-install.js first-install [--from <folder>] [--no-renderer] [--no-uplink] [--token] [--no-restart-prompt] [<ssh options>]
  *   node mgu-install.js token [--list [--json] | --remove <id>] [<ssh options>]
  *   node mgu-install.js uninstall [--yes] [--from <folder>] [--no-restart-prompt] [<ssh options>]
+ *   node mgu-install.js status [<ssh options>]
  *   node mgu-install.js usb-repo <stick folder> [<input>...]
  *
  * first-install downloads the newest published mgu-store release (the
@@ -35,6 +36,11 @@
  * question). What could not be removed is named, and running it again
  * finishes the job. When the head unit needs a restart to finish, it asks
  * as first-install does.
+ *
+ * status prints what the deploy tool on the head unit reports: each tool
+ * and app, each app's tile, what waits for a restart. It changes nothing on
+ * the unit; with a deploy tool older than its read-only status, that
+ * status may also repair things, as the updater's does at its start.
  *
  * token adds a GitHub token for the updater (no option), lists the tokens
  * (--list: id, label, account; --json as JSON) or removes one (--remove
@@ -1163,6 +1169,40 @@ async function uninstall(o) {
     return 0;
 }
 
+/* ---- status --------------------------------------------------------------------------------- */
+
+/* Which status the unit's deploy tool gives: "read-only" when it has
+ * status --read-only, "plain" when not, "absent" without a deploy tool. */
+const STATUS_HAS = `if [ ! -e ${DEPLOY} ]; then echo absent; elif sh ${DEPLOY} help 2>/dev/null | grep -q -e --read-only; then echo read-only; ` +
+    'else echo plain; fi';
+
+/* Text to paste anywhere: printable ASCII, tabs and newlines; anything else a "?". */
+function plainText(s) {
+    return s.replace(/\r\n?/g, '\n').replace(/[^\x20-\x7e\t\n]/g, '?');
+}
+
+/* The deploy tool's status on the unit, its stderr with it, on stdout;
+ * its exit status. */
+async function statusCommand(o) {
+    await reach(o);
+    const has = ssh(o, STATUS_HAS, { input: Buffer.alloc(0), capture: true });
+    const which = has.status === 0 ? has.stdout.trim() : '';
+    if (which === 'absent') {
+        say('The Store is not installed on this head unit: it has no deploy tool.');
+        return 1;
+    }
+    if (which !== 'read-only' && which !== 'plain') {
+        say(`The head unit did not say which deploy tool it has (exit ${has.status}); nothing was run.`);
+        return 1;
+    }
+    const r = ssh(o, `sh ${DEPLOY} status${which === 'read-only' ? ' --read-only' : ''} 2>&1`, { input: Buffer.alloc(0), capture: true });
+    process.stdout.write(plainText(r.stdout));
+    if (which !== 'read-only') {
+        say('(This deploy tool has no read-only status: it may have repaired things, as the updater does at its start.)');
+    }
+    return r.status;
+}
+
 /* ---- usb-repo ------------------------------------------------------------------------------ */
 
 /* A folder name under mgu-repo/: safe on FAT, exFAT and NTFS. */
@@ -1570,11 +1610,11 @@ async function main(argv) {
     if (Number(process.versions.node.split('.')[0]) < 18) {
         throw new Usage(`Node 18 or newer is needed (this is ${process.version})`);
     }
-    if (['first-install', 'token', 'uninstall'].includes(o.command)) {
+    if (['first-install', 'token', 'uninstall', 'status'].includes(o.command)) {
         if (o.rest.length) {
             throw new Usage(`${o.command} takes no ${o.rest[0]}`);
         }
-        return { 'first-install': firstInstall, token: tokenCommand, uninstall }[o.command](o);
+        return { 'first-install': firstInstall, token: tokenCommand, uninstall, status: statusCommand }[o.command](o);
     }
     if (o.command === 'usb-repo') {
         if (!o.rest.length) {
@@ -1595,4 +1635,4 @@ if (require.main === module || FROM_STDIN) {
 }
 
 module.exports = { tgz, untgz, sshArgs, folderName, plainName, parse, SOURCES, sshBanner, enetInterfaces, hsfzFrame, hsfzFrames,
-    didAddress, hsfzGateway, hsfzHuAddress, findUnit, reach, tilesShow };
+    didAddress, hsfzGateway, hsfzHuAddress, findUnit, reach, tilesShow, STATUS_HAS };

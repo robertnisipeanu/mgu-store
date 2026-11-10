@@ -1,13 +1,15 @@
 'use strict';
 /*
  * Tests first-install's restart question through deploy/install.ps1 on
- * Windows, in a console (a pseudo console from node-pty) and without one:
+ * Windows, in a console (a pseudo console from node-pty) and without one,
+ * and that status's remote commands arrive whole:
  *
  *   node prompt_test.js <powershell.exe or pwsh.exe> <download base URL> <folder with the fake ssh.exe>
  *
  * The download base serves the installer release's files (SHA256SUMS and
  * the executables); the fake ssh.exe (fake_ssh.cs) plays a head unit that
- * needs a restart. Runs as a file and as the README's one-liner.
+ * needs a restart and has a read-only status. Runs as a file and as the
+ * README's one-liner.
  */
 const fs = require('fs');
 const os = require('os');
@@ -15,7 +17,7 @@ const path = require('path');
 const cp = require('child_process');
 const crypto = require('crypto');
 const pty = require('node-pty');
-const { tgz } = require('../../mgu-install.js');
+const { tgz, STATUS_HAS } = require('../../mgu-install.js');
 
 const [shell, base, sshDir] = process.argv.slice(2);
 const SCRIPT = path.resolve(__dirname, '..', '..', 'install.ps1');
@@ -48,13 +50,13 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-prompt-test-'));
 const from = path.join(tmp, 'repo');
 fs.mkdirSync(from);
 fromFolder(from);
-const ARGS = ['first-install', '--from', from, '--host', '127.0.0.1', '--no-renderer', '--no-uplink'];
 const quote = (a) => `'${a.replace(/'/g, "''")}'`;
-const RUNS = {
-    'as a file': ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT].concat(ARGS),
+const runs = (args) => ({
+    'as a file': ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT].concat(args),
     'one-liner': ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
-        `& ([scriptblock]::Create((Get-Content -Raw ${quote(SCRIPT)}))) ${ARGS.map(quote).join(' ')}; exit $LASTEXITCODE`]
-};
+        `& ([scriptblock]::Create((Get-Content -Raw ${quote(SCRIPT)}))) ${args.map(quote).join(' ')}; exit $LASTEXITCODE`]
+});
+const RUNS = runs(['first-install', '--from', from, '--host', '127.0.0.1', '--no-renderer', '--no-uplink']);
 
 function env(log) {
     const e = Object.assign({}, process.env, { MGU_INSTALL_DOWNLOAD: base, FAKE_SSH_LOG: log });
@@ -112,6 +114,14 @@ const restarts = (log) => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '
         check(`${what}: without a console, no question; ends with the restart line, exit 0`,
             p.status === 0 && !`${p.stdout}${p.stderr}`.includes('[y/N]') && p.stdout.trimEnd().endsWith('Restart the head unit to finish setup.') &&
             restarts(log) === 0, `${p.stdout}${p.stderr}`);
+    }
+    for (const [what, args] of Object.entries(runs(['status', '--host', '127.0.0.1']))) {
+        const log = path.join(tmp, `ssh-${n += 1}.log`);
+        const p = cp.spawnSync(shell, args, { cwd: tmp, env: env(log), input: '', encoding: 'utf8', timeout: 180000 });
+        const remote = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
+        check(`${what}: status runs the probe and status --read-only as sent, prints the status, exit 0`,
+            p.status === 0 && p.stdout.includes('app robertn_store 0.9.35') && remote.length === 2 && remote[0] === STATUS_HAS &&
+            remote[1] === 'sh /var/opt/mgu-deploy/mgu-deploy.sh status --read-only 2>&1', `${p.stdout}${p.stderr}\n${remote.join('\n')}`);
     }
     fs.rmSync(tmp, { recursive: true, force: true });
     console.log(failed ? `${failed} failed` : 'all passed');
