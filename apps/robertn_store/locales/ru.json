@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "Перезапустите, чтобы устанавливать приложения",
     "Not working": "Не работает",
     "Needs setup": "Нужна настройка",
+    "Needed by {0}": "Нужно для {0}",
     "Set up": "Настроить",
     "Restart the head unit to finish setup": "Перезапустите головное устройство для завершения настройки",
     "Restarting": "Перезапуск",

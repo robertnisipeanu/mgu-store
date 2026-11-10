@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "Reporniți unitatea pentru a instala aplicații",
     "Not working": "Nu funcționează",
     "Needs setup": "Necesită configurare",
+    "Needed by {0}": "Necesar pentru {0}",
     "Set up": "Configurează",
     "Restart the head unit to finish setup": "Reporniți unitatea principală pentru a finaliza configurarea",
     "Restarting": "Se repornește",

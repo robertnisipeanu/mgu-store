@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "Starta om för att installera appar",
     "Not working": "Fungerar inte",
     "Needs setup": "Behöver konfigureras",
+    "Needed by {0}": "Behövs av {0}",
     "Set up": "Konfigurera",
     "Restart the head unit to finish setup": "Starta om huvudenheten för att slutföra installationen",
     "Restarting": "Startar om",

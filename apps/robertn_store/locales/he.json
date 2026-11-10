@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "יש להפעיל מחדש את המערכת כדי להתקין אפליקציות",
     "Not working": "לא פועל",
     "Needs setup": "דורש הגדרה",
+    "Needed by {0}": "נדרש עבור {0}",
     "Set up": "הגדרה",
     "Restart the head unit to finish setup": "הפעל מחדש את המערכת כדי לסיים את ההגדרה",
     "Restarting": "מופעל מחדש",

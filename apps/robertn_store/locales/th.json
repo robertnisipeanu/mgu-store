@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "รีสตาร์ทเฮดยูนิตเพื่อติดตั้งแอป",
     "Not working": "ใช้งานไม่ได้",
     "Needs setup": "ต้องตั้งค่า",
+    "Needed by {0}": "จำเป็นสำหรับ {0}",
     "Set up": "ตั้งค่า",
     "Restart the head unit to finish setup": "รีสตาร์ทเฮดยูนิตเพื่อตั้งค่าให้เสร็จ",
     "Restarting": "กำลังรีสตาร์ท",

@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "أعد تشغيل الوحدة الرئيسية لتثبيت التطبيقات",
     "Not working": "لا يعمل",
     "Needs setup": "يحتاج إلى إعداد",
+    "Needed by {0}": "يحتاجه {0}",
     "Set up": "إعداد",
     "Restart the head unit to finish setup": "أعد تشغيل الوحدة الرئيسية لإكمال الإعداد",
     "Restarting": "جارٍ إعادة التشغيل",

@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-No changes.
+A Remove the updater refuses says why on the component's page, such as
+*Needed by Waze on cluster* when another installed app needs it.
 
 ## 0.9.33
 

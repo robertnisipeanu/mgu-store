@@ -8,7 +8,7 @@
 const assert = require('assert');
 const { listed, sourceAuthor, sourceNames, withSources, rowState, rowAction, removable, undoable, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
     sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress,
-    parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, proxyUrlError, setClusterTime, clock } = require('../src/store_view.js');
+    parseSource, pickOptions, probeStatus, neededBy, removeRefusal, sourcesMessage, tokenMessage, proxyUrlError, setClusterTime, clock } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
@@ -61,6 +61,14 @@ const cases = [
     [parsed('https://github.com'), 'null'],
     [parsed('https://raw.githubusercontent.com/owner/repo/main/catalog.json'),
         '{"type":"https","url":"https://raw.githubusercontent.com/owner/repo/main/catalog.json"}'],
+    // a refused Remove: the updater's keptBy names the component that needs it, shown with its title in the rows
+    [neededBy('Waze on cluster needs cluster-render'), 'Waze on cluster'],
+    [neededBy('Waze on cluster needs a renderer: remove it first, or install another renderer'), 'Waze on cluster'],
+    [neededBy('cluster-render cannot be removed'), null],
+    [removeRefusal({ error: 'Waze on cluster needs cluster-render', by: 'waze-on-cluster' },
+        [{ id: 'waze-on-cluster', title: 'Waze im Kombiinstrument' }]), 'Needed by Waze im Kombiinstrument'],
+    [removeRefusal({ error: 'Waze on cluster needs cluster-render', by: null }, []), 'Needed by Waze on cluster'],
+    [removeRefusal({ error: 'cluster-render cannot be removed', by: null }, []), 'cluster-render cannot be removed'],
     [sourcesMessage({ kind: 'invalid-source', text: 'foo' }), 'Not owner/repo or https://host/path: foo'],
     [tokenMessage({ kind: 'checking' }), 'Checking token'],
     [tokenMessage({ kind: 'added', label: 'robertn' }), 'Added robertn'],

@@ -485,6 +485,23 @@ function tokenMessage(m) {
     }
 }
 
+/* The title of the component the updater's refusal of a Remove names as
+ * needing it (its keptBy: "<title> needs <id>", or "<title> needs a
+ * <capability>: ..."), or null for any other refusal. */
+function neededBy(msg) {
+    const m = /^(.+) needs (?:a [^:]+: .*|\S+)$/.exec(String(msg));
+    return m ? m[1] : null;
+}
+
+/* Why the updater refused a Remove (note: { error, by: the id of the
+ * component that needs it, when known }), for the component's page:
+ * "Needed by <its title in rows>", else the refusal as it is. */
+function removeRefusal(note, rows) {
+    const title = neededBy(note.error);
+    const by = title && note.by && rows.find((r) => r.id === note.by);
+    return title ? tr("Needed by {0}", by ? by.title : title) : String(note.error);
+}
+
 /* The Sources page's status line. */
 function sourcesMessage(m) {
     switch (m.kind) {
@@ -496,6 +513,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { setClusterTime, clock, setupable, proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { setClusterTime, clock, setupable, proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, neededBy, removeRefusal, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };
