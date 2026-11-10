@@ -777,6 +777,12 @@ function testRequiredAlone() {
         JSON.stringify(s.requiredAlone('tunnel_app', store)) === '["tunnel"]' &&
         ['mgu-uplink', 'mgu-render', 'app-privacy'].every((id) => !s.removableRow(id, store.get(id), store)) && s.removableRow('tunnel', store.get('tunnel'), store),
         JSON.stringify(s.requiredAlone('tunnel_app', store)));
+    // as one a version before queued (handover)
+    let ran = 0;
+    Object.assign(s, { changed: () => {}, deployTool: () => { ran += 1; return Promise.resolve(0); } });
+    return s.uninstall({ op: 'uninstall', id: 'mgu-uplink', along: 'tunnel_app' }).then((done) => {
+        ok('uninstall: a queued removal of the Store\'s tool does not run', done === false && ran === 0, JSON.stringify([done, ran]));
+    });
 }
 
 /* tar.js: what it packs it reads back; links, `..` and oversize archives are refused or left out. */
@@ -6564,8 +6570,8 @@ function main() {
     testCatalog();
     testCollect();
     testFileLog();
-    testRequiredAlone();
-    return testContent()
+    return testRequiredAlone()
+        .then(() => testContent())
         .then(() => testTar())
         .then(() => testDeployTimeout())
         .then(() => testIndexV1Cache().catch((e) => ok('index v1 cache scenario', false, e.stack)))

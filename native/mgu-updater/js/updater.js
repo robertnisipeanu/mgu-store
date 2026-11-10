@@ -1325,7 +1325,7 @@ class Updater {
     /* The ids the updater never removes: kept, and the other tools the
      * Store's setup installs. */
     unremovable() {
-        return this.kept().concat(STORE_TOOLS, this.conf.uplink_tool || []);
+        return this.kept().concat(STORE_TOOLS);
     }
 
     /* The row of an installed component no listing stands for: its id
@@ -2919,13 +2919,19 @@ class Updater {
             });
     }
 
-    /* Removes a component through the deploy tool's uninstall. A tool
+    /* Removes a component through the deploy tool's uninstall. One the
+     * updater never removes stays, as one a version before queued; a tool
      * removed along with an app (item.along) stays while anything installed
      * still keeps it, as when the app's removal failed. */
     uninstall(item) {
         // the row's id; the id it is installed (or queued) under
         const key = item.id;
         const id = item.unit || item.id;
+        if (this.unremovable().indexOf(id) >= 0) {
+            console.log(`${id}: not removed: the Store's setup installs it`);
+            this.changed();
+            return Promise.resolve(false);
+        }
         const kept = item.along && this.keptBy(key, this.resolved(), [key]);
         if (kept) {
             console.log(`${id}: not removed with ${item.along}: ${kept}`);
