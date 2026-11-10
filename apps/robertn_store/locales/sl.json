@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "Znova zaženite enoto za namestitev aplikacij",
     "Not working": "Ne deluje",
     "Needs setup": "Potrebna nastavitev",
+    "Needed by {0}": "Potrebuje ga {0}",
     "Set up": "Nastavi",
     "Restart the head unit to finish setup": "Za dokončanje nastavitve znova zaženite glavno enoto",
     "Restarting": "Ponovni zagon",

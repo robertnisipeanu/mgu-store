@@ -8,7 +8,7 @@
 const assert = require('assert');
 const { listed, sourceAuthor, sourceNames, withSources, rowState, rowAction, removable, undoable, groupState, statusLine, sourceLabel, sourceState, sourcesState, sourceActions,
     sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress,
-    parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, proxyUrlError, setClusterTime, clock } = require('../src/store_view.js');
+    parseSource, pickOptions, probeStatus, removeRefusal, sourcesMessage, tokenMessage, proxyUrlError, setClusterTime, clock } = require('../src/store_view.js');
 
 const row = (o) => Object.assign({ id: 'doom', kind: 'app', title: 'DOOM', version: '1.0.1', installed: '1.0.0',
     status: 'update', queued: false, error: null, pendingReboot: false }, o);
@@ -61,6 +61,10 @@ const cases = [
     [parsed('https://github.com'), 'null'],
     [parsed('https://raw.githubusercontent.com/owner/repo/main/catalog.json'),
         '{"type":"https","url":"https://raw.githubusercontent.com/owner/repo/main/catalog.json"}'],
+    // a refused Remove: the updater's keptBy names the component that needs it
+    [removeRefusal('Waze on cluster needs cluster-render'), 'Needed by Waze on cluster'],
+    [removeRefusal('Waze on cluster needs a renderer: remove it first, or install another renderer'), 'Needed by Waze on cluster'],
+    [removeRefusal('cluster-render cannot be removed'), 'cluster-render cannot be removed'],
     [sourcesMessage({ kind: 'invalid-source', text: 'foo' }), 'Not owner/repo or https://host/path: foo'],
     [tokenMessage({ kind: 'checking' }), 'Checking token'],
     [tokenMessage({ kind: 'added', label: 'robertn' }), 'Added robertn'],

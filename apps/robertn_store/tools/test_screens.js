@@ -209,6 +209,12 @@ broken.components = broken.components.map((c) => c.id === 'mgu-render' ? Object.
     problem: 'In-page drawing unavailable: no identifier table in HmiMain3D' }) : c);
 f = screen('app-renderer', {}, broken);
 eq([text(f, 'problem'), text(f, 'note1')], ['In-page drawing unavailable: no identifier table in HmiMain3D', ''], 'an installed tool\'s problem');
+// a refused Remove: who needs it, on that component's page only
+f = screen('app-remove-refused');
+eq([text(f, 'note1'), own(f)], ['Needed by Vehicle control', ['Undo update', 'Remove', 'Back']], 'a Remove refused for a dependent');
+eq(text(screen('app-remove-refused', { stack: [{ name: 'main' }, { name: 'app', id: 'gauges' }] }), 'note1'), '', 'another component\'s page');
+eq(text(screen('app-remove-refused', { removeNote: { id: 'mgu-uplink', error: 'the head unit is restarting' } }), 'note1'),
+    'the head unit is restarting', 'another refusal as the updater says it');
 f = screen('app-downloading');
 eq(own(f), ['Back'], 'nothing to press while it downloads');
 eq([f.values.progress.label, f.values.progress.right, f.values.icon.progress], ['Downloading', '42 %', 0.42]);

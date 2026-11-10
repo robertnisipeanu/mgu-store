@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "앱을 설치하려면 헤드 유닛을 재시작하세요",
     "Not working": "작동 안 함",
     "Needs setup": "설정 대기",
+    "Needed by {0}": "{0}에서 사용 중",
     "Set up": "설정",
     "Restart the head unit to finish setup": "설정을 완료하려면 헤드 유닛을 재시작하세요",
     "Restarting": "재시작 중",

@@ -485,6 +485,14 @@ function tokenMessage(m) {
     }
 }
 
+/* Why the updater refused a Remove, for the component's page: "Needed by
+ * <title>" for its keptBy refusal ("<title> needs <id>", or "<title> needs
+ * a <capability>: ..."), else its refusal as it is. */
+function removeRefusal(msg) {
+    const m = /^(.+) needs (?:a [^:]+: .*|\S+)$/.exec(String(msg));
+    return m ? tr("Needed by {0}", m[1]) : String(msg);
+}
+
 /* The Sources page's status line. */
 function sourcesMessage(m) {
     switch (m.kind) {
@@ -496,6 +504,6 @@ function sourcesMessage(m) {
     }
 }
 
-module.exports = { setClusterTime, clock, setupable, proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
+module.exports = { setClusterTime, clock, setupable, proxyUrlError, localized, listed, startPending, sourceAuthor, sourceNames, withSources, removable, requiredAlone, undoable, hmiNames, notForUnit, parseSource, pickOptions, probeStatus, removeRefusal, sourcesMessage, tokenMessage, PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode,
     phoneState, phoneAddress };

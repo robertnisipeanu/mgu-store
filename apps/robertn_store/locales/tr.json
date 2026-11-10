@@ -116,6 +116,7 @@
     "Restart head unit to install apps": "Uygulama yüklemek için yeniden başlatın",
     "Not working": "Çalışmıyor",
     "Needs setup": "Kurulum gerekli",
+    "Needed by {0}": "{0} için gerekli",
     "Set up": "Kur",
     "Restart the head unit to finish setup": "Kurulumu tamamlamak için ana üniteyi yeniden başlatın",
     "Restarting": "Yeniden başlatılıyor",
