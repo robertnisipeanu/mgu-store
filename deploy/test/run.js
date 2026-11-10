@@ -5656,6 +5656,9 @@ function testCrashList() {
     write(bareList, bareStock);
     const crashState = (res) => { try { return JSON.parse(res.stdout).crash_list; } catch (e) { return null; } };
     const unchanged = () => fs.readFileSync(bareList, 'utf8') === bareStock;
+    r = bare.run(['status', '--read-only', '--json']);
+    check('crash list: status --read-only leaves a list that lacks our names, pending', r.status === 0 && unchanged() &&
+        JSON.stringify(crashState(r)) === '{"state":"pending","reason":"read-only"}', r.out);
     write(bare.p('var/opt/mgu-deploy/lock'), `1 ${fs.readFileSync(bare.p('proc/boot_id'), 'utf8').trim()}\n`);
     r = bare.run(['status', '--json']);
     check('crash list: status leaves it while another run holds the lock, and says so',
@@ -7468,6 +7471,47 @@ function testMguInstallUninstall() {
     }
 }
 
+/* mgu-install status: the deploy tool's status --read-only, changing
+ * nothing; with an older deploy tool its plain status, said so. */
+function testMguInstallStatus() {
+    const gh = fakeGithub({ files: [], repos: {} });
+    try {
+        const rel = fakeRelease(gh.api);
+        gh.set({ files: rel.files, repos: { [STORE_REPO]: { token: TOKEN, catalog: rel.catalogIndex } } });
+        const root = donorRoot();
+        writeCoding(root, 0x09);
+        const bin = installBin(root);
+        const opts = { bin, api: gh.api, env: { FAKE_GH_TOKEN: TOKEN } };
+        let r = mguInstall(['first-install', '--host', '10.0.0.9', '--no-uplink', '--no-renderer'], opts);
+        if (r.status !== 0) {
+            throw new Error(r.out);
+        }
+        const before = root.hash();
+        r = mguInstall(['status', '--host', '10.0.0.9'], opts);
+        check('mgu-install status: prints the deploy tool\'s status --read-only, each app\'s tile, and changes nothing',
+            r.status === 0 && /app robertn_store \S+ uid=\d+ .* tile=/.test(r.stdout) && !r.stdout.includes('no read-only status') &&
+            r.calls.some((a) => / status --read-only 2>&1$/.test(a[a.length - 1])) && root.hash().hash === before.hash, r.out);
+        check('mgu-install status: no remote command carries a double quote or a backslash',
+            r.calls.every((a) => !/["\\]/.test(a[a.length - 1])), r.calls.map((a) => a[a.length - 1]).join('\n'));
+        ['--yes', '--token', '--from', 'x'].forEach((extra) => {
+            const x = mguInstall(['status', '--host', '10.0.0.9', extra], opts);
+            check(`mgu-install status ${extra}: refused before anything reaches the unit`, x.status === 2 && !x.calls.length, x.out);
+        });
+        const shim = root.p('var/opt/mgu-deploy/mgu-deploy.sh');
+        fs.writeFileSync(shim, `[ "$1" = help ] && { echo 'mgu-deploy 0.8.9'; exit 0; }\n${fs.readFileSync(shim, 'utf8')}`);
+        r = mguInstall(['status', '--host', '10.0.0.9'], opts);
+        check('mgu-install status: with an older deploy tool, its plain status and one line that it may have repaired things',
+            r.status === 0 && r.stdout.includes('app robertn_store') && r.calls.some((a) => / status 2>&1$/.test(a[a.length - 1])) &&
+            r.stdout.endsWith('it may have repaired things, as the updater does at its start.)\n'), r.out);
+        fs.rmSync(root.p('var/opt/mgu-deploy'), { recursive: true });
+        r = mguInstall(['status', '--host', '10.0.0.9'], opts);
+        check('mgu-install status: without a deploy tool, says the Store is not installed', r.status === 1 &&
+            r.stdout === 'The Store is not installed on this head unit: it has no deploy tool.\n', r.out);
+    } finally {
+        gh.stop();
+    }
+}
+
 /* ---- run ------------------------------------------------------------------------------------- */
 
 /* ---- head units, compatibility, iDrive 8, service packages, capabilities ---------- */
@@ -8642,6 +8686,11 @@ function testFactoryReset() {
     const bh = broken.home(MGR);
     fs.chmodSync(bh, 0o755);
     fs.chmodSync(path.join(bh, 'data'), 0o755);
+    const before = broken.hash();
+    const ro = broken.run(['status', '--read-only'], asRoot);
+    check('factory reset: status --read-only reports and leaves the root-owned home, the manager and every file as they are',
+        ro.status === 0 && ro.stdout.includes('app stock_app') && mode(bh) === 0o755 && !broken.kills().length &&
+        broken.hash().hash === before.hash, ro.out + treeDiff(before, broken.hash()));
     const rr = broken.run(['status', '--json'], asRoot);
     check('factory reset: status gives a root-owned home back with the manager\'s modes and restarts the manager that started before',
         rr.status === 0 && mode(bh) === 0o3770 && mode(path.join(bh, 'data')) === 0o750 && broken.kills().length === 1 &&
@@ -9559,7 +9608,8 @@ const SUITES = [
     testRemoveAllId8Failed,
     testRemoveAllId8Kept,
     testRemoveAllRunning,
-    testMguInstallUninstall
+    testMguInstallUninstall,
+    testMguInstallStatus
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;

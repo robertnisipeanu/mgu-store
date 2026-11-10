@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `status --read-only` prints the same report and changes nothing: the repairs, list and drop-in updates and app manager restarts `status` makes as root are left undone, and their lines say `pending (read-only)` when there is something to do.
+- `mgu-install.js status` prints the deploy tool's status from the head unit, found like `first-install`, for users to paste when an app's tile does not show (`install.sh` and `install.ps1` run it the same way). It uses `status --read-only`; with a deploy tool without it, plain `status`, and one line after the report says that may have repaired things. Without a deploy tool it says the Store is not installed.
+
 ## 0.8.9
 
 - A tool's new version is on disk, every file of it, before its `current` points to it, at every install and update and at the deploy tool's own; each switch of `current` is on disk before the deploy tool goes on. A power cut or ignition off right after an update leaves the version before or the new one whole, never a file the head unit had not written yet.
