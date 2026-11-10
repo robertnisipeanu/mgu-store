@@ -3848,6 +3848,7 @@ function testIdrive7(certs) {
     const repoIcon = png(80, 2);
     const gforceIcon = png(90, 3);
     const srcIcon = png(95, 4);
+    const newCarIcon = png(85, 6);
     // GitHub requests that read an icon (or the application.json naming a source package's)
     // a public repo read without a token: its files from raw.githubusercontent.com, none through the API
     const iconReads = (from) => seen.slice(from).filter((x) => (/^raw\.githubusercontent\.com/.test(x.host) || /\/contents\//.test(x.url)) &&
@@ -3933,8 +3934,8 @@ function testIdrive7(certs) {
             ok('icons: a source package shows the icon its entry point names, from the variant group that has it', iconOf('srcpkg') && iconOf('srcpkg').equals(srcIcon), comp('srcpkg').icon);
             const first = iconReads(mark);
             ok('requests: a new listing reads each app\'s icon once (a source package\'s through its application.json, ' +
-                'then each place it names until one is there), none for an app installed with its own',
-            first.length === 5 && !first.some((u) => /car_vitals/.test(u)) && first.every((u) => /^raw:/.test(u)), first.join(' '));
+                'then each place it names until one is there), an installed app\'s too',
+            first.length === 6 && first.filter((u) => /car_vitals/.test(u)).length === 1 && first.every((u) => /^raw:/.test(u)), first.join(' '));
             mark = seen.length;
             return u.check().then(() => until(() => u.src.get('idrive7-apps').icons, (x) => !x, 30000, 'icons fetched'));
         })
@@ -3973,6 +3974,32 @@ function testIdrive7(certs) {
         .then(() => {
             ok('idrive7: a later start keeps what was decided', u.origins.car_vitals.source === 'idrive7-apps' &&
                 u.adopted.imported.join() === 'my_kitapp' && u.stored.filter((d) => d.id === 'idrive7-apps').length === 1, JSON.stringify(u.stored));
+            // a new commit while car_vitals is installed: 2.14.1 with a new icon
+            const repo = gh.repos['cauliflowermossgrape/idrive7-apps'];
+            const tree = repo.trees[repo.branches.main];
+            const files = {};
+            Object.keys(tree).forEach((k) => {
+                files[k] = [tree[k][0], tree[k][1]];
+            });
+            files['apps/car_vitals/app.json'] = [JSON.stringify({ id: 'car_vitals', title: 'M Vitals', version: '2.14.1' }), 0o644];
+            files['apps/car_vitals/icon.png'] = [newCarIcon, 0o644];
+            repo.branches.main = ghCommit('cauliflowermossgrape/idrive7-apps', files);
+            mark = seen.length;
+            return u.check().then(() => until(() => u.src.get('idrive7-apps').icons, (x) => !x, 30000, 'icons fetched'));
+        })
+        .then(() => {
+            const cv = comp('car_vitals');
+            ok('icons: an installed app\'s new version has its source\'s icon read; its row shows the installed package\'s',
+                iconReads(mark).filter((x) => /apps\/car_vitals\/icon\.png$/.test(x)).length === 1 && cv.installed && cv.version === '2.14.1' &&
+                cv.icon && fs.readFileSync(cv.icon).equals(carIcon), `${iconReads(mark).join(' ')} ${JSON.stringify(cv)}`);
+            mark = seen.length;
+            return ask(conf.socket, { op: 'uninstall', id: 'car_vitals', secret: u.secret })
+                .then((err) => until(() => comp('car_vitals'), (r) => !u.busy && r.status === 'available', 30000, 'car_vitals removed').then(() => err));
+        })
+        .then((err) => {
+            const cv = comp('car_vitals');
+            ok('icons: a removed app shows its source\'s icon at once, with no request', err === null && !cv.installed && cv.icon &&
+                fs.readFileSync(cv.icon).equals(newCarIcon) && iconReads(mark).length === 0, `${err} ${cv.icon} ${iconReads(mark).join(' ')}`);
             u.server.close();
             // the owner removed the default source: a newly found app is imported, the source not added again
             installed('dyno', '1.2.4', 12448);

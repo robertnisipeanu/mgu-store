@@ -178,7 +178,7 @@ says why, and the rest are listed.
 140 × 140). For a source package (`"build": "unit"`), it shows the icon
 its staged tree's `rhmiData/application.json` gives its first entry
 point. Once the app is installed, the Store shows the installed package's
-own icon.
+own icon, and the source's again once it is removed.
 
 ### Channels
 
