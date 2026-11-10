@@ -762,6 +762,27 @@ function testRequiredAlone() {
     ok('required alone: an app whose removal waits for the next start (iDrive 8) keeps none of its tools',
         u.keptBy('shared', all, ['shared', 'app']) === null && /^app needs mid$/.test(u.keptBy('mid', all, ['mid']) || ''),
         JSON.stringify([u.keptBy('shared', all, ['shared', 'app']), u.keptBy('mid', all, ['mid'])]));
+
+    // the Store's own tools stay, even where a source marks them uninstallable
+    const store = new Map([['tunnel_app', 'app', { tunnel: '1.0.0' }], ['tunnel', 'tool', { 'mgu-uplink': '1.0.0' }],
+        ['mgu-uplink', 'tool', {}], ['mgu-render', 'tool', {}], ['app-privacy', 'tool', {}]]
+        .map(([id, kind, requires]) => [id, { entry: { id, kind, title: id, requires, uninstallable: true } }]));
+    const s = Object.assign(Object.create(Updater.prototype), {
+        conf: { deploy_tool: 'mgu-deploy', store_app: 'robertn_store', uplink_tool: 'mgu-uplink' },
+        origins: {}, nextStart: {}, providers: {},
+        installedOf: () => true,
+        installedVersion: () => '1.0.0'
+    });
+    ok('required alone: an app\'s removal never takes the Store\'s tools along, nor can they be removed',
+        JSON.stringify(s.requiredAlone('tunnel_app', store)) === '["tunnel"]' &&
+        ['mgu-uplink', 'mgu-render', 'app-privacy'].every((id) => !s.removableRow(id, store.get(id), store)) && s.removableRow('tunnel', store.get('tunnel'), store),
+        JSON.stringify(s.requiredAlone('tunnel_app', store)));
+    // as one a version before queued (handover)
+    let ran = 0;
+    Object.assign(s, { changed: () => {}, deployTool: () => { ran += 1; return Promise.resolve(0); } });
+    return s.uninstall({ op: 'uninstall', id: 'mgu-uplink', along: 'tunnel_app' }).then((done) => {
+        ok('uninstall: a queued removal of the Store\'s tool does not run', done === false && ran === 0, JSON.stringify([done, ran]));
+    });
 }
 
 /* tar.js: what it packs it reads back; links, `..` and oversize archives are refused or left out. */
@@ -6549,8 +6570,8 @@ function main() {
     testCatalog();
     testCollect();
     testFileLog();
-    testRequiredAlone();
-    return testContent()
+    return testRequiredAlone()
+        .then(() => testContent())
         .then(() => testTar())
         .then(() => testDeployTimeout())
         .then(() => testIndexV1Cache().catch((e) => ok('index v1 cache scenario', false, e.stack)))
