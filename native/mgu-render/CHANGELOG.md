@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.19
+
 - No Remove in the Store: the Renderer stays while the Store is installed.
 
 ## 0.6.18

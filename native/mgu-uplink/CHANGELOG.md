@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.9
+
 - No Remove in the Store: the uplink stays while the Store is installed.
 
 ## 0.7.8
