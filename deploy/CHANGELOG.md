@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.10
+
 - `status --read-only` prints the same report and changes nothing: the repairs, list and drop-in updates and app manager restarts `status` makes as root are left undone, and their lines say `pending (read-only)` when there is something to do.
 - `mgu-install.js status` prints the deploy tool's status from the head unit, found like `first-install`, for users to paste when an app's tile does not show (`install.sh` and `install.ps1` run it the same way). It uses `status --read-only`; with a deploy tool without it, plain `status`, and one line after the report says that may have repaired things. Without a deploy tool it says the Store is not installed.
 

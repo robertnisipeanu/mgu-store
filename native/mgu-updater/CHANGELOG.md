@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.38
+
 - A tool stays while an installed app or tool still requires it, also when no source lists that app any more (its USB stick is out, or its source was removed): Remove all neither offers nor takes it along, and it can't be removed on its own. The updater records what each component requires when it installs it, and for components installed earlier when their source lists the installed version.
 
 ## 0.8.37
