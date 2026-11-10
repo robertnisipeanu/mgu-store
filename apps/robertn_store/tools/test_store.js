@@ -935,7 +935,9 @@ function runWidgetsExtra() {
         eq(sent.map(secretless), [{ op: 'uninstall', id: 'doom', tools: ['mgu-renderd'] }], 'as the drawn Remove all does');
         // a refused Remove: the updater's reason, for that component's page, until its page or Remove opens again
         app._client.emit('reply-error', 'Waze on cluster needs doom', 'uninstall');
-        eq(app._drawnModel().removeNote, { id: 'doom', error: 'Waze on cluster needs doom' }, 'a refused Remove keeps the reason');
+        eq(app._drawnModel().removeNote, { id: 'doom', error: 'Waze on cluster needs doom', by: null }, 'a refused Remove keeps the reason');
+        app._client.emit('reply-error', `${st.components[0].title} needs doom`, 'uninstall');
+        eq(app._drawnModel().removeNote.by, st.components[0].id, 'and the component that needs it, by its title');
         app._act({ do: 'open', page: { name: 'confirm', kind: 'remove', id: 'doom' } });
         eq(app._drawnModel().removeNote, null, 'a new Remove clears it');
         app._client.emit('reply-error', 'Waze on cluster needs doom', 'uninstall');

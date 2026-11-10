@@ -17,7 +17,7 @@ const { t: tr } = require('./i18n.js');
  * updater's answer, null while it looks), tokenNote (Add token's status
  * belongs on its page) }, or null), uplinkNote (the uplink's refusal of the
  * last Wi-Fi or preferred-connection request), removeNote (the updater's
- * refusal of the last Remove: { id, error }, on that component's page), held (the Installed lists'
+ * refusal of the last Remove: { id, error, by }, on that component's page), held (the Installed lists'
  * rows to keep in this order: { apps, services } ids, and restart: whether
  * its Restart now shows; or null) }.
  *
@@ -381,9 +381,6 @@ function appView(m, page) {
     if (c.blocked) {
         notes.push([c.blocked, AMBER]);
     }
-    if (m.removeNote && m.removeNote.id === c.id && c.installed) {
-        notes.push([removeRefusal(m.removeNote.error), AMBER]);
-    }
     if (setupable(c, busy)) {
         notes.push([tr("Needs setup"), AMBER]);
     } else if (c.pendingReboot) {
@@ -392,6 +389,9 @@ function appView(m, page) {
         if (failed) {
             notes.push([failed, AMBER]);
         }
+    }
+    if (m.removeNote && m.removeNote.id === c.id && c.installed) {
+        notes.push([removeRefusal(m.removeNote, rawComps(m)), AMBER]);
     }
     ['note1', 'note2', 'note3'].forEach((k, i) => {
         v[k] = notes[i] ? { text: String(notes[i][0]).slice(0, 80), color: notes[i][1] } : { text: '' };

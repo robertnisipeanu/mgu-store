@@ -213,7 +213,7 @@ eq([text(f, 'problem'), text(f, 'note1')], ['In-page drawing unavailable: no ide
 f = screen('app-remove-refused');
 eq([text(f, 'note1'), own(f)], ['Needed by Vehicle control', ['Undo update', 'Remove', 'Back']], 'a Remove refused for a dependent');
 eq(text(screen('app-remove-refused', { stack: [{ name: 'main' }, { name: 'app', id: 'gauges' }] }), 'note1'), '', 'another component\'s page');
-eq(text(screen('app-remove-refused', { removeNote: { id: 'mgu-uplink', error: 'the head unit is restarting' } }), 'note1'),
+eq(text(screen('app-remove-refused', { removeNote: { id: 'mgu-uplink', error: 'the head unit is restarting', by: null } }), 'note1'),
     'the head unit is restarting', 'another refusal as the updater says it');
 f = screen('app-downloading');
 eq(own(f), ['Back'], 'nothing to press while it downloads');
