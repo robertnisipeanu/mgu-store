@@ -358,7 +358,10 @@ component requiring the renderer installs beside another renderer);
 installed; apps, whatever their source's `uninstallable` says, and
 `uninstallable` tools can be removed (Store, phone page), through
 `mgu-deploy.sh uninstall <id> --yes`, unless something installed requires
-them. The Store and the tools its setup installs (the updater, the deploy
+them: what its row lists, or what it required when it was installed
+(`state/origins.json` `requires`, also recorded when its source lists the
+version installed), which stands while no source lists it (its stick out,
+its source removed). The Store and the tools its setup installs (the updater, the deploy
 tool, `mgu-python`, `app-privacy`, `mgu-render`, `mgu-uplink`) are never
 removed, whatever a source says, nor taken along by an app's removal
 (their `uninstallable` is false); the computer's uninstall

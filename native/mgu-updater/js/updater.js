@@ -1777,6 +1777,7 @@ class Updater {
                     `${cat.apiRequests !== undefined ? `; ${cat.apiRequests} GitHub API requests` : ''}`);
                 // in the background: a slow icon host holds up no check
                 this.fetchIcons(rt);
+                this.recordRequires(id, rt);
                 return this.recordContents(id, rt);
             }, (err) => {
                 rt.status = err.auth ? 'auth-needed' : 'error';
@@ -1797,6 +1798,26 @@ class Updater {
                 }
             });
         return rt.checking;
+    }
+
+    /* What each component installed from this source requires, recorded in
+     * its origin when the source lists the version installed and the
+     * origin has no record of it: so it keeps its requirements once no
+     * source lists it. */
+    recordRequires(id, rt) {
+        const origin = this.originOf(id);
+        let changed = false;
+        rt.components.forEach((c) => {
+            const unit = this.aliases[`${origin}:${c.id}`] || c.id;
+            const o = this.origins[unit];
+            if (o && o.source === origin && !o.requires && this.installedVersion(unit, c.kind) === c.version) {
+                o.requires = c.requires || {};
+                changed = true;
+            }
+        });
+        if (changed) {
+            this.saveOrigins();
+        }
     }
 
     /* The content (sourcesLib.contentThen) of each component installed from
@@ -2418,6 +2439,14 @@ class Updater {
         return owner === r && r.entry.uninstallable && this.unremovable().indexOf(r.entry.installAs || id) < 0;
     }
 
+    /* What the component of row o requires: its row's requirements and,
+     * for an installed one, those its origin recorded at its install, which
+     * stand when no source lists it any more. */
+    needs(o) {
+        const rec = this.origins && this.origins[o.entry.installAs || o.entry.id];
+        return rec && rec.requires && typeof rec.requires === 'object' ? Object.assign({}, rec.requires, o.entry.requires) : o.entry.requires;
+    }
+
     /* Why installed id stays when it and the ids in along are removed: an
      * installed component besides them, its removal not queued for the next
      * start (iDrive 8), requires it, or needs a capability only they
@@ -2425,7 +2454,7 @@ class Updater {
     keptBy(id, all, along) {
         const besides = (o) => along.indexOf(o.entry.id) < 0 && this.installedVersion(o.entry.id, o.entry.kind) &&
             this.nextStart[o.entry.installAs || o.entry.id] !== 'remove';
-        const needs = Array.from(all.values()).find((o) => o.entry.requires[id] && besides(o));
+        const needs = Array.from(all.values()).find((o) => this.needs(o)[id] && besides(o));
         if (needs) {
             return `${needs.entry.title} needs ${id}`;
         }
@@ -2450,7 +2479,7 @@ class Updater {
         while (grew) {
             grew = false;
             all.forEach((t, tid) => {
-                if (set.indexOf(tid) < 0 && t.entry.kind === 'tool' && set.some((s) => all.get(s).entry.requires[tid]) &&
+                if (set.indexOf(tid) < 0 && t.entry.kind === 'tool' && set.some((s) => this.needs(all.get(s))[tid]) &&
                     this.installedVersion(t.entry.installAs || tid, 'tool') && this.removableRow(tid, t, all) && !this.keptBy(tid, all, set.concat([tid]))) {
                     set.push(tid);
                     grew = true;
@@ -2460,7 +2489,7 @@ class Updater {
         const left = set.slice(1);
         const out = [];
         while (left.length) {
-            const i = left.findIndex((t) => !left.some((o) => all.get(o).entry.requires[t]));
+            const i = left.findIndex((t) => !left.some((o) => this.needs(all.get(o))[t]));
             out.push(left.splice(Math.max(i, 0), 1)[0]);
         }
         return out;
@@ -2873,7 +2902,8 @@ class Updater {
                 console.log(stopped ? `${id}@${entry.version}: the deploy tool's MainApp guard stopped it; what it did stays until the next start`
                     : `installed ${id}@${entry.version}`);
                 // installed from a stick's copy of a source: that source is its origin
-                this.origins[id] = { source: this.originOf(item.source), commit: entry.commit || null, content: entry.content || null };
+                this.origins[id] = { source: this.originOf(item.source), commit: entry.commit || null, content: entry.content || null,
+                    requires: entry.requires || {} };
                 this.saveOrigins();
                 if (entry.listedId) {
                     this.aliases[`${this.originOf(item.source)}:${entry.listedId}`] = id;
