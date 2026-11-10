@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.36
+
 - An installed app's icon from its source is fetched too, so a removed app keeps its icon in the Store.
 
 ## 0.8.35
