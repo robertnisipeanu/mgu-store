@@ -57,6 +57,7 @@
 #include "embed_gl.h"
 #include "gate.h"
 #include "gfx.h"
+#include "kit.h"
 #include "log.h"
 #include "trace.h"
 #include "proto.h"
@@ -76,6 +77,7 @@
 #define SHARE_US 2000000ull          /* the community socket's rule is applied this often */
 #define DROP_WINDOW_US 10000000ull   /* a layer taken off while shown goes back at once at most DROP_MAX times in this */
 #define DROP_MAX 10
+#define OAP_DIR "/var/opt/public/oap"
 #ifndef GL_BGRA_EXT
 #define GL_BGRA_EXT 0x80E1
 #endif
@@ -136,6 +138,7 @@ typedef struct client {
     uint64_t last_msg; int stale;
     /* touch claims, logical px (CLAIM) */
     int nclaim; float claim[16][4];
+    int kit;                /* an idrive7-apps kit app (kit.h): 1, 2 once it came back too often to be sent again */
     int overlay;            /* a root client named in overlay_apps: shown over camera surfaces, never closed by an HMI
                                touch, its claims first and outside touch_area too, its layer kept above the others */
     /* frame cap (MI_FPS): at least min_us between two frames drawn; 0 = none */
@@ -162,6 +165,7 @@ typedef struct client {
 } client;
 
 static client *clients[MAX_CLIENTS];
+static struct kit kit;
 static int listen_fd = -1, own_socket;
 static uint64_t show_counter;
 static client *embed_owner;
@@ -825,24 +829,30 @@ static int grabbing(const client *c, uint64_t t) { return c->grab_t && t - c->gr
  * only while one of our apps grabs, and the file only while the event socket is ours. Bound by another renderer,
  * the controller stays the HMI's (and that renderer's) for our apps. */
 static void ctl_gate_update(uint64_t t) {
+    static char holder[sizeof ((client *)0)->app];    /* the app the controller was last held for */
     if (!cfg.controller_gate[0]) return;
-    int want = 0;
-    for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] && grabbing(clients[i], t)) want = 1;
+    const client *by = NULL;
+    for (int i = 0; i < MAX_CLIENTS && !by; i++) if (clients[i] && grabbing(clients[i], t)) by = clients[i];
+    int want = by != NULL;
     if (want && ccu_fd < 0 && t >= ccu_retry) {
         ccu_open();
         if (ccu_fd < 0) ccu_retry = t + 5000000;
     }
     if (ccu_fd < 0) want = 0;
     if (want) {
+        int was = ctl_gate_on;
         if (!ctl_gate_on || t - ctl_gate_t >= GATE_TOUCH_US) {
             int fd = open(cfg.controller_gate, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0644);
             if (fd >= 0) { futimens(fd, NULL); close(fd); }
-            if (!ctl_gate_on) log_info("controller: held for an app");
             ctl_gate_on = 1; ctl_gate_t = t;
+        }
+        if (!was || strcmp(holder, by->app)) {
+            log_info("controller: held for %s%s", by->app, was ? "" : " (@mgu-renderd-ccu bound)");
+            snprintf(holder, sizeof holder, "%s", by->app);
         }
     } else if (ctl_gate_on) {
         unlink(cfg.controller_gate); ctl_gate_on = 0;
-        log_info("controller: back to the HMI");
+        log_info("controller: back to the HMI, @mgu-renderd-ccu released (was held for %s)", holder);
     }
     if (!want && ccu_fd >= 0) { close(ccu_fd); ccu_fd = -1; }
 }
@@ -1366,6 +1376,12 @@ static void accept_client(void) {
     c->fd = fd; c->slot = slot; c->xf.s = 1; c->es = EGL_NO_SURFACE; c->mode = MODE_LAYER; c->uid = UINT32_MAX; c->g.name = c->app;
     struct ucred cr; socklen_t cl = sizeof cr;
     if (!getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cr, &cl)) c->uid = cr.uid;
+    if (cfg.shared_path[0] && c->uid && c->uid != UINT32_MAX && kit_app(OAP_DIR, c->uid)) {
+        c->kit = 1;
+        int strikes = kit_connected(&kit, c->uid, now_us());
+        if (strikes >= KIT_STRIKES) c->kit = 2;
+        if (strikes == KIT_STRIKES) log_warn("uid %u: kit app came straight back %d times: it stays here", c->uid, KIT_STRIKES);
+    }
     clients[slot] = c;
 }
 
@@ -1517,6 +1533,25 @@ static void share_tick(void) {
     }
 }
 
+/* Kit apps on our socket go back to the community socket's own renderer once it listens there steadily (kit.h).
+ * The kernel's table of unix sockets is read only while a kit app is connected here. */
+static void kit_tick(uint64_t t) {
+    int any = 0;
+    for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] && clients[i]->kit == 1) any = 1;
+    if (!any) { kit_listener(&kit, 0, t); return; }
+    unsigned long ino = share_listener(cfg.shared_path);
+    if (ino == SHARE_UNKNOWN) return;
+    kit_listener(&kit, ino, t);
+    if (!kit_steady(&kit, t)) return;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        client *c = clients[i];
+        if (!c || c->kit != 1 || !kit_may_send(&kit, c->uid, t)) continue;
+        log_info("%s: kit app sent back to %s, which has its own renderer again", c->app[0] ? c->app : "client", cfg.shared_path);
+        kit_sent(&kit, c->uid, t);
+        client_free(c);
+    }
+}
+
 /* ---------------- main ---------------- */
 static volatile sig_atomic_t quit;
 static void on_sig(int s) { (void)s; quit = 1; }
@@ -1606,7 +1641,7 @@ int main(int argc, char **argv) {
         ctl_gate_update(tnow);
         if (touch_on) touch_tick(any_claim());
         trace_check(now_us());
-        if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); }
+        if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); kit_tick(tnow); }
         if (cfg.foreground_gate[0] && !gate_unavailable() && gate_fd() < 0 && tnow > gate_retry) {
             gate_retry = tnow + 5000000;
             gate_start(cfg.foreground_gate);
@@ -1634,6 +1669,7 @@ int main(int argc, char **argv) {
         /* controller held: keep its file fresh; a video's next frame: look every 5 ms.
            ponytail: polling the frame file's header, an eventfd from the player if it ever costs */
         int wait_ms = video_on ? 5 : ctl_gate_on ? 100 : 250;
+        if (touch_on && touch_busy() && wait_ms > 20) wait_ms = 20;   /* nft's answer, seen within 20 ms */
         for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) {   /* in time for a capped app's waiting frame */
             uint64_t us = cap_wait(clients[i], tnow);
             if (us && (int)(us / 1000) + 1 < wait_ms) wait_ms = (int)(us / 1000) + 1;
@@ -1665,7 +1701,7 @@ int main(int argc, char **argv) {
     }
     if (touch_on) touch_stop();
     for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) client_free(clients[i]);
-    if (ctl_gate_on) unlink(cfg.controller_gate);
+    ctl_gate_update(now_us());                           /* no clients left: the controller goes back to the HMI */
     gate_stop();
     embed_disconnect();
     if (own_socket) {                                    /* run by hand: its socket and the link to it go */

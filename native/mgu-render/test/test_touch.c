@@ -1,7 +1,8 @@
 /* Touch PDU routing (src/touch.c, compiled in here), with PDUs as the car's display and vminput send them: the
  * diverted socket is a loopback pair, the HMI side a socket on another port, main.c's hooks are stubs. nft is a
  * stand-in that logs every script, to check the divert beside IterioDev's renderer: our own table and ports only,
- * in while claimed, out when not, out when the renderer dies. */
+ * in while claimed, out when not, out when the renderer dies. A slow nft (<dir>/slow holds its seconds) and a
+ * failing one (<dir>/fail) never hold up touch_tick. */
 #include "../src/touch.c"
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -57,18 +58,34 @@ static int count(const char *hay, const char *needle) { int n = 0; for (const ch
 static int loads(void) { return count(slurp(), "table ip mgu_render {"); }
 static int outs(void) { return count(slurp(), "delete table ip mgu_render") - loads(); }
 
+/* touch_tick(claimed) until nft is done (at most 5 s); returns the longest touch_tick took, in ms */
+static double settle(int claimed)
+{
+    double worst = 0, t0 = now_ms();
+    do {
+        double t = now_ms();
+        touch_tick(claimed);
+        if (now_ms() - t > worst) worst = now_ms() - t;
+        usleep(5000);
+    } while (touch_busy() && now_ms() - t0 < 5000);
+    return worst;
+}
+
 int main(void)
 {
     /* nft: a script that logs its arguments and the file it is given; while <dir>/gone exists, `nft list table`
      * finds no table (nftables 0.7 given a script on "-": it reports the load done, and nothing went in) */
-    char dir[] = "/tmp/mgu-touch-XXXXXX", nft_path[300], path[1200], gone[300];
+    char dir[] = "/tmp/mgu-touch-XXXXXX", nft_path[300], path[1200], gone[300], slow[300], fail[300];
     if (!mkdtemp(dir)) { perror("mkdtemp"); return 1; }
     snprintf(nft_log, sizeof nft_log, "%s/nft.log", dir);
     snprintf(nft_path, sizeof nft_path, "%s/nft", dir);
     snprintf(gone, sizeof gone, "%s/gone", dir);
+    snprintf(slow, sizeof slow, "%s/slow", dir);
+    snprintf(fail, sizeof fail, "%s/fail", dir);
     FILE *f = fopen(nft_path, "w");
-    fprintf(f, "#!/bin/sh\n{ echo \"nft $*\"; [ \"$1\" = -f ] && cat \"$2\"; } >> %s\n"
-               "[ \"$1 $2\" != \"list table\" ] || [ ! -e %s ]\n", nft_log, gone);
+    fprintf(f, "#!/bin/sh\n[ -e %s ] && sleep $(cat %s)\n[ -e %s ] && exit 1\n"
+               "{ echo \"nft $*\"; [ \"$1\" = -f ] && cat \"$2\"; } >> %s\n"
+               "[ \"$1 $2\" != \"list table\" ] || [ ! -e %s ]\n", slow, slow, fail, nft_log, gone);
     fclose(f); chmod(nft_path, 0755);
     snprintf(path, sizeof path, "%s:%s", dir, getenv("PATH") ? getenv("PATH") : "/usr/bin:/bin");
     setenv("PATH", path, 1);
@@ -84,15 +101,16 @@ int main(void)
     if (touch_init("lo", "", area) != 0) { printf("touch_init failed\n"); return 1; }
     CHECK(strstr(rule, "iifname \"lo\" udp sport { 30569, 30571 } accept\n") &&
           strstr(rule, "iifname \"lo\" udp dport 30567 notrack udp dport set 30570") && !open_fw[0], "lo rule: %s", rule);
+    settle(0);
     CHECK(outs() == 1 && loads() == 0, "start: a leftover of ours is not removed");
-    touch_tick(1);
-    CHECK(loads() == 1 && strstr(slurp(), "udp dport set 30570"), "claimed: rule not in");
-    touch_tick(1);
+    settle(1);
+    CHECK(loads() == 1 && loaded && strstr(slurp(), "udp dport set 30570"), "claimed: rule not in");
+    settle(1);
     CHECK(loads() == 1, "claimed twice: loaded twice");
-    touch_tick(2);
+    settle(2);
     CHECK(loads() == 1, "an overlay's claim (2) with the rule in: loaded again before REFRESH_MS");
-    touch_tick(0);
-    CHECK(outs() == 2, "nothing claimed: rule not out");
+    settle(0);
+    CHECK(outs() == 2 && !loaded, "nothing claimed: rule not out");
 
     struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = htons(PORT_IN), .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
     struct sockaddr_in h = { .sin_family = AF_INET, .sin_port = htons(PORT_HMI), .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
@@ -146,11 +164,55 @@ int main(void)
     n = pdu(b, 0, 1, 1500, 50, UP, 0); route(b, n);
     aw = 0;
 
-    /* the renderer dies with the rule in: its guard takes it out */
+    /* a slow nft (2 s a run): every touch_tick returns at once, the rule goes in and out all the same, and the
+     * guard, beating meanwhile, kills nothing */
+    FILE *sf = fopen(slow, "w"); fputs("2\n", sf); fclose(sf);
+    double worst = settle(1);
+    CHECK(worst < 50 && loaded && loads() == 2, "slow nft, in: a tick took %.0f ms, loaded %d", worst, loaded);
+    worst = settle(0);
+    CHECK(worst < 50 && !loaded && outs() == 3, "slow nft, out: a tick took %.0f ms, loaded %d", worst, loaded);
+    unlink(slow);
+
+    /* a failing nft: not counted as in, a tick never waits, the next try comes RETRY_MS later and then succeeds */
+    fclose(fopen(fail, "w"));
+    worst = settle(1);
+    CHECK(worst < 50 && !loaded, "failing nft: loaded %d, a tick took %.0f ms", loaded, worst);
+    int before = loads();
+    unlink(fail);
+    settle(1);
+    CHECK(!loaded && loads() == before, "failing nft: tried again before RETRY_MS");
+    for (int i = 0; i < 140 && !loaded; i++) { usleep(50000); settle(1); }
+    CHECK(loaded && loads() == before + 1, "failing nft: not tried again once it works");
+    settle(0);
+
+    /* a failed load the claim gives up before the next try: the rule may be in, so it is taken out */
+    fclose(fopen(fail, "w"));
+    failed -= RETRY_MS;
+    settle(1);
+    unlink(fail);
+    before = outs();
+    settle(0);
+    CHECK(outs() == before + 1 && !stray && !loaded, "a failed load, then no claim: not taken out");
+
+    /* an nft that never answers: killed after JOB_MS, counted as failed, its script file gone */
+    sf = fopen(slow, "w"); fputs("60\n", sf); fclose(sf);
+    failed -= RETRY_MS;
     touch_tick(1);
+    CHECK(touch_busy() && job_file[0], "hung nft: no load started");
+    char kept[32]; snprintf(kept, sizeof kept, "%s", job_file);
+    job_t -= JOB_MS + 1;                                      /* as if JOB_MS had passed */
+    settle(1);
+    CHECK(!touch_busy() && !loaded && access(kept, F_OK) != 0, "hung nft: busy %d loaded %d, %s left", touch_busy(), loaded, kept);
+    unlink(slow);
+    failed -= RETRY_MS;
+    settle(1);
+    CHECK(loaded, "after a hung nft: the rule did not go in");
+
+    /* the renderer dies with the rule in: its guard takes it out */
+    before = outs();
     close(beat);
     int out_after = 0;
-    for (int i = 0; i < 100 && !out_after; i++) { usleep(20000); out_after = loads() == 2 && outs() == 3; }
+    for (int i = 0; i < 100 && !out_after; i++) { usleep(20000); out_after = outs() == before + 1; }
     CHECK(out_after, "renderer gone: the guard left the rule in");
     CHECK(!strstr(slurp(), "touchroute"), "a script names IterioDev's table");
     while (wait(NULL) > 0) {}
@@ -158,9 +220,15 @@ int main(void)
     /* every script goes to nft in a file, and a load counts only when its table is there afterwards */
     CHECK(count(slurp(), "nft -f /tmp/mgu-render-nft-") == count(slurp(), "nft -f "), "a script not given in a file");
     fclose(fopen(gone, "w"));
-    CHECK(rule_in() != 0, "a load whose table is not there counted as in");
+    loaded = 0; failed -= RETRY_MS; beat = open("/dev/null", O_WRONLY);
+    settle(1);
+    CHECK(!loaded, "a load whose table is not there counted as in");
     unlink(gone);
-    CHECK(rule_in() == 0, "a load whose table is there counted as failed");
+    failed -= RETRY_MS;
+    settle(1);
+    CHECK(loaded, "a load whose table is there counted as failed");
+    CHECK(count(slurp(), "nft -f /tmp/mgu-render-nft-") == count(slurp(), "nft -f "), "a script not given in a file");
+    CHECK(system("ls /tmp/mgu-render-nft-* >/dev/null 2>&1") != 0, "a script file left in /tmp");
 
     char cmd[64]; snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
     if (system(cmd) != 0) { /* the scratch folder stays */ }

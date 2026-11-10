@@ -830,7 +830,7 @@ class Drawn extends EventEmitter {
     /* A FrontCCU.statusRotaryEncoderState sample. In embed mode without the
      * controller gate the dial and push come from here while the page has
      * the HMI's focus, until the HMI presses one of the page template's
-     * buttons itself (the emulator's HMI routes them neither focus nor
+     * buttons itself (some HMIs route them neither focus nor
      * presses). An invalid counter keeps the last valid
      * one; a push value other than pushed or released keeps the last state;
      * a new sequence number while pushed is a new push. */

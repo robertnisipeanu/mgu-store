@@ -50,6 +50,24 @@ static int present(const char *p)
     return lstat(p, &st) == 0;
 }
 
+unsigned long share_listener(const char *p)
+{
+    FILE *f = fopen("/proc/net/unix", "r");
+    if (!f) return SHARE_UNKNOWN;
+    char line[PATH_MAX + 128];
+    unsigned long ino = 0;
+    while (!ino && fgets(line, sizeof line, f)) {
+        unsigned flags;
+        unsigned long i;
+        int at = 0;
+        if (sscanf(line, "%*s %*x %*x %x %*x %*x %lu %n", &flags, &i, &at) < 2 || !at) continue;
+        line[strcspn(line, "\n")] = 0;
+        if ((flags & 0x10000) && !strcmp(line + at, p)) ino = i;   /* __SO_ACCEPTCON */
+    }
+    fclose(f);
+    return ino;
+}
+
 /* A socket file nobody listens on. Read from the kernel's table of unix sockets, not by connecting: a socket unit
  * that still listens there (display-bridge's, before the head-unit start that stands it down) would start its
  * service for a connection. */
@@ -57,19 +75,7 @@ static int dead_socket(const char *p)
 {
     struct stat st;
     if (lstat(p, &st) < 0 || !S_ISSOCK(st.st_mode)) return 0;
-    FILE *f = fopen("/proc/net/unix", "r");
-    if (!f) return 0;                                    /* unknown: left alone */
-    char line[PATH_MAX + 128];
-    int listening = 0;
-    while (!listening && fgets(line, sizeof line, f)) {
-        unsigned flags;
-        int at = 0;
-        if (sscanf(line, "%*s %*x %*x %x %*x %*x %*u %n", &flags, &at) < 1 || !at) continue;
-        line[strcspn(line, "\n")] = 0;
-        listening = (flags & 0x10000) && !strcmp(line + at, p);   /* __SO_ACCEPTCON */
-    }
-    fclose(f);
-    return !listening;
+    return share_listener(p) == 0;                       /* unknown: left alone */
 }
 
 int share_drop(const struct share *s)

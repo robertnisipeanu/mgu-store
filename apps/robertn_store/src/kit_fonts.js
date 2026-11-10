@@ -1,6 +1,6 @@
 'use strict';
 /**
- * The kit's fonts API (get, measure) over the Store's own glyph atlases:
+ * The kit's fonts API (get, measure, glyph) over the Store's own glyph atlases:
  * Inter (SIL OFL 1.1, src/LICENSE-Inter.txt), baked by tools/bake_fonts.py
  * into src/font_regular.js and src/font_semibold.js. The kit's family
  * names map onto them: label and light the regular face, bold, num and gear
@@ -25,6 +25,8 @@ const i18n = require('./i18n.js');
 const FACES = { regular: require('./font_regular.js'), semibold: require('./font_semibold.js') };
 const FAMILY = { label: 'regular', light: 'regular', bold: 'semibold', num: 'semibold', gear: 'semibold' };
 const OWN = ['latin', 'greek', 'cyrillic', 'vietnamese', 'chinese', 'chinese-tc', 'japanese', 'korean'];
+// Drawn with the plain character when an atlas lacks them: ‘ ’ “ ” and the no-break space.
+const PLAIN = { 0x2018: 0x27, 0x2019: 0x27, 0x201c: 0x22, 0x201d: 0x22, 0xa0: 0x20 };
 const families = Object.create(null);
 let owned = null;                       // the language font in use: its name and atlases ({ all } or by face)
 
@@ -124,10 +126,17 @@ function get(name, size, text) {
     return pick(fam, size);
 }
 
+/** The glyph that draws the character ch in atlas f: its own, its plain
+ * stand-in (PLAIN), else "?". */
+function glyph(f, ch) {
+    const c = ch.codePointAt(0);
+    return f.glyphs[c] || f.glyphs[PLAIN[c]] || f.glyphs[63];
+}
+
 function measure(f, s) {
     let w = 0;
     for (const ch of s) {
-        const g = f.glyphs[ch.codePointAt(0)] || f.glyphs[63];
+        const g = glyph(f, ch);
         if (g) {
             w += g[6];
         }
@@ -135,4 +144,4 @@ function measure(f, s) {
     return w;
 }
 
-module.exports = { get, measure };
+module.exports = { get, measure, glyph };

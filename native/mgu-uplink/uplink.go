@@ -58,8 +58,8 @@ func parseUplink(c config) (Uplink, error) {
 	return nil, fmt.Errorf("uplink: %q is none of %s", spec, uplinkChoices)
 }
 
-// netdevUplink is an existing kernel Ethernet interface, named: the
-// emulator's second NIC, or any interface the unit already has. It uses the
+// netdevUplink is an existing kernel Ethernet interface, named: any
+// interface the unit already has. It uses the
 // interface under its own name and never renames it.
 type netdevUplink struct {
 	name   string

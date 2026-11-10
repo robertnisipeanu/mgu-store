@@ -220,7 +220,7 @@ script. Version and title come from it and the staged tree:
 The head unit links the modules against the oap-sdk modules of its donor
 into `javascript/app.js` (`tools/oap_link.js`, with the donor's module ids)
 and installs the package. The same build runs on a desktop with
-`apps/<id>/tools/build.js --sdk <donor>`, for the emulator.
+`apps/<id>/tools/build.js --sdk <donor>`, for a test unit.
 [`apps/robertn_store`](../apps/robertn_store) is a complete example.
 
 ### Build scripts

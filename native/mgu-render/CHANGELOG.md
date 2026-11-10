@@ -3,6 +3,24 @@
 ## Unreleased
 
 - The foreground gate tries again every 5 s a `RemoteHmiApplication` instance whose proxy failed (as while the HMI still starts), and reads an instance's stack again when it becomes available. Before, such an instance was never watched until the renderer restarted: an app the HMI then showed there was never in front, so the kit drew it in the HMI's own page with the HMI's button bar, not full screen. Seen after an iDrive start (Redline stayed so for the whole drive).
+
+## 0.6.18
+
+- The page template stops being mounted into the HMI after two boots that mounted it and ended in an HMI failure, with no healthy boot between them: a restart record of recmgr (`hmi.service`) or crashhandler (`HmiMain3D`) written after the mount, read at the shutdown (a drop-in of `var-opt-ro.service`) or at the next boot. A boot counts only on such a record; a switch-off, a restart from BMW's menu, the Store or an update, `systemctl reboot`, a power cut or a slow HMI counts nothing, and an HMI that ran 120 s unbroken with the template clears the count. The HMI then starts with its stock widgets, apps get their layer, and the Renderer's page says `In-page drawing unavailable: the HMI failed with the page template` until another HmiMain3D or template comes. README.md, "The HMI and the page template".
+
+## 0.6.17
+
+- The car-test guide rehearses on any test head unit reached over SSH.
+- An idrive7-apps kit app on our socket goes back to the community socket `/run/mgu-renderd/renderd.sock` once another renderer (idrive7-renderd) has listened there for 5 s: its connection is closed, and the kit connects again, to that socket unless an earlier failed try there turned it to ours (`<app>: kit app sent back to /run/mgu-renderd/renderd.sock, which has its own renderer again`). Kit apps came to us whenever idrive7-renderd restarted (each of its updates, a crash) and stayed until mgu-render restarted, drawn for the wrong screen on cars whose display differs. An app that comes back within 60 s is sent again only after 30 s, then 2 min; after a third time it stays. Without another renderer there, and for every app that is not a kit app (the Store included), nothing changes.
+
+## 0.6.16
+
+- The touch divert rule's nft commands run beside the render loop, never in it: the renderer keeps drawing, answering apps and beating to its guard while nft works. An nft run that takes longer than 10 s is stopped and counts as failed. A failed load is logged once and tried again every 5 s (`touch: loading the nft rule failed, touch stays the HMI's; trying again every 5 s`). At exit the guard takes the rule out. A slow nft (over 1.5 s per run) blocked the loop while touch was diverted, so the guard killed the renderer each time an app gave up its touch area; repeated kills hit the service's start limit, and the deploy check after an update failed with `render.sock: EPIPE`.
+
+## 0.6.15
+
+- The journal names the app the iDrive controller is held for and says when `@mgu-renderd-ccu` is bound and released: `controller: held for <app> (@mgu-renderd-ccu bound)`, `controller: held for <app>` when another of its apps takes it over, and `controller: back to the HMI, @mgu-renderd-ccu released (was held for <app>)`.
+
 ## 0.6.14
 
 - The touch divert rule goes to nft in a file (`/tmp/mgu-render-nft-*`), and a load counts only when `nft list table ip mgu_render` finds the table afterwards; otherwise the journal says `touch: loading the nft rule failed, touch stays the HMI's` and the load is tried again 5 s later. nftables 0.7 on iDrive 7 units (MainApp 8.2.0; also reported on MainApp 6.5.5) reads a script given as `-` as a file of that name, fails and exits 0: the journal said `touch: diverted`, the table was never there, and no touch reached the Store or its apps.

@@ -10,7 +10,7 @@
  *                          the workflow's GITHUB_TOKEN (GH_TOKEN).
  *   dir:<path>             A local folder (relative paths: to the repository):
  *                          catalog.json and the artifacts side by side, a
- *                          catalog for the emulator or a USB stick.
+ *                          catalog for a test unit or a USB stick.
  *
  * Catalogs are not signed: the unit trusts a source over HTTPS (and its
  * token), and checks every artifact against the catalog's size and sha256.
@@ -134,6 +134,17 @@ const targets = {
     },
     github: {
         preflight: githubPreflight,
+        /* The newest status named context on a commit of the repository
+         * (GitHub's status object: state, description, ...), or null. */
+        commitStatus(sha, context) {
+            let statuses;
+            try {
+                statuses = JSON.parse(gh(['api', `repos/${WHERE}/commits/${sha}/statuses?per_page=100`]));
+            } catch (e) {
+                throw new Error(`cannot read the statuses of ${sha.slice(0, 12)} in ${WHERE}: ${String(e.stderr || e.message).trim()}`);
+            }
+            return statuses.find((st) => st.context === context) || null;
+        },
         fetchCatalogText() {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-catalog-'));
             try {
