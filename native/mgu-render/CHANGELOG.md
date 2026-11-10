@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- iDrive 7 too: a yield surface hides the layer apps only while it is visible and has a buffer (as on iDrive 8 since 0.6.10). On a G05 (iDrive 7) dasvideo keeps SID_VIDEO_DIGITAL_HU 0x198 visible from boot with no buffer (`ivi-control scene`: visibility 1, size 0x0, frames 0), which hid every layer app for good: their pages stayed black under the HMI's title. While a yield surface is visible with no buffer, its properties are asked again every second (a new proxy gets them at once), so a picture that starts is seen within 1 s even where the compositor does not report the size change.
+
 ## 0.6.18
 
 - The page template stops being mounted into the HMI after two boots that mounted it and ended in an HMI failure, with no healthy boot between them: a restart record of recmgr (`hmi.service`) or crashhandler (`HmiMain3D`) written after the mount, read at the shutdown (a drop-in of `var-opt-ro.service`) or at the next boot. A boot counts only on such a record; a switch-off, a restart from BMW's menu, the Store or an update, `systemctl reboot`, a power cut or a slow HMI counts nothing, and an HMI that ran 120 s unbroken with the template clears the count. The HMI then starts with its stock widgets, apps get their layer, and the Renderer's page says `In-page drawing unavailable: the HMI failed with the page template` until another HmiMain3D or template comes. README.md, "The HMI and the page template".
