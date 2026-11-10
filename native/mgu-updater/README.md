@@ -141,9 +141,10 @@ point's icon, `author` (a string or `author.name`) and
 `store.description` over `description`. An installed app's `icon` is its
 installed package's entry-point icon (`rhmiData/resources/`, read through
 no link), copied into `state/icons/` and read again only when the package
-changes. The row of the installed app has its source's icon fetched only
-once its installed package has none; the other sources' rows of that id
-show their own. Once a check has read every source, the icons of each
+changes. The row of the installed app shows that icon, else its source's;
+the other sources' rows of that id show their own. Every source icon is
+fetched, an installed app's too, so a removed app shows its source's icon
+at once. Once a check has read every source, the icons of each
 source read without error are looked at again.
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- An installed app's icon from its source is fetched too, so a removed app keeps its icon in the Store.
+
 ## 0.8.35
 
 - Lost apps are installed again only while the app manager runs on a data folder of its own: not while it has not started or created its home after a factory reset. The updater looks again when it comes up.

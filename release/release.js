@@ -45,6 +45,7 @@ const APP_TREE = 'package';
 const DEPLOY = path.join('deploy', 'hu');
 const publishTarget = require('./publish');
 const { compareVersions, hmiList, textsOf, SEMVER } = require('../native/mgu-updater/js/catalog.js');
+const { entryIcons, isIcon } = require('../native/mgu-updater/js/sources.js');
 
 function readJson(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -136,6 +137,17 @@ function rhmiHmi(stagedDir) {
     return out.length ? out.sort() : undefined;
 }
 
+/* An app's icon, the one the car's app list shows: the PNG its staged
+ * tree's first entry point names, from the first place its
+ * application.json gives; { file, sha256 }, or undefined without one the
+ * Store can draw (sources.js isIcon). */
+function appIcon(stagedDir) {
+    const app = readJson(path.join(stagedDir, 'rhmiData', 'application.json')).application;
+    const file = entryIcons(app, path.join(stagedDir, 'rhmiData') + path.sep).find((f) => fs.existsSync(f) && fs.statSync(f).isFile());
+    const b = file ? fs.readFileSync(file) : null;
+    return b && isIcon(b) ? { file, sha256: crypto.createHash('sha256').update(b).digest('hex') } : undefined;
+}
+
 /* Every releasable component in a repo tree (the working tree or an export). */
 function components(root = REPO) {
     const out = [];
@@ -177,6 +189,7 @@ function components(root = REPO) {
             dir: `apps/${id}`,
             title: appTitle(stagedDir),
             description: pkg.description || '',
+            icon: appIcon(stagedDir),
             release,
             build: manifest ? 'unit' : null,
             tree,
@@ -495,6 +508,11 @@ function catalogEntry(c, file) {
             entry[k] = c[k];
         }
     });
+    // an app's icon, published beside the catalog as <id>.png
+    if (c.icon) {
+        entry.icon = `${c.id}.png`;
+        entry.iconSha256 = c.icon.sha256;
+    }
     return entry;
 }
 
@@ -510,6 +528,10 @@ function build(ids, outDir, failed) {
         const entries = [];
         list.forEach((c) => {
             process.stdout.write(`building ${c.id}@${c.version} ... `);
+            // the icon beside the artifact, before the build stages the tree it is in
+            if (c.icon) {
+                fs.copyFileSync(c.icon.file, path.join(outDir, `${c.id}.png`));
+            }
             let file;
             try {
                 file = buildOne(c, exportDir);
@@ -1004,6 +1026,8 @@ function cmdPublish(ids, dryRun, stamped) {
         e.artifact.url = publishTarget.uploadArtifact(e, path.join(staging, e.artifact.name));
         current.set(e.id, e);
     });
+    // the icons before the catalog that names them
+    uploads.filter((e) => e.icon).forEach((e) => publishTarget.uploadCatalogAsset(path.join(staging, e.icon)));
     const catalogFile = writeCatalog([...current.values()], staging);
     publishTarget.uploadCatalog(catalogFile);
     console.log(`catalog published to ${publishTarget.describe()}`);
@@ -1038,5 +1062,5 @@ if (require.main === module) {
     }
 }
 
-module.exports = { buildIn, components, catalogTexts, compareVersions, unmetRequires, sourceCommit, gateProblem, GATED, bumpVersion,
+module.exports = { buildIn, components, catalogTexts, catalogEntry, compareVersions, unmetRequires, sourceCommit, gateProblem, GATED, bumpVersion,
     releaseChangelog, plan, writePlan, prLabels };

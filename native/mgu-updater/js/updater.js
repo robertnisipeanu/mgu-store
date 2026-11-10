@@ -1843,9 +1843,9 @@ class Updater {
     /* Fetches the icons a source's components name that are not kept yet,
      * one source's at a time: a PNG of at most ICON_BYTES, matching its
      * sha256 when the source gives one, kept world-readable for the Store.
-     * The component whose row is an installed app with its own icon
-     * (installedIcon) has its source's icon fetched only once it has none.
-     * An icon that is missing, too big, not a PNG or not its sha256 is not
+     * An installed app's source icon is fetched too: its row shows the
+     * installed package's icon (installedIcon), and the source's once the
+     * app is removed. An icon that is missing, too big, not a PNG or not its sha256 is not
      * asked for again for that version of the component (and that icon);
      * one that could not be fetched is asked for again a day later; both are
      * kept in state/icon-failures.json across restarts. The component is
@@ -1855,18 +1855,9 @@ class Updater {
             return rt.icons;
         }
         const failed = this.iconFailures();
-        // the components of this source whose row is the installed app, showing its own icon (state())
-        const shown = new Set();
-        this.resolved().forEach((r) => {
-            if (r.source === rt.def.id && r.entry.kind === 'app' && this.installedOf(r.entry.id, 'app') &&
-                this.installedIcon(r.entry.installAs || r.entry.id)) {
-                shown.add(r.entry.listedId || r.entry.id);
-            }
-        });
         const due = (c) => {
             const f = failed[this.iconFailureKey(rt.def.id, c)];
-            return !fs.existsSync(this.iconFile(rt.def.id, c)) && !(f && (f.missing || f.at > Date.now() - 86400000)) &&
-                !(c.kind === 'app' && shown.has(c.id));
+            return !fs.existsSync(this.iconFile(rt.def.id, c)) && !(f && (f.missing || f.at > Date.now() - 86400000));
         };
         rt.icons = rt.components.filter((c) => c.icon && due(c)).reduce((p, c) => p
             .then(() => rt.reader.icon(c))
