@@ -498,7 +498,7 @@ function neededBy(msg) {
  * "Needed by <its title in rows>", else the refusal as it is. */
 function removeRefusal(note, rows) {
     const title = neededBy(note.error);
-    const by = title && note.by && (rows || []).find((r) => r.id === note.by);
+    const by = title && note.by && rows.find((r) => r.id === note.by);
     return title ? tr("Needed by {0}", by ? by.title : title) : String(note.error);
 }
 
