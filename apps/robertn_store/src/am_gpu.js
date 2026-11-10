@@ -3,7 +3,7 @@
  * Renderer screens (mgu-renderd, the idrive7-apps GPU overlay): drawn with the kit (kit/, MIT) the way an
  * app on the car draws them. One recording (kit/record.js draw commands) is
  *   - played back in software here (the renderer's own fallback path) -> PNG for the builder's preview
- *   - sent to the emulator's real mgu-renderd by emulator.js -> on the live HMI at the screen's resolution
+ *   - sent to a unit's mgu-renderd -> on the live HMI at the screen's resolution
  *
  * screen = { kind: 'gpu', name, theme: kit theme id, bg: 'theme' | 'none' | '#rrggbb',
  *            bgArea?: 'app' (bg fills only the head unit's app area, GPU.appArea: the HMI's menus show through),
@@ -86,7 +86,7 @@ function renderPng(project, stateIndex, view) {
     return cv.png();
 }
 
-// Touch (the builder's Try mode, and the app on the emulator / car: mgu-renderd --touch, E_TOUCH): a press or drag at p
+// Touch (the builder's Try mode, and the app on a unit: mgu-renderd --touch, E_TOUCH): a press or drag at p
 // (design px) on an element changes its state the way the app would. Kit elements here, the app widgets in
 // widgets.js (W.TRY). drag: moves count too. A tap (released on the element) also runs its onTap.
 const TRY = {

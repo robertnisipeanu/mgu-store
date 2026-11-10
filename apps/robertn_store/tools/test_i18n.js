@@ -300,5 +300,13 @@ ok(fonts.get('bold', 44, 'Löschen') !== deBold, 'a language font let go when an
 i18n.setHmiLanguage('ENGLISCH__UK');
 ok(fonts.get('label', 28, '应用商店') === inter, 'English: Inter');
 ok(fonts.get('label', 28, 'Store') === inter, 'English: Inter');
+// typographic quotes and the no-break space where the atlas lacks them: the plain character's glyph
+const plain = (s) => Array.from(s).map((ch) => fonts.glyph(inter, ch));
+eq(plain('‘’“” '), plain('\'\'"" '), 'English: ‘ ’ “ ” and the no-break space drawn plain');
+ok(fonts.glyph(inter, '☃') === inter.glyphs[63], 'English: a character without a stand-in drawn "?"');
+i18n.setHmiLanguage('DEUTSCH');
+const deQuote = fonts.get('label', 28, 'Alex’s iPhone');
+ok(/latin/.test(deQuote.key) && fonts.glyph(deQuote, '’') === deQuote.glyphs[0x2019], 'German: the language font\'s own ’');
+i18n.setHmiLanguage('ENGLISCH__UK');
 
 console.log(`i18n: ${all.length} locale(s), ${used.size} words, ${checks} checks pass`);

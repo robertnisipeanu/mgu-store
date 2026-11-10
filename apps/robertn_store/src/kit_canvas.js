@@ -439,7 +439,7 @@ class Canvas {
         const w = fonts.measure(f, s) * scale + (opts.spacing || 0) * Math.max(0, s.length - 1);
         let pen = opts.align === 'center' ? x - w / 2 : opts.align === 'right' ? x - w : x;
         for (const ch of s) {
-            const g = f.glyphs[ch.codePointAt(0)] || f.glyphs[63];
+            const g = fonts.glyph(f, ch);
             if (!g) continue;
             const [gx, gy, gw, gh, ox, oy, adv] = g;
             if (gw && gh) this._blit(f, gx, gy, gw, gh, pen + ox * scale, y + oy * scale, scale, c);

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.8.9
+
+- A tool's new version is on disk, every file of it, before its `current` points to it, at every install and update and at the deploy tool's own; each switch of `current` is on disk before the deploy tool goes on. A power cut or ignition off right after an update leaves the version before or the new one whole, never a file the head unit had not written yet.
+- recmgr's restart list keeps the firmware's own entries: an update, rollback or uninstall takes out of each of its sections only the names the deploy tool put there, recorded in `/var/opt/mgu-deploy/recmgr-names.json`, and never a name the stock backup's copy of the list has. For tools installed before that record, a name goes only when the stock backup, taken on the firmware running, lacks it; without such a backup the name stays, and the run says so.
+
+## 0.8.8
+
+- The deploy tool never creates the app manager's home or data folder (`/var/opt/public/oap/oap_12201`, its `data`), which the app manager creates at its first start after a factory reset. While they are missing, `custom_apps.json` and `local-only-apps.json` are not written (on iDrive 8 `relist` and `status` list our apps once the folder is there), app installs are refused, and `status` reports no lost app.
+- `status` (as root) and iDrive 8's `relist` give a home or data folder owned by root back to the app manager (uid 12201, modes 3770 and 0750), and log it to the journal. After `status`'s repair on iDrive 7 the app manager runs again: started by oapcontroller, or restarted by the deploy tool; when neither happens, and after `status`'s repair on iDrive 8, a restart of the head unit is pending. `relist` repairs before the app manager starts.
+
+## 0.8.7
+
+- iDrive 8: an app placed for MainApp-21 at a start that it does not install, because the head unit's provisioning comes from BMW's backend and does not list it, is reported as not registered (`status`), and the updater installs it in place. This covers the Store after `first-install` on a car that has synced its apps with BMW.
+
 ## 0.8.6
 
 - iDrive 7: every restart of MainApp the deploy tool makes first waits until MainApp's install worker has not run for 5 s, for at most 3 minutes. Still busy then, MainApp is not restarted: what needs the restart takes effect at the next start of the head unit (Restart pending), and an app install or update that needed it fails and is rolled back, to be run again later.
@@ -196,7 +210,7 @@ No changes.
 
 ## 0.5.8
 
-- Apps whose SOME/IP manifest does not name the certification service (`de.bmw.infotainment.certification.Certification`), which includes every idrive7-apps app, install: the deploy tool adds that entry when it prepares the package. Without it, the car does not let the new app's uid reach the service that creates its keychain: MainApp's install waited for a keychain that never came and failed. The emulator does not check those permissions.
+- Apps whose SOME/IP manifest does not name the certification service (`de.bmw.infotainment.certification.Certification`), which includes every idrive7-apps app, install: the deploy tool adds that entry when it prepares the package. Without it, the car does not let the new app's uid reach the service that creates its keychain: MainApp's install waited for a keychain that never came and failed.
 - What an interrupted app install left (the app listed for MainApp and its package in `preinstalled_apps`, which MainApp tries to install at every start) is removed before the next app install, when this tool put it there: its record of the install names a run that is gone, or its install snapshot shows the app was not listed and the package absent before. Anything else stays, said in the output.
 
 ## 0.5.7

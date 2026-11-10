@@ -4229,9 +4229,17 @@ function testSelfRepair() {
         build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
         mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
         socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
-        bootstrap_check_s: '6', privacy_tool: '', reboot: ''
+        bootstrap_check_s: '6', privacy_tool: '', reboot: '', proc: path.join(M, 'proc')
     };
     fs.writeFileSync(conf.mounts, 'proc /proc proc rw 0 0\n');
+    // the app manager, running on its own home
+    const mainappRuns = (on, dir) => {
+        mkdirp(path.join(conf.proc, '4000'));
+        fs.writeFileSync(path.join(conf.proc, '4000', 'cmdline'),
+            on ? `/usr/bin/node\0-r\0/preload.js\0--expose-gc\0/usr/lib/${dir || 'oap-mainapp'}/src/main.js\0` : 'sleep\0');
+    };
+    mainappRuns(true);
+    fs.chownSync(path.join(oap, 'oap_12201', 'data'), 12201, 12201);
     // the packages the deploy tool keeps, and the wipe that leaves them
     const keptStore = appTgz(kept, 'robertn_store', '0.9.0');
     const keptCat = appTgz(kept, 'cat_app', '1.1.0');
@@ -4319,7 +4327,36 @@ function testSelfRepair() {
             ok('guard stop: going back the guard stopped says which version comes back at the next start',
                 u.errors.cat_app === '1.1.0 did not start; 1.0.0 comes back at the next start' && comp('cat_app').installed === '1.1.0',
                 JSON.stringify(u.errors.cat_app));
-            ['lost', 'tiles', 'previous', 'rollbackexit'].forEach((x) => fs.unlinkSync(`${deployLog}.${x}`));
+            fs.unlinkSync(`${deployLog}.rollbackexit`);
+            // a factory reset: the next start, the app manager not running yet
+            fs.writeFileSync(bootFile, 'boot-3\n');
+            wipe();
+            mainappRuns(false);
+            u = new Updater(conf);
+            return u.refresh();
+        })
+        .then(() => new Promise((r) => setTimeout(r, 1000)))
+        .then(() => {
+            ok('factory reset: no lost app is installed again while the app manager does not run', installs().length === 6, installs().join('\n'));
+            u.watchLost();
+            mainappRuns(true);
+            fs.chownSync(path.join(oap, 'oap_12201', 'data'), 0, 0);
+            u.watchLost();
+            return new Promise((r) => setTimeout(r, 1000));
+        })
+        .then(() => {
+            ok('factory reset: nor while its data folder is not its own', installs().length === 6 && !u.busy, installs().join('\n'));
+            fs.chownSync(path.join(oap, 'oap_12201', 'data'), 12201, 12201);
+            // MainApp-21 counts the same (iDrive 8)
+            mainappRuns(true, 'oap-mainapp21');
+            u.watchLost();
+            return until(() => [u.busy, u.queue.length, fs.existsSync(reg('robertn_store')), fs.existsSync(reg('cat_app'))],
+                (s) => !s[0] && !s[1] && s[2] && s[3], 30000, 'the lost apps back after the reset');
+        })
+        .then(() => {
+            ok('factory reset: once the app manager runs on its own home, the lost apps are installed again, the Store first',
+                installs().length === 8 && /robertn_store@0\.9\.0\.tgz --yes$/.test(installs()[6]), installs().join('\n'));
+            ['lost', 'tiles', 'previous'].forEach((x) => fs.unlinkSync(`${deployLog}.${x}`));
         });
 }
 

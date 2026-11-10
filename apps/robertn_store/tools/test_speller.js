@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Offline check of src/speller.js against a fake use case factory that
- * behaves as the HMI's speller did in the emulator: notify parameters as a
+ * behaves as the HMI's speller did on a test unit: notify parameters as a
  * Map-like object (not a Map of this realm), 101 states, 102 with every
  * keystroke, 105 on OK. Node 8+.
  *
