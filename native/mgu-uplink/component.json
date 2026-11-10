@@ -6,7 +6,6 @@
   "description": "Internet for selected apps through a USB network adapter, an LTE stick, a USB-tethered phone or Wi-Fi",
   "optional": true,
   "requires": { "mgu-updater": "0.7.2" },
-  "uninstallable": true,
   "build": ["make", "target"],
   "files": [
     { "path": "mgu-uplink", "from": "build/target/mgu-uplink", "mode": "0755" },

@@ -149,8 +149,7 @@ compress differently, which publishing reports as other content.
       "id": "mgu-uplink",
       "kind": "tool",
       "…": "…",
-      "optional": true,
-      "uninstallable": true
+      "optional": true
     }
   ]
 }
@@ -184,7 +183,8 @@ Schema 2 adds, per entry:
   The Store requires the deploy tool that builds source packages.
 - `optional: true`: listed, never offered as an update unless installed
   (`mgu-uplink`).
-- `uninstallable: true`: the Store may offer Remove (`mgu-uplink`).
+- `uninstallable: true`: the Store may offer Remove. The Store's own
+  tools have none: the updater never removes them.
 - `mguHmi: ["ID7"|"ID8", ...]`: the head units it is for; the Store
   refuses it on another (docs/PUBLISHING.md). `robertn_store`: `["ID7"]`.
 - `mguProvides: "<capability>"`: the capability a tool provides

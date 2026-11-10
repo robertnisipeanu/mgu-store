@@ -8,7 +8,6 @@
   "mguHmi": ["ID7", "ID8"],
   "optional": true,
   "requires": { "mgu-deploy": "0.6.9" },
-  "uninstallable": true,
   "build": ["make", "check-target"],
   "files": [
     { "path": "mgu-render", "from": "build/target/mgu-render", "mode": "0755" },

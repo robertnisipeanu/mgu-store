@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- No Remove in the Store: the Renderer stays while the Store is installed.
+
 ## 0.6.18
 
 - The page template stops being mounted into the HMI after two boots that mounted it and ended in an HMI failure, with no healthy boot between them: a restart record of recmgr (`hmi.service`) or crashhandler (`HmiMain3D`) written after the mount, read at the shutdown (a drop-in of `var-opt-ro.service`) or at the next boot. A boot counts only on such a record; a switch-off, a restart from BMW's menu, the Store or an update, `systemctl reboot`, a power cut or a slow HMI counts nothing, and an HMI that ran 120 s unbroken with the template clears the count. The HMI then starts with its stock widgets, apps get their layer, and the Renderer's page says `In-page drawing unavailable: the HMI failed with the page template` until another HmiMain3D or template comes. README.md, "The HMI and the page template".

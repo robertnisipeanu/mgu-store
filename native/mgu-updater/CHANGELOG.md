@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The tools the Store's setup installs (Internet uplink, Renderer, App privacy, Python, the deploy tool and the updater) can't be removed from the Store: not on their own page, and not with an app's Remove all.
+
 ## 0.8.36
 
 - An installed app's icon from its source is fetched too, so a removed app keeps its icon in the Store.
