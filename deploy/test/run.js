@@ -9520,15 +9520,46 @@ function testRelist() {
     check('relist: a manager whose hook announced itself on the copy is not restarted',
         r.status === 0 && root.kills().length === k3 && fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')), r.out);
 
-    // our app registered but listed nowhere: the fallback would list nothing, so nothing happens
+    // our app registered (the manager put it back from preinstalled_apps) but not listed, the fallback
+    // on and run by the manager: status lists it, from the manager's next start; an install lists it
+    // and restarts the manager once
+    const custom = (root) => readJson(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`));
+    const unlist = (root) => write(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`), '{}\n');
+    root = fakeRoot({ active: PLATFORM });
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    startInplace(root);
+    unlist(root);
+    st = root.status();
+    check('relist: status lists an app of ours registered without a listing, from the next start',
+        st.listing && st.listing.state === 'changed' && custom(root).fixture_app &&
+        custom(root).fixture_app['-enabled'] === 'true' && custom(root).fixture_app['-allowed'] === 'true',
+        JSON.stringify(st.listing));
+    check('relist: and the next status has nothing to do', root.status().listing.state === 'ok');
+    const k7 = root.kills().length;
+    r = again(root);
+    check('relist: an install after the status that listed it restarts the manager that has not taken it, once',
+        r.status === 0 && root.kills().length === k7 + 1 &&
+        r.out.includes('our apps are listed again: restarting the app manager so their tiles show'), r.out);
+    startInplace(root);
+    unlist(root);
+    const k4 = root.kills().length;
+    r = again(root);
+    check('relist: an install with every app current lists an unlisted app of ours and restarts the manager once',
+        r.status === 0 && custom(root).fixture_app && root.kills().length === k4 + 1 &&
+        r.out.includes('our apps are listed again: restarting the app manager so their tiles show'), r.out);
+    r = again(root);
+    check('relist: the next install leaves it', r.status === 0 && root.kills().length === k4 + 1 && !r.out.includes('listed again'), r.out);
+
+    // the same with the fallback unit gone: the fallback goes on again with the app listed
     root = fakeRoot({ active: PLATFORM });
     root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
     lose(root);
-    write(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`), '{}\n');
-    const k4 = root.kills().length;
+    unlist(root);
+    const k6 = root.kills().length;
     r = again(root);
-    check('relist: an app of ours registered but not in custom_apps.json brings no fallback and no restart',
-        r.status === 0 && root.kills().length === k4 && !fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')), r.out);
+    check('relist: an unlisted app of ours with the fallback unit gone: listed, the fallback on, one restart',
+        r.status === 0 && custom(root).fixture_app && root.kills().length === k6 + 1 &&
+        fs.existsSync(root.p('etc/systemd/system/mgu-app-fallback.service')), r.out);
 
     // app-privacy applied during a relist waits for the relist's restart, said as such
     root = fakeRoot({ active: PLATFORM, privacy: false });
