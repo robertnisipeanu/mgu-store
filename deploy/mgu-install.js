@@ -53,7 +53,9 @@
  * stick is in. Inputs: github:<owner>/<repo>, an https:// catalog.json URL,
  * a folder holding catalog.json or mgu-repo.json, or package files (*.tgz,
  * *.mgu: apps, source packages, tool kits; together in mgu-repo/local/).
- * Without inputs: github:robertnisipeanu/mgu-store.
+ * Without inputs: github:robertnisipeanu/mgu-store. Each app icon a
+ * catalog lists is copied beside its catalog.json; one that cannot be
+ * read or does not match its iconSha256 is left out.
  *
  * Without --host or --port it finds the head unit itself: the
  * car's hotspot (172.16.222.97) when its SSH answers, else over ENET (an
@@ -61,6 +63,10 @@
  * reports for the head unit (DID 22 17 2A, read without changing any
  * session), or the last ENET address that answered. ssh then binds to
  * that interface's address (ssh -b). --ssh-opt options apply either way.
+ * A head unit found whose SSH does not answer is named as such.
+ *
+ * A step that takes over 30 s prints a line about every 30 s; Ctrl+C
+ * prints how to finish.
  *
  * SSH options: --host <address>, --port <n> (22), --user <name> (root),
  * --identity <key file>, and --ssh-opt <option> (repeatable, passed as
@@ -114,6 +120,9 @@ const MAX_ARTIFACT = 512 << 20;
 const STICK_JSON_MAX = 1 << 20;
 const STICK_REPO_MAX = 200 << 20;
 const STICK_REPO_FILES = 20000;
+/* an app's icon, as the updater reads it (native/mgu-updater/js/sources.js) */
+const ICON_MAX = 128 << 10;
+const PROGRESS_MS = 30000;
 
 class Usage extends Error {}
 
@@ -123,6 +132,25 @@ function sha256(buf) {
 
 function say(line) {
     process.stdout.write(`${line}\n`);
+}
+
+/* A wait's length for its progress line: "30 s", "1 min", "1 min 30 s". */
+function elapsed(ms) {
+    const s = Math.round(ms / 30000) * 30;
+    const m = Math.floor(s / 60);
+    return m ? `${m} min${s % 60 ? ` ${s % 60} s` : ''}` : `${s} s`;
+}
+
+/* fn()'s result; while it runs, about every 30 s one line on stderr:
+ * "<what> (<time so far>)". */
+async function waiting(what, fn) {
+    const start = Date.now();
+    const tick = setInterval(() => process.stderr.write(`${what} (${elapsed(Date.now() - start)})\n`), PROGRESS_MS);
+    try {
+        return await fn();
+    } finally {
+        clearInterval(tick);
+    }
 }
 
 function compareVersions(a, b) {
@@ -425,9 +453,17 @@ async function githubComponents(gh) {
             throw new Error(`${gh.repo}: the catalog release has no catalog.json`);
         }
         const catalog = parseCatalog((await gh.asset(a, 4 << 20)).toString('utf8'), `${gh.repo} catalog.json`);
+        const icon = (ref) => {
+            if (/^https:\/\//.test(ref)) {
+                return get(ref, { max: ICON_MAX });
+            }
+            const x = (release.assets || []).find((y) => y.name === ref);
+            return x ? gh.asset(x, ICON_MAX) : Promise.reject(new Error(`the catalog release has no ${ref}`));
+        };
         return { commit: catalog.commit, components: catalog.components.map((entry) => ({
             entry, fetch: () => gh.asset({ url: entry.artifact.url }, entry.artifact.size)
-                .then((d) => checked(entry.artifact.name, d, entry.artifact.size, entry.artifact.sha256))
+                .then((d) => checked(entry.artifact.name, d, entry.artifact.size, entry.artifact.sha256)),
+            icon: () => icon(entry.icon)
         })) };
     }
     const releases = await gh.json('/releases?per_page=100');
@@ -523,24 +559,44 @@ function sshArgs(o, remote) {
     return args.concat(HOST_KEY_OPTS, rsaOpts(), [`${o.user}@${o.host}`, remote]);
 }
 
-/* Runs remote on the unit; input on its stdin; capture: its stdout returned. */
-function ssh(o, remote, { input, capture } = {}) {
-    const r = cp.spawnSync('ssh', sshArgs(o, remote), {
-        input, maxBuffer: 64 << 20, windowsHide: true,
-        stdio: [input !== undefined ? 'pipe' : 'inherit', capture ? 'pipe' : 'inherit', 'inherit']
-    });
-    if (r.error) {
-        throw new Error(r.error.code === 'ENOENT' ? 'no ssh command found; install the OpenSSH client' : `ssh: ${r.error.message}`);
-    }
-    if (r.status === 255) {
-        throw new Error(`ssh to ${o.user}@${o.host}:${o.port} failed`);
-    }
-    return { status: r.status === null ? 1 : r.status, stdout: capture ? String(r.stdout) : '' };
+/* The ssh processes running, stopped with this one (stopOn). */
+const sshRunning = new Set();
+
+/* Runs remote on the unit; input on its stdin; capture: its stdout
+ * returned; wait: the progress line's text while it takes long. */
+function ssh(o, remote, { input, capture, wait } = {}) {
+    return waiting(wait || 'still waiting for the head unit', () => new Promise((resolve, reject) => {
+        const child = cp.spawn('ssh', sshArgs(o, remote), {
+            windowsHide: true, stdio: [input !== undefined ? 'pipe' : 'inherit', capture ? 'pipe' : 'inherit', 'inherit']
+        });
+        sshRunning.add(child);
+        const out = [];
+        const end = (err, value) => {
+            sshRunning.delete(child);
+            if (err) {
+                reject(err);
+            } else {
+                resolve(value);
+            }
+        };
+        if (capture) {
+            child.stdout.on('data', (d) => out.push(d));
+        }
+        if (input !== undefined) {
+            child.stdin.on('error', () => {});
+            child.stdin.end(input);
+        }
+        child.on('error', (e) => end(new Error(e.code === 'ENOENT' ? 'no ssh command found; install the OpenSSH client' : `ssh: ${e.message}`)));
+        child.on('close', (code) => (code === 255 ? end(new Error(`ssh to ${o.user}@${o.host}:${o.port} failed`)) :
+            end(null, { status: code === null ? 1 : code, stdout: capture ? Buffer.concat(out).toString() : '' })));
+    }));
 }
 
 /* ---- finding the head unit ------------------------------------------------------------- */
 
-/* The SSH banner host:port serves (connecting from local when given), else null. */
+/* The SSH banner host:port serves (connecting from local when given);
+ * false when host answers there without SSH (refuses the connection, or
+ * closes it or greets otherwise); null when nothing answers. */
 function sshBanner(host, port, local, timeout = 4000) {
     return new Promise((resolve) => {
         const s = net.connect(Object.assign({ host, port: Number(port), timeout }, local ? { localAddress: local } : {}));
@@ -554,12 +610,12 @@ function sshBanner(host, port, local, timeout = 4000) {
             const nl = got.indexOf(10);
             if (nl >= 0 || got.length >= 255) {
                 const line = got.slice(0, nl >= 0 ? nl : got.length).toString('latin1').trim();
-                done(line.startsWith('SSH-') ? line : null);
+                done(line.startsWith('SSH-') ? line : false);
             }
         });
         s.on('timeout', () => done(null));
-        s.on('error', () => done(null));
-        s.on('end', () => done(null));
+        s.on('error', (e) => done(e.code === 'ECONNREFUSED' ? false : null));
+        s.on('end', () => done(false));
     });
 }
 
@@ -706,12 +762,17 @@ const NET = { banner: sshBanner, interfaces: () => enetInterfaces(), gateway: (l
 
 /* Where the head unit's sshd answers: the hotspot; else, on each ENET
  * interface, the address the gateway reports, then the last one that
- * answered. { host, port, bind, via } or null. */
+ * answered. { host, port, bind, via }; else { closed: <address> } when a
+ * head unit was found without SSH (the hotspot's address answered
+ * without it, or the gateway reported an address whose SSH does not
+ * answer); else null. */
 async function findUnit(d = NET) {
     const [hhost, hport] = HOTSPOT.split(':');
-    if (await d.banner(hhost, hport || '22', null)) {
+    const hotspot = await d.banner(hhost, hport || '22', null);
+    if (hotspot) {
         return { host: hhost, port: hport || '22', bind: null, via: `the car's hotspot (${hhost})` };
     }
+    let closed = hotspot === false ? (hport ? `${hhost}:${hport}` : hhost) : null;
     const last = d.last();
     // one interface at a time: an answer on the gateway's port names the interface asked
     for (const i of d.interfaces()) {
@@ -723,8 +784,9 @@ async function findUnit(d = NET) {
                 return { host: c, port: '22', bind: i.address, via: `ENET on ${i.name} (head unit ${c}${c === ip ? '' : ', the last that answered'})` };
             }
         }
+        closed = closed || ip;
     }
-    return null;
+    return closed ? { closed } : null;
 }
 
 /* What to check when no head unit answered. */
@@ -748,9 +810,12 @@ async function reach(o, d = NET) {
         process.stderr.write(`connecting to ${o.host}:${o.port} as given\n`);
         return;
     }
-    const u = await findUnit(d);
+    const u = await waiting('still looking for the head unit', () => findUnit(d));
     if (!u) {
         throw new Error(notFound(d));
+    }
+    if (u.closed) {
+        throw new Error(`found the head unit at ${u.closed}, but its SSH is closed: enable root SSH first, then run this again`);
     }
     Object.assign(o, { host: u.host, port: u.port, bind: u.bind });
     process.stderr.write(`connecting over ${u.via}\n`);
@@ -793,7 +858,7 @@ async function offerRestart(o, later = 'restart it from the Store') {
     if (!term || !/^y(es)?$/i.test((await promptLine('Restart the head unit now? [y/N] ', term)).trim())) {
         return 0;
     }
-    const r = ssh(o, RESTART, { input: Buffer.alloc(0), capture: true });
+    const r = await ssh(o, RESTART, { input: Buffer.alloc(0), capture: true });
     const refused = /\[Error\.\s*([^\]]*)\]/.exec(r.stdout);
     if (r.status === 3) {
         say(`An install is running on the head unit: ${later} once it is done.`);
@@ -857,8 +922,8 @@ const CODING_MISSING = {
 
 /* Stops (exit 2) before anything reaches the unit when its coding keeps
  * MainApp from starting; a check that cannot run lets the install go on. */
-function checkCoding(o) {
-    const r = ssh(o, CODING_CHECK, { input: Buffer.alloc(0), capture: true });
+async function checkCoding(o) {
+    const r = await ssh(o, CODING_CHECK, { input: Buffer.alloc(0), capture: true });
     const why = r.status === 0 ? CODING_MISSING[r.stdout.trim()] : null;
     if (why) {
         say(`The head unit's coding is missing: ${why}. This often happens after enabling SSH or flashing. ` +
@@ -910,7 +975,7 @@ async function firstInstall(o) {
     const label = from || STORE_REPO;
     const token = o.token ? await readToken('GitHub token for the updater (input hidden): ') : null;
     await reach(o);
-    if (!checkCoding(o)) {
+    if (!(await checkCoding(o))) {
         return 2;
     }
     const { components } = local || await githubComponents(await githubRepo(STORE_REPO, token));
@@ -922,11 +987,13 @@ async function firstInstall(o) {
         throw new Error(`${label}: the catalog has no mgu-deploy`);
     }
     const artifacts = [];
-    for (const c of chosen) {
-        const data = await c.fetch();
-        say(`  ${sha256(data)}  ${c.entry.artifact.name}`);
-        artifacts.push({ entry: c.entry, data });
-    }
+    await waiting('still downloading', async () => {
+        for (const c of chosen) {
+            const data = await c.fetch();
+            say(`  ${sha256(data)}  ${c.entry.artifact.name}`);
+            artifacts.push({ entry: c.entry, data });
+        }
+    });
     const deploy = artifacts.find((a) => a.entry.id === 'mgu-deploy');
     const entries = deployToolFiles(deploy.data)
         .concat(artifacts.map((a) => ({ name: `${withs.some((w) => w.id === a.entry.id) ? 'with' : 'artifacts'}/${a.entry.artifact.name}`,
@@ -937,21 +1004,22 @@ async function firstInstall(o) {
     const stage = `/var/opt/mgu-deploy-kit-${process.pid}`;
     const q = shQuote(stage);
     say(`installing on ${o.host}:${o.port}`);
-    const run = ssh(o, unpackKit(q) +
-        `{ sh ${q}/run.sh; st=$?; rm -rf ${q}; exit $st; }`, { input: tgz(entries, Math.floor(Date.now() / 1000)) });
+    const run = await ssh(o, unpackKit(q) +
+        `{ sh ${q}/run.sh; st=$?; rm -rf ${q}; exit $st; }`,
+    { input: tgz(entries, Math.floor(Date.now() / 1000)), wait: 'the head unit is still installing' });
     if (run.status !== 0) {
         say(`first-install: the install on the unit ended with status ${run.status}`);
         return run.status === 2 ? 2 : 1;
     }
     if (token) {
-        const t = addToken(o, token);
+        const t = await addToken(o, token);
         if (t !== 0) {
             return t;
         }
     }
     const services = [{ id: 'mgu-updater', unit: 'mgu-updater.service' }].concat(withs);
     // the status on stderr, shown as it comes; which services run on stdout (absent: not installed), then the status as JSON
-    const st = ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) =>
+    const st = await ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) =>
         `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`),
     [`sh ${DEPLOY} status --json 2>/dev/null | tail -n 1`]).join('; '), { capture: true });
     const lines = st.stdout.split('\n');
@@ -1013,8 +1081,8 @@ function tilesShow(line) {
 
 /* Adds a token through the deploy tool (on stdin); a running updater reads
  * its sources again with it. */
-function addToken(o, token) {
-    const r = ssh(o, `sh ${DEPLOY} updater-token && if systemctl is-active mgu-updater.service >/dev/null 2>&1; then ` +
+async function addToken(o, token) {
+    const r = await ssh(o, `sh ${DEPLOY} updater-token && if systemctl is-active mgu-updater.service >/dev/null 2>&1; then ` +
         `{ /usr/bin/node ${UPDATER_JS} check >/dev/null 2>&1 && echo 'the updater read its sources with it' || ` +
         `echo 'the updater uses it from its next check'; }; else echo 'the updater uses it once it runs'; fi`,
     { input: Buffer.from(`${token}\n`) });
@@ -1036,10 +1104,10 @@ async function tokenCommand(o) {
     const token = o.list || o.remove !== null ? null : await readToken('GitHub token for the updater (input hidden): ');
     await reach(o);
     if (o.list) {
-        return ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --list${o.json ? ' --json' : ''}`, { input: Buffer.alloc(0) }).status;
+        return (await ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --list${o.json ? ' --json' : ''}`, { input: Buffer.alloc(0) })).status;
     }
     if (o.remove !== null) {
-        return ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`, { input: Buffer.alloc(0) }).status;
+        return (await ssh(o, `${TOKENS_DEPLOY}sh ${DEPLOY} updater-token --remove ${shQuote(o.remove)}`, { input: Buffer.alloc(0) })).status;
     }
     return addToken(o, token);
 }
@@ -1056,15 +1124,16 @@ const DEPLOY_HAS = `if [ ! -e ${DEPLOY} ]; then echo absent; elif sh ${DEPLOY} h
  * published deploy tool's files) sent like first-install's and removed
  * after. The steps' lines show on stderr; stdout is returned. */
 function removeAllRun(o, kit, args) {
+    const wait = args === '--yes' ? 'the head unit is still removing the setup' : undefined;
     if (!kit) {
-        return ssh(o, `sh ${DEPLOY} remove-all ${args}`, { input: Buffer.alloc(0), capture: true });
+        return ssh(o, `sh ${DEPLOY} remove-all ${args}`, { input: Buffer.alloc(0), capture: true, wait });
     }
     // a published deploy tool without remove-all answers the listing with its whole usage
     const quiet = args === '--json' ? ' 2>/dev/null' : '';
     const q = shQuote(`/var/opt/mgu-deploy-kit-${process.pid}`);
     return ssh(o, unpackKit(q) +
         `{ sh ${q}/mgu-deploy.sh remove-all ${args}${quiet}; st=$?; rm -rf ${q}; exit $st; }`,
-    { input: tgz(kit, Math.floor(Date.now() / 1000)), capture: true });
+    { input: tgz(kit, Math.floor(Date.now() / 1000)), capture: true, wait });
 }
 
 /* The last line of a remove-all's stdout as JSON, or null. */
@@ -1106,7 +1175,7 @@ const AFTER_UNINSTALL = 'restart the head unit later';
 async function uninstall(o) {
     const from = o.from ? fromFolder(o.from) : null;
     await reach(o);
-    const has = ssh(o, DEPLOY_HAS, { input: Buffer.alloc(0), capture: true });
+    const has = await ssh(o, DEPLOY_HAS, { input: Buffer.alloc(0), capture: true });
     const which = has.status === 0 ? has.stdout.trim() : '';
     if (which === 'absent') {
         say('The Store setup is not on this head unit: nothing to remove.');
@@ -1122,7 +1191,7 @@ async function uninstall(o) {
         }
         kit = deployToolFiles(await c.fetch());
     }
-    const plan = lastJson(removeAllRun(o, kit, '--json').stdout);
+    const plan = lastJson((await removeAllRun(o, kit, '--json')).stdout);
     if (!plan || !Array.isArray(plan.apps) || !Array.isArray(plan.tools)) {
         say(kit ? 'The published deploy tool has no uninstall yet; nothing was removed.' :
             'The deploy tool on the head unit did not say what is installed; nothing was removed.');
@@ -1140,7 +1209,7 @@ async function uninstall(o) {
             return 0;
         }
     }
-    const run = removeAllRun(o, kit, '--yes');
+    const run = await removeAllRun(o, kit, '--yes');
     const result = lastJson(run.stdout);
     if (!result || !Array.isArray(result.left)) {
         say(`The uninstall on the head unit ended with status ${run.status}. Run uninstall again to finish.`);
@@ -1185,7 +1254,7 @@ function plainText(s) {
  * its exit status. */
 async function statusCommand(o) {
     await reach(o);
-    const has = ssh(o, STATUS_HAS, { input: Buffer.alloc(0), capture: true });
+    const has = await ssh(o, STATUS_HAS, { input: Buffer.alloc(0), capture: true });
     const which = has.status === 0 ? has.stdout.trim() : '';
     if (which === 'absent') {
         say('The Store is not installed on this head unit: it has no deploy tool.');
@@ -1195,7 +1264,7 @@ async function statusCommand(o) {
         say(`The head unit did not say which deploy tool it has (exit ${has.status}); nothing was run.`);
         return 1;
     }
-    const r = ssh(o, `sh ${DEPLOY} status${which === 'read-only' ? ' --read-only' : ''} 2>&1`, { input: Buffer.alloc(0), capture: true });
+    const r = await ssh(o, `sh ${DEPLOY} status${which === 'read-only' ? ' --read-only' : ''} 2>&1`, { input: Buffer.alloc(0), capture: true });
     process.stdout.write(plainText(r.stdout));
     if (which !== 'read-only') {
         say('(This deploy tool has no read-only status: it may have repaired things, as the updater does at its start.)');
@@ -1323,20 +1392,53 @@ function writeFolder(dest, files, catalog) {
     fs.rmSync(old, { recursive: true, force: true });
 }
 
-/* A published source (GitHub repo or catalog URL) as a stick folder. */
+/* The icon a component's catalog entry names, for the stick: { name:
+ * <id>.png, data } when it reads and matches its iconSha256, else null
+ * (said, never failing the stick). */
+async function stickIcon(c) {
+    const e = c.entry;
+    if (typeof e.icon !== 'string' || !e.icon) {
+        return null;
+    }
+    try {
+        const data = await c.icon();
+        if (typeof e.iconSha256 === 'string' && sha256(data) !== e.iconSha256.toLowerCase()) {
+            throw new Error('its sha256 does not match the catalog\'s');
+        }
+        return { name: `${e.id}.png`, data };
+    } catch (err) {
+        say(`  ${e.id}: icon left out (${err.message})`);
+        return null;
+    }
+}
+
+/* A published source (GitHub repo or catalog URL) as a stick folder. Each
+ * icon is copied beside catalog.json; one that is not keeps an https URL,
+ * which the updater fetches when it is online, and leaves out any other. */
 async function publishedFolder(components, commit, label) {
     const files = [];
     const entries = [];
-    for (const c of components) {
-        const data = await c.fetch();
-        const file = c.file || c.entry.artifact.name;
-        if (!plainName(file)) {
-            throw new Error(`${label}: unusable artifact name ${file}`);
+    await waiting('still downloading', async () => {
+        for (const c of components) {
+            const data = await c.fetch();
+            const file = c.file || c.entry.artifact.name;
+            if (!plainName(file)) {
+                throw new Error(`${label}: unusable artifact name ${file}`);
+            }
+            files.push({ name: file, data });
+            say(`  ${c.entry.id} ${c.entry.version}  ${file}`);
+            const icon = await stickIcon(c);
+            const entry = Object.assign({}, c.entry);
+            if (icon) {
+                files.push(icon);
+                Object.assign(entry, { icon: icon.name, iconSha256: sha256(icon.data) });
+            } else if (!/^https:\/\//.test(entry.icon || '')) {
+                delete entry.icon;
+                delete entry.iconSha256;
+            }
+            entries.push(stickEntry(entry, file, data));
         }
-        files.push({ name: file, data });
-        entries.push(stickEntry(c.entry, file, data));
-        say(`  ${c.entry.id} ${c.entry.version}  ${file}`);
-    }
+    });
     return { files, catalog: Object.assign({ schema: 2 }, commit ? { commit } : {}, { components: entries }) };
 }
 
@@ -1345,7 +1447,26 @@ async function urlComponents(url) {
     const catalog = parseCatalog((await get(url, { max: 4 << 20 })).toString('utf8'), url);
     return { commit: catalog.commit, components: catalog.components.map((entry) => ({ entry,
         fetch: () => get(new URL(entry.artifact.url || entry.artifact.name, url).toString(), { max: entry.artifact.size })
-            .then((d) => checked(entry.artifact.name, d, entry.artifact.size, entry.artifact.sha256)) })) };
+            .then((d) => checked(entry.artifact.name, d, entry.artifact.size, entry.artifact.sha256)),
+        icon: () => get(new URL(entry.icon, url).toString(), { max: ICON_MAX }) })) };
+}
+
+/* An icon a folder's catalog names: an https URL, or a file inside the folder. */
+function dirIcon(dir, ref) {
+    if (/^https:\/\//.test(ref)) {
+        return get(ref, { max: ICON_MAX });
+    }
+    return Promise.resolve().then(() => {
+        const rel = ref.replace(/^\.\//, '');
+        if (!plainName(path.posix.basename(rel)) || rel.split('/').some((x) => !x || x === '..')) {
+            throw new Error(`unusable icon path ${ref}`);
+        }
+        const file = path.join(dir, ...rel.split('/'));
+        if (fs.statSync(file).size > ICON_MAX) {
+            throw new Error(`more than ${ICON_MAX} bytes`);
+        }
+        return fs.readFileSync(file);
+    });
 }
 
 /* A folder with catalog.json (a dir: publish): its artifacts read beside it. */
@@ -1354,13 +1475,14 @@ function dirComponents(dir) {
     return { commit: catalog.commit, components: catalog.components.map((entry) => {
         const rel = (entry.artifact.url || entry.artifact.name).replace(/^\.\//, '');
         if (/^https?:/.test(rel)) {
-            return { entry, fetch: () => get(rel, { max: entry.artifact.size }).then((d) => checked(entry.artifact.name, d, entry.artifact.size, entry.artifact.sha256)) };
+            return { entry, fetch: () => get(rel, { max: entry.artifact.size }).then((d) => checked(entry.artifact.name, d, entry.artifact.size, entry.artifact.sha256)),
+                icon: () => dirIcon(dir, entry.icon) };
         }
         if (!plainName(path.posix.basename(rel)) || rel.split('/').includes('..')) {
             throw new Error(`${dir}: unusable artifact path ${rel}`);
         }
         const read = () => checked(entry.artifact.name, fs.readFileSync(path.join(dir, ...rel.split('/'))), entry.artifact.size, entry.artifact.sha256);
-        return { entry, file: path.posix.basename(rel), read, fetch: () => Promise.resolve().then(read) };
+        return { entry, file: path.posix.basename(rel), read, fetch: () => Promise.resolve().then(read), icon: () => dirIcon(dir, entry.icon) };
     }) };
 }
 
@@ -1601,12 +1723,28 @@ function parse(argv) {
     return o;
 }
 
+/* On Ctrl+C (SIGINT) or SIGTERM: one line saying how to finish, the ssh
+ * processes stopped, then the exit the signal would have made. */
+function stopOn(signal) {
+    process.once(signal, () => {
+        process.stderr.write(`${process.stderr.isTTY ? os.EOL : ''}stopped; run the same command again to finish${os.EOL}`);
+        sshRunning.forEach((c) => c.kill(signal));
+        if (process.platform === 'win32') {
+            // STATUS_CONTROL_C_EXIT, as a console's Ctrl+C ends a program
+            process.exit(-1073741510);
+        }
+        process.kill(process.pid, signal);
+    });
+}
+
 async function main(argv) {
     const o = parse(argv);
     if (!o.command || o.command === 'help' || o.command === '--help') {
         say(USAGE);
         return 0;
     }
+    stopOn('SIGINT');
+    stopOn('SIGTERM');
     if (Number(process.versions.node.split('.')[0]) < 18) {
         throw new Usage(`Node 18 or newer is needed (this is ${process.version})`);
     }

@@ -2,9 +2,11 @@
 /**
  * Reads a stick the way the updater does (native/mgu-updater/js/sources.js),
  * on the unit's Node: node stick_read.js <media folder>. Prints JSON:
- * { "<source id>": { mode, copyOf, components: [{ id, kind, version, build, ok }],
+ * { "<source id>": { mode, copyOf, components: [{ id, kind, version, build, ok, icon }],
  * skipped } }, where ok says the artifact (or, for a repo tree, the
- * component's packed folder) reads and matches the listed size and sha256.
+ * component's packed folder) reads and matches the listed size and sha256,
+ * and icon, for an entry naming one, that its icon reads and matches its
+ * iconSha256 (or the error).
  */
 const fs = require('fs');
 const os = require('os');
@@ -23,9 +25,11 @@ sources.usbSources(mounts, [media]).reduce((p, u) => p.then(() => {
         const bytes = cat.mode === 'repo' ?
             r.files(null, null, e.path).then((files) => sources.packComponent(e, sources.subtree(files, e.path))) :
             r.artifact(e, null);
+        const icon = !e.icon ? Promise.resolve(undefined) : r.icon(e).then((b) => !e.icon.sha256 ||
+            crypto.createHash('sha256').update(b).digest('hex') === e.icon.sha256, (err) => err.message);
         return bytes.then((b) => b.length === (e.artifact.size || b.length) &&
             (!e.artifact.sha256 || crypto.createHash('sha256').update(b).digest('hex') === e.artifact.sha256), (err) => err.message)
-            .then((ok) => ({ id: e.id, kind: e.kind, version: e.version, build: e.build, title: e.title, ok }));
+            .then((ok) => icon.then((i) => ({ id: e.id, kind: e.kind, version: e.version, build: e.build, title: e.title, ok, icon: i })));
     })).then((components) => {
         out[u.id] = { mode: cat.mode, copyOf: cat.copyOf || null, components, skipped: cat.skipped || [] };
     }), (err) => {

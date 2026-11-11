@@ -6,7 +6,8 @@
  *
  * config: { files: [<path>, ...], repos: { "<owner>/<repo>": { token (a
  * private repo's), catalog (the index of the catalog release's
- * catalog.json, or absent), releases: [{ draft, prerelease, assets:
+ * catalog.json, or absent), catalogAssets: [{ name, n }] (the catalog
+ * release's other assets), releases: [{ draft, prerelease, assets:
  * [{ name, n }] }] } } }. Asset n is /repos/<o>/<r>/releases/assets/<n>,
  * which redirects to localhost (another host) for files[n]. Writes its port
  * to <port file> once listening; each request is a JSON line in <log>
@@ -50,7 +51,7 @@ const server = http.createServer((req, res) => {
         return res.end();
     }
     if (rest === '/releases/tags/catalog' && repo.catalog !== undefined) {
-        return send(200, JSON.stringify({ tag_name: 'catalog', assets: assets([{ name: 'catalog.json', n: repo.catalog }]) }));
+        return send(200, JSON.stringify({ tag_name: 'catalog', assets: assets([{ name: 'catalog.json', n: repo.catalog }].concat(repo.catalogAssets || [])) }));
     }
     if (rest === '/releases') {
         return send(200, JSON.stringify((repo.releases || []).map((r) => Object.assign({}, r, { assets: assets(r.assets) }))));

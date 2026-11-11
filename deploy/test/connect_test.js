@@ -47,14 +47,14 @@ function tcpServer(onConn) {
 }
 
 /* Stand-ins for the network: the answering addresses, a gateway and DID answer per interface address. */
-function fakeNet({ answering = [], gateways = {}, dids = {}, last = null, ifaces = [], platform = 'darwin' }) {
+function fakeNet({ answering = [], closed = [], gateways = {}, dids = {}, last = null, ifaces = [], platform = 'darwin' }) {
     const log = [];
     return {
         log,
         platform,
         banner: async (host, port, local) => {
             log.push(`banner ${host}:${port}${local ? ` from ${local}` : ''}`);
-            return answering.includes(host) ? 'SSH-2.0-fake' : null;
+            return answering.includes(host) ? 'SSH-2.0-fake' : closed.includes(host) ? false : null;
         },
         interfaces: () => ifaces,
         gateway: async (local) => {
@@ -108,7 +108,32 @@ async function testOrder() {
 
     d = fakeNet({ ifaces: [EN], gateways: { [EN.address]: '169.254.0.8' }, dids: { [EN.address]: '169.254.1.2' }, last: '169.254.9.9' });
     u = await mi.findUnit(d);
-    check('find: nothing serving SSH -> none, nothing remembered', u === null && !d.log.some((l) => l.startsWith('save')), d.log);
+    check('find: the gateway reports the head unit but its SSH does not answer -> found closed there, nothing remembered',
+        u && u.closed === '169.254.1.2' && !u.host && !d.log.some((l) => l.startsWith('save')), `${JSON.stringify(u)} ${d.log}`);
+
+    d = fakeNet({ ifaces: [EN], last: '169.254.9.9', closed: ['169.254.9.9'] });
+    u = await mi.findUnit(d);
+    check('find: only the last address, without SSH -> none (no proof it is the head unit)', u === null, `${JSON.stringify(u)} ${d.log}`);
+
+    d = fakeNet({ closed: ['172.16.222.97'] });
+    u = await mi.findUnit(d);
+    check('find: the hotspot address answers port 22 without SSH -> found closed there', u && u.closed === '172.16.222.97', JSON.stringify(u));
+
+    d = fakeNet({ closed: ['172.16.222.97'], answering: ['169.254.1.2'], ifaces: [EN], gateways: { [EN.address]: '169.254.0.8' },
+        dids: { [EN.address]: '169.254.1.2' } });
+    u = await mi.findUnit(d);
+    check('find: hotspot closed but ENET answers -> ENET', u && u.host === '169.254.1.2', JSON.stringify(u));
+
+    for (const net of [{ closed: ['172.16.222.97'] }, { ifaces: [EN], gateways: { [EN.address]: '169.254.0.8' }, dids: { [EN.address]: '169.254.1.2' } }]) {
+        d = fakeNet(net);
+        let e = null;
+        await mi.reach(mi.parse(['status']), d).catch((x) => {
+            e = x;
+        });
+        const at = net.closed ? '172.16.222.97' : '169.254.1.2';
+        check(`reach: found at ${at} with SSH closed says so, not the no-car text`, e &&
+            e.message === `found the head unit at ${at}, but its SSH is closed: enable root SSH first, then run this again`, e && e.message);
+    }
 
     d = fakeNet({});
     u = await mi.findUnit(d);
@@ -119,8 +144,8 @@ async function testOrder() {
     await mi.reach(mi.parse(['first-install']), d).catch((e) => {
         err = e;
     });
-    check('reach: nothing found says what to check', err && /hotspot/.test(err.message) && /ENET/.test(err.message) && /--host/.test(err.message),
-        err && err.message);
+    check('reach: nothing found says what to check', err && err.message.startsWith('no head unit answered SSH. Join the car\'s Wi-Fi hotspot') &&
+        /ENET/.test(err.message) && /--host/.test(err.message), err && err.message);
 
     d = fakeNet({ platform: 'linux' });
     err = null;
@@ -202,8 +227,8 @@ async function testBanner() {
     const closedPort = closed.address().port;
     await new Promise((r) => closed.close(r));
     check('banner: an SSH server\'s first line', await mi.sshBanner('127.0.0.1', ssh.address().port, '127.0.0.1') === 'SSH-2.0-OpenSSH_7.8');
-    check('banner: another service is none', await mi.sshBanner('127.0.0.1', http.address().port) === null);
-    check('banner: a closed port is none', await mi.sshBanner('127.0.0.1', closedPort) === null);
+    check('banner: another service is an answer without SSH (false)', await mi.sshBanner('127.0.0.1', http.address().port) === false);
+    check('banner: a refused port is an answer without SSH (false)', await mi.sshBanner('127.0.0.1', closedPort) === false);
     const t0 = Date.now();
     check('banner: a silent port is none after the timeout', await mi.sshBanner('127.0.0.1', silent.address().port, null, 300) === null &&
         Date.now() - t0 < 3000);
