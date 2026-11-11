@@ -353,7 +353,7 @@ updater only, which relays these; `status.json` shows the results.
 | Request | |
 |---|---|
 | `{"op": "prefer", "kind": "phone"}` | the group tried first (`wifi`, `usb`, `phone`; `""` for none); takes effect within 5 s |
-| `{"op": "wifi-enable", "on": true}` | Wi-Fi on or off; on also scans once, as soon as the supplicant can (after a wireless CarPlay or Android Auto session) |
+| `{"op": "wifi-enable", "on": true}` | Wi-Fi on or off; on also scans at once, as `wifi-scan` does |
 | `{"op": "wifi-5ghz", "on": true}` | Allow 5 GHz: joins on either band (The band, above) |
 | `{"op": "usb-phone", "on": false}` | phones over USB taken or left alone (Phones over USB switched off, above) |
 | `{"op": "wifi-scan"}` | scan now |
