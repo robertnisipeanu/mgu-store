@@ -3194,11 +3194,15 @@ function installTool(a, state, tx) {
     /* an older version, or one from another source (a.otherSource): the
      * version it replaces runs its deactivate first, with all of it in
      * place, as at its removal; a failed one keeps that version current.
-     * Firmware-moved, it is recorded as deactivated instead, so no later
+     * Firmware-moved, an older version still runs it (the version it
+     * replaces may have changed the firmware's files since, through its
+     * own tool, and the older one does not know what it changed); one from
+     * another source is recorded as deactivated instead, so no later
      * install runs it. */
-    var replaces = !!prev && !!prev.deactivate && before !== c.version && (a.otherSource || semverCmp(c.version, before) < 0);
-    if (replaces && moved) noteHook(state, c.id, before, 'deactivate');
-    if (replaces && !moved) {
+    var older = !!prev && before !== c.version && semverCmp(c.version, before) < 0;
+    var replaces = !!prev && !!prev.deactivate && before !== c.version && (a.otherSource || older);
+    if (replaces && moved && !older) noteHook(state, c.id, before, 'deactivate');
+    if (replaces && (!moved || older)) {
         tx.deactivated = true;
         var dr = runHook(c.id, path.join(versions, before), prev, 'deactivate', state);
         if (!dr.ok) throw refuse(c.id + ' ' + before + ': deactivate ' + dr.why + '; ' + before + ' stays current');
@@ -8093,6 +8097,21 @@ function rollbackAppCmd(id) {
     say(id + ' rolled back to ' + prev.version);
     return 0;
 }
+/* The installed tools (but the deploy tool) a restore of the backup data
+ * moves off the version current now: its record of the tool's current is
+ * absent (the tool goes) or names another version. [{ id, dir (the version
+ * folder), c (its component.json) }] */
+function restoreLeaves(data) {
+    var rec = {};
+    data.entries.forEach(function (e) { rec[e.path] = e; });
+    return installedTools().filter(function (t) {
+        var e = rec[path.join(t.root, 'current')], cur = currentTarget(t.root);
+        return t.id !== 'mgu-deploy' && !!e && !!cur && !(e.kind === 'symlink' && path.basename(e.target) === cur);
+    }).map(function (t) {
+        var dir = path.join(t.root, 'versions', currentTarget(t.root));
+        return { id: t.id, dir: dir, c: readJsonOrNull(path.join(dir, 'component.json')) || t.component };
+    });
+}
 function cmdRestore(args) {
     var name = args.positional[0] || 'stock';
     var dir = path.join(BACKUPS_DIR, name);
@@ -8118,8 +8137,18 @@ function cmdRestore(args) {
     var backup;
     try { backup = takeSnapshot('restore', paths); }
     catch (e) { if (unbound) bindCopy(); throw e; }
-    var appsBefore = installedApps().map(function (a) { return a.id; });
+    var appsBefore = installedApps().map(function (a) { return a.id; }), deactivated = [];
     try {
+        /* each tool the restore moves off its version, or removes, runs that
+         * version's deactivate first, with all of it in place, as a
+         * rollback or removal does; a failed one refuses the restore */
+        restoreLeaves(data).forEach(function (t) {
+            if (!t.c.deactivate) return;
+            deactivated.push(t);
+            var dr = runHook(t.id, t.dir, t.c, 'deactivate', state);
+            if (!dr.ok) throw refuse(t.id + ' ' + t.c.version + ': deactivate ' + dr.why + '; nothing restored');
+            if (dr.reboot) addPending(state, t.id, dr.reboot);
+        });
         var fbWas = fallbackState();
         var privacyCurrent = path.join(CFG.varOpt, 'app-privacy', 'current'), reverted = false;
         if (data.entries.some(function (e) { return e.path === privacyCurrent && e.kind === 'absent'; }) &&
@@ -8160,6 +8189,12 @@ function cmdRestore(args) {
          * stopped: no record, no kept package, no data set aside */
         var finish = function () {
             removed.forEach(function (id) { forgetApp(state, id); });
+            /* a tool's version made current by the restore, or the tool
+             * removed, keeps no deactivate record of it */
+            deactivated.forEach(function (t) {
+                var root = path.dirname(path.dirname(t.dir)), now = currentTarget(root);
+                noteHook(state, t.id, now || t.c.version, 'gone');
+            });
             if (!lstatOrNull(privacyCurrent)) {
                 state.pending_reboot = state.pending_reboot.filter(function (p) { return p.id !== 'app-privacy'; });
             }
@@ -8177,6 +8212,11 @@ function cmdRestore(args) {
             try { restoreSnapshot(backup); settleFallback(); } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
         } else if (unbound && !bindMounted(mainJs())) {
             bindCopy();
+        }
+        /* the versions deactivated are current again: activated again */
+        if (deactivated.length) {
+            deactivated.forEach(function (t) { reactivate(t.id, t.dir, state); });
+            try { saveState(state); } catch (e3) { warn('state.json: ' + e3.message); }
         }
         throw e;
     }
