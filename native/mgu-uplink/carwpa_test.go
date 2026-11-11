@@ -33,6 +33,7 @@ type fakeCar struct {
 	disconnected bool
 	bss          []fakeBSS
 	calls        []string
+	scans        []string // each Scan's arguments
 	state        string
 	groups       map[string]fakeGroup // the P2P group interfaces, by name
 	refuse       string               // a network property Set refuses
@@ -292,6 +293,7 @@ func (f *fakeCar) reply(m dbusMsg) (string, string, []any) {
 		f.current, f.disconnected = "", true
 		return "", "", nil
 	case "Scan":
+		f.scans = append(f.scans, fmt.Sprint(m.body))
 		return "", "", nil
 	}
 	return "org.freedesktop.DBus.Error.UnknownMethod", "", nil
