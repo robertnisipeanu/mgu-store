@@ -1194,9 +1194,6 @@ files), with
   doom2, with its download), its update landing on doom2, a package built
   elsewhere blocked, a build that comes out under the old id refused, a
   source package made over and installed as `shared2`, the removal;
-  `test/test_rename_real.js <idrive7-apps clone> [<app>...]` builds its apps
-  under another id with the repo's own `build.py` on the machine's python3
-  (`run.sh` runs it when `IDRIVE7_APPS` names a clone);
 - the head unit and compatibility: the unit from the deploy tool, an
   iDrive 8 app refused on iDrive 7 (and not on iDrive 8); an App Manager
   index (packages kept by sha256, one that does not match left out, a kept

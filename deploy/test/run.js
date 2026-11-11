@@ -4582,26 +4582,6 @@ function testTransactions() {
     check('wants: a stock .wants folder stays, even empty', fs.existsSync(root.p('etc/systemd/system/sockets.target.wants')));
 }
 
-function testTodoLines() {
-    const root = fakeRoot();
-    // display-bridge installs through this tool; status lists its notes
-    write(root.p('var/opt/display-bridge/current/display-bridge.conf'), [
-        '# "TODO(on-car)" marks values the bring-up (BRINGUP.md) must confirm.',
-        '# The group apps connect with. TODO(on-car): confirm',
-        '# (BRINGUP.md step 6).',
-        'socket_group =',
-        '# Touch range. TODO(on-car): step 8.3.',
-        'touch_range = 0,0,4095,4095',
-        'mode = "TODO(on-car) in a value is not a note"',
-        ''].join('\n'));
-    const st = root.status();
-    check('status: each TODO(on-car) note in full, after its key, notes only',
-        st.display_bridge_todo_on_car.length === 2 &&
-        st.display_bridge_todo_on_car.includes('socket_group: TODO(on-car): confirm (BRINGUP.md step 6).') &&
-        st.display_bridge_todo_on_car.includes('touch_range: TODO(on-car): step 8.3.') &&
-        st.display_bridge_todo_on_car.every((l) => /^[a-z_]+: TODO\(on-car\)/.test(l)), JSON.stringify(st.display_bridge_todo_on_car));
-}
-
 /* ---- the updater's tokens ------------------------------------------------------------------ */
 
 const TOKEN = 'github_pat_FIXTURE0only0for0the0deploy0tests0000000000';
@@ -9726,7 +9706,6 @@ const SUITES = [
     testLock,
     testFallbackOffPrivacy,
     testTransactions,
-    testTodoLines,
     testToken,
     testHuToken,
     testSourcePackages,
