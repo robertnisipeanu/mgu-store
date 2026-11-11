@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `--read-only` belongs to `status` alone: any other command given it refuses (exit 2) and changes nothing.
+
 ## 0.8.13
 
 - On iDrive 7, an app of ours the app manager registered without a `custom_apps.json` entry, such as one it put back from `preinstalled_apps` itself, gets its tile again: `status` run as root and every app install list it, from the app manager's next start, and an install in which every app is current (re-running the installer's `first-install`) lists it, or finds it listed since the app manager started, and restarts the app manager once.

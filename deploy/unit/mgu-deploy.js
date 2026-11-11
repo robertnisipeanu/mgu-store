@@ -8351,6 +8351,7 @@ function runCommand() {
         'appmanager', 'verify', 'remove-unused']
         .indexOf(args.command) >= 0;
     try {
+        if (args.readOnly && args.command !== 'status') throw refuse('--read-only is only for status');
         if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0 && rootOnly) {
             throw refuse('run as root');
         }

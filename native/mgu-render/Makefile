@@ -20,7 +20,11 @@ XML      = protocol/ivi-application.xml protocol/ivi-controller.xml protocol/way
 GEN_DIR  = build/$(OUT)/protocol
 GEN_H    = $(XML:protocol/%.xml=$(GEN_DIR)/%-client-protocol.h)
 GEN_C    = $(XML:protocol/%.xml=$(GEN_DIR)/%-protocol.c)
-TARGET_IMAGE = mgu-render-target
+# The build image's tag is a hash of its build context (file names and contents):
+# different definitions never share a tag, identical ones reuse the image.
+SHA256  := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo 'shasum -a 256')
+TARGET_HASH := $(shell cd docker/target && find . -type f | LC_ALL=C sort | while read -r f; do echo "$$f"; cat "$$f"; done | $(SHA256) | cut -c1-16)
+TARGET_IMAGE = mgu-render-target:$(TARGET_HASH)
 TEST_IMAGE   = mgu-render-test
 RUN = $(DOCKER) run --rm -v "$(CURDIR):/w" -w /w -u $$(id -u):$$(id -g)
 
@@ -32,6 +36,7 @@ check-protocol:
 	python3 tools/check_protocol_abi.py --lib $(IVI_LIB_DIR)/libivi-controller.so.1.11.0 --xml protocol/ivi-controller.xml
 
 target:
+	@test -n "$(TARGET_HASH)" || { echo "could not hash docker/target"; exit 2; }
 	$(DOCKER) build -q --platform linux/amd64 -t $(TARGET_IMAGE) docker/target >/dev/null
 	$(RUN) --platform linux/amd64 $(TARGET_IMAGE) make -s in-build OUT=target LDFLAGS=-Wl,--dynamic-linker=/lib/ld-linux-x86-64.so.2
 

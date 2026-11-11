@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Build: the build image's tag is a hash of its definition, so builds from different definitions never share an image.
+
 ## 0.6.19
 
 - No Remove in the Store: the Renderer stays while the Store is installed.

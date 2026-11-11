@@ -828,11 +828,13 @@ on and off (privileged `web` op) and shows its QR code.
   fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
   is the daemon's own regular file; the journals of `mgu-updater`,
-  `mgu-uplink` and `mgu-app-fallback` (the deploy tool's unit; its own
-  runs log as `deploy:` lines in `log_file`) through the privileged `logs`
+  `mgu-uplink`, `mgu-app-fallback` (the deploy tool's unit; its own
+  runs log as `deploy:` lines in `log_file`), the Renderer's `mgu-render`
+  and `mgu-render-hmi`, and `mgu-deploy-verify` (the deploy tool's check
+  after a restart) through the privileged `logs`
   op, since the journal is not readable to the web uid:
   `{"op":"logs","unit","lines","secret"}` → `{"type":"logs","unit","text"}`
-  (`journalctl -u <unit> -n <lines> --no-pager`, those three units only,
+  (`journalctl -u <unit> -n <lines> --no-pager`, those units only,
   1–1000 lines). Requests carry `rid`; the daemon's direct reply to one
   (state, error or logs) carries it back.
 
