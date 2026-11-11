@@ -487,6 +487,7 @@ func TestCarWiFi(t *testing.T) {
 		t.Fatal("touched the car's rfkill")
 	}
 	// one scan for switching on, one for the request
+	waitWiFi(t, p, "the switch-on scan", func(wifiStatus) bool { return f.called("Scan") == 1 })
 	if err := p.scan(); err != nil || f.called("Scan") != 2 {
 		t.Fatalf("scan: %v, %d scans", err, f.called("Scan"))
 	}

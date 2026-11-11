@@ -179,6 +179,7 @@ type wifiProvider struct {
 	dropped    map[string]bool // on every band after a join on 2.4 GHz did not work
 	stuckSince time.Time
 	bandScanAt time.Time
+	lookedFrom time.Time // the first session look since a gap (reqMu)
 
 	wake  chan struct{}
 	stopc chan struct{}
@@ -419,8 +420,13 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	if st.Link == "connected" || st.Link == "connecting" {
 		st.SSID = unescape(ws["ssid"])
 	}
+	// a session shows only in traffic between looks (projection.look): the
+	// looks since a gap span a tick before sess can be trusted to show one
+	if time.Since(p.proj.last) > projectionGap {
+		p.lookedFrom = time.Now()
+	}
 	sess := p.session()
-	p.scanOnce(sess)
+	p.scanOnce(sess, time.Since(p.lookedFrom) >= wifiEvery)
 	now := time.Now()
 	p.mu.Lock()
 	st.Scanning = now.Before(p.scanUntil)
@@ -515,11 +521,11 @@ func (p *wifiProvider) up(st *wifiStatus) {
 // scanOnce runs the scan that switching Wi-Fi on asks for, so the list
 // fills without a scan request: once the supplicant takes requests, with no
 // join under way and no wireless CarPlay or Android Auto session (whose
-// channel a scan of every channel would leave); until then it waits. With
-// reqMu held.
-func (p *wifiProvider) scanOnce(sess projSession) {
+// channel a scan of every channel would leave); until then it waits. known:
+// sess can show a session. With reqMu held.
+func (p *wifiProvider) scanOnce(sess projSession, known bool) {
 	p.mu.Lock()
-	want := p.scanOnUp && p.joining == "" && sess.kind == ""
+	want := p.scanOnUp && known && p.joining == "" && sess.kind == ""
 	p.mu.Unlock()
 	if !want || !p.wpa.ready() {
 		return

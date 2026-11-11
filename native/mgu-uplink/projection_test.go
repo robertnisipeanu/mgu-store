@@ -485,21 +485,12 @@ func TestWiFiSessionMGU(t *testing.T) {
 // request; during wireless CarPlay that scan waits for the session's end.
 func TestWiFiOnScansOnce(t *testing.T) {
 	p, f, phone := carSession(t)
+	wifiEvery = 200 * time.Millisecond // the phone's traffic grows between two looks, as on a car
 	p.start()
 	defer p.stop()
 	waitWiFi(t, p, "off", func(st wifiStatus) bool { return st.Link == "off" })
 	phone(true, "p2p-wlanc0-0")
-	for end := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		p.reqMu.Lock()
-		kind := p.session().kind
-		p.reqMu.Unlock()
-		if kind == projCarPlay {
-			break
-		}
-		if time.Now().After(end) {
-			t.Fatal("no CarPlay session")
-		}
-	}
+	time.Sleep(4 * wifiEvery)
 
 	p.setEnabled(true)
 	waitWiFi(t, p, "2.4 GHz only", oursAre(f, "scan_freq", freqList(freqs24), true))

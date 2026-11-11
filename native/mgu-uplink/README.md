@@ -211,7 +211,7 @@ above Wi-Fi (`preferred = phone` with a phone, `usb` with an adapter or
 stick), and Wi-Fi is not joined, our networks are switched off in the car's
 supplicant (`wifi.link` `idle`). With none enabled, it stops its periodic
 scans. They are switched on again as soon as that uplink is offline or gone,
-and for 8 s after a `wifi-scan` request. A start or a Wi-Fi switch-on adds
+and for 8 s after a `wifi-scan` request or the scan of a switch-on. A start or a Wi-Fi switch-on adds
 them switched on.
 
 #### The band
@@ -319,7 +319,7 @@ taken), and `preferred` while a group is preferred:
 
 `networks` is the latest scan (the strongest per name, at most 20,
 strongest first), `saved` the saved names, `scanning` true for 8 s after a
-scan request, `signal` dBm, `backend` what joins (`mgu-wpa` or
+scan request or a switch-on, `signal` dBm, `backend` what joins (`mgu-wpa` or
 `car-supplicant`) while Wi-Fi is on and there is a radio, `paused`
 (`carplay`, `android-auto`) while the supplicant makes no scans of its own
 during that wireless session, `freq` the frequency (MHz) of the access
