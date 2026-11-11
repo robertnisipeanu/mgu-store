@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.12
+
 - Installing or updating an app, or carrying a kept data folder into one, removes the code cache of its earlier bundle (`data/app.js.bytecode`). The head unit's Node accepts that cache for any bundle of the same length, so an update that kept the length would run the earlier version's code.
 
 ## 0.8.11
