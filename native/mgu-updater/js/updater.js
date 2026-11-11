@@ -38,7 +38,6 @@ const ID = catalogLib.ID;
 
 const HERE = __dirname;
 const SELF = 'mgu-updater';
-const DEPLOY = 'mgu-deploy';
 // the tools the Store's setup installs: the updater never removes them (the computer's uninstall does)
 const STORE_TOOLS = ['mgu-deploy', 'app-privacy', 'mgu-updater', 'mgu-python', 'mgu-render', 'mgu-uplink'];
 // the deploy tool's exit status when its MainApp guard stopped the run: what it changed stays
@@ -2695,7 +2694,7 @@ class Updater {
             return !!min && !this.requirementMet(SELF, min);
         };
         const store = (q) => q.op === 'install' && (q.unit || q.id) === this.conf.store_app;
-        let i = this.queue.findIndex((q) => q.op === 'install' && q.id === DEPLOY && !needsSelf(q));
+        let i = this.queue.findIndex((q) => q.op === 'install' && q.id === this.conf.deploy_tool && !needsSelf(q));
         if (i < 0) {
             i = this.queue.findIndex((q) => q.id !== SELF && !needsSelf(q) && !store(q));
         }

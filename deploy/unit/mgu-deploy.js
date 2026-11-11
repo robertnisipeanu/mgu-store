@@ -2165,7 +2165,7 @@ var HMI_READ;
  * kept for the rest of this start of the head unit. */
 function mainappHmi() {
     if (HMI_READ) return HMI_READ;
-    var raw = { hmiVersion: process.env.MGU_DEPLOY_HMI_VERSION, brand: process.env.MGU_DEPLOY_HMI_BRAND }, boot = bootId();
+    var raw = { hmiVersion: process.env.MGU_DEPLOY_HMI_VERSION || undefined, brand: process.env.MGU_DEPLOY_HMI_BRAND }, boot = bootId();
     if (raw.hmiVersion === undefined && !FAKE) {
         var kept = readJsonOrNull(hmiReadFile());
         if (kept && kept.boot === boot && typeof kept.hmiVersion === 'string') raw = kept;
@@ -2175,7 +2175,7 @@ function mainappHmi() {
             var r = iface ? run(CFG.node, ['-e', HMI_READER, iface, env('MGU_DEPLOY_SOMEIP', '/usr/lib/someip.node'),
                 path.join(CFG.mainapp, 'node_modules', 'codings.node')], { allowFail: true, timeout: 15000 }) : null;
             raw = (r && lastJsonLine(r.stdout)) || {};
-            if (typeof raw.hmiVersion === 'string') {
+            if (typeof raw.hmiVersion === 'string' && !statusReadOnly) {
                 try { mkdirp(CFG.run); writeAtomic(hmiReadFile(), JSON.stringify({ boot: boot, hmiVersion: raw.hmiVersion, brand: raw.brand })); }
                 catch (e) { /* read again next time */ }
             }
@@ -2224,21 +2224,31 @@ function editId7Parts(a, tree) {
     edits.forEach(function (e) { fs.writeFileSync(e.file, e.text); });
     if (edits.length) say(a.id + ' ' + a.version + ': its iDrive 7 HMI parts listed for ' + otherHmiReported() + ', which this head unit reports');
 }
+/* rel (application.json's "./a/b") inside src, or null. */
+function insideRhmi(src, rel) {
+    var r = typeof rel === 'string' ? path.normalize(rel) : null;
+    return r && safeRel(r) ? path.join(src, r) : null;
+}
 /* The iDrive 7 parts of the rhmiData folder src for brand, as MainApp
  * merges them: { uiDescription: {name: path}, strings: {name: text},
- * resources: {name: path} }, or null when it has no iDrive 7 UI. */
+ * resources: {name: path} }, regular files inside src only, or null when it
+ * has no iDrive 7 UI there. */
 function id7Parts(src, brand) {
     var app = (readJsonOrNull(path.join(src, 'application.json')) || {}).application;
     var ui = app && Array.isArray(app.uiDescriptions) ? app.uiDescriptions.filter(listsId7)[0] : null;
-    if (!ui || typeof ui.applicationFilePath !== 'string' || typeof ui.uiDescriptionFilePath !== 'string') return null;
+    var uiFiles = ui ? [insideRhmi(src, ui.applicationFilePath), insideRhmi(src, ui.uiDescriptionFilePath)] : [null];
+    var regular = function (p) { var st = p && lstatOrNull(p); return !!st && st.isFile(); };
+    if (!uiFiles.every(regular)) return null;
     var out = { uiDescription: {}, strings: {}, resources: {} }, texts = {};
-    [ui.applicationFilePath, ui.uiDescriptionFilePath].forEach(function (p) { out.uiDescription[path.basename(p)] = path.join(src, p); });
+    uiFiles.forEach(function (p) { out.uiDescription[path.basename(p)] = p; });
     (Array.isArray(app.variantGroups) ? app.variantGroups : []).forEach(function (g) {
         if (!listsId7(g) || !Array.isArray(g.brands) || g.brands.indexOf(brand) < 0) return;
         function each(rel, fn) {
-            if (typeof rel !== 'string') return;
-            try { fs.readdirSync(path.join(src, rel)).sort().forEach(function (n) { fn(n, path.join(src, rel, n)); }); }
-            catch (e) { /* none */ }
+            var dir = insideRhmi(src, rel);
+            if (!dir) return;
+            try {
+                fs.readdirSync(dir).sort().forEach(function (n) { if (regular(path.join(dir, n))) fn(n, path.join(dir, n)); });
+            } catch (e) { /* none */ }
         }
         each(g.stringsPath, function (n, p) { if (/\.json$/.test(n)) (texts[n] = texts[n] || []).push(p); });
         each(g.resourcesPath, function (n, p) { out.resources[n] = p; });
@@ -2279,15 +2289,24 @@ function id7PartsOff(state, stage) {
         if (known[app.id] === sig) seen[app.id] = sig;
         else todo.push({ app: app, pkg: pkg, sig: sig });
     });
-    /* a unit that reports ID7 has MainApp's own iDrive 7 parts */
-    if (todo.length && mainappHmi().hmi === 'ID7') todo = [];
+    /* only a unit that reports another HMI: one that reports ID7, or whose
+     * report is not read yet, keeps what MainApp installed */
+    if (todo.length && !otherHmiReported()) {
+        todo.forEach(function (t) { if (known[t.app.id]) seen[t.app.id] = known[t.app.id]; });
+        todo = [];
+    }
     todo.forEach(function (t) {
-        var app = t.app, dir = path.join(stage, app.id), parts = [];
-        mkdirp(dir);
-        if (run(CFG.tar, ['-xzf', t.pkg, '-C', dir], { allowFail: true }).status !== 0) return;
-        var src = ['rhmiData', 'package/rhmiData', 'source/rhmiData'].map(function (r) { return path.join(dir, r); })
-            .filter(function (d) { return fs.existsSync(path.join(d, 'application.json')); })[0];
-        var want = src ? id7Parts(src, mainappHmi().brand) : null;
+        var app = t.app, dir = path.join(stage, app.id), parts = [], want = null;
+        try {
+            fs.mkdirSync(dir);
+            if (run(CFG.tar, ['-xzf', t.pkg, '-C', dir], { allowFail: true }).status !== 0) return;
+            var src = ['rhmiData', 'package/rhmiData', 'source/rhmiData'].map(function (r) { return path.join(dir, r); })
+                .filter(function (d) { return fs.existsSync(path.join(d, 'application.json')); })[0];
+            want = src ? id7Parts(src, mainappHmi().brand) : null;
+        } catch (e) {
+            warn(app.id + ' ' + app.version + "'s iDrive 7 HMI files are not looked at: " + e.message);
+            return;
+        }
         if (want) {
             Object.keys(PART_MODES).forEach(function (k) {
                 Object.keys(want[k]).forEach(function (n) {
@@ -2322,7 +2341,7 @@ function syncId7Parts() {
                 say(app.id + ' ' + app.version + ': ' + app.parts.length + ' iDrive 7 HMI file(s) put in place from its package');
                 addPending(s, app.id, PENDING_HMI_PARTS);
             });
-            if (off.length) id7PartsOff(s, stage);
+            if (off.length) { rmrf(stage); fs.mkdirSync(stage); id7PartsOff(s, stage); }
         } finally { rmrf(stage); }
         if (off.length || JSON.stringify(s.hmi_parts) !== was) saveState(s);
     });
@@ -2331,13 +2350,13 @@ function syncId7Parts() {
  * status to report: [{ id, version, files }]. */
 function id7PartsReport() {
     if (unitInfo().hmi !== 'ID7') return [];
-    var stage = path.join(os.tmpdir(), 'mgu-deploy-parts-' + process.pid);
+    var stage = null;
     try {
-        rmrf(stage); mkdirp(stage);
+        stage = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-deploy-parts-'));
         return id7PartsOff(loadState(), stage).map(function (a) {
             return { id: a.id, version: a.version, files: a.parts.map(function (p) { return path.relative(appHome(a.uid), p.dest); }) };
         });
-    } catch (e) { return []; } finally { rmrf(stage); }
+    } catch (e) { return []; } finally { if (stage) rmrf(stage); }
 }
 
 /* ---- capabilities (mguProvides) --------------------------------------------------- */
