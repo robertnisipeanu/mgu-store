@@ -140,7 +140,7 @@ class Drawn extends EventEmitter {
         this.viewport = null;
         this.stack = [{ name: 'main' }];
         this.tab = 'store';
-        this.filter = 'all';
+        this.filter = 'app';
         this.focus = 0;
         this.scroll = {};
         this.items = [];

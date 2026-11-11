@@ -1025,6 +1025,7 @@ function runDrawn() {
         eq(gpu.visible, true, 'shown with its host state');
         eq(gpu.claims, [mode === 'embed' ? { x: 0, y: 0, w: 1796, h: 632 } : { x: 0, y: 0, w: 1790, h: 638 }], 'touch claimed: the box');
         eq(frames.length > 0 && drawn.items.some((i) => i.label === 'DOOM'), true, 'the Store tab drawn');
+        eq(drawn.filter, 'app', 'the Store tab opens on Apps');
         eq(app._drawnModel().version, 'test', 'the Store\'s version, from where this HMI\'s oap-sdk keeps package.json');
         eq([lastText(proxy(1, 0)), lastText(proxy(1, 3)), lastText(proxy(1, 4)), lastText(proxy(1, 7))],
             ['Store', 'Settings', 'All', 'DOOM'], 'proxies in focus order: side menu, filters, tiles');
@@ -1215,7 +1216,8 @@ function runDrawn() {
         eq(drawn.stack.length, 1, 'BACK leaves the page');
         eq(gpu.visible, true, 'and the tabs show');
         eq(drawn.focus, 7, 'the focus back on the tile the page opened from');
-        // touch: a tap on Renderer's tile opens it; Install installs it beside the other renderer
+        // touch: under Tools, a tap on Renderer's tile opens it; Install installs it beside the other renderer
+        app._act({ do: 'filter', filter: 'tool' });
         reset();
         const tile = drawn.items.find((i) => i.label === 'Renderer');
         gpu.emit('touch', 'down', tile.x + 10, tile.y + 10);
@@ -1230,6 +1232,7 @@ function runDrawn() {
         return tick();
     }).then(() => {
         eq(sent, [{ op: 'install', id: 'mgu-render' }]);
+        app._act({ do: 'filter', filter: 'app' });
         // the install ends with the tool pending a restart: nothing opens; its page offers Restart head unit
         reset();
         ends('mgu-render', { installed: '0.1.0', status: 'installed', pendingReboot: true });
