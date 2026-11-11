@@ -60,6 +60,9 @@ const DIAL_MAX_STEP = 24;
 const TILT = { NORD_KURZ_GEDRUECKT: 'N', NORD_LANG_GEDRUECKT: 'N', OST_KURZ_GEDRUECKT: 'E', OST_LANG_GEDRUECKT: 'E',
     SUED_KURZ_GEDRUECKT: 'S', SUED_LANG_GEDRUECKT: 'S', WEST_KURZ_GEDRUECKT: 'W', WEST_LANG_GEDRUECKT: 'W',
     1: 'N', 2: 'N', 4: 'E', 5: 'E', 7: 'S', 8: 'S', 10: 'W', 11: 'W' };
+// centred; any other value not in TILT (invalid, ineffective) keeps the last tilt state
+const CENTRED = ['MITTELSTELLUNG', 0];
+const tiltOf = (v, last) => TILT[v] || (CENTRED.indexOf(v) >= 0 ? null : last);
 // the tilts FrontCCU drives: the HMI gets every tilt too and takes north (its header menu) and west (BACK) itself
 const FRONT_TILTS = ['E', 'S'];
 
@@ -843,13 +846,14 @@ class Drawn extends EventEmitter {
      * presses). An invalid counter keeps the last valid
      * one; a push value other than pushed or released keeps the last state;
      * a new sequence number while pushed is a new push; a tilt east or south
-     * counts when it starts, the first sample's too. */
+     * counts when it starts, the first sample's too, and a value other than
+     * a tilt or centred keeps the last tilt state. */
     frontCcu(s) {
         const last = this.fccu;
         const op = s && s.frontRotaryEncoderOperation;
         const push = s && s.frontRotaryEncoderPushButton;
         const seq = s && s.frontSequenceNumberOperatingElement;
-        const tilt = (s && TILT[s.frontRotaryEncoderDeflection]) || null;
+        const tilt = tiltOf(s && s.frontRotaryEncoderDeflection, last ? last.tilt : null);
         this.fccu = {
             knob: typeof op === 'number' && op !== 0xffff ? op : (last ? last.knob : 0xffff),
             press: PUSHED.indexOf(push) >= 0 ? true : RELEASED.indexOf(push) >= 0 ? false : !!(last && last.press),
@@ -869,12 +873,13 @@ class Drawn extends EventEmitter {
 
     _ccu(e) {
         const last = this.ccu;
-        this.ccu = e;
+        const tilt = tiltOf(e.tilt, last ? last.dir : null);
+        this.ccu = Object.assign({}, e, { dir: tilt });
         if (last) {
             this._dial(last.knob, e.knob, e.press && e.press !== last.press && e.seq !== last.seq);
         }
-        if (TILT[e.tilt] && TILT[e.tilt] !== (last && TILT[last.tilt])) {
-            this._tilt(TILT[e.tilt]);
+        if (tilt && tilt !== (last && last.dir)) {
+            this._tilt(tilt);
         }
     }
 

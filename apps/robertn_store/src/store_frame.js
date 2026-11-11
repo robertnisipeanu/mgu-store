@@ -273,8 +273,9 @@ function hit(items, x, y) {
     return -1;
 }
 
-/* The item a tilt of the controller moves the focus to from items[i]: of those ahead that way, the nearest, an
- * item off to the side counting double; null when none is ahead. Items out of view count where a scroll puts them. */
+/* The item a tilt of the controller moves the focus to from items[i]: of those ahead that way, at most as far off
+ * to the side as ahead, the nearest, the distance to the side counting double; null when none is. Items out of view
+ * count where a scroll puts them. */
 function toward(items, i, dir) {
     const cur = items[i];
     if (!cur) {
@@ -289,7 +290,7 @@ function toward(items, i, dir) {
         const dy = it.y + it.h / 2 - cy;
         const ahead = dir === 'E' ? dx : dir === 'W' ? -dx : dir === 'S' ? dy : -dy;
         const side = dir === 'E' || dir === 'W' ? Math.abs(dy) : Math.abs(dx);
-        if (k !== i && ahead > 4 && ahead + 2 * side < score) {
+        if (k !== i && ahead > 4 && side <= ahead && ahead + 2 * side < score) {
             score = ahead + 2 * side;
             best = k;
         }

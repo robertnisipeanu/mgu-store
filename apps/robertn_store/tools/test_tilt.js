@@ -32,6 +32,7 @@ assert.deepStrictEqual([go(items, 't00', 'W'), go(items, 't10', 'W')], ['Install
 assert.deepStrictEqual([go(items, 'Installed', 'E'), go(items, 'Settings', 'E')], ['t00', 't20'], 'right of the side menu: the grid at the nearest height');
 assert.deepStrictEqual([go(items, 'Store', 'S'), go(items, 'Settings', 'N'), go(items, 'Store', 'W')], ['Installed', 'USB', null], 'the side menu');
 assert.deepStrictEqual([go(items, 'All', 'E'), go(items, 'Tools', 'W'), go(items, 't04', 'N')], ['Apps', 'Apps', 'Tools'], 'the tabs, and up to them');
+assert.deepStrictEqual([go(items, 't00', 'N'), go(items, 'Store', 'N'), go(items, 'Tools', 'E')], [null, null, null], 'nothing more off to the side than ahead');
 
 // Installed: rows with a button, the first two scrolled out of view
 const rows = [];

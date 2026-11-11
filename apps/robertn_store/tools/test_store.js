@@ -1689,8 +1689,10 @@ function runDrawn() {
             drawn.focus = first;
             tilt(4);
             eq(label(), tiles[1].label, 'tilted right, the controller\'s first event: the next tile in the row');
+            gpu.emit('ccu', { seq: 0, knob: 7, press: 0, tilt: 10 });
+            gpu.emit('ccu', { seq: 0, knob: 7, press: 0, tilt: 15 });
             tilt(10);
-            eq(label(), tiles[0].label, 'tilted left: back to the first tile');
+            eq(label(), tiles[0].label, 'tilted left: back to the first tile, once while held, an invalid sample in between');
             tilt(11);
             eq(drawn.items.slice(0, 4).map((i) => i.label).indexOf(label()) >= 0, true, 'left of the grid: the side menu (' + label() + ')');
             tilt(10);
@@ -1711,12 +1713,13 @@ function runDrawn() {
                 drawn.focus = first;
                 fccu('OST_KURZ_GEDRUECKT');
                 eq(label(), tiles[1].label, 'FrontCCU tilted east: the next tile');
+                fccu('SIGNAL_UNGUELTIG');
                 fccu('OST_KURZ_GEDRUECKT');
-                eq(label(), tiles[1].label, 'held: once');
+                eq(label(), tiles[1].label, 'held: once, an invalid sample in between');
                 fccu('MITTELSTELLUNG');
-                const below = require(path.join(SRC, 'store_frame.js')).toward(drawn.items, drawn.focus, 'S');
+                drawn.focus = 0;
                 fccu(7);
-                eq([below !== null, drawn.focus], [true, below], 'FrontCCU tilted south (as an ordinal): the item below');
+                eq(label(), drawn.items[1].label, 'FrontCCU tilted south (as an ordinal): the next item down the side menu');
                 const at = drawn.focus;
                 ['WEST_KURZ_GEDRUECKT', 'NORD_KURZ_GEDRUECKT', 10, 1].forEach((d) => { fccu(0); fccu(d); });
                 fccu(0);
