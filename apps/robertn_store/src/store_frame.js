@@ -11,6 +11,7 @@
  *   scrolls as in frame())
  *   dragOf(model, { textScale, scroll, layout }, key) -> what a drag of grid or list key draws (store_drawn.js)
  *   dragFrame(drag, baseLayer, rowsLayer, from, top, textScale) -> one frame of that drag
+ *   toward(items, i, dir) -> the item the controller's tilt dir ('N', 'E', 'S', 'W') moves the focus to from item i
  *
  * layout: placement()'s; the iDrive 8 design when null.
  *
@@ -272,4 +273,33 @@ function hit(items, x, y) {
     return -1;
 }
 
-module.exports = { frame, layoutOf, dragOf, dragFrame, hit, placement };
+/* The item a tilt of the controller moves the focus to from items[i], of those ahead that way: one in line (sharing
+ * some of items[i]'s span across the tilt) first, the nearest ahead and of those the nearest to the side; else one at
+ * most as far off to the side as ahead, the nearest with the distance to the side counting double. null when none
+ * is. Items out of view count where a scroll puts them. */
+function toward(items, i, dir) {
+    const cur = items[i];
+    if (!cur) {
+        return null;
+    }
+    const across = dir === 'E' || dir === 'W';
+    const cx = cur.x + cur.w / 2;
+    const cy = cur.y + cur.h / 2;
+    let best = null;
+    let score = Infinity;
+    items.forEach((it, k) => {
+        const dx = it.x + it.w / 2 - cx;
+        const dy = it.y + it.h / 2 - cy;
+        const ahead = dir === 'E' ? dx : dir === 'W' ? -dx : dir === 'S' ? dy : -dy;
+        const side = across ? Math.abs(dy) : Math.abs(dx);
+        const inLine = across ? it.y < cur.y + cur.h && cur.y < it.y + it.h : it.x < cur.x + cur.w && cur.x < it.x + it.w;
+        const s = inLine ? ahead * 1e4 + side : 1e12 + ahead + 2 * side;
+        if (k !== i && ahead > 4 && (inLine || side <= ahead) && s < score) {
+            score = s;
+            best = k;
+        }
+    });
+    return best;
+}
+
+module.exports = { frame, layoutOf, dragOf, dragFrame, hit, placement, toward };
