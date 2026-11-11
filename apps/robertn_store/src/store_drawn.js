@@ -22,7 +22,8 @@
  * the HMI's controller gate (the renderer's `controller`), the dial moves
  * the focus, a tilt moves it to the nearest item that way (left with
  * nothing there closes the page) and a push presses; in embed mode
- * without it, FrontCCU does.
+ * without it, FrontCCU does, with only the tilts east and south (the HMI
+ * takes north and west itself).
  *
  * Emits 'mode' (null, 'layer' or 'embed') when what the renderer offers
  * changes (null: the widget screens show), and 'page-focus' (the page) when
@@ -59,6 +60,8 @@ const DIAL_MAX_STEP = 24;
 const TILT = { NORD_KURZ_GEDRUECKT: 'N', NORD_LANG_GEDRUECKT: 'N', OST_KURZ_GEDRUECKT: 'E', OST_LANG_GEDRUECKT: 'E',
     SUED_KURZ_GEDRUECKT: 'S', SUED_LANG_GEDRUECKT: 'S', WEST_KURZ_GEDRUECKT: 'W', WEST_LANG_GEDRUECKT: 'W',
     1: 'N', 2: 'N', 4: 'E', 5: 'E', 7: 'S', 8: 'S', 10: 'W', 11: 'W' };
+// the tilts FrontCCU drives: the HMI gets every tilt too and takes north (its header menu) and west (BACK) itself
+const FRONT_TILTS = ['E', 'S'];
 
 const msNow = () => { const t = process.hrtime(); return t[0] * 1e3 + t[1] / 1e6; };
 const usNow = () => { const t = process.hrtime(); return t[0] * 1e6 + Math.floor(t[1] / 1e3); };   // CLOCK_MONOTONIC, as mgu-render's
@@ -839,8 +842,8 @@ class Drawn extends EventEmitter {
      * buttons itself (some HMIs route them neither focus nor
      * presses). An invalid counter keeps the last valid
      * one; a push value other than pushed or released keeps the last state;
-     * a new sequence number while pushed is a new push; a tilt counts when
-     * it starts, the first sample's too. */
+     * a new sequence number while pushed is a new push; a tilt east or south
+     * counts when it starts, the first sample's too. */
     frontCcu(s) {
         const last = this.fccu;
         const op = s && s.frontRotaryEncoderOperation;
@@ -858,7 +861,7 @@ class Drawn extends EventEmitter {
                 this._dial(last.knob, this.fccu.knob, PUSHED.indexOf(push) >= 0 &&
                     (!last.press || (seq !== undefined && seq !== last.seq)));
             }
-            if (tilt && tilt !== (last && last.tilt)) {
+            if (FRONT_TILTS.indexOf(tilt) >= 0 && tilt !== (last && last.tilt)) {
                 this._tilt(tilt);
             }
         }

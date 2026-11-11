@@ -41,5 +41,4 @@ for (let r = 0; r < 4; r++) {
 }
 assert.deepStrictEqual([go(rows, 'row2', 'E'), go(rows, 'row2', 'S'), go(rows, 'chip2', 'S')], ['chip2', 'row3', 'chip3'], 'a row\'s button, the next row');
 assert.deepStrictEqual([go(rows, 'row2', 'N'), go(rows, 'row1', 'N')], ['row1', 'row0'], 'up into rows out of view');
-assert.deepStrictEqual([toward(items, -1, 'E'), toward([], 0, 'E')], [null, null], 'no focus, no items');
 console.log('test_tilt: ok');

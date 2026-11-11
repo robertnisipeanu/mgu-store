@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Tilting the controller up, down, left or right moves the focus to the nearest item that way: across the app grid, along the tabs and the side menu, to a row's button. Tilting left with nothing further left goes back a page.
+Tilting the controller right or down moves the focus to the nearest item that way: across the app grid, from the side menu to the grid, to a row's button. With idrive7-apps' controller gate loaded, tilting up and left moves it too, and tilting left with nothing further left goes back a page.
 
 ## 0.9.36
 

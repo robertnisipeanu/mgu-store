@@ -1714,9 +1714,13 @@ function runDrawn() {
                 fccu('OST_KURZ_GEDRUECKT');
                 eq(label(), tiles[1].label, 'held: once');
                 fccu('MITTELSTELLUNG');
-                fccu(10);
-                eq(label(), tiles[0].label, 'FrontCCU tilted west (as an ordinal): the first tile');
+                const below = require(path.join(SRC, 'store_frame.js')).toward(drawn.items, drawn.focus, 'S');
+                fccu(7);
+                eq([below !== null, drawn.focus], [true, below], 'FrontCCU tilted south (as an ordinal): the item below');
+                const at = drawn.focus;
+                ['WEST_KURZ_GEDRUECKT', 'NORD_KURZ_GEDRUECKT', 10, 1].forEach((d) => { fccu(0); fccu(d); });
                 fccu(0);
+                eq([drawn.focus, drawn.stack.length], [at, 1], 'FrontCCU west and north: the HMI\'s (BACK, its header menu), not the Store\'s');
             }
         }
         // Installed puts what runs or waits first; while the focus is on a row the rows stay where they are, so it stays on its row
