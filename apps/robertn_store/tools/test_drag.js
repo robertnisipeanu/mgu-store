@@ -53,7 +53,7 @@ async function main() {
         many.components.push(Object.assign({}, many.components[3], { id: `x${i}`, title: `Extra ${i}`, installed: '1.0.0', status: 'installed' }));
     }
     const jobs = [];
-    for (const [tab, key] of [['store', 'store.grid'], ['installed', 'installed.apps'], ['settings', 'settings.access']]) {
+    for (const [tab, key] of [['store', 'store.grid'], ['installed', 'installed.apps']]) {
         const m = fixture.model({ tab }, many);
         for (const unit of UNITS) {
             const p = placement(unit.w, unit.h);

@@ -59,7 +59,7 @@ get(st, 'addRepo')['opts']['text'] = 'Add source'
 get(st, 'connLabel')['opts']['text'] = 'ACCESS'
 drop(st, 'tetherIcon', 'tetherName', 'tetherState', 'tether', 'checkNow', 'lastCheck', 'versions', 'subtitle')
 st['components'] += [
-    comp('access', 'appList', 1880, 412, 920, 360, {'items': [], 'rowH': 120}),
+    comp('access', 'appList', 1880, 412, 920, 360, {'items': [], 'rowH': 120, 'fit': True}),
     # the head unit on ACCESS's line after its longest translation, the versions above
     text('unit', 2293, 374, 507, 30, '', 22, 'bold', align='right'),
     text('versions', 1880, 341, 920, 28, '', 22, 'label', 'dim', align='right'),
