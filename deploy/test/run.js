@@ -6960,7 +6960,8 @@ function testMguInstall() {
         r = mguInstall(['token'], one);
         check('mgu-install from stdin without a terminal: token is refused before connecting, saying how to run it',
             r.status === 2 && r.stderr.includes('no terminal') && !r.calls.length, r.out);
-        r = mguInstall(['first-install'], Object.assign({}, one, { env: { FAKE_GH_TOKEN: TOKEN, MGU_INSTALL_HOTSPOT: '127.0.0.1:9' } }));
+        // an address no host answers (TEST-NET-1): no head unit; a refused port is one found with SSH closed (testMguInstallClosed)
+        r = mguInstall(['first-install'], Object.assign({}, one, { env: { FAKE_GH_TOKEN: TOKEN, MGU_INSTALL_HOTSPOT: '192.0.2.1:22' } }));
         check('mgu-install: no unit answering SSH stops before any download or ssh, saying what to check',
             r.status === 1 && !r.calls.length && r.stderr.includes('no head unit answered SSH') && r.stderr.includes('--host'), r.out);
     } finally {
@@ -7505,6 +7506,120 @@ function testMguInstallStatus() {
         r = mguInstall(['status', '--host', '10.0.0.9'], opts);
         check('mgu-install status: without a deploy tool, says the Store is not installed', r.status === 1 &&
             r.stdout === 'The Store is not installed on this head unit: it has no deploy tool.\n', r.out);
+    } finally {
+        gh.stop();
+    }
+}
+
+/* mgu-install's own command line: node with the file, or the standalone executable under test. */
+function installArgv() {
+    return process.env.MGU_TEST_INSTALL_EXE ? [process.env.MGU_TEST_INSTALL_EXE] : [process.execPath, MGU_INSTALL];
+}
+
+/* Ctrl+C (SIGINT) or SIGTERM while the head unit works: one line saying how
+ * to finish, the ssh it runs stopped, the exit the signal makes. */
+function testMguInstallStop() {
+    const bin = installBin(null);
+    fs.unlinkSync(path.join(bin.bin, 'ssh'));
+    fs.writeFileSync(path.join(bin.bin, 'ssh'), '#!/bin/sh\n[ "$1" = -V ] && { echo OpenSSH_9.6p1 >&2; exit 0; }\nexec sleep 20\n', { mode: 0o755 });
+    // the signal 1.5 s in; the run ends once the sleeping ssh has gone too, as it holds stderr open
+    const SIGNAL_AFTER = `const c = require('child_process').spawn(process.argv[1], JSON.parse(process.argv[2]), { stdio: ['ignore', 'ignore', 'pipe'] });
+let err = ''; const t0 = Date.now();
+c.stderr.on('data', (d) => { err += d; });
+setTimeout(() => c.kill(process.argv[3]), 1500);
+c.on('close', (code, signal) => process.stdout.write(JSON.stringify({ code, signal, err, ms: Date.now() - t0 })));`;
+    const argv = installArgv();
+    ['SIGINT', 'SIGTERM'].forEach((signal) => {
+        const x = cp.spawnSync(process.execPath, ['-e', SIGNAL_AFTER, argv[0], JSON.stringify(argv.slice(1).concat(['status', '--host', '10.0.0.9'])), signal],
+            { encoding: 'utf8', env: Object.assign({}, process.env, { PATH: `${bin.bin}:${process.env.PATH}` }), timeout: 30000 });
+        let r = {};
+        try {
+            r = JSON.parse(x.stdout);
+        } catch (e) {
+            r = { err: x.stderr };
+        }
+        check(`mgu-install: ${signal} while the head unit works says to run the command again, stops ssh, ends by the signal`,
+            r.signal === signal && r.err.split('\n').filter((l) => l === 'stopped; run the same command again to finish').length === 1 &&
+            r.ms < 10000, JSON.stringify(r));
+    });
+}
+
+/* A head unit found whose SSH does not answer (the hotspot's address
+ * refuses port 22): every command that connects says so, nothing run. */
+function testMguInstallClosed() {
+    const port = cp.execFileSync(process.execPath, ['-e', "const s = require('net').createServer().listen(0, '127.0.0.1', () => " +
+        '{ process.stdout.write(String(s.address().port)); s.close(); });'], { encoding: 'utf8' });
+    const opts = { bin: installBin(null), api: 'http://127.0.0.1:9', env: { MGU_INSTALL_HOTSPOT: `127.0.0.1:${port}` } };
+    [['first-install'], ['status'], ['uninstall', '--yes'], ['token', '--list']].forEach((args) => {
+        const r = mguInstall(args, opts);
+        check(`mgu-install ${args[0]}: a found head unit with SSH closed is named so, exit 1, nothing run`, r.status === 1 &&
+            r.stderr.includes(`found the head unit at 127.0.0.1:${port}, but its SSH is closed: enable root SSH first, then run this again`) &&
+            !r.stderr.includes('no head unit answered') && !r.calls.length, r.out);
+    });
+}
+
+/* usb-repo copies each listed icon beside the stick's catalog.json,
+ * checked against its iconSha256; the updater reads it from the stick. */
+function testMguInstallUsbIcons() {
+    const gh = fakeGithub({ files: [], repos: {} });
+    try {
+        const dir = fs.mkdtempSync(path.join(T, 'icons-'));
+        const png = (name) => {
+            const f = path.join(dir, name);
+            fs.writeFileSync(f, Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(300, name)]));
+            return f;
+        };
+        const apps = ['good_icon', 'bad_icon', 'gone_icon', 'no_icon'].map((id) => thirdPartyArtifact(id, '1.0.0', 'npm'));
+        const good = png('good.png');
+        const bad = png('bad.png');
+        const entries = [
+            publishedEntry(gh.api, apps[0], 0, 'app', { icon: 'good_icon.png', iconSha256: sha256(fs.readFileSync(good)) }),
+            publishedEntry(gh.api, apps[1], 1, 'app', { icon: 'bad_icon.png', iconSha256: sha256(Buffer.from('another picture')) }),
+            publishedEntry(gh.api, apps[2], 2, 'app', { icon: 'gone_icon.png', iconSha256: 'a'.repeat(64) }),
+            publishedEntry(gh.api, apps[3], 3, 'app')];
+        const catalog = path.join(dir, 'catalog.json');
+        fs.writeFileSync(catalog, JSON.stringify({ schema: 2, components: entries }));
+        gh.set({ files: apps.concat([good, bad, catalog]), repos: { [STORE_REPO]: { catalog: 6,
+            catalogAssets: [{ name: 'good_icon.png', n: 4 }, { name: 'bad_icon.png', n: 5 }] } } });
+        // a dir: publish whose icon is a file in a folder of it
+        const pub = path.join(fs.mkdtempSync(path.join(T, 'pub-')), 'with-icons');
+        const dirApp = thirdPartyArtifact('dir_icon', '1.0.0', 'npm');
+        const dirPng = png('dir.png');
+        write(path.join(pub, 'icons', 'dir.png'), fs.readFileSync(dirPng));
+        fs.copyFileSync(dirApp, path.join(pub, 'dir_icon@1.0.0.tgz'));
+        const dd = fs.readFileSync(dirApp);
+        fs.writeFileSync(path.join(pub, 'catalog.json'), JSON.stringify({ schema: 2, components: [{ id: 'dir_icon', kind: 'app', version: '1.0.0',
+            icon: 'icons/dir.png', iconSha256: sha256(fs.readFileSync(dirPng)),
+            artifact: { name: 'dir_icon@1.0.0.tgz', size: dd.length, sha256: sha256(dd), url: 'dir_icon@1.0.0.tgz' } }] }));
+        const media = fs.mkdtempSync(path.join(T, 'media-'));
+        const stick = path.join(media, 'STICK');
+        fs.mkdirSync(stick);
+        const r = mguInstall(['usb-repo', stick, `github:${STORE_REPO}`, pub], { bin: installBin(null), api: gh.api });
+        const repo = path.join(stick, 'mgu-repo');
+        const listed = (name) => (readJson(path.join(repo, name, 'catalog.json')).components || []).reduce((m, c) => Object.assign(m, { [c.id]: c }), {});
+        const store = listed('mgu-store');
+        const same = (a, b) => fs.existsSync(a) && fs.readFileSync(a).equals(fs.readFileSync(b));
+        check('mgu-install usb-repo: a listed icon is copied beside catalog.json as <id>.png, its entry naming it with its sha256',
+            r.status === 0 && same(path.join(repo, 'mgu-store', 'good_icon.png'), good) && store.good_icon && store.good_icon.icon === 'good_icon.png' &&
+            store.good_icon.iconSha256 === sha256(fs.readFileSync(good)) && same(path.join(repo, 'with-icons', 'dir_icon.png'), dirPng) &&
+            listed('with-icons').dir_icon.icon === 'dir_icon.png', `${r.out}\n${JSON.stringify(store)}`);
+        check('mgu-install usb-repo: an icon that does not match its iconSha256, or is missing, is left out, said, and the stick is written',
+            r.status === 0 && !fs.existsSync(path.join(repo, 'mgu-store', 'bad_icon.png')) && !fs.existsSync(path.join(repo, 'mgu-store', 'gone_icon.png')) &&
+            ['bad_icon', 'gone_icon', 'no_icon'].every((id) => store[id] && store[id].icon === undefined && store[id].iconSha256 === undefined) &&
+            r.stdout.includes('bad_icon: icon left out (its sha256 does not match the catalog\'s)') && r.stdout.includes('gone_icon: icon left out (') &&
+            !r.stdout.includes('no_icon: icon'), r.out);
+        const x = cp.spawnSync(UNIT_NODE, [path.join(HERE, 'stick_read.js'), media], { encoding: 'utf8' });
+        let seen = {};
+        try {
+            seen = JSON.parse(x.stdout);
+        } catch (e) {
+            seen = { error: x.stderr };
+        }
+        const comps = [].concat(...Object.keys(seen).map((k) => seen[k].components || []));
+        const byId = comps.reduce((m, c) => Object.assign(m, { [c.id]: c }), {});
+        check('mgu-install usb-repo: the updater reads the copied icons from the stick, matching their sha256 (unit Node)',
+            comps.length === 5 && comps.every((c) => c.ok === true) && byId.good_icon.icon === true && byId.dir_icon.icon === true &&
+            byId.bad_icon.icon === undefined, JSON.stringify(seen));
     } finally {
         gh.stop();
     }
@@ -9769,7 +9884,10 @@ const SUITES = [
     testRemoveAllRunning,
     testMguInstallUninstall,
     testMguInstallStatus,
-    testReadOnlyOnlyStatus
+    testReadOnlyOnlyStatus,
+    testMguInstallStop,
+    testMguInstallClosed,
+    testMguInstallUsbIcons
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;

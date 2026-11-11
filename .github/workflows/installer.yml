@@ -78,7 +78,7 @@ jobs:
       - name: Deploy tests with the executable
         if: startsWith(matrix.name, 'linux-')
         env:
-          MGU_TEST_ONLY: testMguInstall,testMguInstallUsb,testMguInstallFrom,testMguInstallPaths,testMguInstallUninstall,testMguInstallStatus
+          MGU_TEST_ONLY: testMguInstall,testMguInstallUsb,testMguInstallFrom,testMguInstallPaths,testMguInstallUninstall,testMguInstallStatus,testMguInstallStop,testMguInstallClosed,testMguInstallUsbIcons
           MGU_TEST_INSTALL_EXE: /w/out/mgu-install-${{ matrix.name }}
         run: sh deploy/test/run.sh
 
