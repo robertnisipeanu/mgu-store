@@ -7,7 +7,7 @@
  *
  * stdin: one JSON job
  *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], lease, ca, method, body, keep,
- *     connectMs, idleMs, retryMs, proxy }
+ *     connectMs, idleMs, retryMs, proxy, immutable, fresh }
  *   dns: resolve host names through these servers (the uplink lease's);
  *   empty: the system resolver. lease: the uplink's lease file, read again
  *   for each try: its dns servers replace dns, and a try without one fails
@@ -21,10 +21,14 @@
  *   retryMs: the first wait before trying again (1 s). proxy: the updater's
  *   proxy setting (tunnel.js); every connection, a redirect's too, goes
  *   through it, dns then looks up only the proxy's own name, and its
- *   connection and answer count in connectMs.
+ *   connection and answer count in connectMs. immutable: the URL's bytes
+ *   never change (a file at a commit) and the caller checks them, so a cut
+ *   download goes on from where it stopped even without a validator.
+ *   fresh: never go on from a cut, each try starts over.
  * stdout: one JSON line per event
  *   { progress: <bytes>, total: <bytes|null> }  while downloading
- *   { done: true, bytes, status, headers }      dest complete (headers: those kept)
+ *   { done: true, bytes, status, headers, resumed }  dest complete (headers: those kept;
+ *                                               resumed: part of it came from a later try)
  *   { notModified: true, status: 304, headers } a conditional request's answer:
  *                                               unchanged, nothing at dest
  *   { retry: <try>, error, from, after }        try <try> failed with error; the next
@@ -40,12 +44,17 @@
  *
  * A GET whose connection fails (cut mid-download, no data for idleMs, a
  * reset, no connection within connectMs) or that gets a 500, 502, 503 or 504 is tried again,
- * after 1, 2, 4 and 8 s: up to 4 times in a row without getting further, 200
- * tries in all. When the server takes byte ranges (Accept-Ranges: bytes,
- * with a strong ETag), the next try asks for the rest (Range, with that
- * ETag in If-Range) and appends it; a try that gets no answer leaves the
- * next to ask for the same rest. A server that answers with the whole file
- * instead starts it over. The size and sha256
+ * after 1, 2, 4 and 8 s: up to 4 times in a row without getting further; a
+ * try that gets further starts the count and the wait over, so a slow,
+ * flaky link goes on for as long as the file grows. When the server takes
+ * byte ranges (Accept-Ranges: bytes), the next try asks for the rest
+ * (Range) and appends it: with the answer's strong ETag, else its
+ * Last-Modified, in If-Range; with neither, only for an immutable job. A
+ * try that gets no answer leaves the next to ask for the same rest. A
+ * server that answers with the whole file instead, or the rest in another
+ * Content-Encoding, starts it over, and a server that takes no ranges
+ * (codeload.github.com's archives) has each try start over; those tries
+ * count as not getting further. The size and sha256
  * the source states are checked on the whole file by the updater. A POST,
  * a refused certificate, a name the DNS server does not know, any other
  * HTTP answer and a size over maxBytes are not tried again.
@@ -80,7 +89,6 @@ const CONNECT_MS = 15000;
 const IDLE_MS = 30000;
 const RETRIES = 4;             // tries in a row that get no further, after the first
 const RETRY_MS = 1000;         // the wait before the first of them, doubled for each after
-const MAX_TRIES = 200;
 const RETRY_STATUS = [500, 502, 503, 504];
 const NO_SUCH_NAME = ['ENOTFOUND', 'ENODATA'];
 const DATE_ERRORS = ['CERT_NOT_YET_VALID', 'CERT_HAS_EXPIRED'];
@@ -204,7 +212,7 @@ function connect(job, target, cb) {
     });
 }
 
-function get(job, url, headers, hops, from, finish) {
+function get(job, url, headers, hops, from, validator, finish) {
     const target = new URL(url);
     if (target.protocol !== 'https:') {
         finish({ error: `refusing ${target.protocol} URL` });
@@ -217,18 +225,24 @@ function get(job, url, headers, hops, from, finish) {
                 retry: !err.refused && NO_SUCH_NAME.indexOf(err.code) < 0 });
             return;
         }
-        request(job, url, target, headers, hops, sock, from, finish);
+        request(job, url, target, headers, hops, sock, from, validator, finish);
     });
 }
 
-/* What lets a cut download ask for the rest: the response's strong ETag, when
- * it says it takes byte ranges; null otherwise. */
-function validatorOf(res) {
+/* What lets a cut download ask for the rest, when the response says it
+ * takes byte ranges: { ifRange: its strong ETag, else its Last-Modified,
+ * else (an immutable job's) null; encoding: its Content-Encoding }. null
+ * when it cannot go on. */
+function validatorOf(job, res) {
+    if (job.fresh || res.headers['accept-ranges'] !== 'bytes') {
+        return null;
+    }
     const etag = res.headers.etag;
-    return res.headers['accept-ranges'] === 'bytes' && etag && !/^W\//.test(etag) ? etag : null;
+    const ifRange = etag && !/^W\//.test(etag) ? etag : res.headers['last-modified'] || null;
+    return ifRange || job.immutable ? { ifRange, encoding: res.headers['content-encoding'] || '' } : null;
 }
 
-function request(job, url, target, headers, hops, sock, from, settle) {
+function request(job, url, target, headers, hops, sock, from, validator, settle) {
     const host = target.hostname;
     const post = hops === 0 && job.method === 'POST';
     const body = post ? Buffer.from(String(job.body || '')) : null;
@@ -274,7 +288,7 @@ function request(job, url, target, headers, hops, sock, from, settle) {
                     along[h] = headers[h];
                 }
             });
-            get(job, new URL(res.headers.location, url).toString(), along, hops + 1, from, settle);
+            get(job, new URL(res.headers.location, url).toString(), along, hops + 1, from, validator, settle);
             return;
         }
         if (res.statusCode === 304) {
@@ -297,7 +311,9 @@ function request(job, url, target, headers, hops, sock, from, settle) {
         let bytes = 0;
         if (partial) {
             const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(res.headers['content-range'] || '');
-            if (!range || Number(range[1]) !== from || Number(range[2]) + 1 !== Number(range[3])) {
+            // the rest of the same bytes: a gzipped answer's ranges are of its gzipped bytes
+            if (!range || Number(range[1]) !== from || Number(range[2]) + 1 !== Number(range[3]) ||
+                (res.headers['content-encoding'] || '') !== validator.encoding) {
                 res.resume();
                 finish({ error: `${host}: not the rest of the file asked for`, retry: true, restart: true });
                 return;
@@ -311,7 +327,7 @@ function request(job, url, target, headers, hops, sock, from, settle) {
             return;
         }
         // a cut 206 asks again with the validator it was asked with
-        const resumeWith = partial ? headers['If-Range'] : validatorOf(res);
+        const resumeWith = partial ? validator : validatorOf(job, res);
         const out = fs.createWriteStream(job.dest, { mode: 0o600, flags: partial ? 'a' : 'w' });
         let failure = null;
         let last = 0;
@@ -354,7 +370,7 @@ function request(job, url, target, headers, hops, sock, from, settle) {
             if (failure) {
                 finish(Object.assign(failure, failure.retry ? (resumeWith ? { resumeWith } : { restart: true }) : {}));
             } else {
-                finish({ done: true, bytes, status: res.statusCode, headers: kept(job, res) });
+                finish(Object.assign({ done: true, bytes, status: res.statusCode, headers: kept(job, res) }, partial ? { resumed: true } : {}));
             }
         });
         out.on('error', (err) => {
@@ -385,7 +401,9 @@ function download(job) {
             delete headers['If-None-Match'];
             delete headers['If-Modified-Since'];
             headers.Range = `bytes=${from}-`;
-            headers['If-Range'] = validator;
+            if (validator.ifRange) {
+                headers['If-Range'] = validator.ifRange;
+            }
         }
         let settled = false;
         const tried = (r) => {
@@ -393,7 +411,7 @@ function download(job) {
                 return;
             }
             settled = true;
-            if (!r.retry || job.method === 'POST' || tries >= MAX_TRIES) {
+            if (!r.retry || job.method === 'POST') {
                 finishAll(r);
                 return;
             }
@@ -424,7 +442,7 @@ function download(job) {
             tried({ error: 'no internet (the uplink is down)', retry: true });
             return;
         }
-        get(Object.assign({}, job, { dns }), job.url, headers, 0, from, tried);
+        get(Object.assign({}, job, { dns }), job.url, headers, 0, from, from > 0 ? validator : null, tried);
     };
     const finishAll = (r) => {
         delete r.retry;
