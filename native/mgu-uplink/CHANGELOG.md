@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.11
+
 - Switching Wi-Fi on (`wifi-enable`) scans at once, the same scan as a `wifi-scan` request, also during wireless CarPlay or Android Auto.
 
 ## 0.7.10
