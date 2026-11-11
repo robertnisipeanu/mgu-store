@@ -1,8 +1,8 @@
 'use strict';
 /**
  * A drag frame (store_frame.js dragFrame: the frame as the drag started and
- * the rows of the Store tab's grid, the Installed tab's list or Settings'
- * Access list over its panel, two cached layers) against the frame built whole at the
+ * the rows of the Store tab's grid or the Installed tab's list, two cached
+ * layers) against the frame built whole at the
  * same scroll, both drawn by mgu-render --replay (Docker, Mesa; the
  * mgu-render-test image and build/host/mgu-render that `make test` in
  * native/mgu-render leaves), at scrolls of whole design pixels, as a drag
