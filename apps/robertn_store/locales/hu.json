@@ -122,6 +122,7 @@
     "Restart head unit to install apps": "Indítsa újra az alkalmazások telepítéséhez",
     "Not working": "Nem működik",
     "Needs setup": "Beállítás szükséges",
+    "Needed by {0}": "Szükséges ehhez: {0}",
     "Set up": "Beállítás",
     "Restart the head unit to finish setup": "A beállítás befejezéséhez indítsa újra a fejegységet",
     "Restarting": "Újraindítás…",

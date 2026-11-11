@@ -139,7 +139,7 @@ stick holding `catalog.json` at its root, in `mgu-repo/` or
 | `build` | `"unit"`: the artifact is a source package, built on the head unit (an app only) |
 | `requires` | `{"<id>": "<min version>"}`: installed first |
 | `optional` | listed, never offered as an update until installed |
-| `uninstallable` | the Store offers a tool's Remove (every app but the Store has one) |
+| `uninstallable` | the Store offers a tool's Remove (every app but the Store has one; never the Store's own tools) |
 | `mguHmi` | the head units it is for |
 | `mguProvides` | a tool's capability (`renderer`); the tool kit's `component.json` names it too |
 
@@ -178,7 +178,7 @@ says why, and the rest are listed.
 140 × 140). For a source package (`"build": "unit"`), it shows the icon
 its staged tree's `rhmiData/application.json` gives its first entry
 point. Once the app is installed, the Store shows the installed package's
-own icon.
+own icon, and the source's again once it is removed.
 
 ### Channels
 

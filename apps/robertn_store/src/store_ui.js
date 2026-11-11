@@ -18,7 +18,8 @@ const { t: tr } = require('./i18n.js');
  * status line), pick (the GitHub repo being added: { repo, probe (the
  * updater's answer, null while it looks), tokenNote (Add token's status
  * belongs on its page) }, or null), uplinkNote (the uplink's refusal of the
- * last Wi-Fi or preferred-connection request), held (the Installed lists'
+ * last Wi-Fi or preferred-connection request), removeNote (the updater's
+ * refusal of the last Remove: { id, error, by }, on that component's page), held (the Installed lists'
  * rows to keep in this order: { apps, services } ids, and restart: whether
  * its Restart now shows; or null) }.
  *
@@ -51,7 +52,7 @@ const { t: tr } = require('./i18n.js');
  */
 const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceActions, sourceChannel, sourceAccount,
     tokenLabel, tokenState, tokenSources, accountsState, loginStatus, loginCode, phoneState, phoneAddress, hmiNames,
-    notForUnit, removable, requiredAlone, undoable, setupable, pickOptions, probeStatus, sourceNames, listed, startPending } = require('./store_view.js');
+    notForUnit, removable, requiredAlone, undoable, setupable, pickOptions, probeStatus, removeRefusal, sourceNames, listed, startPending } = require('./store_view.js');
 
 const GREEN = '#35d07f';
 const BLUE = '#3d9bff';
@@ -410,6 +411,9 @@ function appView(m, page) {
         if (failed) {
             notes.push([failed, AMBER]);
         }
+    }
+    if (m.removeNote && m.removeNote.id === c.id && c.installed) {
+        notes.push([removeRefusal(m.removeNote, rawComps(m)), AMBER]);
     }
     // the notes one under the other, each wrapped to the panel's width
     v.note1 = { text: notes.map((n) => String(n[0]).slice(0, 240)).join('\n'), color: notes.length ? notes[0][1] : DIM };

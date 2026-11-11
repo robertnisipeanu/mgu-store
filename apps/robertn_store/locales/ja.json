@@ -122,6 +122,7 @@
     "Restart head unit to install apps": "アプリをインストールするには再起動してください",
     "Not working": "動作していません",
     "Needs setup": "未設定",
+    "Needed by {0}": "{0}が使用中",
     "Set up": "セットアップ",
     "Restart the head unit to finish setup": "セットアップを完了するにはヘッドユニットを再起動してください",
     "Restarting": "再起動中",

@@ -3,6 +3,17 @@
 ## Unreleased
 
 - A source can be turned off and on (`source-enable`, with the secret: `{ id, enable }`, or `{ all: true, enable }` for every source but the Store's own). A source that is off stays in `sources.json` (`disabled: true`) with its kept catalog, is not read, and none of its components are listed; what it installed stays installed. The state reports `disabled` and status `disabled` for it. Turning one on lists its kept catalog as it is and reads the source only when it has none; the next check reads it again
+## 0.8.38
+
+- A tool stays while an installed app or tool still requires it, also when no source lists that app any more (its USB stick is out, or its source was removed): Remove all neither offers nor takes it along, and it can't be removed on its own. The updater records what each component requires when it installs it, and for components installed earlier when their source lists the installed version.
+
+## 0.8.37
+
+- The tools the Store's setup installs (Internet uplink, Renderer, App privacy, Python, the deploy tool and the updater) can't be removed from the Store: not on their own page, and not with an app's Remove all.
+
+## 0.8.36
+
+- An installed app's icon from its source is fetched too, so a removed app keeps its icon in the Store.
 
 ## 0.8.35
 

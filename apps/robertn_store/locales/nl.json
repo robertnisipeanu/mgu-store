@@ -124,6 +124,7 @@
     "Restart head unit to install apps": "Herstart de headunit om apps te installeren",
     "Not working": "Werkt niet",
     "Needs setup": "Instellen nodig",
+    "Needed by {0}": "Nodig voor {0}",
     "Set up": "Instellen",
     "Restart the head unit to finish setup": "Herstart de headunit om de installatie te voltooien",
     "Restarting": "Herstarten",

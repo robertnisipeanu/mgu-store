@@ -6,11 +6,12 @@
  *   github:<owner>/<repo>  GitHub Releases of the repository: each version
  *                          is the release <id>@<version> with its artifact
  *                          as the one asset; the release "catalog" holds
- *                          catalog.json. Runs in GitHub Actions only, with
+ *                          catalog.json and the icons it names. Runs in GitHub Actions only, with
  *                          the workflow's GITHUB_TOKEN (GH_TOKEN).
  *   dir:<path>             A local folder (relative paths: to the repository):
- *                          catalog.json and the artifacts side by side, a
- *                          catalog for a test unit or a USB stick.
+ *                          catalog.json, the icons it names and the
+ *                          artifacts side by side, a catalog for a test
+ *                          unit or a USB stick.
  *
  * Catalogs are not signed: the unit trusts a source over HTTPS (and its
  * token), and checks every artifact against the catalog's size and sha256.
@@ -104,6 +105,16 @@ function releaseOf(tag) {
     }
 }
 
+/* The release "catalog", created when it is not there. */
+function catalogRelease() {
+    try {
+        gh(['release', 'view', CATALOG_TAG, '-R', WHERE]);
+    } catch (e) {
+        gh(['release', 'create', CATALOG_TAG, '-R', WHERE, '--latest=false', '--title', 'Catalog',
+            '--notes', 'catalog.json: the newest version of every component (release/README.md)']);
+    }
+}
+
 /* Publishing to GitHub runs in GitHub Actions (.github/workflows/release.yml). */
 function githubPreflight(dryRun) {
     if (!dryRun && process.env.GITHUB_ACTIONS !== 'true') {
@@ -125,6 +136,10 @@ const targets = {
             fs.mkdirSync(WHERE, { recursive: true });
             fs.copyFileSync(file, path.join(WHERE, entry.artifact.name));
             return entry.artifact.name;
+        },
+        uploadCatalogAsset(file) {
+            fs.mkdirSync(WHERE, { recursive: true });
+            fs.copyFileSync(file, path.join(WHERE, path.basename(file)));
         },
         uploadCatalog(catalogFile) {
             fs.mkdirSync(WHERE, { recursive: true });
@@ -199,13 +214,13 @@ const targets = {
             }
             return assetUrl(asset);
         },
+        /* A file beside catalog.json in the release "catalog", under its name. */
+        uploadCatalogAsset(file) {
+            catalogRelease();
+            gh(['release', 'upload', CATALOG_TAG, '-R', WHERE, '--clobber', file]);
+        },
         uploadCatalog(catalogFile) {
-            try {
-                gh(['release', 'view', CATALOG_TAG, '-R', WHERE]);
-            } catch (e) {
-                gh(['release', 'create', CATALOG_TAG, '-R', WHERE, '--latest=false', '--title', 'Catalog',
-                    '--notes', 'catalog.json: the newest version of every component (release/README.md)']);
-            }
+            catalogRelease();
             gh(['release', 'upload', CATALOG_TAG, '-R', WHERE, '--clobber', catalogFile]);
         }
     }

@@ -122,6 +122,7 @@
     "Restart head unit to install apps": "Reštartujte jednotku na inštaláciu aplikácií",
     "Not working": "Nefunguje",
     "Needs setup": "Vyžaduje nastavenie",
+    "Needed by {0}": "Potrebné pre {0}",
     "Set up": "Nastaviť",
     "Restart the head unit to finish setup": "Na dokončenie nastavenia reštartujte hlavnú jednotku",
     "Restarting": "Reštartuje sa",

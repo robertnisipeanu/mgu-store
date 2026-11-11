@@ -122,6 +122,7 @@
     "Restart head unit to install apps": "Перезапустіть, щоб встановлювати застосунки",
     "Not working": "Не працює",
     "Needs setup": "Потрібне налаштування",
+    "Needed by {0}": "Потрібно для {0}",
     "Set up": "Налаштувати",
     "Restart the head unit to finish setup": "Перезапустіть головний пристрій, щоб завершити налаштування",
     "Restarting": "Перезапуск",

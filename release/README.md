@@ -141,14 +141,15 @@ compress differently, which publishing reports as other content.
       "artifact": { "name": "robertn_store@0.4.0.tgz", "size": 41210, "sha256": "…", "url": "…" },
       "build": "unit",
       "requires": { "mgu-deploy": "0.2.0" },
-      "texts": { "de": { "title": "Store", "description": "…" } }
+      "texts": { "de": { "title": "Store", "description": "…" } },
+      "icon": "robertn_store.png",
+      "iconSha256": "…"
     },
     {
       "id": "mgu-uplink",
       "kind": "tool",
       "…": "…",
-      "optional": true,
-      "uninstallable": true
+      "optional": true
     }
   ]
 }
@@ -165,7 +166,11 @@ is where the unit downloads it: the GitHub asset's release download
 public repository, its API URL in a private one, or a path relative to the
 catalog on a static host or a folder. `publish` lists every entry it
 carries over that way too, and publishes the catalog when only that
-changed. The updater checks
+changed. `icon` is an app's icon, the PNG its first entry point names in
+its staged tree's `rhmiData/application.json` (what the car's app list
+shows), published beside `catalog.json` as `<id>.png` with its
+`iconSha256`, by the publish of that version; the Store shows it while
+the app is not installed. The updater checks
 `size` and `sha256` before anything is installed. The catalog is not
 signed: the unit trusts a source over HTTPS.
 
@@ -178,7 +183,8 @@ Schema 2 adds, per entry:
   The Store requires the deploy tool that builds source packages.
 - `optional: true`: listed, never offered as an update unless installed
   (`mgu-uplink`).
-- `uninstallable: true`: the Store may offer Remove (`mgu-uplink`).
+- `uninstallable: true`: the Store may offer Remove. The Store's own
+  tools have none: the updater never removes them.
 - `mguHmi: ["ID7"|"ID8", ...]`: the head units it is for; the Store
   refuses it on another (docs/PUBLISHING.md). `robertn_store`: `["ID7"]`.
 - `mguProvides: "<capability>"`: the capability a tool provides
@@ -216,8 +222,8 @@ the car reads like any public repository.
 
 | Target (`MGU_PUBLISH`) | Layout | The unit reads it with |
 |---|---|---|
-| `github:<owner>/<repo>` (the workflow's repository) | release `<id>@<version>` per version, its artifact the one asset; release `catalog` holding `catalog.json` | a `github` source |
-| `dir:<path>` (relative paths: to the repository) | `catalog.json` and the artifacts side by side in a local folder, for a test unit or a USB stick | a `file` source, a USB stick, or the folder served over HTTPS (`https` source) |
+| `github:<owner>/<repo>` (the workflow's repository) | release `<id>@<version>` per version, its artifact the one asset; release `catalog` holding `catalog.json` and the icons it names | a `github` source |
+| `dir:<path>` (relative paths: to the repository) | `catalog.json`, its icons and the artifacts side by side in a local folder, for a test unit or a USB stick | a `file` source, a USB stick, or the folder served over HTTPS (`https` source) |
 
 `publish` requires a clean working tree, builds HEAD, uploads each new
 artifact, and uploads `catalog.json` last, so the published catalog never

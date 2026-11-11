@@ -122,6 +122,7 @@
     "Restart head unit to install apps": "Käynnistä uudelleen asentaaksesi sovelluksia",
     "Not working": "Ei toimi",
     "Needs setup": "Vaatii käyttöönoton",
+    "Needed by {0}": "{0} tarvitsee tätä",
     "Set up": "Ota käyttöön",
     "Restart the head unit to finish setup": "Viimeistele asennus käynnistämällä pääyksikkö uudelleen",
     "Restarting": "Käynnistetään uudelleen",

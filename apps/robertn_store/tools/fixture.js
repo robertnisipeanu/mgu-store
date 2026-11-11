@@ -101,6 +101,8 @@ function screens() {
             focus: 0 }],
         ['confirm-remove-tools', { stack: main.concat([{ name: 'app', id: 'gauges' }, { name: 'confirm', kind: 'remove', id: 'gauges' }]),
             focus: 0 }, { components: st.components.map((c) => (c.id === 'gauges' ? Object.assign({}, c, { requiredAlone: ['display-bridge', 'mgu-renderd', 'mgu-uplink', 'mgu-render'] }) : c)) }],
+        ['app-remove-refused', { stack: main.concat([{ name: 'app', id: 'mgu-uplink' }]),
+            removeNote: { id: 'mgu-uplink', error: 'Vehicle control needs mgu-uplink', by: 'vehicle_control' } }],
         ['tool-undo', { tab: 'installed', stack: main.concat([{ name: 'app', id: 'mgu-uplink' }]) }],
         ['confirm-undo', { tab: 'installed', stack: main.concat([{ name: 'app', id: 'mgu-uplink' }, { name: 'confirm', kind: 'undo', id: 'mgu-uplink' }]),
             focus: 0 }],

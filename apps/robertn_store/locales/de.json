@@ -122,6 +122,7 @@
     "Restart head unit to install apps": "Headunit neu starten, um Apps zu installieren",
     "Not working": "Funktioniert nicht",
     "Needs setup": "Einrichtung nötig",
+    "Needed by {0}": "Benötigt von {0}",
     "Set up": "Einrichten",
     "Restart the head unit to finish setup": "Headunit neu starten, um die Einrichtung abzuschließen",
     "Restarting": "Wird neu gestartet",

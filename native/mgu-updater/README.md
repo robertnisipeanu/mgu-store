@@ -145,9 +145,10 @@ point's icon, `author` (a string or `author.name`) and
 `store.description` over `description`. An installed app's `icon` is its
 installed package's entry-point icon (`rhmiData/resources/`, read through
 no link), copied into `state/icons/` and read again only when the package
-changes. The row of the installed app has its source's icon fetched only
-once its installed package has none; the other sources' rows of that id
-show their own. Once a check has read every source, the icons of each
+changes. The row of the installed app shows that icon, else its source's;
+the other sources' rows of that id show their own. Every source icon is
+fetched, an installed app's too, so a removed app shows its source's icon
+at once. Once a check has read every source, the icons of each
 source read without error are looked at again.
 
 **Channels** (a `github` source's `channel`): `releases` (the catalog
@@ -346,9 +347,8 @@ lists the id.
   source lists (a tool, an app the deploy tool marked local, one with an
   origin, imported) has such a row, for its Remove: an app removable, a
   tool when its `component.json` says `uninstallable: true`, never one the
-  updater never removes (itself, the deploy tool, the Store, what the
-  updater requires); a tool's requirements and capability are its
-  `component.json`'s.
+  updater never removes (below); a tool's requirements and capability are
+  its `component.json`'s.
 
 `requires` (`{"<id>":
 "<min version>"}`) installs a missing or older requirement first, from the
@@ -362,8 +362,14 @@ component requiring the renderer installs beside another renderer);
 installed; apps, whatever their source's `uninstallable` says, and
 `uninstallable` tools can be removed (Store, phone page), through
 `mgu-deploy.sh uninstall <id> --yes`, unless something installed requires
-them. The updater, the deploy tool, the Store and what the updater
-requires are never removed (their `uninstallable` is false). An install asked
+them: what its row lists, or what it required when it was installed
+(`state/origins.json` `requires`, also recorded when its source lists the
+version installed), which stands while no source lists it (its stick out,
+its source removed). The Store and the tools its setup installs (the updater, the deploy
+tool, `mgu-python`, `app-privacy`, `mgu-render`, `mgu-uplink`) are never
+removed, whatever a source says, nor taken along by an app's removal
+(their `uninstallable` is false); the computer's uninstall
+(deploy/README.md) removes them. An install asked
 for while a removal of the same component waits or runs (or the other way
 round) is refused.
 

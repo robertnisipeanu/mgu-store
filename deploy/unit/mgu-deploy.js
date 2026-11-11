@@ -54,7 +54,7 @@ var cp = require('child_process');
 process.umask(0o022);
 
 /* deploy/component.json's version; the release sets both. */
-var VERSION = '0.8.9';
+var VERSION = '0.8.10';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -822,11 +822,19 @@ function syncStashes() {
     if (!Object.keys(loadState().data_stash || {}).length) return;
     statusStep('data set aside', function () { var s = loadState(); if (settleStashes(s)) saveState(s); });
 }
+/* status --read-only: its steps change nothing. */
+var statusReadOnly = false;
+/* Why a step of status leaves what it would change as it is (read-only,
+ * or not run as root), else null. */
+function statusHeld() {
+    if (statusReadOnly) return 'read-only';
+    return !FAKE && process.getuid() !== 0 ? 'status not run as root' : null;
+}
 /* A step of status run as root, under the lock when free, its lines on
  * stderr (stdout keeps status's own). */
 function statusStep(what, fn) {
     var out = process.stdout.write;
-    if (!FAKE && process.getuid() !== 0) return;
+    if (statusHeld()) return;
     process.stdout.write = function (x) { return process.stderr.write(x); };
     try {
         if (!statusLock()) return;
@@ -1414,6 +1422,7 @@ function syncBootLists() {
             return { state: 'ok', reason: plan.crash ? 'up to date' : 'no crash handler list on this unit' };
         };
         if (!plan.ops.length && !plan.record) return idle();
+        if (statusReadOnly) return { state: 'pending', reason: 'read-only' };
         var busy = plan.ops.length && rootBusy();
         if (busy) return { state: 'pending', reason: busy };
         locked = statusLock();
@@ -1460,6 +1469,7 @@ function syncLimits() {
     try {
         if (!FAKE && process.getuid() !== 0) return { state: 'pending', reason: 'status not run as root' };
         if (!limitsPlan(installedTools(), null).ops.length) return { state: 'ok', reason: 'up to date' };
+        if (statusReadOnly) return { state: 'pending', reason: 'read-only' };
         var busy = rootBusy();
         if (busy) return { state: 'pending', reason: busy };
         locked = statusLock();
@@ -1505,9 +1515,10 @@ function syncLiveId8() {
     process.stdout.write = function () { return true; };
     try {
         if (rec.on) return { state: 'ok', reason: fallbackPresent() ? 'on' : 'turned off since it was turned on' };
-        if (fallbackPresent()) return { state: 'ok', reason: done('on') };
+        if (fallbackPresent()) return { state: 'ok', reason: statusReadOnly ? 'on' : done('on') };
         if (rec.key === key) return { state: 'ok', reason: 'off: ' + rec.why };
-        if (!FAKE && process.getuid() !== 0) return { state: 'pending', reason: 'status not run as root' };
+        var held = statusHeld();
+        if (held) return { state: 'pending', reason: held };
         if (!runningInstalled() && !FAKE) return { state: 'pending', reason: 'this deploy tool is not the installed one' };
         var busy = rootBusy();
         if (busy) return { state: 'pending', reason: busy };
@@ -5175,7 +5186,8 @@ function syncListingId8() {
     process.stdout.write = function () { return true; };
     try {
         if (!id8Unlisted().length && !fallbackUnitOld()) return { state: 'ok', reason: 'every app of ours is listed' };
-        if (!FAKE && process.getuid() !== 0) return { state: 'pending', reason: 'status not run as root' };
+        var held = statusHeld();
+        if (held) return { state: 'pending', reason: held };
         if (!runningInstalled() && !FAKE) return { state: 'pending', reason: 'this deploy tool is not the installed one' };
         if (!mgrDataReady()) return { state: 'pending', reason: 'the app manager has not created its data folder yet' };
         locked = statusLock();
@@ -7933,6 +7945,7 @@ var HELP = [
     '  install [--artifact <file>...] [--skip-older] [--leave <id>...] [--yes]',
     '                                    install tools/apps (default: ./artifacts/*.tgz)',
     '  status [--json]                  installed components and pending reboots',
+    '  status --read-only [--json]      the same, its upkeep left undone: changes nothing',
     '  relay [<id>...] --yes            lay a stale tool\'s files again from the copy kept here, without its install step',
     '  setup <id> --yes                 a tool laid again from the copy kept here, its install step included',
     '  uninstall <id> [--yes]           remove one tool or app',
@@ -7968,6 +7981,7 @@ function parseArgs(argv) {
         else if (argv[i] === '--yes') out.yes = true;
         else if (argv[i] === '--remove') out.remove = argv[++i] || '';
         else if (argv[i] === '--list') out.list = true;
+        else if (argv[i] === '--read-only') out.readOnly = true;
         else if (argv[i] === '--leave') (out.leave = out.leave || []).push(argv[++i]);
         else out.positional.push(argv[i]);
     }
@@ -8003,7 +8017,7 @@ function runCommand() {
         if (args.command === 'help' || args.command === '--help') { say(HELP); return 0; }
         if (args.command === 'check') return cmdCheck(args);
         if (args.command === 'install') return cmdInstall(args);
-        if (args.command === 'status') { syncMgrHome(); syncGuard(); syncStashes(); return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits(), syncListingId8()); }
+        if (args.command === 'status') { statusReadOnly = !!args.readOnly; syncMgrHome(); syncGuard(); syncStashes(); return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits(), syncListingId8()); }
         if (args.command === 'relist') {
             if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0) throw refuse('run as root');
             return cmdRelist();

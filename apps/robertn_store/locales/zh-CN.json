@@ -126,6 +126,7 @@
     "Restart head unit to install apps": "重启主机以安装应用",
     "Not working": "无法使用",
     "Needs setup": "待设置",
+    "Needed by {0}": "{0} 正在使用",
     "Set up": "设置",
     "Restart the head unit to finish setup": "请重启主机以完成设置",
     "Restarting": "重启中",

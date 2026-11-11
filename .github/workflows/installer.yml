@@ -73,12 +73,12 @@ jobs:
           set -e
           test "$status" = 2
 
-      # first-install, token and usb-repo against a fake unit and a stand-in
+      # first-install, token, uninstall, status and usb-repo against a fake unit and a stand-in
       # GitHub, the executable in place of node mgu-install.js
       - name: Deploy tests with the executable
         if: startsWith(matrix.name, 'linux-')
         env:
-          MGU_TEST_ONLY: testMguInstall,testMguInstallUsb,testMguInstallFrom,testMguInstallPaths,testMguInstallUninstall
+          MGU_TEST_ONLY: testMguInstall,testMguInstallUsb,testMguInstallFrom,testMguInstallPaths,testMguInstallUninstall,testMguInstallStatus
           MGU_TEST_INSTALL_EXE: /w/out/mgu-install-${{ matrix.name }}
         run: sh deploy/test/run.sh
 

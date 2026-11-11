@@ -122,6 +122,7 @@
     "Restart head unit to install apps": "Επανεκκινήστε για εγκατάσταση εφαρμογών",
     "Not working": "Δεν λειτουργεί",
     "Needs setup": "Χρειάζεται ρύθμιση",
+    "Needed by {0}": "Χρειάζεται για {0}",
     "Set up": "Ρύθμιση",
     "Restart the head unit to finish setup": "Επανεκκινήστε την κεντρική μονάδα για ολοκλήρωση",
     "Restarting": "Επανεκκίνηση",

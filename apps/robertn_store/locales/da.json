@@ -122,6 +122,7 @@
     "Restart head unit to install apps": "Genstart hovedenheden for at installere apps",
     "Not working": "Virker ikke",
     "Needs setup": "Skal sættes op",
+    "Needed by {0}": "Bruges af {0}",
     "Set up": "Sæt op",
     "Restart the head unit to finish setup": "Genstart hovedenheden for at fuldføre opsætningen",
     "Restarting": "Genstarter",
