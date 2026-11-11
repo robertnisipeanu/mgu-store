@@ -54,7 +54,7 @@ var cp = require('child_process');
 process.umask(0o022);
 
 /* deploy/component.json's version; the release sets both. */
-var VERSION = '0.8.8';
+var VERSION = '0.8.9';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -130,6 +130,7 @@ var KEEP_BACKUPS = 10;
 var LOCK_FILE = path.join(DEPLOY_DIR, 'lock');
 var RECMGR_AT_BOOT = path.join(DEPLOY_DIR, 'recmgr-at-boot.json');
 var CRASH_OWNED = path.join(DEPLOY_DIR, 'crash-names.json');
+var RECMGR_OWNED = path.join(DEPLOY_DIR, 'recmgr-names.json');
 var FALLBACK_UNIT = 'mgu-app-fallback.service';
 var FALLBACK_NAME = 'mgu-app-fallback';
 var FALLBACK_COPY = path.join(DEPLOY_DIR, 'main.js');
@@ -957,9 +958,10 @@ function recmgrHas(name, text) {
 /* A unit without the list (iDrive 7 and iDrive 8 both have it) has no recmgr to
  * restart it: nothing is written there, and every unit counts as loaded. */
 function recmgrPresent() { return !!lstatOrNull(CFG.recmgr); }
-/* The rootfs op that adds addNames to the list and removes removeNames,
- * or null when that changes nothing or the unit has no list; its added:
- * the names it puts in. An edit is refused when checkListEdit refuses it. */
+/* The rootfs op that adds addNames to the list and removes removeNames (one
+ * list, or one per section), or null when that changes nothing or the unit
+ * has no list; its added: the names it puts in. An edit is refused when
+ * checkListEdit refuses it. */
 function recmgrOp(addNames, removeNames) {
     if (!recmgrPresent()) return null;
     var text = recmgrText(), next = recmgrWith(text, addNames, removeNames);
@@ -969,6 +971,96 @@ function recmgrOp(addNames, removeNames) {
     return { type: 'copy', data: next, path: CFG.recmgr, mode: 0o644, added: addNames.filter(function (n) {
         return RECMGR_LIST.edited.some(function (sec) { return (was[sec] || []).indexOf(n) < 0; });
     }) };
+}
+/* ---- the names this tool added to recmgr's list ---- */
+/* A tool's names go into the list's sections that lack them, and only the
+ * names this tool put there ever come out: RECMGR_OWNED records them, by
+ * section, with the firmware they were added under, after every edit of the
+ * list for tools' names (and is in every snapshot, so a restore puts it
+ * back with the list). A name the stock snapshot's copy of the list has in
+ * a section never comes out of it. After a firmware update, which puts the
+ * firmware's list back, the record counts for nothing until the next edit.
+ * An install from before the record: the names in the list that the stock
+ * snapshot's copy of it, taken on this firmware, does not have are ours;
+ * without such a copy none are, and a name that would go stays (said). */
+
+/* recmgr's list in the stock snapshot, by section, and whether that
+ * snapshot was taken on the firmware running; null without one, or with one
+ * this run took. */
+function stockRecmgr() {
+    if (stockTakenNow) return null;
+    var dir = path.join(BACKUPS_DIR, 'stock'), data = readJsonOrNull(path.join(dir, 'manifest.json'));
+    var e = data && Array.isArray(data.entries) ? data.entries.filter(function (x) { return x && x.path === CFG.recmgr; })[0] : null;
+    if (!e || e.kind !== 'file' || typeof e.stored !== 'string') return null;
+    try {
+        return { sections: recmgrSections(fs.readFileSync(path.join(dir, e.stored), 'utf8')),
+            here: Object.prototype.hasOwnProperty.call(data, 'firmware') && data.firmware === unitInfo().firmware };
+    } catch (err) { return null; }
+}
+/* The names of ours in the list (text), by section, what says so (basis:
+ * 'record', 'stock', or null when nothing does), whether the record is from
+ * other firmware (moved), and the stock snapshot's list (stockRecmgr). */
+function recmgrOwned(text) {
+    var o = readJsonOrNull(RECMGR_OWNED), fw = unitInfo().firmware, stock = stockRecmgr(), names = {};
+    if (o && o.names && typeof o.names === 'object') {
+        var moved = !!(o.firmware && fw && o.firmware !== fw);
+        RECMGR_LIST.edited.forEach(function (sec) {
+            names[sec] = !moved && Array.isArray(o.names[sec]) ? o.names[sec].filter(function (n) { return typeof n === 'string'; }) : [];
+        });
+        return { names: names, basis: 'record', moved: moved, stock: stock };
+    }
+    var now = recmgrSections(text), basis = stock && stock.here ? 'stock' : null;
+    RECMGR_LIST.edited.forEach(function (sec) {
+        names[sec] = basis ? (now[sec] || []).filter(function (n) { return (stock.sections[sec] || []).indexOf(n) < 0; }) : [];
+    });
+    return { names: names, basis: basis, moved: false, stock: stock };
+}
+/* Of names (ones no installed tool has any more), those to take out of
+ * each section of the list (text): ours, and not the stock snapshot's.
+ * The others there stay, each with why, in one line. */
+function recmgrRemovals(names, text) {
+    var now = recmgrSections(text), out = {}, kept = [];
+    if (!names.length) return out;
+    var owned = recmgrOwned(text), stock = owned.stock;
+    function why(n, sec) {
+        if (stock && (stock.sections[sec] || []).indexOf(n) >= 0) return 'in the stock list';
+        if (owned.moved) return "mgu-deploy's record is from other firmware";
+        if (owned.basis === 'record') return "not in mgu-deploy's record; an earlier version may have added it";
+        return 'no record, and no stock backup from this firmware';
+    }
+    RECMGR_LIST.edited.forEach(function (sec) {
+        out[sec] = names.filter(function (n) {
+            if ((now[sec] || []).indexOf(n) < 0) return false;
+            var ours = owned.names[sec].indexOf(n) >= 0 && !(stock && (stock.sections[sec] || []).indexOf(n) >= 0);
+            if (!ours) {
+                var w = why(n, sec), k = kept.filter(function (x) { return x.name === n && x.why === w; })[0];
+                if (k) k.secs.push('[' + sec + ']');
+                else kept.push({ name: n, why: w, secs: ['[' + sec + ']'] });
+            }
+            return ours;
+        });
+    });
+    if (kept.length) {
+        say('recmgr list: kept ' + kept.map(function (k) { return k.name + ' in ' + k.secs.join(' and ') + ' (' + k.why + ')'; }).join(', '));
+    }
+    return out;
+}
+/* After a window that wrote the list, from was (its text before it): the
+ * record of the names of ours it has now, those of was and the ones the
+ * window added. What says which names of was are ours reads the same here
+ * as before the window: the window writes neither the record nor the stock
+ * snapshot, and a stock snapshot taken by this run counts for nothing. */
+function recmgrOwnedDone(was) {
+    var owned = recmgrOwned(was), before = recmgrSections(was), now = recmgrSections(recmgrText()), names = {};
+    RECMGR_LIST.edited.forEach(function (sec) {
+        names[sec] = (now[sec] || []).filter(function (n, i, all) {
+            return all.indexOf(n) === i && (owned.names[sec].indexOf(n) >= 0 || (before[sec] || []).indexOf(n) < 0);
+        }).sort();
+    });
+    var rec = { firmware: unitInfo().firmware, names: names };
+    if (JSON.stringify(rec) === JSON.stringify(readJsonOrNull(RECMGR_OWNED))) return;
+    mkdirp(DEPLOY_DIR);
+    writeAtomic(RECMGR_OWNED, JSON.stringify(rec) + '\n', 0o644);
 }
 /* Whether the firmware ships a unit recmgr knows by this name. */
 function stockUnit(name) {
@@ -981,6 +1073,11 @@ var RECMGR_NAME = /^[A-Za-z0-9:._+@-]{1,255}$/;
 /* The sections an edit adds names to and removes them from. */
 var RECMGR_LIST = { edited: ['Whitelist', 'WhitelistExitSuccess'] };
 var CRASH_LIST = { edited: ['Whitelist'] };
+/* The names an edit takes from section sec: removeNames, one list for every
+ * section the edit touches or one per section ({ Whitelist: [...] }). */
+function removedFrom(removeNames, sec) {
+    return Array.isArray(removeNames) ? removeNames : (removeNames && removeNames[sec]) || [];
+}
 /* Refuses an edit of a list read at boot (file) unless the list has one of
  * its edited sections at least (an empty or torn file has none) and the
  * edit only adds addNames to and removes removeNames from those sections,
@@ -993,7 +1090,7 @@ function checkListEdit(file, list, text, next, addNames, removeNames) {
     }
     Object.keys(was).concat(Object.keys(now)).forEach(function (sec) {
         var mine = list.edited.indexOf(sec) >= 0;
-        var lost = minus(minus(was[sec] || [], now[sec] || []), mine ? removeNames : []);
+        var lost = minus(minus(was[sec] || [], now[sec] || []), mine ? removedFrom(removeNames, sec) : []);
         var gained = minus(minus(now[sec] || [], was[sec] || []), mine ? addNames : []);
         if (!why && !now[sec]) why = 'would lose its [' + sec + '] section';
         if (!why && lost.length) why = 'would lose ' + lost.join(', ') + ' from [' + sec + ']';
@@ -1042,7 +1139,7 @@ function recmgrWith(text, addNames, removeNames) {
             current = l.section; out.push(line); return;
         }
         if ((current === 'Whitelist' || current === 'WhitelistExitSuccess') && name) {
-            if (removeNames.indexOf(name) >= 0) return;
+            if (removedFrom(removeNames, current).indexOf(name) >= 0) return;
             seen[current + ':' + name] = true;
         }
         out.push(line);
@@ -1284,9 +1381,11 @@ function bootListsPlan() {
         recmgrNamesOf(t.component).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
     });
     try { crash = crashListPlan(tools); } catch (e) { errors.push(e.message); }
+    var recText = recmgrText();
     try { rec = recmgrOp(names, []); } catch (e) { errors.push(e.message); }
     return {
         crash: crash, rec: rec, ops: [rec, crash && crash.op].filter(Boolean), errors: errors,
+        recText: recText,
         record: !!crash && JSON.stringify(crash.owned) !== JSON.stringify(crashOwned().slice().sort())
     };
 }
@@ -1328,9 +1427,10 @@ function syncBootLists() {
         }
         busy = rootBusy();
         if (busy) return { state: 'pending', reason: busy };
-        takeSnapshot('crash-list', [CFG.crashList, CFG.recmgr, CRASH_OWNED]);
+        takeSnapshot('crash-list', [CFG.crashList, CFG.recmgr, CRASH_OWNED, RECMGR_OWNED]);
         var remounts = rootMountMode() === 'ro';
         rootfsWindow(plan.ops);
+        if (plan.rec) recmgrOwnedDone(plan.recText);
         var lines = [], line = crashListDone(plan.crash, remounts);
         if (line) lines.push('crash handler whitelist: ' + line);
         if (plan.rec) lines.push('recmgr list: added ' + plan.rec.added.join(', '));
@@ -1487,12 +1587,12 @@ function writeSnapshot(dir, command, paths) {
 }
 /* Every snapshot also records the files any command may leave changed:
  * this tool's state, the fallback's unit, link, copy and app list, the
- * check-at-the-next-start unit and link, the recmgr list, the crash
- * handler's list and the names this tool added to it, the cleanup unit, its
- * link and the files it removes. The updater owns its
+ * check-at-the-next-start unit and link, the recmgr list and the crash
+ * handler's list and the names this tool added to each, the cleanup unit,
+ * its link and the files it removes. The updater owns its
  * sources and credentials. */
 function alwaysSnapshotted() {
-    return [STATE_FILE, CFG.recmgr, CFG.crashList, CRASH_OWNED, customAppsFile(), FALLBACK_COPY,
+    return [STATE_FILE, CFG.recmgr, CFG.crashList, CRASH_OWNED, RECMGR_OWNED, customAppsFile(), FALLBACK_COPY,
         path.join(CFG.systemd, FALLBACK_UNIT),
         path.join(CFG.systemd, 'multi-user.target.wants', FALLBACK_UNIT),
         path.join(CFG.systemd, VERIFY_UNIT), path.join(CFG.systemd, APPLY_WANTS, VERIFY_UNIT),
@@ -1516,6 +1616,9 @@ function snapshotPaths(paths) {
     });
     return uniq;
 }
+/* Whether this run took the stock snapshot: it holds the files as the run
+ * found them, which tells nothing of what is stock. */
+var stockTakenNow = false;
 /* The first snapshot ever is also kept as "stock". A command that takes
  * several snapshots (one per artifact) writes stock first, over all of
  * them. */
@@ -1525,6 +1628,7 @@ function ensureStock(command, paths) {
     var stock = path.join(BACKUPS_DIR, 'stock');
     if (fs.existsSync(stock)) return;
     writeSnapshot(stock, command, snapshotPaths(paths));
+    stockTakenNow = true;
     say('stock snapshot: ' + stock);
 }
 function takeSnapshot(command, paths) {
@@ -1546,8 +1650,13 @@ function putBackEntry(dir, e) {
     if (e.kind === 'record' || e.kind === 'other') return;
     if (e.kind === 'absent') { rmrf(e.path); return; }
     mkdirp(path.dirname(e.path));
+    var st = lstatOrNull(e.path);
+    if (e.kind === 'symlink') {
+        if (st && st.isDirectory()) rmrf(e.path);
+        replaceLink(e.path, e.target);
+        return;
+    }
     rmrf(e.path);
-    if (e.kind === 'symlink') { fs.symlinkSync(e.target, e.path); return; }
     fs.writeFileSync(e.path, fs.readFileSync(path.join(dir, e.stored)), { mode: 0o600 });
     fs.chmodSync(e.path, e.mode);
     chownMaybe(e.path, e.uid, e.gid);
@@ -2905,9 +3014,7 @@ function installTool(a, state, tx) {
         fs.chmodSync(partial, 0o755);
         fs.writeFileSync(path.join(partial, 'component.json'),
             fs.readFileSync(path.join(a.dir, 'component.json')));
-        if (fs.existsSync(dest)) fs.renameSync(dest, aside);
-        fs.renameSync(partial, dest);
-        rmrf(aside);
+        placeVersion(partial, dest, aside);
     }
     if (before !== c.version) switchCurrent(root, c.version);
     /* what the versions it replaces installed and this one does not list
@@ -2918,7 +3025,7 @@ function installTool(a, state, tx) {
      * and only when the desired bytes differ: the payload and the lists'
      * entries on disk first, so no power cut leaves a unit enabled without
      * them; the units going are out before their entries. */
-    var rec = recmgrOp(recmgrNamesOf(c), []);
+    var recText = recmgrText(), rec = recmgrOp(recmgrNamesOf(c), []);
     var crash = crashListPlan(installedTools()), remounts = rootMountMode() === 'ro';
     var crashAdd = crash && crash.op && crash.add.length ? crash.op : null, crashRemove = crash && crash.op && !crashAdd ? crash.op : null;
     if (crashAdd && crash.remove.length) {
@@ -2956,14 +3063,15 @@ function installTool(a, state, tx) {
     if (limits.ops.length) { ops = ops.concat(limits.ops); unitChanged = true; }
     var recGone = gone && recmgrPresent() ? recmgrNamesGone(gone, installedTools()) : [];
     if (recGone.length) {
-        var recWas = rec ? rec.data : recmgrText(), recNext = recmgrWith(recWas, [], recGone);
+        var recWas = rec ? rec.data : recText, recOut = recmgrRemovals(recGone, recWas), recNext = recmgrWith(recWas, [], recOut);
         if (recNext !== recWas) {
-            checkListEdit(CFG.recmgr, RECMGR_LIST, recWas, recNext, [], recGone);
+            checkListEdit(CFG.recmgr, RECMGR_LIST, recWas, recNext, [], recOut);
             ops.push({ type: 'copy', data: recNext, path: CFG.recmgr, mode: 0o644 });
         }
     }
     if (crashRemove) ops.push(crashRemove);
     if (ops.length) { syncDisks(); rootfsWindow(ops); }
+    if (ops.some(function (op) { return op.path === CFG.recmgr; })) recmgrOwnedDone(recText);
     crashListDone(crash, remounts);
     if (unitChanged) runOk(CFG.systemctl, ['daemon-reload']);
     if (del.length) pruneCreatedDirs(state);
@@ -3100,8 +3208,9 @@ function layMissing(t, state) {
             { type: 'copy', src: path.join(kept.dir, 'dropins', d.unit + '.d', d.name), path: dest, mode: 0o644 });
     });
     if (!ops.length) return [];
-    var rec = recmgrOp(recmgrNamesOf(c), []);
+    var recText = recmgrText(), rec = recmgrOp(recmgrNamesOf(c), []);
     rootfsWindow((rec ? [rec] : []).concat(ops, limitsPlan(installedTools(), limitedUnits(c)).ops));
+    if (rec) recmgrOwnedDone(recText);
     runOk(CFG.systemctl, ['daemon-reload']);
     say(t.id + ' ' + t.version + ': laid again from the copy kept here: ' +
         ops.filter(function (op) { return op.type !== 'mkdir'; }).map(function (op) { return path.relative(CFG.systemd, op.path); }).join(', '));
@@ -3476,12 +3585,30 @@ function runningInstalled() {
 function currentTarget(root) {
     try { return path.basename(fs.readlinkSync(path.join(root, 'current'))); } catch (e) { return null; }
 }
-function switchCurrent(root, version) {
-    var newLink = path.join(root, 'current.new');
-    rmrf(newLink);
-    fs.symlinkSync('versions/' + version, newLink);
-    fs.renameSync(newLink, path.join(root, 'current'));
+/* Puts a version's files, written to partial, in place as dest, the folder
+ * current points to or will. One sync puts every file and folder of partial
+ * on disk first (no fsync per file), so a power cut never leaves current on
+ * files the disk has not got yet; a folder already named dest goes aside.
+ * The rename is on disk before it returns. */
+function placeVersion(partial, dest, aside) {
+    syncDisks();
+    if (fs.existsSync(dest)) fs.renameSync(dest, aside);
+    fs.renameSync(partial, dest);
+    fsyncDir(path.dirname(dest));
+    rmrf(aside);
 }
+/* Link p made to point to target by rename, so it points to the old or the
+ * new target at every moment, its folder on disk before it returns. */
+function replaceLink(p, target) {
+    var newLink = p + '.new';
+    rmrf(newLink);
+    fs.symlinkSync(target, newLink);
+    fs.renameSync(newLink, p);
+    fsyncDir(path.dirname(p));
+}
+/* A tool's current switched to a version on disk: one an install placed
+ * (placeVersion) or an earlier one kept. */
+function switchCurrent(root, version) { replaceLink(path.join(root, 'current'), 'versions/' + version); }
 function ensureShim() {
     var text = '#!/bin/sh\n# The installed deploy tool: runs the version current points to.\n' +
         'exec /bin/sh ' + path.join(DEPLOY_DIR, 'current', 'mgu-deploy.sh') + ' "$@"\n';
@@ -3508,9 +3635,7 @@ function selfInstall() {
             fs.writeFileSync(path.join(partial, 'component.json'), text);
             fs.chmodSync(path.join(partial, 'component.json'), 0o644);
             fs.chmodSync(partial, 0o755);
-            if (fs.existsSync(dest)) fs.renameSync(dest, aside);
-            fs.renameSync(partial, dest);
-            rmrf(aside);
+            placeVersion(partial, dest, aside);
         }
         if (before !== VERSION) {
             switchCurrent(DEPLOY_DIR, VERSION);
@@ -4591,16 +4716,18 @@ function recmgrNamesGone(c, rest) {
 }
 /* Takes out c's units (stopUnits first), enablement links, drop-ins and
  * their limits, then the recmgr names in c that no tool in rest (the tools
- * that stay) has and the crash handler's names rest no longer wants, in one
- * rootfs window: units before list entries. */
+ * that stay) has and this tool added (recmgrRemovals) and the crash
+ * handler's names rest no longer wants, in one rootfs window: units before
+ * list entries. */
 function removeToolPieces(c, rest, state) {
     var ops = deleteOps(c).concat(limitsPlan(rest, limitedUnits(c)).ops);
-    var rec = recmgrOp([], recmgrNamesGone(c, rest));
+    var recText = recmgrText(), rec = recmgrOp([], recmgrRemovals(recmgrNamesGone(c, rest), recText));
     if (rec) ops.push(rec);
     var unitOps = ops.length;
     var crash = crashListPlan(rest), remounts = rootMountMode() === 'ro';
     if (crash && crash.op) ops.push(crash.op);
     if (ops.length) rootfsWindow(ops);
+    if (rec) recmgrOwnedDone(recText);
     crashListDone(crash, remounts);
     if (unitOps) runOk(CFG.systemctl, ['daemon-reload']);
     pruneCreatedDirs(state);
@@ -6954,8 +7081,10 @@ function installRun(args, afresh) {
         try {
             try { settlePrivacyBounce(); }
             catch (e) { warn('the app manager was not restarted for app-privacy: ' + e.message); }
-            if (done.length) selfInstall();
-            if (attempted) saveState(state);
+            /* the record of what this run installed is kept even when the
+             * deploy tool's own install fails; that failure still fails the run */
+            try { if (done.length) selfInstall(); }
+            finally { if (attempted) saveState(state); }
         } finally { rmrf(stage); }
     }
     return 0;

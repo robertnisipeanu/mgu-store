@@ -17,8 +17,8 @@
 #   install-test.sh sh '<command>'              run a command on the unit
 #
 # The target goes after "--": --car (the car over ENET, else its hotspot; with deploy/hu's --wifi,
-# --hu-ip, --iface as needed), or --host <addr> --port <n> with --identity and --ssh-opt (an
-# emulator). Nothing connects without one. MGU_CAR_TEST_DIR (default ~/.cache/mgu-store/car-test) holds the record of the
+# --hu-ip, --iface as needed), or --host <addr> --port <n> with --identity and --ssh-opt (a
+# test unit). Nothing connects without one. MGU_CAR_TEST_DIR (default ~/.cache/mgu-store/car-test) holds the record of the
 # installed versions, the published copy and the results.
 set -euo pipefail
 
@@ -55,7 +55,7 @@ while [ $# -gt 0 ]; do
 done
 nargs=${#ARGS[@]}
 # The target is named: --car (deploy/hu finds the car over ENET, else its hotspot), or
-# --host (an emulator, or a car by address), never the default by omission.
+# --host (a test unit, or a car by address), never the default by omission.
 TARGET=
 CONN2=()
 for c in ${CONN[@]+"${CONN[@]}"}; do
@@ -80,7 +80,7 @@ close_link() {
 	LINK_PID=
 }
 open_link() {
-	[ -n "$TARGET" ] || die "name the target after --: --car for the car (ENET, else its hotspot), or --host <addr> --port <n> ... for an emulator" 2
+	[ -n "$TARGET" ] || die "name the target after --: --car for the car (ENET, else its hotspot), or --host <addr> --port <n> ... for a test unit" 2
 	LINK_DIR=$(mktemp -d /tmp/mgu-car-test-link.XXXXXX)
 	trap close_link EXIT
 	"$REPO/deploy/hu" connect --lport "$LPORT" --hold 7200 ${CONN[@]+"${CONN[@]}"} \
@@ -316,7 +316,7 @@ cmd_restart() {
 
 # The head unit's own restart: the Node State Manager's, as the updater's reboot request runs it
 # (native/mgu-updater/README.md, "Restarting the head unit"). Waits until the unit answers with a
-# new boot id, or (the emulator keeps its boot id) a new HMI start.
+# new boot id, or (a unit that keeps its boot id) a new HMI start.
 cmd_reboot() {
 	[ "$(arg 0)" = "--off-screen" ] || die "reboot needs --off-screen: the owner is at the car, the Store and every renderer app are closed, and the car is parked on stable power" 2
 	open_link

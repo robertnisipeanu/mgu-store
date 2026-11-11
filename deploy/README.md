@@ -139,7 +139,7 @@ deploy/hu connect --arm-debug --keep-armed --hold 1800   # bootstrap only, see a
 until interrupted). Over the hotspot there is nothing to hold, and it
 returns.
 
-The emulator:
+A unit on a local SSH port:
 
 ```sh
 deploy/hu status --host 127.0.0.1 --port 2225 \
@@ -485,6 +485,7 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /var/opt/mgu-deploy/state.json           pending reboots, apps' uids, the last bounce
 /var/opt/mgu-deploy/recmgr-at-boot.json  the recmgr list as it stood at this boot
 /var/opt/mgu-deploy/crash-names.json     the names this tool added to the crash handler's list
+/var/opt/mgu-deploy/recmgr-names.json    the names this tool added to recmgr's list, by section, and the firmware
 /var/opt/mgu-deploy/lock                 the changing run's pid and boot
 /var/opt/mgu-deploy/backups/<time>-<command>/, backups/stock/   (0700)
 /var/opt/mgu-deploy/main.js              the fallback copy of the manager's main.js
@@ -820,7 +821,11 @@ the tests and this README are not part of the artifact.
 ### Tools
 
 A tool installs into `versions/<version>/` (files with their listed modes,
-folders 0755) and `current` switches to it by rename. Once it is up, only the
+folders 0755) and `current` switches to it by rename. The version's files
+are written to a folder of their own and synced to disk before it takes the
+version's name, and the switch is on disk before the install goes on, so a
+power cut leaves `current` on the version before or on the new one, whole;
+the deploy tool installs itself the same way. Once it is up, only the
 new version and the one `current` pointed to before stay; others are
 removed. Units, enablement links and the recmgr list change only when their
 bytes differ, then `systemctl daemon-reload`. Reinstalling the same artifact
@@ -850,7 +855,17 @@ template's as `name@`) unless the firmware has that name: in
 `[ForceRestartList]`, or a unit in `/lib/systemd/system` or
 `/usr/lib/systemd/system`. A `recmgr` name is letters, digits and `:._+@-`
 (an install with another is refused). Other lines and sections are kept as
-they are. An uninstall takes out the names no other installed tool has.
+they are. A name goes only into the sections that lack it, and
+`recmgr-names.json` records, by section, the names the deploy tool put
+there and the firmware it did so under. An update, rollback or uninstall
+takes out the names no installed tool has any more, and of those only the
+ones recorded for a section, never one the stock backup's list
+(`backups/stock`) has in it: an entry the firmware has, such as `carplay`
+for a tool that lists it, stays. After a firmware update the record counts
+for nothing until the list is next edited. Without a record (tools
+installed by an earlier deploy tool), a name the list has goes only when
+the stock backup, taken on the firmware running, lacks it; with no such
+backup it stays, said in the output.
 `status`, run as root, adds the installed tools' names missing from the
 list, as for the crash handler's list below.
 
@@ -2082,15 +2097,15 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
 ## [on-car-unconfirmed]
 
 - The manager's fresh install of an app listed only by the fallback, and an
-  update re-seeded with `installationSource: null`, on the car (both proven in
-  the emulator).
-- The in-place install and update on the car (proven in the emulator): the
+  update re-seeded with `installationSource: null`, on the car (both proven on
+  a test unit).
+- The in-place install and update on the car (proven on a test unit): the
   running manager installing with the other apps up, its trigger_service
   check at each install, and only that app stopping and starting.
-- The in-place uninstall on the car (proven in the emulator): the
+- The in-place uninstall on the car (proven on a test unit): the
   tile leaving the HMI at once and the other apps staying up.
-- oapcontroller's crash counting and alive window on the car (proven in the
-  emulator; the 60 s spacing covers it, with room for a slower start).
+- oapcontroller's crash counting and alive window on the car (proven on a
+  test unit; the 60 s spacing covers it, with room for a slower start).
 - recmgr's rules: an entry counts once it was in the list at boot; a stopped,
   unlisted service rebooting the unit.
 - The rootfs window (`mount -o remount,rw /` and back to `ro`).
@@ -2106,7 +2121,7 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
 - `deploy/hu`'s `--arm-debug` flow end to end on the car.
 - The migration of the retired installer's leftovers on the car: its
   backups' names and content, and our apps keeping their tiles through the
-  fallback once the stock bundles are back (proven in the emulator on a
+  fallback once the stock bundles are back (proven on a test unit with a
   reproduction of the car's state).
 - The car's donors: which preinstalled package resolves the Store's sdk
   names first (on a replica of the car's rootfs it is
@@ -2118,7 +2133,7 @@ pointing at `deploy/test/fake_transport.py` (the unit as a banner server on
   resolved for the app as for a stock app).
 - `/run/mgu-deploy` writable and readable by other uids on the car.
 
-On an iDrive 8 head unit (IterioDev's car; none in the emulator), the
+On an iDrive 8 head unit (IterioDev's car), the
 whole iDrive 8 path:
 
 - the detection (`/usr/lib/oap-mainapp21` present and

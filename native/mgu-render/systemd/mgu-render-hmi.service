@@ -2,15 +2,22 @@
 Description=mgu-render page template for the HMI
 DefaultDependencies=no
 Before=hmi.service
+# stopped (ExecStop) at every systemd shutdown, as DefaultDependencies=yes would
+Conflicts=shutdown.target
+Before=shutdown.target
 RequiresMountsFor=/var/opt/mgu-render /mnt/dataro/data/hmi
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Mounts the template made at install, nothing more: without one for this HmiMain3D, on any failure,
-# or after 30 s, the stock widgets stay and the HMI starts as usual.
+# Mounts the template made at install, nothing more: without one for this HmiMain3D, once the HMI failed twice
+# with it, on any failure, or after 30 s, the stock widgets stay and the HMI starts as usual. After mounting it
+# leaves mgu-render-hmi.sh --confirm running here until the HMI is confirmed healthy (at most about 12 min).
 TimeoutStartSec=30
 ExecStart=-/bin/sh /var/opt/mgu-render/current/mgu-render-hmi.sh /var/opt/mgu-render/current /var/opt/mgu-render/hmi
+# A systemd shutdown (systemctl reboot or poweroff) before that: this start counts no failure.
+ExecStop=-/bin/sh /var/opt/mgu-render/current/mgu-render-hmi.sh --stop /var/opt/mgu-render/current /var/opt/mgu-render/hmi
+TimeoutStopSec=10
 
 [Install]
 WantedBy=hmi.service

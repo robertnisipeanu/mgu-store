@@ -42,7 +42,7 @@ every 2 s:
 | `iphone` | an iPhone with Personal Hotspot on | usbfs: taken from the media daemon with the sysfs `authorized` toggle, configuration 4, paired over its usbmux interface (pairing.go), the hotspot interface as Linux's `ipheth` drives it (iphone.go) |
 
 `uplink = netdev:<ifname>` in the config uses that existing interface
-instead, under its own name (the emulator's second NIC).
+instead, under its own name.
 
 A device earlier in the order is preferred: while the uplink runs on a
 phone, a stick plugged in (or Wi-Fi joining) takes over within 5 s, and the
