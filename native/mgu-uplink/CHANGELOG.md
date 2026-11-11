@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.10
+
 - Switching Wi-Fi on (`wifi-enable`) also scans once, as soon as the supplicant takes requests, so the network list fills without a `wifi-scan` request. During wireless CarPlay or Android Auto that scan waits for the session to end.
 
 ## 0.7.9
