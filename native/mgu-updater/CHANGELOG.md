@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.39
+
 - The deploy tool's own update goes first among queued requests, so Update all installs every other component through the new deploy tool.
 
 ## 0.8.38
