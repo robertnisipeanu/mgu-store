@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- On iDrive 7, an app of ours the app manager registered without a `custom_apps.json` entry, such as one it put back from `preinstalled_apps` itself, gets its tile again: `status` run as root and every app install list it, from the app manager's next start, and an install in which every app is current (re-running the installer's `first-install`) lists it, or finds it listed since the app manager started, and restarts the app manager once.
+
 ## 0.8.12
 
 - Installing or updating an app, or carrying a kept data folder into one, removes the code cache of its earlier bundle (`data/app.js.bytecode`). The head unit's Node accepts that cache for any bundle of the same length, so an update that kept the length would run the earlier version's code.

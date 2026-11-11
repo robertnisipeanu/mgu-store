@@ -1366,6 +1366,14 @@ The app manager installs our apps itself.
   is not restarted and the boot unit lists the apps from the next start.
   A copy that does not build leaves the fallback off, the install stands,
   and `status --json` gives the reason as `fallback.refused`.
+- **Unlisted apps.** On iDrive 7, an app of ours (`mguLocalOnly`) the
+  manager has registered from any source, its own reinstall from
+  `preinstalled_apps` included, that `custom_apps.json` does not list has
+  no tile. `status` run as root and every app install list it, and its
+  tile shows from the manager's next start (with the fallback lost, once
+  an install turns it on again). An install in which every app is current
+  lists it and restarts the manager once, as for a lost fallback; so does
+  one after a run that listed an app while the running manager was up.
 - **Start type.** `custom_apps.json` lists every app with
   `-appStartType` `manually`, or the value its `package.json` names in
   `"mguAppStartType"` (`autostart`, `lum` or `manually`; any other value

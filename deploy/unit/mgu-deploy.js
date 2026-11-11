@@ -4549,7 +4549,7 @@ function cleanInterrupted(state) {
  * cached: an app provisioning once dropped caches both false, and the
  * manager installs no app the listing disables. */
 function listApp(a, entry) {
-    customAppsPut(a.id, Object.assign({}, entry ? entry.provisioningCache : null, { '-enabled': 'true', '-allowed': 'true' }),
+    return customAppsPut(a.id, Object.assign({}, entry ? entry.provisioningCache : null, { '-enabled': 'true', '-allowed': 'true' }),
         a.pkg.mguAppStartType || 'manually');
 }
 /* The code cache the stock OAP entry point (package.json main, the
@@ -5492,6 +5492,36 @@ function syncListingId8() {
         process.stdout.write = out;
     }
 }
+/* status on iDrive 7, run as root: lists the apps id7Unlisted() names. The
+ * running manager reads the listing when provisioning reaches it, so their
+ * tiles show from the manager's next start, or, with the fallback lost,
+ * once an install turns it on again; an install restarts the manager that
+ * has not taken them. Null on a unit with neither the fallback nor an app of ours. */
+function syncListingId7() {
+    if (isId8() || (!fallbackPresent() && !ourInstalledApps().length)) return null;
+    var out = process.stdout.write, locked = false;
+    process.stdout.write = function () { return true; };
+    try {
+        if (!id7Unlisted().length) return { state: 'ok', reason: 'every app of ours is listed' };
+        var held = statusHeld();
+        if (held) return { state: 'pending', reason: held };
+        if (!runningInstalled() && !FAKE) return { state: 'pending', reason: 'this deploy tool is not the installed one' };
+        locked = statusLock();
+        if (!locked) return { state: 'pending', reason: 'another mgu-deploy run holds the lock' };
+        var s = loadState(), ids = listUnlistedId7(s);
+        if (!ids.length) return { state: 'ok', reason: 'every app of ours is listed' };
+        saveState(s);
+        var when = fallbackLost() ? 'once an install turns the provisioning fallback on again' : 'from the next start of the app manager';
+        process.stderr.write('listed for the provisioning fallback, ' + when + ': ' + ids.join(', ') + '\n');
+        return { state: 'changed', reason: 'listed ' + ids.join(', ') + '; their tiles show ' + when };
+    } catch (e) {
+        process.stderr.write('mgu-deploy: our apps not listed again: ' + e.message + '\n');
+        return { state: 'error', reason: e.message };
+    } finally {
+        if (locked) releaseLock();
+        process.stdout.write = out;
+    }
+}
 /* The fallback's boot unit runs it before MainApp-21; another run holding
  * the lock leaves it to status. */
 function cmdRelist() {
@@ -6364,14 +6394,45 @@ function fallbackLost() {
     if (!Object.keys(readCustomApps()).length) return false;
     return !(fallbackPresent() && (!binds() || boundToCopy()));
 }
+/* iDrive 7: apps of ours the app manager has registered, from whatever
+ * source, that custom_apps.json does not list: the fallback gives them no
+ * section, so their tiles stay hidden. A manager that reinstalls an app
+ * from preinstalled_apps on its own registers it without this tool. The
+ * retired installer's leftovers list apps by themselves. */
+function id7Unlisted() {
+    if (isId8() || retiredBackups().length || !mgrDataReady()) return [];
+    var listed = readCustomApps();
+    return ourInstalledApps().filter(function (a) { return !Object.prototype.hasOwnProperty.call(listed, a.id); });
+}
+/* Lists them, recorded in state.json (listed_unseen: the running manager's
+ * pid and the apps) until the manager restarts: a manager that started
+ * before an app was listed gives it no tile. */
+function listUnlistedId7(state) {
+    var ids = id7Unlisted().filter(function (a) { return listApp(a, a.entry); }).map(function (a) { return a.id; });
+    if (!ids.length) return [];
+    say('listed ' + ids.join(', ') + ' in ' + customAppsFile() + ': registered without a listing, so their tiles were hidden');
+    var pid = managerPid();
+    if (pid) {
+        var was = listedUnseen(state);
+        state.listed_unseen = { pid: pid, apps: was.concat(ids.filter(function (id) { return was.indexOf(id) < 0; })) };
+    }
+    return ids;
+}
+/* The apps listed while the running manager runs, which it has not taken. */
+function listedUnseen(state) {
+    var r = state.listed_unseen;
+    if (r && (!r.pid || r.pid !== managerPid())) { delete state.listed_unseen; r = null; }
+    return r && Array.isArray(r.apps) ? r.apps : [];
+}
 /* What a restarted app manager needs to initialise: without them it fails
  * its start again and again, and oapcontroller wipes every app at the
  * third failure in a row. */
 var PLATFORM_UNITS = ['vsomeipd.service', 'hmi.service'];
-/* An install with no app work on a unit where fallbackLost(): the fallback
- * goes on again and the manager restarts once (bounceManager's rules), so
- * the tiles show; with PLATFORM_UNITS not running, the boot unit lists
- * them from the next start instead. A copy that does not build, or a
+/* An install with no app work on a unit where fallbackLost(),
+ * id7Unlisted() or listedUnseen(): the unlisted apps are listed, the
+ * fallback goes on again and the manager restarts once (bounceManager's
+ * rules), so the tiles show; with PLATFORM_UNITS not running, the boot
+ * unit lists them from the next start instead. A copy that does not build, or a
  * failure, leaves the fallback as it was, recorded in state.json
  * (fallback_refused) for status; the install stands. */
 function relistApps(state) {
@@ -6379,6 +6440,7 @@ function relistApps(state) {
     try {
         preflightFallback();
         backup = takeSnapshot('fallback', fallbackTouched());
+        var listedNow = listUnlistedId7(state).concat(listedUnseen(state));
         ensureFallback(state, false);
         var down = PLATFORM_UNITS.filter(function (u) { return unitState(u, 'is-active') !== 'active'; });
         if (down.length) {
@@ -6388,9 +6450,11 @@ function relistApps(state) {
             return;
         }
         var m = managerStart();
-        if (m && fallbackPresent() && hookAnnounced(m)) return;
+        if (m && fallbackPresent() && hookAnnounced(m) && !listedNow.length) return;
         say('our apps are listed again: restarting the app manager so their tiles show');
-        if (bounceManager() && inplaceHookOf(fs.readFileSync(FALLBACK_COPY, 'utf8')) !== null) inplaceManager();
+        var bounced = bounceManager();
+        if (bounced) delete state.listed_unseen;
+        if (bounced && inplaceHookOf(fs.readFileSync(FALLBACK_COPY, 'utf8')) !== null) inplaceManager();
     } catch (e) {
         warn('our apps\' tiles stay hidden: ' + e.message);
         state.fallback_refused = e.message;
@@ -7281,7 +7345,7 @@ function installRun(args, afresh) {
         if (apps && !id8) preflightFallback();
         /* every app current, the fallback lost: listed again after the
          * tools, with the one bounce app-privacy's waits for */
-        var relist = !apps && !noOap && !guardWhy() && fallbackLost();
+        var relist = !apps && !noOap && !guardWhy() && (fallbackLost() || id7Unlisted().length > 0 || listedUnseen(state).length > 0);
         privacyMayWait = apps && !id8 && managerListsNoApp() || relist;
         privacyWaitsRelist = relist;
         if (work.length) {
@@ -7304,6 +7368,8 @@ function installRun(args, afresh) {
                 if (!id8) {
                     try { cleanInterrupted(state); saveState(state); }
                     catch (e) { warn('what interrupted installs left was not looked at: ' + e.message); }
+                    try { if (listUnlistedId7(state).length) saveState(state); }
+                    catch (e) { warn('our unlisted apps were not listed: ' + e.message); }
                 }
             }
             var tx = {}, backup = takeSnapshot('install', artifactTouched(a));
@@ -8300,7 +8366,7 @@ function runCommand() {
         if (args.command === 'help' || args.command === '--help') { say(HELP); return 0; }
         if (args.command === 'check') return cmdCheck(args);
         if (args.command === 'install') return cmdInstall(args);
-        if (args.command === 'status') { statusReadOnly = !!args.readOnly; syncMgrHome(); syncGuard(); syncStashes(); syncId7Parts(); return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits(), syncListingId8()); }
+        if (args.command === 'status') { statusReadOnly = !!args.readOnly; syncMgrHome(); syncGuard(); syncStashes(); syncId7Parts(); return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits(), isId8() ? syncListingId8() : syncListingId7()); }
         if (args.command === 'relist') {
             if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0) throw refuse('run as root');
             return cmdRelist();
