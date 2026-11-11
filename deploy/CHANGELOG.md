@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Installing or updating an app, or carrying a kept data folder into one, removes the code cache of its earlier bundle (`data/app.js.bytecode`). The head unit's Node accepts that cache for any bundle of the same length, so an update that kept the length would run the earlier version's code.
+
 ## 0.8.11
 
 - On iDrive 7 units whose Telematics reports iDrive 8 (`hmiVersion` 3), apps get their tile: before the app manager installs an app, its package lists that HMI wherever it lists iDrive 7 and nowhere else, so the app manager installs the iDrive 7 UI, texts and images. Other units get packages as they are.

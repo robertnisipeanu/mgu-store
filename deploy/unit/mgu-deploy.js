@@ -4552,6 +4552,40 @@ function listApp(a, entry) {
     customAppsPut(a.id, Object.assign({}, entry ? entry.provisioningCache : null, { '-enabled': 'true', '-allowed': 'true' }),
         a.pkg.mguAppStartType || 'manually');
 }
+/* The code cache the stock OAP entry point (package.json main, the
+ * firmware's runner.js) keeps of an app's bundle: <data>/<bundle>.bytecode,
+ * both paths from the runnerConfig.json beside the entry point (default
+ * ../../data and ./app.js). The firmware's V8 takes a cache made for any
+ * source of the same length, so a cache another version of the app left
+ * runs that version's code; without it the entry point compiles the
+ * bundle and writes a new cache. The app owns its home: the cache goes
+ * only when the home, its data folder and every folder on the way are real
+ * folders, no links. */
+function clearCodeCache(id, uid) {
+    if (!uid) return;
+    var home = appHome(uid), source = path.join(home, 'source'), data = path.join(home, 'data');
+    var pkg = readJsonOrNull(path.join(source, 'package.json'));
+    var main = pkg && typeof pkg.main === 'string' ? path.join(source, pkg.main) : path.join(source, 'javascript', 'runner.js');
+    var cfg = readJsonOrNull(path.join(path.dirname(main), 'runnerConfig.json')) || {};
+    var dataRel = typeof cfg.DATA_RELATIVE_PATH === 'string' ? cfg.DATA_RELATIVE_PATH : '../../data';
+    var jsRel = typeof cfg.JS_RELATIVE_PATH === 'string' ? cfg.JS_RELATIVE_PATH : './app.js';
+    var cache = path.join(path.dirname(main), dataRel, jsRel + '.bytecode'), rel = path.relative(data, cache);
+    if (!rel || rel.split(path.sep)[0] === '..' || path.isAbsolute(rel)) return;
+    var dir = home, parts = ['data'].concat(rel.split(path.sep).slice(0, -1)), st;
+    for (var i = 0; i <= parts.length; i++) {
+        st = lstatOrNull(dir);
+        if (!st || !st.isDirectory()) return;
+        if (i < parts.length) dir = path.join(dir, parts[i]);
+    }
+    st = lstatOrNull(cache);
+    if (!st || !st.isFile()) return;
+    try {
+        fs.unlinkSync(cache);
+        say(id + ': its code cache goes (' + cache + ')');
+    } catch (e) {
+        warn(id + ': its code cache ' + cache + ' stays: ' + e.message + '; the app may run its earlier code until it is removed');
+    }
+}
 /* Privacy, the fallback, the package, the app listed by the fallback; then
  * the running manager installs or updates it in place, or else one bounce:
  * the restarted manager installs it fresh, or updates it from its registry
@@ -4583,6 +4617,7 @@ function installApp(a, state, decision) {
         bounceManager();
     }
     if (existing) waitStartedUp('placing ' + a.id + ' ' + a.version);
+    if (existing) clearCodeCache(a.id, existing.uid);
     entry = existing ? readJsonOrNull(appEntryFile(a.id)) : null;
     var kc = existing ? lstatOrNull(keychainFile(existing.uid)) : null;
     a.noKeychain = existing && !(kc && kc.size > 0) ? existing.uid : null;
@@ -4634,6 +4669,7 @@ function installApp(a, state, decision) {
             !existing && bytecodeStubs() ? installAfterBounce(a) : watchInstall(a);
         if (existing && uid !== existing.uid) warn(a.id + ' runs as uid ' + uid + ' now; its data stays in ' + appHome(existing.uid));
     }
+    clearCodeCache(a.id, uid);
     var tf = tileFlags(readJsonOrNull(appEntryFile(a.id)));
     if (!tf.visible && (tf.allowed || tf.enabled)) {
         warn(a.id + "'s tile stays hidden: provisioning has its own section for " + a.id + ' (-allowed ' +
@@ -4690,6 +4726,7 @@ function carryData(id, stash, oldUid, oldGid, fresh) {
     else if (cur) fs.rmdirSync(dest);
     fs.renameSync(stash, dest);
     say(id + "'s data carried over");
+    clearCodeCache(id, now.uid);
     return true;
 }
 /* state.json data_stash, {<id>: [{path, uid, gid}, ...]}, oldest first:
@@ -5534,6 +5571,7 @@ function installLiveId8(a, existing, state, backup) {
     var m = inplaceManager();
     if (!m.pid) { say(a.id + ' ' + a.version + ' is not installed in place: ' + m.why); return false; }
     if (existing) waitStartedUp('updating ' + a.id + ' ' + a.version);
+    if (existing) clearCodeCache(a.id, existing.uid);
     var kc = existing ? lstatOrNull(keychainFile(existing.uid)) : null;
     a.noKeychain = existing && !(kc && kc.size > 0) ? existing.uid : null;
     var placed = DAS.map(dasFile).concat([customAppsFile()], id8LiveTouched(a.id, a.version)
@@ -5554,6 +5592,7 @@ function installLiveId8(a, existing, state, backup) {
         restoreSnapshot(backup, placed);
         return false;
     }
+    clearCodeCache(a.id, uid);
     queueId8({ id: a.id });
     return true;
 }
