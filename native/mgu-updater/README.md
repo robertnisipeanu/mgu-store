@@ -531,8 +531,9 @@ first change to the sources, writes it.
   `/var/opt/<id>/current/component.json`. Only components a source lists
   are looked at.
 - **Installing.** On request, one at a time (later requests queue; the
-  Store's own install waits for all the others, the updater's own update
-  included, since it closes the Store); on its own only to set up again
+  deploy tool's own update goes first, since every other install goes
+  through it; the Store's own install waits for all the others, the
+  updater's own update included, since it closes the Store); on its own only to set up again
   what does not work (`repair`, "The socket") and to put back a lost app
   (below): an app install restarts every running OAP app, which must not
   happen unasked. The service runs at `Nice=10`, below the HMI. The

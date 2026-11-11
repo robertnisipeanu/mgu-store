@@ -1237,6 +1237,20 @@ function testUidsDaemon() {
             });
         })
         .then(() => {
+            // queue: the deploy tool's own install before the installs queued ahead of it, which go through it
+            const order = [];
+            u.src = new Map([['s', { components: [{ id: 'kit_app', requires: {} }, { id: 'mgu-deploy', requires: {} }] }]]);
+            u.install = (item) => {
+                order.push(item.id);
+                return Promise.resolve(false);
+            };
+            u.queue = [{ op: 'install', id: 'kit_app', source: 's' }, { op: 'install', id: 'mgu-deploy', source: 's' }];
+            u.next();
+            return new Promise((r) => setTimeout(r, 50)).then(() => {
+                ok('queue: the deploy tool first, then the app', order.join() === 'mgu-deploy,kit_app', order.join());
+            });
+        })
+        .then(() => {
             // queue: the Store's own install after every other request, the updater's own update and what waits for it included
             const order = [];
             u.src = new Map([['s', { components: [{ id: 'robertn_store', requires: {} }, { id: 'mgu-updater', requires: {} },
