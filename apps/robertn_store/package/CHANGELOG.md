@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Tilting the controller up, down, left or right moves the focus to the nearest item that way: across the app grid, along the tabs and the side menu, to a row's button. Tilting left with nothing further left goes back a page.
+
 ## 0.9.36
 
 The Store page opens with the Apps filter selected.

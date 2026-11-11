@@ -73,13 +73,15 @@ leaves it. Each host state's focusable buttons stand for what the page has
 to press, in focus order: the controller moves the HMI's focus over them
 and the drawn page shows it as a ring; a press presses it. In embed mode,
 until the HMI reports a press on one of the page template's buttons (some
-HMIs route them neither focus nor presses), the dial and push come from
-FrontCCU (`statusRotaryEncoderState`, the manifest's proxy) while the page
-has the HMI's focus, and move the ring themselves. A page's focus
+HMIs route them neither focus nor presses), the dial, tilt and push come
+from FrontCCU (`statusRotaryEncoderState`, the manifest's proxy) while the
+page has the HMI's focus, and move the ring themselves. A page's focus
 starts on what it is for, a tab's on the side menu. Touch in the box goes
 to the drawn items; a drag scrolls a grid or list. With the HMI's
-controller gate loaded (the renderer's `controller`), the dial and push
-come straight from the renderer instead.
+controller gate loaded (the renderer's `controller`), the dial, tilt and
+push come straight from the renderer instead. A tilt moves the ring to the
+nearest item that way (across the grid, along the tabs, to a row's button);
+left with nothing there closes the page, as BACK does.
 
 The screens are drawn at most 30 times a second (the renderer's frame
 cap) into the renderer's box: embed (inside the page, iDrive 7 once the
