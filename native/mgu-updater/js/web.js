@@ -71,7 +71,7 @@ const DEFAULTS = {
     web_secret: '/run/mgu-updater/web-secret'
 };
 const NFT_COMMENT = 'mgu-updater-web';
-const UNITS = ['mgu-updater', 'mgu-uplink', 'mgu-app-fallback'];
+const UNITS = ['mgu-updater', 'mgu-uplink', 'mgu-app-fallback', 'mgu-render', 'mgu-render-hmi', 'mgu-deploy-verify'];
 const POLL_MS = Number(process.env.MGU_WEB_POLL_MS || 5000);
 const RULE_MS = Number(process.env.MGU_WEB_RULE_MS || 30000);
 const RESTART_MS = Number(process.env.MGU_WEB_RESTART_MS || 5000);

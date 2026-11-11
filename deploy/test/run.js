@@ -9650,6 +9650,22 @@ function testMguInstallTiles() {
     }
 }
 
+/* --read-only belongs to status: any other command given it is refused
+ * before it takes the lock or changes anything. */
+function testReadOnlyOnlyStatus() {
+    const root = fakeRoot();
+    const ins = root.run(['install', '--artifact', toolArtifact('0.1.0'), '--yes']);
+    if (ins.status !== 0) throw new Error(ins.out);
+    const before = root.hash();
+    [['relay', '--read-only', '--yes'], ['install', '--artifact', toolArtifact('0.2.0'), '--read-only', '--yes'],
+        ['uninstall', 'fixture-tool', '--read-only', '--yes'], ['verify', '--read-only'], ['check', '--read-only']].forEach((a) => {
+        const r = root.run(a);
+        check(`read-only: ${a[0]} --read-only is refused (exit 2) and changes nothing`,
+            r.status === 2 && r.stderr.includes('--read-only is only for status') && root.hash().hash === before.hash,
+            r.out + treeDiff(before, root.hash()));
+    });
+}
+
 // MGU_TEST_ONLY=<name>,...: only those test functions
 const SUITES = [
     testArtifact,
@@ -9773,7 +9789,8 @@ const SUITES = [
     testRemoveAllId8Kept,
     testRemoveAllRunning,
     testMguInstallUninstall,
-    testMguInstallStatus
+    testMguInstallStatus,
+    testReadOnlyOnlyStatus
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;
