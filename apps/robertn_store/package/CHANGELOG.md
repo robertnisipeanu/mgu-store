@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.36
+
 The Store page opens with the Apps filter selected.
 
 ## 0.9.35
