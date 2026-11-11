@@ -1962,7 +1962,13 @@ function testInplace() {
         'second_app' in (readJsonOrNull(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`)) || {}) &&
         JSON.stringify(root.state().apps.second_app) === JSON.stringify({ uid: 13002, version: '1.0.0' }), JSON.stringify(root.state()));
     check('in place: the fallback copy is not rewritten when its bytes are the same', fs.statSync(copy).mtimeMs === copyAt);
+    // the entry point's code cache of 1.0.0's bundle: the firmware's V8 runs it for a bundle of the same length
+    const cache = path.join(root.home(13001), 'data/app.js.bytecode'), own = path.join(root.home(13001), 'data/settings.json');
+    write(cache, 'cache of 1.0.0');
+    write(own, '{}');
     const up = root.run(['install', '--artifact', appArtifact('fixture_app', '1.1.0', true), '--yes']);
+    check('in place: an update removes the app\'s code cache, its other data stays', up.status === 0 && !fs.existsSync(cache) &&
+        fs.existsSync(own) && up.out.includes('fixture_app: its code cache goes'), up.out);
     check('in place: an update is the running manager\'s own update, uid kept, no re-seed, no bounce', up.status === 0 &&
         root.kills().length === 1 && readJson(root.entry('fixture_app')).userId === 13001 &&
         readJson(path.join(root.home(13001), 'source/package.json')).version === '1.1.0' &&
@@ -5299,6 +5305,7 @@ function testSetUpElsewhere() {
     let root = donorRoot();
     let r = root.run(['install', '--artifact', file, '--yes']);
     write(path.join(root.home(app(root).uid), 'data/settings.json'), '{"theme":"dark"}\n');
+    const cacheOf = (root) => path.join(root.home(app(root).uid), 'data/app.js.bytecode');
     check('forced update: a current app the manager starts is not touched, nor built', r.status === 0 && app(root).stale === null &&
         !root.run(['install', '--artifact', file, '--yes']).out.includes('built robertn_demo'), r.out);
     mark(root);
@@ -5307,13 +5314,14 @@ function testSetUpElsewhere() {
         root.run(['status']).out.includes(`(not working: ${WHY})`), JSON.stringify(app(root)));
     fs.unlinkSync(root.preinstalled('donor_app', '1.0.0'));
     donor.tgz(root.preinstalled('donor_app', '1.1.0'));
+    write(cacheOf(root), 'cache of the build for the firmware before');
     r = root.run(['install', '--artifact', file, '--yes']);
     const entry = JSON.parse(fs.readFileSync(entryFile(root), 'utf8'));
     check('forced update: an install installs it afresh, built for this unit, its data carried over, the mark gone',
         r.status === 0 && r.out.includes(`robertn_demo 1.2.3 already installed; ${WHY}: installed afresh after the rest`) &&
         r.out.includes('uninstalling app robertn_demo') && r.out.includes('robertn_demo 1.2.3 installed afresh') &&
         app(root).version === '1.2.3' && app(root).stale === null && !('NO_FORCED_UPDATE_NEEDED' in entry) &&
-        dataOf(root) === '{"theme":"dark"}\n' &&
+        dataOf(root) === '{"theme":"dark"}\n' && !fs.existsSync(cacheOf(root)) &&
         untarBuf(fs.readFileSync(root.preinstalled('robertn_demo', '1.2.3')))['javascript/build.json'].includes('donor_app@1.1.0.tgz'), r.out);
     check('forced update: the fresh install keeps its package and leaves no copy behind',
         fs.existsSync(root.p('var/opt/mgu-deploy/kept/robertn_demo/robertn_demo@1.2.3.tgz')) &&
