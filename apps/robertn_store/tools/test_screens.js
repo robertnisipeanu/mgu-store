@@ -64,16 +64,39 @@ Object.keys(UNITS).forEach((unit) => fixture.screens().forEach(([name, over, stO
 
 // the Store tab: side menu, filters, a tile per component with its state
 let f = screen('store');
-eq(f.labels.slice(0, 8), ['Store', 'Installed', 'USB', 'Settings', 'Restart now', 'All', 'Apps', 'Tools']);
-eq(f.labels.length, 8 + fixture.state().components.length - 1, 'a tile per component but the one for another head unit only');
+eq(f.labels.slice(0, 9), ['Store', 'Installed', 'USB', 'Settings', 'Restart now', 'Sources 2/3', 'All', 'Apps', 'Tools']);
+eq(f.labels.length, 9 + fixture.state().components.length - 1, 'a tile per component but the one for another head unit only');
+eq(f.items[5].act, { do: 'src-menu' }, 'the Sources drop-down, first of the row above the tiles, opens');
 ok(f.labels.indexOf('Car Data') < 0, 'Car Data (iDrive 8 only, not installed) is not listed');
-eq(f.items[8].act, { do: 'open', page: { name: 'app', id: 'robertn_store', source: 'mgu-store', listed: 'robertn_store' } });
+eq(f.items[9].act, { do: 'open', page: { name: 'app', id: 'robertn_store', source: 'mgu-store', listed: 'robertn_store' } });
+// the Sources drop-down, open: a checkbox for each source that can be turned off, all or none, and no tiles
+f = screen('store', { srcOpen: true });
+eq(f.labels.slice(5, 14), ['Sources 2/3', 'All', 'Apps', 'Tools', 'Select all', 'Uncheck all', 'cauliflower/idrive7-apps', 'mlurker/my-tools',
+    'IterioDev/car-apps'], 'the drop-down covers the tiles');
+eq(f.items[9].act, { do: 'source-enable', all: true, enable: true });
+eq(f.items[10].act, { do: 'source-enable', all: true, enable: false });
+eq(f.items[12].act, { do: 'source-enable', id: 'my-tools', enable: true }, 'a row turns its source on');
+eq(f.values.srcList.items.map((r) => r.right), ['check:on', 'check:off', 'check:on']);
+ok(f.values.grid.hidden === true, 'no tiles under the drop-down');
+eq(screen('store', { srcOpen: false }).values.srcList.hidden, true, 'closed: no list');
+f = screen('store');
 const subs = f.values.grid.items.map((t) => t.sub);
 ['Downloading 42 %', 'Update a1b2c3d', 'Waiting', 'Restart pending', 'Failed', 'Installed', '2.1.0 · 402 KB']
     .forEach((s) => ok(subs.indexOf(s) >= 0, `a tile says ${s}`));
 eq(f.values.nav.items.map((i) => i.badge), ['', '3', '1', ''], 'badges: updates, new on the stick (not one for another head unit)');
 eq(f.values.online.items[0].text, 'Online');
 eq(text(f, 'subtitle'), 'Downloading 42 % · DOOM');
+// Show (all, installed, not installed) and the Apps and Tools buttons say which tiles are listed
+const tileIds = (over) => screen('store', over).values.grid.items.map((t) => t.id);
+const [every, inst, fresh] = [tileIds({}), tileIds({ show: 'installed' }), tileIds({ show: 'new' })];
+eq([inst.length > 0, fresh.length > 0, inst.length + fresh.length, inst.filter((id) => fresh.indexOf(id) >= 0)], [true, true, every.length, []],
+    'Installed and Not installed split the tiles');
+eq(screen('store', { kinds: { app: false, tool: false } }).values.grid.items, [], 'Apps and Tools both off: no tiles');
+ok(screen('store', { kinds: { app: false, tool: true } }).values.grid.items.every((t) => t.kind === 'service'), 'Tools alone');
+eq([screen('store').values.showMode.text, screen('store', { show: 'installed' }).values.showMode.text, screen('store', { show: 'new' }).values.showMode.text],
+    ['All', 'Installed', 'Not installed']);
+eq([f.items.find((i) => i.label === 'All').act, f.items.find((i) => i.label === 'Apps').act, f.items.find((i) => i.label === 'Tools').act],
+    [{ do: 'show' }, { do: 'kind', kind: 'app' }, { do: 'kind', kind: 'tool' }], 'Show, Apps and Tools');
 ok(screen('store-apps').values.grid.items.every((t) => t.kind === 'app'), 'Apps leaves the tools out');
 
 // focus on a tile out of view scrolls it in; hit() takes only what is in view
@@ -81,7 +104,7 @@ const many = fixture.state();
 for (let i = 0; i < 30; i++) {
     many.components.push(Object.assign({}, many.components[3], { id: `x${i}`, title: `Extra ${i}` }));
 }
-const T = 8;                    // the first tile: after the side menu, Restart now and the filters
+const T = 9;                    // the first tile: after the side menu, Restart now and the filters
 const scroll = {};
 f = frame(fixture.model({}, many), { textScale: 1, focus: T + 40, scroll, layout: ID7.layout });
 ok(scroll['store.grid'] > 0 && !f.items[T + 40].reveal, 'the focused tile scrolled into view');
@@ -116,12 +139,12 @@ eq([text(f, 'title'), f.labels], ['Back to Network driver 0.3.2?', ['Cancel', 'U
 eq(f.items[1].act, { do: 'undo', id: 'mgu-uplink' });
 f = screen('app-incompatible');
 eq(own(f), ['Back'], 'not for this unit: nothing to press');
-eq([text(f, 'note1'), text(f, 'note2')], ['Not for this head unit', 'For iDrive 8']);
+eq(text(f, 'note1'), 'Not for this head unit\nFor iDrive 8', 'the notes, one under the other');
 // an installed component whose new version is not for this unit: installed, no update offered, Remove stays
 const st = Object.assign(fixture.state(), { busy: null });
 st.components = [Object.assign({}, st.components[1], { compat: 'no', mguHmi: ['ID8'] })];
 f = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }, st), { textScale: 1, focus: 0, scroll: {} });
-eq([f.items.map((i) => i.label).slice(0, -4), text(f, 'note1')], [['Remove', 'Back'], 'Not for this head unit']);
+eq([f.items.map((i) => i.label).slice(0, -4), text(f, 'note1')], [['Remove', 'Back'], 'Not for this head unit\nFor iDrive 8']);
 f = frame(fixture.model({}, st), { textScale: 1, focus: 0, scroll: {} });
 eq([f.values.grid.items[0].sub, f.values.grid.items[0].badge, f.values.nav.items[1].badge], ['Not for this head unit', 'installed', ''],
     'says so, installed, not counted as an update');
@@ -138,7 +161,7 @@ Object.keys(UNITS).forEach((unit) => {
 });
 // its page, open while it is removed, stays on it
 f = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'doom' }] }, gone), { textScale: 1, focus: 0, scroll: {} });
-eq([text(f, 'name'), text(f, 'note1')], ['DOOM', 'Not for this head unit']);
+eq([text(f, 'name'), text(f, 'note1')], ['DOOM', 'Not for this head unit\nFor iDrive 8']);
 // an app installed beside another source's app of its id shows the id it has; one built elsewhere cannot install
 const two = Object.assign(fixture.state(), { busy: null });
 two.components = [Object.assign({}, two.components[1], { id: 'doom2', listedId: 'doom', installAs: 'doom2', status: 'available', installed: null,
@@ -385,8 +408,13 @@ eq(text(f, 'subtitle'), 'USB STICK · 2 packages');
 
 // Settings: sources, Add source, Wi-Fi, Accounts, Preferred connection, Phone access, the unit; no restart while busy
 f = screen('settings');
-eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source',
-    'Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access', 'Check now']);
+// (a source's switch is a stop of its own after its row; the Store's own source and the stick have none)
+eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 'cauliflower/idrive7-apps', 'mlurker/my-tools', 'mlurker/my-tools',
+    'IterioDev/car-apps', 'IterioDev/car-apps', 'USB STICK', 'Add source', 'Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access', 'Check now']);
+const acts = (label) => f.items.filter((i) => i.label === label).map((i) => i.act);
+eq(acts('mlurker/my-tools'), [{ do: 'open', page: { name: 'source', id: 'my-tools' } }, { do: 'source-enable', id: 'my-tools', enable: true }],
+    'a source that is off: its row opens it, its switch turns it on');
+eq(acts('cauliflower/idrive7-apps')[1], { do: 'source-enable', id: 'idrive7-apps', enable: false }, 'a source that is on: its switch turns it off');
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
 // iDrive 8: the head unit's line, on the Access card's label's line, starts after the label in every language
 // (drawn in each language, ACCESS with rows and HEAD UNIT without)
@@ -459,7 +487,7 @@ eq(text(screen('settings', {}, refused), 'note'), 'Restart failed: too soon afte
 const restartAct = { do: 'open', page: { name: 'confirm', kind: 'restart' } };
 const shown = (g) => !g.values.restartNow.hidden;
 f = screen('store-restart');
-eq(f.labels.slice(4, 8), ['Restart now', 'All', 'Apps', 'Tools'], 'Store: Restart now before the filters and the tiles');
+eq(f.labels.slice(4, 9), ['Restart now', 'Sources 2/3', 'All', 'Apps', 'Tools'], 'Store: Restart now before Sources, the filters and the tiles');
 eq([f.items[4].act, screen('settings', {}, idle).items.find((it) => it.label === 'Restart head unit').act], [restartAct, restartAct],
     'Restart now opens the confirm step Restart head unit opens');
 f = screen('installed-restart');
@@ -503,7 +531,8 @@ Object.keys(UNITS).forEach((unit) => {
         `${unit} Installed: Update all alone at the right edge`);
     const st = at('store-restart');
     const filters = item(st, 'All');
-    ok(item(st, 'Restart now').x + item(st, 'Restart now').w < filters.x, `${unit} Store: Restart now left of the filters`);
+    const rn = item(st, 'Restart now');
+    ok(rn.x + rn.w < filters.x || filters.y >= rn.y + rn.h, `${unit} Store: Restart now left of the filters, or the filters on a row of their own`);
     [[both, 'Installed'], [st, 'Store']].forEach(([g, name]) => {
         const it = item(g, 'Restart now');
         eq(g.items.filter((o) => o !== it && !o.box && overlap(it, o)).map((o) => o.label), [], `${unit} ${name}: Restart now overlaps no other button`);

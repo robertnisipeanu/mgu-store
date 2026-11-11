@@ -24,11 +24,13 @@ function state() {
         catalog: { commit: 'x', checkedAt: Date.UTC(2026, 9, 26, 12, 2), checking: false, error: null },
         sources: [
             { id: 'mgu-store', type: 'github', label: 'robertnisipeanu/mgu-store', builtin: true, usb: false, channel: 'releases',
-                status: 'ok', error: null, auth: { kind: 'github', token: '3f9a01c2', login: 'robertn' }, checkedAt: 1, components: 6 },
+                status: 'ok', error: null, auth: { kind: 'github', token: '3f9a01c2', login: 'robertn' }, checkedAt: 1, components: 6, disabled: false },
             { id: 'idrive7-apps', type: 'github', label: 'cauliflower/idrive7-apps', builtin: false, usb: false, channel: 'branch:main',
-                status: 'ok', error: null, auth: null, checkedAt: 1, components: 4 },
+                status: 'ok', error: null, auth: null, checkedAt: 1, components: 4, disabled: false },
+            { id: 'my-tools', type: 'github', label: 'mlurker/my-tools', builtin: false, usb: false, channel: 'branch:dev',
+                status: 'disabled', error: null, auth: null, checkedAt: 1, components: 3, disabled: true },
             { id: 'car-apps', type: 'github', label: 'IterioDev/car-apps', builtin: false, usb: false, channel: 'releases',
-                status: 'auth-needed', error: 'no account reaches IterioDev/car-apps', auth: null, checkedAt: 1, components: 0 },
+                status: 'auth-needed', error: 'no account reaches IterioDev/car-apps', auth: null, checkedAt: 1, components: 0, disabled: false },
             { id: 'usb:STICK', type: 'usb', label: 'USB STICK', builtin: false, usb: true, channel: null,
                 status: 'ok', error: null, auth: null, checkedAt: 1, components: 2 }
         ],
@@ -88,7 +90,9 @@ function screens() {
     const main = [{ name: 'main' }];
     return [
         ['store', { tab: 'store', stack: main }],
-        ['store-apps', { tab: 'store', filter: 'app', stack: main, focus: 9 }],
+        ['store-sources', { tab: 'store', stack: main, srcOpen: true }],
+        ['store-new', { tab: 'store', show: 'new', stack: main }],
+        ['store-apps', { tab: 'store', kinds: { app: true, tool: false }, stack: main, focus: 9 }],
         ['app-update', { stack: main.concat([{ name: 'app', id: 'gauges' }]) }],
         ['app-downloading', { stack: main.concat([{ name: 'app', id: 'doom' }]) }],
         ['app-incompatible', { stack: main.concat([{ name: 'app', id: 'oap-cardash' }]) }],
@@ -200,7 +204,7 @@ function wifiSt(st, w) {
 function model(over, stOver) {
     const st = state();
     return Object.assign({ st: stOver && stOver.type ? stOver : Object.assign(st, stOver || {}), connected: true, secret: true,
-        version: '0.7.0', stack: [{ name: 'main' }], tab: 'store', filter: 'all', focus: -1, scroll: {}, note: '',
+        version: '0.7.0', stack: [{ name: 'main' }], tab: 'store', show: 'all', kinds: { app: true, tool: true }, focus: -1, scroll: {}, note: '',
         login: { waiting: false, refusal: null }, webText: '', accountsNote: { text: '', error: false } }, over);
 }
 

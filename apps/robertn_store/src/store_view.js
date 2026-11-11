@@ -278,7 +278,7 @@ function statusLine(st, connected, secret) {
 
 /* ---- sources ---- */
 
-const SOURCE_STATE = { checking: 'Checking', error: 'Error', 'auth-needed': 'Sign in', offline: 'Offline' };
+const SOURCE_STATE = { checking: 'Checking', error: 'Error', 'auth-needed': 'Sign in', offline: 'Offline', disabled: 'Disabled' };
 
 function sourceLabel(src) {
     return src.label || src.id;
@@ -300,7 +300,8 @@ function sourcesState(sources) {
 }
 
 function sourceActions(src) {
-    return { remove: !src.builtin && !src.usb };
+    // a switch only where the updater reports one (an updater with source-enable reports `disabled`)
+    return { remove: !src.builtin && !src.usb, enable: !src.builtin && !src.usb && typeof src.disabled === 'boolean' };
 }
 
 /* A GitHub source's channel: releases, a branch's head, or the newest tag. */
@@ -508,7 +509,7 @@ function sourcesMessage(m) {
     case 'invalid-source': return tr("Not owner/repo or https://host/path: {0}", m.text);
     case 'checking': return tr("Checking {0}", m.repo);
     case 'speller': return tr("Text entry failed: {0}", m.error);
-    case 'refused': return tr("{0} failed: {1}", m.op === 'source-remove' ? tr("Remove") : tr("Add source"), m.error);
+    case 'refused': return tr("{0} failed: {1}", { 'source-remove': tr("Remove"), 'source-enable': tr("Sources") }[m.op] || tr("Add source"), m.error);
     default: return '';
     }
 }

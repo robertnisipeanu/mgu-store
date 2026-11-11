@@ -110,6 +110,9 @@ function checkStored(s) {
     if (s.builtin) {
         out.builtin = true;
     }
+    if (s.disabled === true && !s.builtin) {
+        out.disabled = true;
+    }
     return out;
 }
 

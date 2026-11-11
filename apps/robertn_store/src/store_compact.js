@@ -44,8 +44,9 @@ function compact(W, H) {
     const back = () => el('back', 'vbutton', X, M, 64, 64, { text: '', vicon: 'back', style: 'round', color: '#f4f7fb' }, 'event:back');
     const BTN_H = 76;
     const GRID_Y = HEAD + 10;
-    const grid = () => el('grid', 'appGrid', X - 8, GRID_Y, CW + 8, B - GRID_Y, { items: '', cols: 5, tileH: Math.floor((B - GRID_Y) / 3),
-        iconK: 0.46, titleSize: 28, subSize: 22, empty: '' });
+    // (the Store's tiles start lower by `dy`: the row of Sources, Show, Apps and Tools is above them)
+    const grid = (dy) => el('grid', 'appGrid', X - 8, GRID_Y + (dy || 0), CW + 8, B - GRID_Y - (dy || 0), { items: '', cols: 5,
+        tileH: Math.floor((B - GRID_Y - (dy || 0)) / 3), iconK: 0.46, titleSize: 28, subSize: 22, empty: '' });
     const LIST = { rowH: 92, titleSize: 28, subSize: 22, ctlK: 0.85 };
     const list = (name, x, y, w, h, extra) => el(name, 'appList', x, y, w, h, Object.assign({ items: '' }, LIST, extra || {}));
     const label = (name, x, y, t) => text(name, x, y, 400, 26, t, 20, 'bold', DIM);
@@ -56,16 +57,25 @@ function compact(W, H) {
     const restartNow = (x, shift) => button('restartNow', x, M, HB_W, HB_H, 'Restart now', 'primary', 25,
         { vicon: 'refresh', color: BLUE, hidden: true, shift });
 
-    const FILTER_W = 420;
     const ONLINE_W = 190;
-    const filterX = R - ONLINE_W - 20 - FILTER_W;
+    const SRC_H = 46;                 // the Sources row's buttons
+    const SRC_ROW = SRC_H + 11;       // and the room it takes above the tiles
+    const filterX = R - ONLINE_W - 20;
     const store = screen('store', 0, [
         title('Store'),
         after('subtitle', X + 160, filterX - X - 180),
         restartNow(filterX - 16 - HB_W, { subtitle: [0, -HB_W - 16] }),
-        el('filter', 'tabs', filterX, M + 2, FILTER_W, 60, { items: 'All,Apps,Tools', sel: 0, style: 'joined', size: 24 }),
         el('online', 'chips', R - ONLINE_W, M + 8, ONLINE_W, 48, { items: '', align: 'right' }),
-        grid()
+        // the row above the tiles: the Sources drop-down first, then Show (all, installed, not installed) and Apps and Tools, each on or off
+        // (with the drop-down open, Select all and Uncheck all follow, and the list covers the tiles)
+        button('srcBtn', X, GRID_Y, 290, SRC_H, 'Sources', 'outline', 24, { vicon: 'arrowDown' }),
+        button('showMode', X + 300, GRID_Y, 260, SRC_H, 'All', 'outline', 24),
+        button('kindApps', X + 570, GRID_Y, 190, SRC_H, 'Apps', 'tinted', 24, { color: BLUE }),
+        button('kindTools', X + 770, GRID_Y, 190, SRC_H, 'Tools', 'tinted', 24, { color: BLUE }),
+        button('srcAll', X + 980, GRID_Y, 310, SRC_H, 'Select all', 'tinted', 24, { vicon: 'check', color: BLUE }),
+        button('srcNone', X + 1300, GRID_Y, 300, SRC_H, 'Uncheck all', 'outline', 24, { vicon: 'trash' }),
+        grid(SRC_ROW),
+        list('srcList', X, GRID_Y + SRC_ROW, CW, B - GRID_Y - SRC_ROW)
     ]);
     const usb = screen('usb', 2, [title('USB'), after('subtitle', X + 130, CW - 130), grid()]);
 
@@ -122,9 +132,7 @@ function compact(W, H) {
         text('instValue', px + 20, M + 46, 200, 58, '', 46, 'num'),
         text('availLabel', px + 230, M + 16, 220, 28, '', 22, 'label', DIM),
         text('availValue', px + 230, M + 46, 220, 58, '', 46, 'num', BLUE),
-        text('note1', px + 20, M + 118, PW - 40, 32, '', 25, 'label', DIM),
-        text('note2', px + 20, M + 154, PW - 40, 32, '', 25, 'label', DIM),
-        text('note3', px + 20, M + 190, PW - 40, 32, '', 25, 'label', AMBER),
+        text('note1', px + 20, M + 118, PW - 40, primaryY - 104 - (M + 118) - 8, '', 25, 'label', DIM, { wrap: true }),
         el('progress', 'progress', px + 20, primaryY - 104, PW - 40, 90, { label: '', right: '', sub: '', value: 0, percent: false,
             size: 24, hidden: true }),
         button('primary', px + 20, primaryY, PW - 40, 84, '', 'primary', 30, { vicon: 'arrowDown', color: BLUE }),

@@ -49,6 +49,7 @@ const STATS_OUT = '/dev/shm/robertn_store-stats.log';   // where they go (an OAP
 const STATS_OUT_MAX = 1024 * 1024;              // bytes kept; past it the file starts again
 const TRACE_OUT = '/dev/shm/robertn_store-trace.log';   // the per-frame trace beside mgu-render's (tools/car-test/trace.js)
 const TRACE_MAX = 8 * 1024 * 1024;
+const SHOWS = ['all', 'installed', 'new'];   // the Store tab's Show button, in the order it cycles
 // FrontCCU frontRotaryEncoderPushButton pushed (short, long): by name or ordinal
 const PUSHED = ['DREHGEBER_KURZ_GEDRUECKT', 'DREHGEBER_LANG_GEDRUECKT', 1, 2];
 const RELEASED = ['KEINE_BETAETIGUNG', 0];
@@ -140,7 +141,9 @@ class Drawn extends EventEmitter {
         this.viewport = null;
         this.stack = [{ name: 'main' }];
         this.tab = 'store';
-        this.filter = 'all';
+        this.show = 'all';                  // the Store tab's Show button: all, installed, not installed
+        this.kinds = { app: true, tool: true };   // its Apps and Tools buttons
+        this.srcOpen = false;               // the Store's Sources drop-down is open
         this.focus = 0;
         this.scroll = {};
         this.items = [];
@@ -337,12 +340,31 @@ class Drawn extends EventEmitter {
             this.pop();
         }
         this.tab = tab;
+        this.srcOpen = false;
         this._page();
         this.render();
     }
 
-    setFilter(filter) {
-        this.filter = filter;
+    /* The Show button: all, installed, not installed. */
+    cycleShow() {
+        this.show = SHOWS[(SHOWS.indexOf(this.show) + 1) % SHOWS.length];
+        this.srcOpen = false;
+        this._page();
+        this.render();
+    }
+
+    /* The Apps and Tools buttons: each on or off. */
+    toggleKind(kind) {
+        this.kinds = Object.assign({}, this.kinds, { [kind]: !this.kinds[kind] });
+        this.srcOpen = false;
+        this._page();
+        this.render();
+    }
+
+    /* The Sources drop-down opens or closes. */
+    toggleSources() {
+        this.srcOpen = !this.srcOpen;
+        this.focus = -1;
         this._page();
         this.render();
     }
@@ -563,7 +585,7 @@ class Drawn extends EventEmitter {
     }
 
     _model() {
-        return Object.assign(this.host.model(), { stack: this.stack, tab: this.tab, filter: this.filter, held: this._held() });
+        return Object.assign(this.host.model(), { stack: this.stack, tab: this.tab, show: this.show, kinds: this.kinds, srcOpen: this.srcOpen, held: this._held() });
     }
 
     /* The Installed lists' rows and its Restart now as drawn while the focus

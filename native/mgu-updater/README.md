@@ -54,9 +54,13 @@ them:
 { "schema": 1, "sources": [
   { "id": "mgu-store", "type": "github", "repo": "robertnisipeanu/mgu-store", "builtin": true },
   { "id": "idrive7-apps", "type": "github", "repo": "someone/idrive7-apps", "channel": "branch:main" },
-  { "id": "s-3f9a",    "type": "https",  "url": "https://example.org/repo/catalog.json" }
+  { "id": "s-3f9a",    "type": "https",  "url": "https://example.org/repo/catalog.json", "disabled": true }
 ] }
 ```
+
+A source with `"disabled": true` stays stored, with its kept catalog, but is not
+read and none of its components are listed (`source-enable` turns it on or off;
+the Store's own source stays on). What it installed stays installed.
 
 - `github`: a repo ("GitHub without a token" below for how a public one is
   read). `https`: a
@@ -870,7 +874,7 @@ each request, and whenever it changes (at most every 250 ms):
   "providers": { "renderer": { "id": "mgu-render", "version": "0.2.0" } },
   "catalog": { "commit": "…", "checkedAt": 1792620000000, "checking": false, "error": null },
   "sources": [ { "id": "idrive7-apps", "type": "github", "label": "someone/idrive7-apps",
-    "builtin": false, "usb": false, "channel": "releases", "status": "ok", "error": null,
+    "builtin": false, "disabled": false, "usb": false, "channel": "releases", "status": "ok", "error": null,
     "auth": { "kind": "github", "token": "3f9a01c2", "login": "someone" }, "checkedAt": 1792620000000, "components": 7 } ],
   "tokens": [ { "id": "3f9a01c2", "kind": "github", "label": "someone", "login": "someone",
     "addedAt": 1792610000000, "rejected": false, "usedBy": ["mgu-store", "idrive7-apps"] } ],
@@ -1016,6 +1020,7 @@ Store says it at each connection (below, "The Store's update").
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A repo that is already a source is refused |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one); what it installed keeps it as its origin in `origins.json`, and the ids `aliases.json` keeps for it stay |
+| `{"op":"source-enable","id","enable"}`, `{"op":"source-enable","all":true,"enable"}` | turns a stored source (or, with `all`, every one but the Store's own) on or off (`enable` is `true` or `false`). Off: `disabled: true` in `sources.json`, status `disabled` in the state, not read and none of its components listed. On: its kept catalog is listed as it is, and it is read at once only when it has none (the next check reads it again) |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
 | `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |
