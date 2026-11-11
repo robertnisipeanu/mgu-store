@@ -1026,12 +1026,20 @@ function missing(err) {
  * (marked `partial`). */
 
 /* The paths a repo-tree entry is made from, for a reader to read only
- * those: a component's folder, or for an app a build script makes, its
- * folder, the files its build.shared names and the script. null when the
- * build names no shared files (it reads the whole repo). */
+ * those: a component's folder (a service or preload tool: the one file of
+ * it that it packs), or for an app a build script makes, its folder, the
+ * files its build.shared names and the script. null when the build names
+ * no shared files (it reads the whole repo). */
 function partPaths(entry) {
-    if (!entry.path || !entry.script) {
-        return entry.path ? [entry.path] : null;
+    if (!entry.path) {
+        return null;
+    }
+    const one = (entry.daemon && entry.daemon.exec) || (entry.preload && entry.preload.library);
+    if (one) {
+        return [`${entry.path}/${one}`];
+    }
+    if (!entry.script) {
+        return [entry.path];
     }
     const spec = contentSpec({ kind: 'app', path: entry.path, build: entry.buildSpec }, entry.script);
     return spec.paths[0] === '' ? null : spec.paths;
@@ -1067,18 +1075,23 @@ function gitBlobId(data) {
     return crypto.createHash('sha1').update(`blob ${data.length}\0`).update(data).digest('hex');
 }
 
-/* run(item) over items, at most n at a time; resolves with the results in items' order. */
+/* run(item) over items, at most n at a time; resolves with the results in
+ * items' order. After a run rejects no other starts. */
 function pool(items, n, run) {
     const out = new Array(items.length);
     let i = 0;
+    let failed = false;
     const worker = () => {
-        if (i >= items.length) {
+        if (failed || i >= items.length) {
             return Promise.resolve();
         }
         const k = i++;
         return run(items[k]).then((r) => {
             out[k] = r;
             return worker();
+        }, (err) => {
+            failed = true;
+            throw err;
         });
     };
     return Promise.all(Array.from({ length: Math.min(n, items.length) }, worker)).then(() => out);
@@ -1792,6 +1805,8 @@ function githubReader(s, ctx) {
             }
             const total = want.reduce((n, e) => n + (Number(e.size) || 0), 0);
             let done = 0;
+            // once a file fails, the reads still under way end without a word: the whole repo is read instead
+            let failed = false;
             const read = (e) => {
                 const url = `${rawHost}/${s.repo}/${commit}/${encode(e.path)}`;
                 const size = Number(e.size) || 0;
@@ -1812,7 +1827,7 @@ function githubReader(s, ctx) {
                         }));
                 return get(false)
                     .then((data) => {
-                        if (batch) {
+                        if (batch && !failed) {
                             batch.keep(e.sha, data);
                         }
                         return data;
@@ -1821,10 +1836,13 @@ function githubReader(s, ctx) {
             return pool(want, PART_PARALLEL, (e) => (batch && batch.blobs.has(e.sha) ? Promise.resolve(batch.blobs.get(e.sha)) : read(e))
                 .then((data) => {
                     done += data.length;
-                    if (onProgress) {
+                    if (onProgress && !failed) {
                         onProgress(done, total);
                     }
                     return { name: e.path, data, mode: e.mode === '100755' ? 0o755 : 0o644 };
+                }, (err) => {
+                    failed = true;
+                    throw err;
                 }));
         });
     };
@@ -2147,7 +2165,7 @@ function label(s) {
 
 module.exports = {
     load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
-    repoCatalog, contentSpec, contentOf, partPaths, batchCache, gitBlobId, contentThen, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
+    repoCatalog, contentSpec, contentOf, partPaths, batchCache, contentThen, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
     renameable, renameApp, packageId, uuid5, orderBranches, entryIcons, isIcon, safePath, parseRefs, REPO, CHANNEL, PACKAGE, ICON_BYTES,
     RATE_LIMIT
 };

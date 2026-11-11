@@ -44,8 +44,8 @@
  *
  * A GET whose connection fails (cut mid-download, no data for idleMs, a
  * reset, no connection within connectMs) or that gets a 500, 502, 503 or 504 is tried again,
- * after 1, 2, 4 and 8 s: up to 4 times in a row without getting further; a
- * try that gets further starts the count and the wait over, so a slow,
+ * after 1, 2, 4 and 8 s: up to 4 times in a row without getting the file
+ * further than it has been; a try that does starts the count and the wait over, so a slow,
  * flaky link goes on for as long as the file grows. When the server takes
  * byte ranges (Accept-Ranges: bytes), the next try asks for the rest
  * (Range) and appends it: with the answer's strong ETag, else its
@@ -392,6 +392,7 @@ function download(job) {
     let tries = 0;
     let misses = 0;
     let from = 0;
+    let best = 0;      // the furthest the file has got: a try gets further only past it
     let validator = null;
     const next = () => {
         tries++;
@@ -416,7 +417,6 @@ function download(job) {
                 return;
             }
             // a try that got no body leaves the next to ask for the same range
-            const was = from;
             if (r.resumeWith) {
                 try {
                     from = fs.statSync(job.dest).size;
@@ -427,7 +427,8 @@ function download(job) {
             } else if (r.restart) {
                 from = 0;
             }
-            misses = from > was ? 0 : misses + 1;
+            misses = from > best ? 0 : misses + 1;
+            best = Math.max(best, from);
             if (misses > RETRIES) {
                 finishAll(r);
                 return;

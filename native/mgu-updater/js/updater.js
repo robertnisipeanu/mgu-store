@@ -2766,9 +2766,10 @@ class Updater {
      * beside another one's id (place) is built from a copy made over to
      * that id (sourcesLib.renameApp), and must come out as that id. */
     artifact(rt, entry, own) {
+        // a download's own total: a whole repo read after some of its files has another
         const progress = (bytes, total) => {
             this.busy.progress = bytes;
-            if (total && !this.busy.total) {
+            if (total) {
                 this.busy.total = total;
             }
             this.changed();
@@ -2797,15 +2798,12 @@ class Updater {
                     this.checkUids();
                 }
             };
-            const build = (got) => {
-                const made = prepare(got);
-                return this.sdkDonor()
+            const build = (got) => Promise.resolve().then(() => prepare(got)).then((made) => this.sdkDonor()
                     // a network build's proxy runs as the fetch uid: once the uplink lets it out
                     .then((donor) => new Promise((resolve) => setTimeout(resolve, Math.max(0, (this.fetcher.notBefore || 0) - Date.now())))
                         .then(() => donor))
                     .then((donor) => runBuild({ conf: this.conf, entry: made.entry, files: made.files, donor: donor.path, sdk: donor.module,
-                        lease: readLease(this.conf), log: (l) => console.log(l) }));
-            };
+                        lease: readLease(this.conf), log: (l) => console.log(l) })));
             // a build that fails with only the files it names is run again with the whole repo
             return build(first)
                 .catch((err) => {
@@ -2889,7 +2887,6 @@ class Updater {
                 if (!bytes.resumed || matches(bytes)) {
                     return bytes;
                 }
-                // a download pieced together from cut tries that does not match: once more, whole
                 console.log(`${id}@${entry.version}: the resumed download does not match the catalog; downloading it again whole`);
                 this.fetcher.fresh = true;
                 const again = () => {
