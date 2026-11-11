@@ -1244,6 +1244,7 @@ function testUidsDaemon() {
                 order.push(item.id);
                 return Promise.resolve(false);
             };
+            u.conf.deploy_tool = 'mgu-deploy';
             u.queue = [{ op: 'install', id: 'kit_app', source: 's' }, { op: 'install', id: 'mgu-deploy', source: 's' }];
             u.next();
             return new Promise((r) => setTimeout(r, 50)).then(() => {
