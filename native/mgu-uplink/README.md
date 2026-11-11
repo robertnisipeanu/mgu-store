@@ -211,8 +211,8 @@ above Wi-Fi (`preferred = phone` with a phone, `usb` with an adapter or
 stick), and Wi-Fi is not joined, our networks are switched off in the car's
 supplicant (`wifi.link` `idle`). With none enabled, it stops its periodic
 scans. They are switched on again as soon as that uplink is offline or gone,
-and for 8 s after a `wifi-scan` request or the scan of a switch-on. A start or a Wi-Fi switch-on adds
-them switched on.
+and for 8 s after a `wifi-scan` request or the scan of a switch-on. A
+start or a Wi-Fi switch-on adds them switched on.
 
 #### The band
 
