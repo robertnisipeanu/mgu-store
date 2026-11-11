@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Build: the build image's tag is a hash of its definition, so builds from different definitions never share an image.
+No changes.
 
 ## 0.6.19
 
