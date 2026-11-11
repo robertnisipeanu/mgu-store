@@ -2679,11 +2679,13 @@ class Updater {
         return why;
     }
 
-    /* Takes the next request: the first that does not need a newer updater
-     * than this one; when only requests that need one are left, the
-     * updater's own update (the rest of the queue is kept for the new
-     * version, queue.json), else last, since it restarts the daemon; the
-     * Store's own install after all of them, since it closes the Store. */
+    /* Takes the next request: the deploy tool's own install first, since
+     * every other install goes through it; then the first that does not
+     * need a newer updater than this one; when only requests that need one
+     * are left, the updater's own update (the rest of the queue is kept for
+     * the new version, queue.json), else last, since it restarts the
+     * daemon; the Store's own install after all of them, since it closes
+     * the Store. */
     next() {
         const needsSelf = (q) => {
             const rt = q.op === 'install' && q.id !== SELF && this.src.get(q.source);
@@ -2692,7 +2694,10 @@ class Updater {
             return !!min && !this.requirementMet(SELF, min);
         };
         const store = (q) => q.op === 'install' && (q.unit || q.id) === this.conf.store_app;
-        let i = this.queue.findIndex((q) => q.id !== SELF && !needsSelf(q) && !store(q));
+        let i = this.queue.findIndex((q) => q.op === 'install' && q.id === this.conf.deploy_tool && !needsSelf(q));
+        if (i < 0) {
+            i = this.queue.findIndex((q) => q.id !== SELF && !needsSelf(q) && !store(q));
+        }
         if (i < 0) {
             i = this.queue.findIndex((q) => q.id === SELF);
         }

@@ -7631,6 +7631,120 @@ function testUnitDetect() {
         r.out.includes('which head unit this is is unknown (both MainApp folders, no HMI running): mguHmi is not checked'), r.out);
 }
 
+/* An app with iDrive 7 and iDrive 8 HMI parts, as MainApp's AppDescription reads them. */
+function hmiPartsApp(name, version) {
+    const application = { name,
+        uiDescriptions: ['ID7', 'ID8'].map((h) => ({ applicationFilePath: `./uiDescriptions/${h}/application.xml`,
+            uiDescriptionFilePath: `./uiDescriptions/${h}/uiDescription.json`, hmi: [h] })),
+        variantGroups: [{ stringsPath: './variantGroups/Common/texts', resourcesPath: './variantGroups/Common/images', hmi: ['ID7'], brands: ['BMW'] },
+            { stringsPath: './variantGroups/Eight/texts', resourcesPath: './variantGroups/Eight/images', hmi: ['ID8'], brands: ['BMW'] }] };
+    const pkg = { name, version, description: 'hmi parts test app', main: './javascript/app.js', mguLocalOnly: true };
+    const entries = [
+        { name: 'javascript/app.js', data: Buffer.from('console.log(1);\n'), mode: 0o644 },
+        { name: 'package.json', data: Buffer.from(JSON.stringify(pkg, null, 2) + '\n'), mode: 0o644 },
+        { name: 'rhmiData/application.json', data: Buffer.from(JSON.stringify({ application }, null, 2)), mode: 0o644 },
+        { name: 'rhmiData/variantGroups/Common/texts/en_US.json', data: Buffer.from('{"SID_TITLE":"Seven"}'), mode: 0o644 },
+        { name: 'rhmiData/variantGroups/Common/images/icon.png', data: Buffer.from('seven icon'), mode: 0o644 },
+        { name: 'rhmiData/variantGroups/Eight/texts/en_US.json', data: Buffer.from('{"SID_TITLE":"Eight"}'), mode: 0o644 },
+        { name: 'rhmiData/variantGroups/Eight/images/icon.png', data: Buffer.from('eight icon'), mode: 0o644 }];
+    ['ID7', 'ID8'].forEach((h) => {
+        entries.push({ name: `rhmiData/uiDescriptions/${h}/application.xml`, data: Buffer.from(`<${h}/>\n`), mode: 0o644 });
+        entries.push({ name: `rhmiData/uiDescriptions/${h}/uiDescription.json`, data: Buffer.from(`{"${h}":1}\n`), mode: 0o644 });
+    });
+    const file = path.join(fs.mkdtempSync(path.join(T, 'hmiapp-')), `${name}@${version}.tgz`);
+    fs.writeFileSync(file, tgz(entries, 1700000000));
+    return file;
+}
+
+function testHmiParts() {
+    const app = hmiPartsApp('kitapp', '1.0.0');
+    const appJson = (file) => {
+        const m = untar(file);
+        return JSON.parse((m['rhmiData/application.json'] || m['package/rhmiData/application.json']).data).application;
+    };
+    // a unit that reports ID8: MainApp gets a package whose iDrive 7 parts are listed for ID8 and its iDrive 8 ones for nothing
+    const r8 = fakeRoot();
+    r8.env.MGU_DEPLOY_HMI_VERSION = '3';
+    const i8 = r8.run(['install', '--artifact', app, '--yes']);
+    const placed = fs.existsSync(r8.preinstalled('kitapp', '1.0.0')) ? appJson(r8.preinstalled('kitapp', '1.0.0')) : null;
+    check('hmi parts: on an iDrive 7 unit reporting ID8 the package MainApp installs lists its iDrive 7 parts for ID8, its iDrive 8 ones for nothing',
+        i8.status === 0 && placed && JSON.stringify(placed.uiDescriptions.map((u) => u.hmi)) === '[["ID7","ID8"],[]]' &&
+        JSON.stringify(placed.variantGroups.map((g) => g.hmi)) === '[["ID7","ID8"],[]]' &&
+        i8.out.includes('kitapp 1.0.0: its iDrive 7 HMI parts listed for ID8'), `${i8.out}\n${JSON.stringify(placed)}`);
+    const r7 = fakeRoot();
+    r7.env.MGU_DEPLOY_HMI_VERSION = '2';
+    const i7 = r7.run(['install', '--artifact', app, '--yes']);
+    check('hmi parts: a unit reporting ID7 gets the package as it is', i7.status === 0 &&
+        sha256(fs.readFileSync(r7.preinstalled('kitapp', '1.0.0'))) === sha256(fs.readFileSync(app)), i7.out);
+
+    // installed with MainApp's iDrive 8 choice: its iDrive 8 UI, its strings and resources folders empty
+    const uid = r8.state().apps.kitapp.uid;
+    const miss = (root) => {
+        const h = root.home(uid);
+        ['strings', 'resources'].forEach((d) => fs.mkdirSync(path.join(h, 'rhmiData', d), { recursive: true }));
+        write(path.join(h, 'rhmiData/uiDescription/application.xml'), '<ID8/>\n');
+        write(path.join(h, 'rhmiData/uiDescription/uiDescription.json'), '{"ID8":1}\n');
+    };
+    miss(r8);
+    const h0 = r8.hash();
+    const ro = r8.run(['status', '--read-only', '--json']);
+    const rep = JSON.parse(ro.stdout).hmi_parts;
+    check('hmi parts: status --read-only names the app and its files, and changes nothing', ro.status === 0 && rep.length === 1 &&
+        rep[0].id === 'kitapp' && JSON.stringify(rep[0].files) === JSON.stringify(['rhmiData/uiDescription/application.xml',
+            'rhmiData/uiDescription/uiDescription.json', 'rhmiData/strings/en_US.json', 'rhmiData/resources/icon.png']) &&
+        r8.hash().hash === h0.hash, `${ro.out}\n${treeDiff(h0, r8.hash())}`);
+    const st = r8.status();
+    const f = (rel) => path.join(r8.home(uid), 'rhmiData', rel);
+    check('hmi parts: status puts the iDrive 7 files in place as MainApp merges them, modes as MainApp\'s', st.hmi_parts.length === 0 &&
+        fs.readFileSync(f('uiDescription/application.xml'), 'utf8') === '<ID7/>\n' &&
+        fs.readFileSync(f('uiDescription/uiDescription.json'), 'utf8') === '{"ID7":1}\n' &&
+        fs.readFileSync(f('strings/en_US.json'), 'utf8') === '{"SID_TITLE":"Seven"}' &&
+        fs.readFileSync(f('resources/icon.png'), 'utf8') === 'seven icon' &&
+        mode(f('strings/en_US.json')) === 0o660 && mode(f('resources/icon.png')) === 0o644 && mode(f('uiDescription/application.xml')) === 0o644,
+        JSON.stringify(st.hmi_parts));
+    check('hmi parts: the tile then waits for a restart (Restart pending)', st.pending_reboot.some((p) => p.id === 'kitapp' &&
+        p.reason === 'its tile shows from the next start (its iDrive 7 HMI files were put in place)'), JSON.stringify(st.pending_reboot));
+    const h1 = r8.hash();
+    const again = r8.run(['status', '--json']);
+    check('hmi parts: status again changes nothing', again.status === 0 && r8.hash().hash === h1.hash, treeDiff(h1, r8.hash()));
+
+    // a report not read yet: what MainApp installed stays until it is
+    miss(r8);
+    const hu = r8.hash();
+    const unread = r8.run(['status', '--json'], { MGU_DEPLOY_HMI_VERSION: '' });
+    check('hmi parts: while the reported HMI is not read status leaves the installed files', unread.status === 0 &&
+        r8.hash().hash === hu.hash, treeDiff(hu, r8.hash()));
+
+    // paths in application.json outside rhmiData are never read
+    const outside = rebuild(hmiPartsApp('outside', '1.0.0'), (entries) => tgz(entries.map((e) => (e.name !== 'rhmiData/application.json' ? e :
+        Object.assign({}, e, { data: Buffer.from(e.data.toString().split('./uiDescriptions/ID7/uiDescription.json')
+            .join('./../../../../../../../../etc/passwd')) }))), 1700000000));
+    const ri = r8.run(['install', '--artifact', outside, '--yes']);
+    const ouid = r8.state().apps.outside && r8.state().apps.outside.uid;
+    fs.mkdirSync(path.join(r8.home(ouid), 'rhmiData', 'uiDescription'), { recursive: true });
+    const so = r8.status();
+    check('hmi parts: a UI file outside the package is never copied', ri.status === 0 &&
+        !fs.existsSync(path.join(r8.home(ouid), 'rhmiData/uiDescription/passwd')) && !so.hmi_parts.some((a) => a.id === 'outside'),
+        `${ri.out}\n${JSON.stringify(so.hmi_parts)}`);
+
+    // iDrive 8 gets the package's HMI parts as they are, whatever is reported
+    const e8 = id8Root();
+    e8.env.MGU_DEPLOY_HMI_VERSION = '3';
+    const q8 = e8.run(['install', '--artifact', hmiPartsApp('kitapp', '1.0.0'), '--yes']);
+    const qf = e8.p('var/opt/mgu-deploy/id8/queue/kitapp@1.0.0.tgz');
+    const queued = fs.existsSync(qf) ? appJson(qf) : null;
+    check('hmi parts: iDrive 8 installs the package\'s HMI lists as they are', q8.status === 0 && queued &&
+        JSON.stringify(queued.uiDescriptions.map((u) => u.hmi)) === '[["ID7"],["ID8"]]' && !q8.out.includes('HMI parts listed') &&
+        e8.status().hmi_parts.length === 0, `${q8.out}\n${JSON.stringify(queued)}`);
+
+    // a unit that reports ID7 keeps what MainApp installed
+    miss(r7);
+    const h7 = r7.hash();
+    const st7 = r7.status();
+    check('hmi parts: on a unit reporting ID7 status leaves the installed files', st7.hmi_parts.length === 0 && r7.hash().hash === h7.hash,
+        treeDiff(h7, r7.hash()));
+}
+
 function testCompat() {
     const root = fakeRoot();
     const h0 = root.hash();
@@ -9582,6 +9696,7 @@ const SUITES = [
     testRetiredAppManagementOnly,
     testUnitDetect,
     testCompat,
+    testHmiParts,
     testServices,
     testProvides,
     testDropins,

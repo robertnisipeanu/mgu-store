@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- On iDrive 7 units whose Telematics reports iDrive 8 (`hmiVersion` 3), apps get their tile: before the app manager installs an app, its package lists that HMI wherever it lists iDrive 7 and nowhere else, so the app manager installs the iDrive 7 UI, texts and images. Other units get packages as they are.
+- `status` puts an installed app's iDrive 7 UI, texts and images in place from its kept package when the installed ones differ, as on such units for apps installed earlier, and the tile shows from the next start (a restart is pending). `status --read-only` and `--json` list them as `hmi_parts`.
+
 ## 0.8.10
 
 - `status --read-only` prints the same report and changes nothing: the repairs, list and drop-in updates and app manager restarts `status` makes as root are left undone, and their lines say `pending (read-only)` when there is something to do.
