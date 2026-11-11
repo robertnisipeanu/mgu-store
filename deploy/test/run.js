@@ -7658,7 +7658,10 @@ function hmiPartsApp(name, version) {
 
 function testHmiParts() {
     const app = hmiPartsApp('kitapp', '1.0.0');
-    const appJson = (file) => JSON.parse(untar(file)['rhmiData/application.json'].data).application;
+    const appJson = (file) => {
+        const m = untar(file);
+        return JSON.parse((m['rhmiData/application.json'] || m['package/rhmiData/application.json']).data).application;
+    };
     // a unit that reports ID8: MainApp gets a package whose iDrive 7 parts are listed for ID8 and its iDrive 8 ones for nothing
     const r8 = fakeRoot();
     r8.env.MGU_DEPLOY_HMI_VERSION = '3';
@@ -7723,6 +7726,16 @@ function testHmiParts() {
     check('hmi parts: a UI file outside the package is never copied', ri.status === 0 &&
         !fs.existsSync(path.join(r8.home(ouid), 'rhmiData/uiDescription/passwd')) && !so.hmi_parts.some((a) => a.id === 'outside'),
         `${ri.out}\n${JSON.stringify(so.hmi_parts)}`);
+
+    // iDrive 8 gets the package's HMI parts as they are, whatever is reported
+    const e8 = id8Root();
+    e8.env.MGU_DEPLOY_HMI_VERSION = '3';
+    const q8 = e8.run(['install', '--artifact', hmiPartsApp('kitapp', '1.0.0'), '--yes']);
+    const qf = e8.p('var/opt/mgu-deploy/id8/queue/kitapp@1.0.0.tgz');
+    const queued = fs.existsSync(qf) ? appJson(qf) : null;
+    check('hmi parts: iDrive 8 installs the package\'s HMI lists as they are', q8.status === 0 && queued &&
+        JSON.stringify(queued.uiDescriptions.map((u) => u.hmi)) === '[["ID7"],["ID8"]]' && !q8.out.includes('HMI parts listed') &&
+        e8.status().hmi_parts.length === 0, `${q8.out}\n${JSON.stringify(queued)}`);
 
     // a unit that reports ID7 keeps what MainApp installed
     miss(r7);
