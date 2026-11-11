@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Installing or updating an app or tool from a public repository's branch downloads only its own files and the shared files its build needs, instead of the whole repository. Update all downloads each shared file once.
+- Downloads resume where they stopped on a weak connection and keep trying while they make progress, instead of starting over and giving up after a few cuts.
+
 ## 0.8.39
 
 - The deploy tool's own update goes first among queued requests, so Update all installs every other component through the new deploy tool.

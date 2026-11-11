@@ -341,9 +341,13 @@ function cutServer(leaf, chain, payload) {
             const n = s.seen.filter((x) => x.path === p).length;
             s.seen.push({ path: p, range: req.headers.range || null, ifRange: req.headers['if-range'] || null, method: req.method });
             const ranges = p !== '/cut-norange' && p !== '/cut-always';
-            const etag = p === '/changed' && n > 0 ? '"v2"' : '"v1"';
+            // /cut-weak: a weak ETag and no Last-Modified, as a gzipped answer of raw.githubusercontent.com
+            const weak = p === '/cut-weak';
+            const etag = weak ? 'W/"v1"' : p === '/changed' && n > 0 ? '"v2"' : '"v1"';
             const body = p === '/changed' && n > 0 ? Buffer.from(payload).reverse() : payload;
             const head = Object.assign({ ETag: etag }, ranges ? { 'Accept-Ranges': 'bytes' } : {});
+            // /cut-many: every answer, a resume's too, stops after 30000 bytes
+            const cut = (res2, data) => res2.write(data.slice(0, 30000), () => res2.socket.destroy());
             if (p === '/redirect') {
                 res.writeHead(302, { Location: `https://localhost:${s.next}/cut` });
                 res.end();
@@ -369,14 +373,22 @@ function cutServer(leaf, chain, payload) {
                 return;
             }
             const m = /^bytes=(\d+)-$/.exec(req.headers.range || '');
-            if (m && ranges && req.headers['if-range'] === etag) {
+            if (m && ranges && (req.headers['if-range'] === etag || (weak && !req.headers['if-range']))) {
                 const from = Number(m[1]);
                 res.writeHead(206, Object.assign(head, { 'Content-Length': body.length - from,
                     'Content-Range': `bytes ${from}-${body.length - 1}/${body.length}` }));
+                if (p === '/cut-many' && body.length - from > 30000) {
+                    cut(res, body.slice(from));
+                    return;
+                }
                 res.end(body.slice(from));
                 return;
             }
             res.writeHead(200, Object.assign(head, { 'Content-Length': body.length }));
+            if (p === '/cut-many') {
+                cut(res, body);
+                return;
+            }
             // the first answer of each path (every one of /cut-always) stops part way
             if ((n === 0 && p !== '/busy') || p === '/cut-always') {
                 res.write(body.slice(0, 80000), () => {
@@ -448,6 +460,20 @@ function testCuts() {
         JSON.stringify(r.events.filter((e) => e.progress === undefined)));
         ok('cut: the rest is asked for through the redirect, from its target', there === 2 && onB.length === 2 &&
             onB[0].range === null && /^bytes=\d+-$/.test(onB[1].range || '') && onB[1].ifRange === '"v1"', JSON.stringify(onB));
+        return fetchCut(a, '/cut-many');
+    }).then((r) => {
+        ok('cut: a link that cuts every answer goes on while each try gets further, and comes out whole', r.code === 0 && r.last.done &&
+            r.last.resumed === true && r.file && sum(r.file) === sum(payload) && r.seen.length > 5 && r.seen.slice(1).every((x) => x.range),
+        JSON.stringify(r.seen));
+        return fetchCut(a, '/cut-weak', { immutable: true });
+    }).then((r) => {
+        ok('cut: an immutable file without a strong validator goes on from the cut, without If-Range', r.last.done && r.file &&
+            sum(r.file) === sum(payload) && r.seen.length === 2 && /^bytes=\d+-$/.test(r.seen[1].range || '') && r.seen[1].ifRange === null,
+        JSON.stringify(r.seen));
+        return fetchCut(a, '/cut-weak');
+    }).then((r) => {
+        ok('cut: any other file without one starts over', r.last.done && r.file && sum(r.file) === sum(payload) &&
+            r.seen.length === 2 && r.seen[1].range === null && !r.last.resumed, JSON.stringify(r.seen));
         return fetchCut(a, '/cut-always');
     }).then((r) => {
         ok('cut: a link that always cuts gives up with its reason, after 5 tries', r.code !== 0 &&
