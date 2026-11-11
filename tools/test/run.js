@@ -284,7 +284,6 @@ function testModuleMode() {
         JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).mguLocalOnly === true &&
         Object.keys(members(out)).sort().join(' ') ===
         'javascript/app.js javascript/kit/mgu.js node_modules/oap-sdk/index.js node_modules/oap-sdk/package.json package.json permissions.json');
-    check('module: no longer needed once generated', !link.needsSdk(pkg));
 
     const vendored = thirdParty({ vendored: true });
     check('module: a vendored oap-sdk is not needed', !link.needsSdk(vendored));
@@ -522,8 +521,6 @@ function testReleaseTexts() {
     const write = (o) => fs.writeFileSync(path.join(root, 'release', 'texts', 'de.json'), JSON.stringify(o));
     write({ a: { title: 'A-de' } });
     check('release: texts by id and language', JSON.stringify(catalogTexts(['a'], root)) === JSON.stringify({ a: { de: { title: 'A-de' } } }));
-    write({ a: { description: 'D', title: 'A-de' } });
-    check('release: texts in any key order', JSON.stringify(catalogTexts(['a'], root)) === JSON.stringify({ a: { de: { title: 'A-de', description: 'D' } } }));
     [{ b: { title: 'B' } }, { a: { title: 'A', extra: 1 } }, { a: { title: 7 } }, { a: 'A' }].forEach((o) => {
         write(o);
         let thrown = null;

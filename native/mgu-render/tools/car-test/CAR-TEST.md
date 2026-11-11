@@ -22,8 +22,7 @@ plays, and says what they see.
 | `install-test.sh` | runs on the Mac: status, the test install and restore, test settings, renderer and head-unit restarts, measurements |
 | `probe.js` | runs on the unit (Node 8): Wayland globals, GPU, CPU per second; read-only |
 | `kit.js` | `install-test.sh`'s version checks, on the Mac |
-| `test_probe.js` | `node test_probe.js`: the probe against a fake compositor |
-| `trace.js` | the per-frame trace of a drag as a step-by-step breakdown, on the Mac (`node test_trace.js`) |
+| `trace.js` | the per-frame trace of a drag as a step-by-step breakdown, on the Mac |
 
 ## Short check: swipes, 30 and 60 fps, page changes
 
@@ -79,7 +78,7 @@ and the time from one frame to the next.
   build`) and refuses uncommitted changes in `native/mgu-render` or
   `apps/robertn_store`.
 - Docker is running (the mgu-render build), the Mac has internet (`install`
-  copies the published release first), and `node test_probe.js` passes.
+  copies the published release first).
 - Rehearse once on a test head unit, with its SSH options as the target:
 
   ```sh
