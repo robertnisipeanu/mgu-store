@@ -208,6 +208,7 @@ type wifiProvider struct {
 	bandReset bool // setAllow5 ran: the tick ends what failed joins set
 	joinedAt  time.Time
 	scanUntil time.Time
+	scanOnUp  bool      // switched on: one scan once the supplicant takes requests (scanOnce)
 	fails     int       // failures in a row to take the interface or run the supplicant
 	retryAt   time.Time // not tried again before
 	err       string    // a failed join, shown until the next request
@@ -418,6 +419,8 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	if st.Link == "connected" || st.Link == "connecting" {
 		st.SSID = unescape(ws["ssid"])
 	}
+	sess := p.session()
+	p.scanOnce(sess)
 	now := time.Now()
 	p.mu.Lock()
 	st.Scanning = now.Before(p.scanUntil)
@@ -470,7 +473,6 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	// (with Allow 5 GHz, and the phone's own channel; scanHold); they go on
 	// as usual as soon as neither is so, for a scan request, and never under
 	// a join the owner asked for.
-	sess := p.session()
 	if joining == "" {
 		p.mu.Lock()
 		other := p.other
@@ -508,6 +510,26 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		st.FiveOnly = p.fiveOnly(st)
 	}
 	p.logBand(st)
+}
+
+// scanOnce runs the scan that switching Wi-Fi on asks for, so the list
+// fills without a scan request: once the supplicant takes requests, with no
+// join under way and no wireless CarPlay or Android Auto session (whose
+// channel a scan of every channel would leave); until then it waits. With
+// reqMu held.
+func (p *wifiProvider) scanOnce(sess projSession) {
+	p.mu.Lock()
+	want := p.scanOnUp && p.joining == "" && sess.kind == ""
+	p.mu.Unlock()
+	if !want || !p.wpa.ready() {
+		return
+	}
+	p.mu.Lock()
+	p.scanOnUp, p.scanUntil = false, time.Now().Add(scanShown)
+	p.mu.Unlock()
+	if err := p.wpa.scan(); err != nil {
+		logf("wifi: scan after switching on: %v", err)
+	}
 }
 
 // logBand logs the frequency and band of the access point joined, when
@@ -890,11 +912,12 @@ func (p *wifiProvider) setOnline(ip, other string) {
 
 // ---- requests (ctl.go) ----
 
-// setEnabled switches Wi-Fi on or off; either ends a run of failures.
+// setEnabled switches Wi-Fi on or off; either ends a run of failures. On
+// also asks for one scan (scanOnce).
 func (p *wifiProvider) setEnabled(on bool) {
 	p.mu.Lock()
 	changed := p.enabled != on
-	p.enabled, p.err, p.fails, p.retryAt, p.note, p.switched = on, "", 0, time.Time{}, "", true
+	p.enabled, p.err, p.fails, p.retryAt, p.note, p.switched, p.scanOnUp = on, "", 0, time.Time{}, "", true, on
 	p.mu.Unlock()
 	if changed {
 		logf("wifi: switched %s", onOff(on))

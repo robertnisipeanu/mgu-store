@@ -486,8 +486,9 @@ func TestCarWiFi(t *testing.T) {
 	if v, _ := readSysctl(filepath.Join(p.sys, "wlanc0", "phy80211", "rfkill6", "soft")); v != "0" {
 		t.Fatal("touched the car's rfkill")
 	}
-	if err := p.scan(); err != nil || f.called("Scan") != 1 {
-		t.Fatalf("scan: %v", err)
+	// one scan for switching on, one for the request
+	if err := p.scan(); err != nil || f.called("Scan") != 2 {
+		t.Fatalf("scan: %v, %d scans", err, f.called("Scan"))
 	}
 
 	if err := p.connect("Robert’s iPhone", "wrongpass9"); err != nil {

@@ -6,7 +6,7 @@ package main
 // the results.
 //
 //	{"op": "prefer", "kind": "phone"}                  the group tried first: wifi, usb, phone ("": none), kept in settings_conf
-//	{"op": "wifi-enable", "on": true}                  Wi-Fi on or off, kept in settings_conf
+//	{"op": "wifi-enable", "on": true}                  Wi-Fi on or off, kept in settings_conf; on also scans once
 //	{"op": "wifi-5ghz", "on": true}                    joins use 5 GHz too, kept in settings_conf
 //	{"op": "usb-phone", "on": false}                   phones over USB taken or left alone, kept in settings_conf
 //	{"op": "wifi-scan"}                                scan; status.json's wifi.networks follow
