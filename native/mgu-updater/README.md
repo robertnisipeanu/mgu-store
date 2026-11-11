@@ -216,8 +216,9 @@ commit). Without one: `releases` when the repo has a release, else
   are listed.
 - GitHub: the files are read at the commit through the contents API. An
   install from a public repo reads the commit's tree (one API request) and
-  downloads only the files the component is made of (its folder; for a
-  build script, also its `build.shared` paths and the script) from
+  downloads only the files the component is made of (its folder, or a
+  service or preload tool's one file; for a build script, also its
+  `build.shared` paths and the script) from
   `raw.githubusercontent.com`, gzipped on the way, each checked against its
   git id; a build that fails with only those runs again with the whole
   repo. A build without `build.shared`, a private repo, or a tree or file
