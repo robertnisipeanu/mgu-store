@@ -2292,6 +2292,7 @@ function id7PartsOff(state, stage) {
     /* only a unit that reports another HMI: one that reports ID7, or whose
      * report is not read yet, keeps what MainApp installed */
     if (todo.length && !otherHmiReported()) {
+        /* their records stay as they were: status writes nothing */
         todo.forEach(function (t) { if (known[t.app.id]) seen[t.app.id] = known[t.app.id]; });
         todo = [];
     }
@@ -2304,7 +2305,8 @@ function id7PartsOff(state, stage) {
                 .filter(function (d) { return fs.existsSync(path.join(d, 'application.json')); })[0];
             want = src ? id7Parts(src, mainappHmi().brand) : null;
         } catch (e) {
-            warn(app.id + ' ' + app.version + "'s iDrive 7 HMI files are not looked at: " + e.message);
+            /* stderr: status --json keeps stdout for its JSON */
+            process.stderr.write('warning: ' + app.id + ' ' + app.version + "'s iDrive 7 HMI files are not looked at: " + e.message + '\n');
             return;
         }
         if (want) {
