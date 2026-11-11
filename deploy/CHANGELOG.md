@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- An app runs the code of the version just installed. Installing or updating an app removes the code cache its entry point kept of the earlier bundle (`data/app.js.bytecode`), as does carrying a kept data folder into an app. The head unit's Node accepts that cache for any bundle of the same length, so without this an update that keeps the bundle's length runs the earlier version's code.
+- Installing or updating an app, or carrying a kept data folder into one, removes the code cache of its earlier bundle (`data/app.js.bytecode`). The head unit's Node accepts that cache for any bundle of the same length, so an update that kept the length would run the earlier version's code.
 
 ## 0.8.11
 

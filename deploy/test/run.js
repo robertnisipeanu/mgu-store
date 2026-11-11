@@ -1979,6 +1979,16 @@ function testInplace() {
     check('in place: the hook logged both requests in the manager\'s log',
         root.managerLog().includes('hook mgu-deploy in-place install second_app: done') &&
         root.managerLog().includes('hook mgu-deploy in-place update fixture_app: done'), root.managerLog().join('\n'));
+    // the app owns its home: a data folder that is a link leads the removal nowhere
+    const elsewhere = root.p('var/opt/elsewhere');
+    write(path.join(elsewhere, 'app.js.bytecode'), 'not the app\'s');
+    fs.renameSync(path.join(root.home(13001), 'data'), root.p('var/opt/fixture_data'));
+    fs.symlinkSync(elsewhere, path.join(root.home(13001), 'data'));
+    const linked = root.run(['install', '--artifact', appArtifact('fixture_app', '1.2.0', true), '--yes']);
+    check('in place: an update leaves a file a linked data folder leads to', linked.status === 0 &&
+        fs.existsSync(path.join(elsewhere, 'app.js.bytecode')) && !linked.out.includes('its code cache goes'), linked.out);
+    fs.unlinkSync(path.join(root.home(13001), 'data'));
+    fs.renameSync(root.p('var/opt/fixture_data'), path.join(root.home(13001), 'data'));
 
     // a copy written after the manager started: it runs older code, so a bounce
     fs.utimesSync(copy, Date.now() / 1000 + 60, Date.now() / 1000 + 60);

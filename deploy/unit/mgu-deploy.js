@@ -4552,6 +4552,40 @@ function listApp(a, entry) {
     customAppsPut(a.id, Object.assign({}, entry ? entry.provisioningCache : null, { '-enabled': 'true', '-allowed': 'true' }),
         a.pkg.mguAppStartType || 'manually');
 }
+/* The code cache the stock OAP entry point (package.json main, the
+ * firmware's runner.js) keeps of an app's bundle: <data>/<bundle>.bytecode,
+ * both paths from the runnerConfig.json beside the entry point (default
+ * ../../data and ./app.js). The firmware's V8 takes a cache made for any
+ * source of the same length, so a cache another version of the app left
+ * runs that version's code; without it the entry point compiles the
+ * bundle and writes a new cache. The app owns its home: the cache goes
+ * only when the home, its data folder and every folder on the way are real
+ * folders, no links. */
+function clearCodeCache(id, uid) {
+    if (!uid) return;
+    var home = appHome(uid), source = path.join(home, 'source'), data = path.join(home, 'data');
+    var pkg = readJsonOrNull(path.join(source, 'package.json'));
+    var main = pkg && typeof pkg.main === 'string' ? path.join(source, pkg.main) : path.join(source, 'javascript', 'runner.js');
+    var cfg = readJsonOrNull(path.join(path.dirname(main), 'runnerConfig.json')) || {};
+    var dataRel = typeof cfg.DATA_RELATIVE_PATH === 'string' ? cfg.DATA_RELATIVE_PATH : '../../data';
+    var jsRel = typeof cfg.JS_RELATIVE_PATH === 'string' ? cfg.JS_RELATIVE_PATH : './app.js';
+    var cache = path.join(path.dirname(main), dataRel, jsRel + '.bytecode'), rel = path.relative(data, cache);
+    if (!rel || rel.split(path.sep)[0] === '..' || path.isAbsolute(rel)) return;
+    var dir = home, parts = ['data'].concat(rel.split(path.sep).slice(0, -1)), st;
+    for (var i = 0; i <= parts.length; i++) {
+        st = lstatOrNull(dir);
+        if (!st || !st.isDirectory()) return;
+        if (i < parts.length) dir = path.join(dir, parts[i]);
+    }
+    st = lstatOrNull(cache);
+    if (!st || !st.isFile()) return;
+    try {
+        fs.unlinkSync(cache);
+        say(id + ': its code cache goes (' + cache + ')');
+    } catch (e) {
+        warn(id + ': its code cache ' + cache + ' stays: ' + e.message + '; the app may run its earlier code until it is removed');
+    }
+}
 /* Privacy, the fallback, the package, the app listed by the fallback; then
  * the running manager installs or updates it in place, or else one bounce:
  * the restarted manager installs it fresh, or updates it from its registry
@@ -4566,33 +4600,6 @@ function listApp(a, entry) {
  * start removes and inserts the app's tile again while its start-up insert
  * of that tile may still be under way, which can leave the HMI without the
  * tile until the head unit restarts. */
-/* The code cache the stock OAP entry point (package.json main, the
- * firmware's runner.js) keeps of an app's bundle: <data>/<bundle>.bytecode,
- * both paths from the runnerConfig.json beside the entry point (default
- * ../../data and ./app.js). The firmware's V8 takes a cache made for any
- * source of the same length, so a cache another version of the app left
- * runs that version's code; without it the entry point compiles the
- * bundle and writes a new cache. Removed here for the app home of uid, the
- * file only, and only inside that home's data folder. */
-function clearCodeCache(id, uid) {
-    if (!uid) return;
-    var home = appHome(uid), source = path.join(home, 'source'), data = path.join(home, 'data');
-    var pkg = readJsonOrNull(path.join(source, 'package.json'));
-    var main = pkg && typeof pkg.main === 'string' ? path.join(source, pkg.main) : path.join(source, 'javascript', 'runner.js');
-    var cfg = readJsonOrNull(path.join(path.dirname(main), 'runnerConfig.json')) || {};
-    var dataRel = typeof cfg.DATA_RELATIVE_PATH === 'string' ? cfg.DATA_RELATIVE_PATH : '../../data';
-    var jsRel = typeof cfg.JS_RELATIVE_PATH === 'string' ? cfg.JS_RELATIVE_PATH : './app.js';
-    var cache = path.join(path.dirname(main), dataRel, jsRel + '.bytecode'), rel = path.relative(data, cache);
-    if (!rel || rel.split(path.sep)[0] === '..' || path.isAbsolute(rel)) return;
-    var st = lstatOrNull(cache);
-    if (!st || !st.isFile()) return;
-    try {
-        fs.unlinkSync(cache);
-        say(id + ': its code cache goes (' + cache + ')');
-    } catch (e) {
-        warn(id + ': its code cache ' + cache + ' stays: ' + e.message + '; the app may run its earlier code until it is removed');
-    }
-}
 function installApp(a, state, decision) {
     var existing = decision.existing || null, entry;
     say('installing app ' + a.id + ' ' + a.version + (existing ? ' (update of ' + existing.version + ')' : ''));
