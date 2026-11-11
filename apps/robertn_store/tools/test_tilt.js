@@ -4,7 +4,8 @@
  * (src/store_frame.js toward): along a row and down a column of the app
  * grid, between the side menu and the grid at the nearest height, along the
  * tabs and the side menu, to a list row's button and into rows scrolled out
- * of view; null when nothing is that way. Node 8+.
+ * of view, to an item in line however far off centre; null when nothing is
+ * that way. Node 8+.
  *
  *   node tools/test_tilt.js
  */
@@ -33,6 +34,10 @@ assert.deepStrictEqual([go(items, 'Installed', 'E'), go(items, 'Settings', 'E')]
 assert.deepStrictEqual([go(items, 'Store', 'S'), go(items, 'Settings', 'N'), go(items, 'Store', 'W')], ['Installed', 'USB', null], 'the side menu');
 assert.deepStrictEqual([go(items, 'All', 'E'), go(items, 'Tools', 'W'), go(items, 't04', 'N')], ['Apps', 'Apps', 'Tools'], 'the tabs, and up to them');
 assert.deepStrictEqual([go(items, 't00', 'N'), go(items, 'Store', 'N'), go(items, 'Tools', 'E')], [null, null, null], 'nothing more off to the side than ahead');
+
+// a short last row and a wide item below narrow ones: in line counts however far the centres are apart
+const short = items.filter((i) => !/^t2[2-4]$/.test(i.label)).concat([{ label: 'wide', x: 180, y: 620, w: 1610, h: 80 }]);
+assert.deepStrictEqual([go(short, 't14', 'S'), go(short, 't21', 'S'), go(short, 'wide', 'N')], ['wide', 'wide', 't21'], 'in line: the nearest row first');
 
 // Installed: rows with a button, the first two scrolled out of view
 const rows = [];
