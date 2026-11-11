@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.41
+
 - The phone page's Logs list the Renderer's journals (`mgu-render`, `mgu-render-hmi`) and the deploy tool's check after a restart (`mgu-deploy-verify`).
 
 ## 0.8.40

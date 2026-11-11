@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.14
+
 - `--read-only` belongs to `status` alone: any other command given it refuses (exit 2) and changes nothing.
 
 ## 0.8.13

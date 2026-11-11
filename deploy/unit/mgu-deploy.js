@@ -55,7 +55,7 @@ var os = require('os');
 process.umask(0o022);
 
 /* deploy/component.json's version; the release sets both. */
-var VERSION = '0.8.13';
+var VERSION = '0.8.14';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
