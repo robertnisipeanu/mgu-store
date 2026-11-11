@@ -3188,8 +3188,8 @@ function installTool(a, state, tx) {
     var i7 = i7Takeover(a);
     tx.root = root; tx.before = before; tx.rootExisted = fs.existsSync(root);
     tx.versionExisted = fs.existsSync(dest); tx.socketsActive = {};
-    /* set up under another firmware, no hook of it run on this one: no hook
-     * of a version it replaces runs (the firmware put back what they set up) */
+    /* set up under another firmware, no hook of it run on this one (the
+     * firmware put back what its versions set up) */
     var moved = tx.moved = a.firmwareMoved || toolMoved(state, c.id);
     /* an older version, or one from another source (a.otherSource): the
      * version it replaces runs its deactivate first, with all of it in
@@ -5031,6 +5031,24 @@ function removeToolPieces(c, rest, state) {
 var deactivated = null;
 /* The units stopUnits left running until the next start. */
 var leftRunning = [];
+/* The hooks of tool id's removal (root its folder, c its current
+ * component.json): its current version's deactivate runs with all of it
+ * still in place, then that of each kept version whose deactivate is due
+ * (deactivateDue), which reverts what only it set up; a failed one refuses,
+ * saying `stays`. onCurrent(dir) is told the current version's folder as
+ * its deactivate starts. A restart one asks for is pending under the deploy
+ * tool, since the tool's own entries go with it. */
+function deactivateRemoved(id, root, c, state, stays, onCurrent) {
+    [currentTarget(root)].concat(deactivateDue(state, id, root, c.version)).forEach(function (v, i) {
+        var vc = i ? readJsonOrNull(path.join(root, 'versions', v, 'component.json')) : c;
+        if (!vc || vc.id !== id || !vc.deactivate) return;
+        var dir = path.join(root, 'versions', v);
+        if (!i) onCurrent(dir);
+        var hr = runHook(id, dir, vc, 'deactivate', state);
+        if (!hr.ok) throw refuse(id + ' ' + vc.version + ': deactivate ' + hr.why + '; ' + stays);
+        if (hr.reboot) addPending(state, 'mgu-deploy', id + ' removed: ' + hr.reboot);
+    });
+}
 function uninstallTool(id, state) {
     var tools = installedTools().filter(function (t) { return t.id === id; });
     if (!tools.length) throw refuse(id + ': no installed tool with that id');
@@ -5038,19 +5056,7 @@ function uninstallTool(id, state) {
     say('uninstalling tool ' + id + ' ' + c.version);
     /* the stock bundles go back first; a failed revert keeps the tool */
     if (id === 'app-privacy' && privacyRevert()) privacyReverted();
-    /* the tool's deactivate runs with all of it still in place, then that of
-     * each kept version whose deactivate is due (deactivateDue), which
-     * reverts what only it set up; a failed one keeps the tool. A restart one asks for is
-     * pending under the deploy tool, since the tool's own entries go with it. */
-    [currentTarget(root)].concat(deactivateDue(state, id, root, c.version)).forEach(function (v, i) {
-        var vc = i ? readJsonOrNull(path.join(root, 'versions', v, 'component.json')) : c;
-        if (!vc || vc.id !== id || !vc.deactivate) return;
-        var dir = path.join(root, 'versions', v);
-        if (!i) deactivated = dir;
-        var hr = runHook(id, dir, vc, 'deactivate', state);
-        if (!hr.ok) throw refuse(id + ' ' + vc.version + ': deactivate ' + hr.why + '; ' + id + ' stays installed');
-        if (hr.reboot) addPending(state, 'mgu-deploy', id + ' removed: ' + hr.reboot);
-    });
+    deactivateRemoved(id, root, c, state, id + ' stays installed', function (dir) { deactivated = dir; });
     var declared = toolDeclared(root, c);
     stopUnits(declared, state);
     removeToolPieces(declared, installedTools().filter(function (t) { return t.id !== id; }), state);
@@ -8098,19 +8104,20 @@ function rollbackAppCmd(id) {
     return 0;
 }
 /* The installed tools (but the deploy tool) a restore of the backup data
- * moves off the version current now: its record of the tool's current is
- * absent (the tool goes) or names another version. [{ id, dir (the version
- * folder), c (its component.json) }] */
+ * moves off the version current now: the backup records the tool's current
+ * as absent (the tool goes: goes) or as a link to another version.
+ * [{ id, root, dir (the current version's folder), c (its component.json),
+ * goes }] */
 function restoreLeaves(data) {
-    var rec = {};
+    var rec = {}, out = [];
     data.entries.forEach(function (e) { rec[e.path] = e; });
-    return installedTools().filter(function (t) {
+    installedTools().forEach(function (t) {
         var e = rec[path.join(t.root, 'current')], cur = currentTarget(t.root);
-        return t.id !== 'mgu-deploy' && !!e && !!cur && !(e.kind === 'symlink' && path.basename(e.target) === cur);
-    }).map(function (t) {
-        var dir = path.join(t.root, 'versions', currentTarget(t.root));
-        return { id: t.id, dir: dir, c: readJsonOrNull(path.join(dir, 'component.json')) || t.component };
+        if (t.id === 'mgu-deploy' || !e || !cur) return;
+        if (e.kind !== 'absent' && !(e.kind === 'symlink' && path.basename(e.target) !== cur)) return;
+        out.push({ id: t.id, root: t.root, dir: path.join(t.root, 'versions', cur), c: t.component, goes: e.kind === 'absent' });
     });
+    return out;
 }
 function cmdRestore(args) {
     var name = args.positional[0] || 'stock';
@@ -8139,10 +8146,16 @@ function cmdRestore(args) {
     catch (e) { if (unbound) bindCopy(); throw e; }
     var appsBefore = installedApps().map(function (a) { return a.id; }), deactivated = [];
     try {
-        /* each tool the restore moves off its version, or removes, runs that
-         * version's deactivate first, with all of it in place, as a
-         * rollback or removal does; a failed one refuses the restore */
-        restoreLeaves(data).forEach(function (t) {
+        /* each tool the restore moves off its version runs that version's
+         * deactivate first, with all of it in place, as a rollback does, and
+         * each tool it removes runs the hooks of its removal; a failed one
+         * refuses the restore */
+        var leaves = restoreLeaves(data);
+        leaves.forEach(function (t) {
+            if (t.goes) {
+                deactivateRemoved(t.id, t.root, t.c, state, 'nothing restored', function () { deactivated.push(t); });
+                return;
+            }
             if (!t.c.deactivate) return;
             deactivated.push(t);
             var dr = runHook(t.id, t.dir, t.c, 'deactivate', state);
@@ -8189,11 +8202,12 @@ function cmdRestore(args) {
          * stopped: no record, no kept package, no data set aside */
         var finish = function () {
             removed.forEach(function (id) { forgetApp(state, id); });
-            /* a tool's version made current by the restore, or the tool
-             * removed, keeps no deactivate record of it */
-            deactivated.forEach(function (t) {
-                var root = path.dirname(path.dirname(t.dir)), now = currentTarget(root);
-                noteHook(state, t.id, now || t.c.version, 'gone');
+            /* a tool's version made current by the restore keeps no deactivate
+             * record; a tool removed keeps none at all, as after its removal */
+            leaves.forEach(function (t) {
+                if (!t.goes) { noteHook(state, t.id, currentTarget(t.root), 'gone'); return; }
+                if (state.deactivated) delete state.deactivated[t.id];
+                if (state.deactivate_owed) delete state.deactivate_owed[t.id];
             });
             if (!lstatOrNull(privacyCurrent)) {
                 state.pending_reboot = state.pending_reboot.filter(function (p) { return p.id !== 'app-privacy'; });
@@ -8213,9 +8227,14 @@ function cmdRestore(args) {
         } else if (unbound && !bindMounted(mainJs())) {
             bindCopy();
         }
-        /* the versions deactivated are current again: activated again */
+        /* the versions deactivated are current again and run their activate
+         * again; a tool the restore removed before it failed has no version
+         * folder left to activate */
         if (deactivated.length) {
-            deactivated.forEach(function (t) { reactivate(t.id, t.dir, state); });
+            deactivated.forEach(function (t) {
+                if (fs.existsSync(path.join(t.dir, 'component.json'))) reactivate(t.id, t.dir, state);
+                else warn(t.id + ' ' + t.c.version + ': removed before the restore failed; not activated again');
+            });
             try { saveState(state); } catch (e3) { warn('state.json: ' + e3.message); }
         }
         throw e;
