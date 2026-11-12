@@ -5407,6 +5407,25 @@ function testSafeModeAfresh() {
     check('safe mode afresh: an install that only installs an app afresh, which fails, keeps it',
         r.status === 1 && r.out.includes('installing afresh failed: robertn_demo') && on_(root) && !lifted(root), r.out);
 
+    // an app's Undo update: one install as to safe mode
+    const undo = () => {
+        const u = fakeRoot();
+        u.run(['install', '--artifact', privacyArtifact(), '--yes']);
+        u.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+        const up = u.run(['install', '--artifact', appArtifact('fixture_app', '1.1.0', true), '--yes']);
+        if (up.status !== 0) throw new Error(`setup: ${up.out}`);
+        write(u.p('var/opt/mgu-deploy/safe-mode'), on);
+        return u;
+    };
+    root = undo();
+    write(root.p('var/opt/mgu-deploy/kept/fixture_app/fixture_app@1.0.0.tgz'), 'not a package\n');
+    r = root.run(['rollback', 'fixture_app', '--yes']);
+    check('safe mode: an app rollback that fails, the version before installed again, keeps it',
+        r.status === 1 && /installing fixture_app 1\.1\.0 again/.test(r.out) && on_(root) && !lifted(root), r.out);
+    root = undo();
+    r = root.run(['rollback', 'fixture_app', '--yes']);
+    check('safe mode: an app rollback that goes through leaves it', r.status === 0 && !on_(root) && !lifted(root), r.out);
+
     // the tool's first lay fails (its next start runs), the app's install afresh lays it again and goes through
     root = setup();
     const starts = Number(fs.readFileSync(root.unitFile('fixture-tool.service.starts'), 'utf8'));

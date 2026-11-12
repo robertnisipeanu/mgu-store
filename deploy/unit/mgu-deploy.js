@@ -7389,12 +7389,17 @@ var outerInstall = null;
  * counts towards it. */
 function cmdInstall(args) {
     if (outerInstall) return installAll(args);
-    var run = outerInstall = { short: false }, ok = false;
+    return asOuterInstall(function () { return installAll(args); }, function (code) { return code === 0; });
+}
+/* run() as the outermost install, which settles safe mode: left when
+ * through(its result) and nothing in it fell short. */
+function asOuterInstall(run, through) {
+    var outer = outerInstall = { short: false }, ok = false;
     try {
         return onGuardStop(function () { settleSafeMode(false); }, function () {
-            var code = installAll(args);
-            ok = code === 0 && !run.short;
-            return code;
+            var r = run();
+            ok = through(r) && !outer.short;
+            return r;
         });
     } finally {
         outerInstall = null;
@@ -8289,7 +8294,8 @@ function rollbackAppCmd(id) {
     var prev = keptPrevious(id, app.version), cur = keptFile(id, app.version);
     if (!prev) throw refuse(id + ' ' + app.version + ': no earlier version is kept to roll back to');
     say('rolling back ' + id + ' ' + app.version + ' -> ' + prev.version);
-    var err = reinstallApp(app, prev.file, cur, prev.version);
+    /* one install as to safe mode: a failed one with the version before installed again keeps it */
+    var err = asOuterInstall(function () { return reinstallApp(app, prev.file, cur, prev.version); }, function (e) { return !e; });
     if (err) throw fail(id + ': the rollback to ' + prev.version + ' failed: ' + err.message);
     say(id + ' rolled back to ' + prev.version);
     return 0;

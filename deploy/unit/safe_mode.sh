@@ -67,7 +67,6 @@ STATS=$SIN/recmgr/recmgr_stats.db
 
 say() { echo "safe mode: $*"; }
 
-# A file's first line, or nothing.
 first_line() { [ -f "$1" ] && head -n 1 "$1" 2>/dev/null; }
 
 # Whole seconds of uptime; empty when unreadable.

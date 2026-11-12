@@ -1527,7 +1527,8 @@ function testSafeMode() {
         `echo "$*" >> ${calls}\n` +
         `if [ "$1" = safe-mode ] && [ "$2" = off ]; then rm -f ${flag}; echo 'safe mode off'; exit 0; fi\n` +
         `if [ -f ${flag} ]; then echo '{"components":[],"pending_reboot":[],"safe_mode":{"at":"2026-11-09T10:00:00Z","reason":"4 starts"}}'; ` +
-        'else echo \'{"components":[],"pending_reboot":[],"safe_mode":null}\'; fi\n', { mode: 0o755 });
+        // out of safe mode it reports as an older deploy tool does: no safe_mode at all
+        'else echo \'{"components":[],"pending_reboot":[]}\'; fi\n', { mode: 0o755 });
     fs.writeFileSync(flag, '');
     const runs = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : []);
     const u = new Updater({ catalog: `file://${path.join(dir, 'catalog.json')}`, state_dir: path.join(dir, 'state'), deploy,
