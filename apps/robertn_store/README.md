@@ -200,8 +200,7 @@ unit to finish setup` while the updater has not run since the Store was
 installed, which after the first install is until the next start; `Updater
 not running` once it has; `Safe mode` while the deploy tool's safe mode
 keeps our tools off, the updater's `safeMode`), **Leave safe mode** in safe
-mode (it appears once the start screen has had the HMI's focus for 0.6 s, so
-the focus opens on the item below it; hidden while an install runs; it asks
+mode (the start screen opens with the focus on it; hidden while an install runs; it asks
 the updater to leave it, and the tools start at the next start of the head
 unit), a **Check for updates** button, a progress bar for the running
 install (hidden when none runs), the rows **Apps** and **Head-unit tools**,
