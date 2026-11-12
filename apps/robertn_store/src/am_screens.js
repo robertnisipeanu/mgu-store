@@ -928,7 +928,8 @@ module.exports = {
      "h": 360,
      "opts": {
       "items": [],
-      "rowH": 120
+      "rowH": 120,
+      "fit": true
      }
     },
     {

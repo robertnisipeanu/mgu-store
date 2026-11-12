@@ -159,9 +159,7 @@ function screens() {
         ['proxy-on', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
         ['proxy-error', { tab: 'settings', stack: main.concat([{ name: 'proxy' }]) },
             proxySt({ on: true, kind: 'http', address: '192.168.8.1:7890', error: 'proxy 192.168.8.1:7890: connection refused (5 tries)' })],
-        ['settings-proxy-on', { tab: 'settings', stack: main, scroll: { 'settings.access': 10000 } }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
-        // the access card scrolled to its end: Proxy and Phone access
-        ['settings-access-end', { tab: 'settings', stack: main, scroll: { 'settings.access': 10000 } }],
+        ['settings-proxy-on', { tab: 'settings', stack: main }, proxySt({ on: true, kind: 'socks5', address: '192.168.8.1:7891' })],
         ['type-proxy', { tab: 'settings', stack: main.concat([{ name: 'proxy' }, { name: 'type', title: 'Proxy', label: 'Address',
             text: 'socks5://192.168.8.1:7891', layout: 'text', symbols: true, max: 300 }]) }],
         ['offline', { tab: 'store', stack: main, connected: false, st: null, secret: false }],

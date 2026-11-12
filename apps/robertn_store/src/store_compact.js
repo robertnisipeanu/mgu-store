@@ -94,7 +94,7 @@ function compact(W, H) {
         button('addRepo', X, B - SET_H, leftW, SET_H, 'Add source', 'tinted', 25, { vicon: 'plus', color: BLUE }),
         el('connPanel', 'rect', rx, HEAD + 4, rw, B - HEAD - 4, { color: 'panelTop', radius: 20 }),
         label('connLabel', rx + 18, HEAD + 18, 'ACCESS'),
-        list('access', rx + 12, HEAD + 52, rw - 24, 3 * LIST.rowH),
+        list('access', rx + 12, HEAD + 52, rw - 24, 3 * LIST.rowH, { fit: true }),
         text('unit', rx + 18, HEAD + 60 + 3 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
         text('versions', rx + 18, HEAD + 100 + 3 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
         button('checkNow', rx + 16, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Check now', 'outline', 25, { vicon: 'refresh' }),

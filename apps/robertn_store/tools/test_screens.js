@@ -428,23 +428,26 @@ eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
     ok(end > lab.x && end + 16 <= unit.x && versions.y + versions.h <= unit.y,
         `iDrive 8: the label (widest "${widest}", to x ${Math.round(end)}) clear of the head unit's line at ${unit.x}`);
 }
-// the Access card shows three rows: the controller's focus on each later row scrolls it into view, in order, on every unit
+// the Access card shows all its rows at once, in order, on every unit: none scrolled to, the focus on each moves nothing
 Object.keys(UNITS).forEach((u) => {
     const m = fixture.model(fixture.screens().find((x) => x[0] === 'settings')[1]);
     const scroll = {};
     const rows = ['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'];
-    const rest = frame(m, { textScale: UNITS[u].scale, scroll: {}, layout: UNITS[u].layout }).items;
-    const at = rest.map((i) => i.label);
-    eq(['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'].map((l) => !rest[at.indexOf(l)].reveal), [true, true, true, false, false],
-        `${u}: Wi-Fi, Accounts and Preferred connection in view at first, the rows after them scrolled to`);
+    const items = frame(m, { textScale: UNITS[u].scale, scroll: {}, layout: UNITS[u].layout }).items;
+    const at = items.map((i) => i.label);
+    const clear = rows.slice(1).map((l, k) => {
+        const a = items[at.indexOf(rows[k])], b = items[at.indexOf(l)];
+        return b.y - (a.y + a.h) > 8;
+    });
+    eq(clear, [true, true, true, true], `${u}: the focus ring on an Access row (8 px out) clear of the next row`);
     const shown = rows.map((l) => {
         const g = frame(m, { textScale: UNITS[u].scale, focus: at.indexOf(l), scroll, layout: UNITS[u].layout });
         const it = g.items[at.indexOf(l)];
         const box = it.box;
         return it.label === l && !it.reveal && it.y >= box.y - 1 && it.y + it.h <= box.y + box.h + 1;
     });
-    eq([rows.map((l) => at.indexOf(l) - at.indexOf('Wi-Fi')), shown, scroll['settings.access'] > 0], [[0, 1, 2, 3, 4], [true, true, true, true, true], true],
-        `${u}: Access scrolls with the focus`);
+    eq([rows.map((l) => at.indexOf(l) - at.indexOf('Wi-Fi')), shown, scroll['settings.access'] || 0], [[0, 1, 2, 3, 4], [true, true, true, true, true], 0],
+        `${u}: every Access row in view, none scrolled`);
 });
 eq(text(f, 'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-renderd 1.1.0');
 eq(text(screen('settings', {}, { allProviders: { renderer: [{ id: 'mgu-render', version: '0.2.0' }, { id: 'mgu-renderd', version: '1.1.2' }] } }),

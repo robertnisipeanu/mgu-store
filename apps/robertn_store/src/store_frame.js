@@ -113,7 +113,7 @@ function itemsOf(st, page) {
         } else if (c.gpu === 'appList') {
             const v = listView(b, o);
             const key = `${st.name}.${c.name}`;
-            const gap = Math.round(v.rh * 0.13);
+            const gap = v.gap;
             regions.push({ key, x: b.x, y: b.y, w: b.w, h: b.h, step: v.rh, max: v.max });
             v.all.forEach((it, k) => {
                 const y = b.y + (k - v.top) * v.rh;

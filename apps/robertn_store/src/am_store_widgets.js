@@ -136,9 +136,13 @@ function appGrid(cv, t, b, o) {
 // ---- list rows with a picture / vector icon and a control on the right ---------------------------------------
 const rowItems = (o) => (Array.isArray(o.items) ? o.items
     : lines(o.items).map((l, i) => ({ id: `row${i}`, title: l[0], sub: l[1] || '', right: l[2] || 'chevron', vicon: l[3] || '' })));
+// (the Store: o.fit, rows that do not all fit at o.rowH share the box, each on one line: its title, then its sub)
 function listView(b, o) {
-    const rh = o.rowH || 120, all = rowItems(o), n = b.h / rh, max = Math.max(0, all.length - n), top = Math.max(0, Math.min(max, +o.top || 0));
-    return { rh, all, n, max, top, first: Math.floor(top), end: Math.min(all.length, Math.ceil(top + n)) };
+    const all = rowItems(o), line = !!o.fit && all.length * (o.rowH || 120) > b.h + 1e-6, rh = line ? b.h / all.length : o.rowH || 120;
+    const n = b.h / rh, max = Math.max(0, all.length - n), top = Math.max(0, Math.min(max, +o.top || 0));
+    // the gap between rows keeps the focus ring (8 px out from a row) off the next one
+    const gap = Math.max(9, Math.round(rh * 0.13));
+    return { rh, gap, all, n, max, top, line, first: Math.floor(top), end: Math.min(all.length, Math.ceil(top + n)) };
 }
 // the right-hand controls of a row ("toggle:on+trash": laid out from the right) -> [{ kind, arg, x, w }]
 const RIGHT_W = { chevron: 60, trash: 80, toggle: 150 };
@@ -155,7 +159,7 @@ function rightBoxes(b, it, cv, c) {
 }
 // (the Store: o.titleSize, o.subSize and o.ctlK size a smaller row's texts and controls; the defaults are the design's)
 function appList(cv, t, b, o) {
-    const v = listView(b, o), gap = Math.round(v.rh * 0.13), q = o.ctlK || 1, ts = o.titleSize || 40, ss = o.subSize || 30;
+    const v = listView(b, o), gap = v.gap, q = o.ctlK || 1, ts = o.titleSize || 40, ss = o.subSize || 30;
     cv.clip(b.x, b.y, b.w, b.h);
     v.all.slice(v.first, v.end).forEach((it, k) => {
         const y = b.y + (v.first + k - v.top) * v.rh, h = v.rh - gap, s = Math.round(h * 0.73);
@@ -167,8 +171,15 @@ function appList(cv, t, b, o) {
             tx = b.x + 22 * q + s + 32 * q;
         }
         const boxes = rightBoxes(b, it, cv, q), room = (boxes.length ? boxes[boxes.length - 1].x : b.x + b.w) - tx - 8;
-        cv.text(W.fit(cv, String(it.title || ''), room, ts, 'bold'), tx, it.sub ? y + h * 0.47 : y + h / 2 + ts * 0.36, ts, t.text, { font: 'bold' });
-        if (it.sub) cv.text(W.fit(cv, String(it.sub), room, ss), tx, y + h * 0.83, ss, C(t, it.subColor, t.dim));
+        if (v.line) {
+            const title = W.fit(cv, String(it.title || ''), room, ts, 'bold'), sx = tx + cv.textWidth(title, ts, { font: 'bold' }) + 24 * q;
+            cv.text(title, tx, y + h / 2 + ts * 0.36, ts, t.text, { font: 'bold' });
+            const sw = tx + room - sx, sz = it.sub ? W.shrink(cv, it.sub, sw, ss, undefined, 0.85) : ss;
+            if (it.sub && sw > 0) cv.text(W.fit(cv, String(it.sub), sw, sz), sx, y + h / 2 + ts * 0.36, sz, C(t, it.subColor, t.dim));
+        } else {
+            cv.text(W.fit(cv, String(it.title || ''), room, ts, 'bold'), tx, it.sub ? y + h * 0.47 : y + h / 2 + ts * 0.36, ts, t.text, { font: 'bold' });
+            if (it.sub) cv.text(W.fit(cv, String(it.sub), room, ss), tx, y + h * 0.83, ss, C(t, it.subColor, t.dim));
+        }
         const cy = y + h / 2;
         for (const rb of boxes) {
             const re = rb.x + rb.w - 24 * q;                // the control's right edge
