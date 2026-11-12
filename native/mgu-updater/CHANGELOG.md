@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A check asked for while one runs (the Store's Check now during an automatic check) is made once more after it: the running one may have read the sources before what was asked about changed, and the Store showed the old catalog.
+
 ## 0.8.41
 
 - The phone page's Logs list the Renderer's journals (`mgu-render`, `mgu-render-hmi`) and the deploy tool's check after a restart (`mgu-deploy-verify`).

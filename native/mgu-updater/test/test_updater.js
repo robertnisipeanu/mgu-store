@@ -1484,6 +1484,33 @@ function testReboot() {
         });
 }
 
+/* ---- checks asked for during a check ---- */
+
+/* A check asked for while one runs reads the sources again once that one is through; several
+ * asked for meanwhile share that one more check. */
+function testCheckAgain() {
+    const { Updater } = require('../js/updater');
+    let reads = 0, release = null;
+    const u = Object.create(Updater.prototype);
+    Object.assign(u, {
+        checking: null, checkAgain: null, src: new Map(), changed() {}, checkUids: () => Promise.resolve(), scanUsb() {},
+        scanTokens() {}, validateTokens() {}, defs: () => [{ id: 's' }], pruneIcons: () => Promise.resolve(),
+        refresh: () => Promise.resolve(), repairStale() {},
+        checkSource: () => { reads += 1; return reads === 1 ? new Promise((r) => { release = r; }) : Promise.resolve(); }
+    });
+    const first = u.check();
+    return Promise.resolve().then(() => {
+        const second = u.check(), third = u.check();
+        ok('check: one asked for during a check is answered after it', second !== first && second === third);
+        release();
+        return Promise.all([first, second]);
+    }).then(() => {
+        ok('check: the sources are read once more after the running check, once for every ask meanwhile', reads === 2, String(reads));
+        ok('check: nothing left running', u.checking === null && u.checkAgain === null);
+        return u.check();
+    }).then(() => ok('check: one asked for with none running reads the sources once', reads === 3, String(reads)));
+}
+
 /* ---- the daemon --------------------------------------------------------------------- */
 
 function waitFor(client, pred, ms, what) {
@@ -6712,6 +6739,7 @@ function main() {
         .then(() => testUidsDaemon())
         .then(() => testUplink())
         .then(() => Promise.all([startDns(), startHttps(certs, pubDir)]))
+        .then((srvs) => testCheckAgain().then(() => srvs))
         .then(([dnsSrv, httpsSrv]) => testFetch(certs, pubDir)
             .then(() => testSources(certs).catch((e) => ok('sources scenario', false, e.stack)))
             .then(() => testRequests(certs).catch((e) => ok('requests scenario', false, e.stack)))
