@@ -389,7 +389,8 @@ eq(f.labels.slice(4), ['robertnisipeanu/mgu-store', 'cauliflower/idrive7-apps', 
     'Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access', 'Check now']);
 eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
 // iDrive 8: the head unit's line, on the Access card's label's line, starts after the label in every language
-// (drawn in each language, ACCESS with rows and HEAD UNIT without)
+// (drawn in each language, ACCESS with rows and HEAD UNIT without); the versions line, on the title's line, whole and clear of
+// the title in every language
 {
     const i18n = require(path.join(__dirname, '..', 'src', 'i18n.js'));
     const { Recorder } = require(path.join(__dirname, '..', 'src', 'kit_record.js'));
@@ -397,9 +398,16 @@ eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
     const unit = set.find((c) => c.name === 'unit');
     const versions = set.find((c) => c.name === 'versions');
     const lab = set.find((c) => c.name === 'connLabel');
+    const title = set.find((c) => c.name === 'title');
     const draw = Recorder.prototype.text;
-    let end = 0, widest = '';
+    let end = 0, widest = '', titleEnd = 0, vers = [];
     Recorder.prototype.text = function (str, x, y, size, color, opts) {
+        if (x === title.x && Math.abs(y - (title.y + title.opts.size * 0.8)) < 1) {
+            titleEnd = x + this.textWidth(String(str), size, opts);
+        }
+        if (Math.abs(y - (versions.y + versions.opts.size * 0.8)) < 1 && size === versions.opts.size) {
+            vers.push([String(str), x - this.textWidth(String(str), size, opts), titleEnd]);
+        }
         if (x === lab.x && Math.abs(y - (lab.y + lab.opts.size * 0.8)) < 1) {
             const e = x + this.textWidth(String(str), size, opts);
             if (e > end) {
@@ -415,7 +423,11 @@ eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
             i18n.setHmiLanguage(l ? l.hmiLanguages[0] : null);
             i18n.useDrawn(true);
             [{}, { uplink: null, web: null, proxy: null, tokens: null }].forEach((over) => {
-                const m = fixture.model(m0, Object.assign(fixture.state(), over));
+                const st = Object.assign(fixture.state(), over);
+                st.updater = { version: '0.8.39' };
+                st.allProviders = { renderer: [{ id: 'mgu-render', version: '0.6.16' }] };
+                const m = fixture.model(m0, st);
+                m.version = '0.9.37';
                 m.language = i18n.language();
                 frame(m, { textScale: I8.scale, scroll: {}, layout: I8.layout });
             });
@@ -425,29 +437,34 @@ eq(text(f, 'unit'), 'iDrive 7 · BMW MGU P18_23w44.2-1-3 mgu-high');
         i18n.useDrawn(false);
         i18n.setHmiLanguage(null);
     }
-    ok(end > lab.x && end + 16 <= unit.x && versions.y + versions.h <= unit.y,
+    ok(vers.length > 0 && vers.every(([str, x, te]) => str.indexOf('…') < 0 && te > title.x && x >= te + 16),
+        `iDrive 8: the versions line whole and after the title: ${JSON.stringify(vers.find(([str, x, te]) => str.indexOf('…') >= 0 || x < te + 16))}`);
+    ok(end > lab.x && end + 16 <= unit.x,
         `iDrive 8: the label (widest "${widest}", to x ${Math.round(end)}) clear of the head unit's line at ${unit.x}`);
 }
-// the Access card shows all its rows at once, in order, on every unit: none scrolled to, the focus on each moves nothing
+// the Access card: on iDrive 8 all five rows at full height (its design's 120 px) at once, the focus on each moving nothing;
+// on iDrive 7 three rows, the focus on each later row scrolling it into view; in order on every unit
 Object.keys(UNITS).forEach((u) => {
     const m = fixture.model(fixture.screens().find((x) => x[0] === 'settings')[1]);
     const scroll = {};
     const rows = ['Wi-Fi', 'Accounts', 'Preferred connection', 'Proxy', 'Phone access'];
-    const items = frame(m, { textScale: UNITS[u].scale, scroll: {}, layout: UNITS[u].layout }).items;
-    const at = items.map((i) => i.label);
-    const clear = rows.slice(1).map((l, k) => {
-        const a = items[at.indexOf(rows[k])], b = items[at.indexOf(l)];
-        return b.y - (a.y + a.h) > 8;
-    });
-    eq(clear, [true, true, true, true], `${u}: the focus ring on an Access row (8 px out) clear of the next row`);
+    const all = u === 'iDrive 8';
+    const rest = frame(m, { textScale: UNITS[u].scale, scroll: {}, layout: UNITS[u].layout }).items;
+    const at = rest.map((i) => i.label);
+    eq(rows.map((l) => !rest[at.indexOf(l)].reveal), all ? [true, true, true, true, true] : [true, true, true, false, false],
+        `${u}: the Access rows in view at first`);
     const shown = rows.map((l) => {
         const g = frame(m, { textScale: UNITS[u].scale, focus: at.indexOf(l), scroll, layout: UNITS[u].layout });
         const it = g.items[at.indexOf(l)];
         const box = it.box;
         return it.label === l && !it.reveal && it.y >= box.y - 1 && it.y + it.h <= box.y + box.h + 1;
     });
-    eq([rows.map((l) => at.indexOf(l) - at.indexOf('Wi-Fi')), shown, scroll['settings.access'] || 0], [[0, 1, 2, 3, 4], [true, true, true, true, true], 0],
-        `${u}: every Access row in view, none scrolled`);
+    eq([rows.map((l) => at.indexOf(l) - at.indexOf('Wi-Fi')), shown, (scroll['settings.access'] || 0) > 0], [[0, 1, 2, 3, 4], [true, true, true, true, true], !all],
+        all ? `${u}: every Access row in view, none scrolled` : `${u}: Access scrolls with the focus`);
+    if (all) {
+        const acc = SCREENS.screens.find((x) => x.name === 'settings').components.find((c) => c.name === 'access');
+        eq([acc.opts.rowH, acc.h >= rows.length * acc.opts.rowH], [120, true], `${u}: the Access rows at full height`);
+    }
 });
 eq(text(f, 'versions'), 'Updater 0.4.0 · Store 0.7.0 · Renderer mgu-renderd 1.1.0');
 eq(text(screen('settings', {}, { allProviders: { renderer: [{ id: 'mgu-render', version: '0.2.0' }, { id: 'mgu-renderd', version: '1.1.2' }] } }),

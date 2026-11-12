@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-Settings shows every Access row at once: when they do not all fit at full
-height, each row shows its state on the same line as its name.
+Settings on iDrive 8 shows every Access row at once, at full size: the Access card
+reaches the top of the page, and the versions line sits beside the title.
 
 ## 0.9.37
 

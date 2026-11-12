@@ -1,8 +1,8 @@
 'use strict';
 /**
  * A drag frame (store_frame.js dragFrame: the frame as the drag started and
- * the rows of the Store tab's grid or the Installed tab's list, two cached
- * layers) against the frame built whole at the
+ * the rows of the Store tab's grid, the Installed tab's list or Settings'
+ * Access list over its panel (iDrive 7's: iDrive 8's holds every row), two cached layers) against the frame built whole at the
  * same scroll, both drawn by mgu-render --replay (Docker, Mesa; the
  * mgu-render-test image and build/host/mgu-render that `make test` in
  * native/mgu-render leaves), at scrolls of whole design pixels, as a drag
@@ -53,9 +53,9 @@ async function main() {
         many.components.push(Object.assign({}, many.components[3], { id: `x${i}`, title: `Extra ${i}`, installed: '1.0.0', status: 'installed' }));
     }
     const jobs = [];
-    for (const [tab, key] of [['store', 'store.grid'], ['installed', 'installed.apps']]) {
+    for (const [tab, key] of [['store', 'store.grid'], ['installed', 'installed.apps'], ['settings', 'settings.access']]) {
         const m = fixture.model({ tab }, many);
-        for (const unit of UNITS) {
+        for (const unit of UNITS.filter((u) => key !== 'settings.access' || u.name === 'id7')) {
             const p = placement(unit.w, unit.h);
             const d = dragOf(m, { textScale: p.scale, scroll: {}, layout: p.layout }, key);
             if (!d) {

@@ -59,15 +59,17 @@ get(st, 'addRepo')['opts']['text'] = 'Add source'
 get(st, 'connLabel')['opts']['text'] = 'ACCESS'
 drop(st, 'tetherIcon', 'tetherName', 'tetherState', 'tether', 'checkNow', 'lastCheck', 'versions', 'subtitle')
 st['components'] += [
-    comp('access', 'appList', 1880, 412, 920, 360, {'items': [], 'rowH': 120, 'fit': True}),
-    # the head unit on ACCESS's line after its longest translation, the versions above
-    text('unit', 2293, 374, 507, 30, '', 22, 'bold', align='right'),
-    text('versions', 1880, 341, 920, 28, '', 22, 'label', 'dim', align='right'),
+    # every access row at full height: the panel from the side menu's top
+    comp('access', 'appList', 1880, 172, 920, 600, {'items': [], 'rowH': 120}),
+    # the head unit on ACCESS's line after its longest translation; the versions on the title's line, after the title
+    text('unit', 2293, 134, 507, 30, '', 22, 'bold', align='right'),
+    text('versions', 480, 180, 1260, 26, '', 20, 'label', 'dim', align='right'),
     comp('checkNow', 'vbutton', 1880, 764, 440, 56, {'text': 'Check now', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:checkNow'),
     comp('restart', 'vbutton', 2340, 764, 460, 56, {'text': 'Restart head unit', 'vicon': 'refresh', 'style': 'outline', 'size': 26}, 'event:restart'),
     text('note', 480, 227, 1300, 43, '', 34, 'label', '#ffb020'),
 ]
-get(st, 'connPanel').update({'y': 336, 'h': 494})
+get(st, 'connPanel').update({'y': 114, 'h': 716}); get(st, 'connLabel')['y'] = 128
+get(st, 'versions')['opts']['after'] = 'title'
 screens.append(st)
 # a source's page: the app page's frame
 st = base('source')
