@@ -578,8 +578,12 @@ or of any version with `--other-source` (the updater's install of a tool
 another source installed), runs the `deactivate` of the version it
 replaces first, with all of that version in place, as its removal does:
 one that fails refuses the install (exit 2), and that version stays
-current and runs its `activate` again. An update runs only the new
-version's `activate`. Whichever it is, what the versions kept under
+current and runs its `activate` again. An older version runs it after a
+firmware update too: the version it replaces may have changed the new
+firmware's files through its own tool since, which the older one does not
+know; one that fails there refuses the install (exit 2) and that version
+stays current, its files only, needing setup (below). An update runs only
+the new version's `activate`. Whichever it is, what the versions kept under
 `versions/` installed and the new one does not list goes, as in a
 rollback, in the install's own rootfs window: their running units are
 stopped first (when recmgr has loaded them), the new version's list
@@ -1032,8 +1036,8 @@ them (below).
   Any install of the tool after a firmware update (the firmware recorded
   with the tool, `state.json` `tools`, differs from the unit's, or the
   tool needs setup since) leaves such versions kept and records them as
-  deactivated, as it does the version a downgrade or an install from
-  another source replaces, so no later install runs them; laying it
+  deactivated, as it does the version an install of the same or a newer
+  version from another source replaces, so no later install runs them; laying it
   again for another reason (a unit missing) runs them first, and one that
   fails stays kept and owed while the current version is laid again. A
   unit, link or drop-in another installed tool lists is never stopped or
@@ -1777,9 +1781,10 @@ our boot units) sets every component up again:
   newer version is reachable): only for the tools named, files only for
   one with an install step, whole for one without. Until a hook of the
   tool has run on the new firmware, no install of it runs a hook of a
-  version it replaces (a due deactivate, the deactivate of a downgrade or
-  of an install from another source, or the activate of the version a
-  failed install goes back to, which then needs setup). An install that a
+  version it replaces (a due deactivate, the deactivate of an install of
+  the same or a newer version from another source, or the activate of the
+  version a failed install goes back to, which then needs setup); a
+  downgrade runs the deactivate of the version it replaces, as above. An install that a
   refusal stops after it laid tools' files again exits 1, naming them. A tool installed before copies were kept
   says so; its source installs it again (the updater, `repair`).
   `mgu-install.js first-install` installs the release's tools as usual and
@@ -1854,7 +1859,15 @@ folder) and `/var/opt/mgu-deploy-kit-<n>` folders a day old. A tool's earlier
 none, else it is removed.
 
 `restore [name]` (default `stock`) first snapshots the current state, then
-puts every recorded file back, removes what the snapshot shows as absent
+runs, with all of it in place, the `deactivate` of each tool's current
+version the backup puts on another version (as a rollback does), and the
+hooks of each tool's removal the backup shows it absent from (as a removal
+does; a restart one asks for is pending under the deploy tool). One that
+fails refuses the restore (exit 2, nothing restored), and the versions
+deactivated run their `activate` again, as they do when the restore fails
+after them, but for a tool it has removed by then. A restore runs no
+`activate` of the version it puts back. It then puts every recorded file
+back, removes what the snapshot shows as absent
 (a tool's `/var/opt/<id>`, an app's home and package, `custom_apps.json`),
 keeps the updater's sources and credentials, verifies every file against
 its checksum (a mismatch is exit 1

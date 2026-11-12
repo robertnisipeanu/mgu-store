@@ -3527,6 +3527,89 @@ function hookArtifact(version, edit) {
     return path.join(out, `fixture-tool@${version}.tgz`);
 }
 
+/* restore: a tool the backup puts on another version, or removes, runs the
+ * deactivate of the version it leaves first, all of it in place; one that
+ * fails refuses the restore and that version is activated again; a tool
+ * the backup leaves on its version runs no hook. */
+function testRestoreDeactivate() {
+    const fresh = () => {
+        const root = fakeRoot({ recmgr: ['fixture-tool'], active: 'fixture-tool.service' });
+        root.log = `${root.R}.hooks.log`;
+        root.hooks = () => (fs.existsSync(root.log) ? fs.readFileSync(root.log, 'utf8').split('\n').filter(Boolean) : []);
+        root.env = (extra) => Object.assign({ FAKE_HOOK_LOG: root.log }, extra || {});
+        root.current = () => { try { return fs.readlinkSync(path.join(root.tool('fixture-tool'), 'current')); } catch (e) { return null; } };
+        root.snap = () => fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).filter((d) => /-install$/.test(d)).sort().pop();
+        let r = root.run(['install', '--artifact', hookArtifact('1.0.0'), '--yes'], root.env());
+        if (r.status !== 0) throw new Error(r.out);
+        r = root.run(['install', '--artifact', hookArtifact('1.1.0'), '--yes'], root.env());
+        if (r.status !== 0) throw new Error(r.out);
+        return root;
+    };
+    const short = (lines) => lines.map((l) => l.split(' ').slice(0, 2).join(' '));
+
+    // back to the version before the update
+    let root = fresh(), snap = root.snap(), n = root.hooks().length;
+    let r = root.run(['restore', snap, '--yes'], root.env());
+    check('restore deactivate: a restore putting a tool back on its earlier version runs the deactivate of the version it leaves first, all of it in place',
+        r.status === 0 && root.current() === 'versions/1.0.0' && root.hooks().slice(n).length === 1 &&
+        root.hooks()[n] === 'deactivate 1.1.0 cwd=fixture-tool/versions/1.1.0 current=versions/1.1.0 unit=yes active=active', `${r.out}\n${root.hooks().slice(n).join('\n')}`);
+    check('restore deactivate: the version left is recorded deactivated',
+        ((root.state().deactivated || {})['fixture-tool'] || []).includes('1.1.0'), JSON.stringify(root.state().deactivated));
+
+    // to a version recorded deactivated (a rollback left it): its record goes once the restore makes it current
+    root = fresh();
+    r = root.run(['rollback', 'fixture-tool', '--yes'], root.env());
+    if (r.status !== 0 || root.current() !== 'versions/1.0.0') throw new Error(r.out);
+    snap = fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).filter((d) => /-rollback$/.test(d)).sort().pop();
+    n = root.hooks().length;
+    r = root.run(['restore', snap, '--yes'], root.env());
+    const marks = (root.state().deactivated || {})['fixture-tool'] || [];
+    check('restore deactivate: a restore back to a version recorded deactivated runs the deactivate of the one it leaves, and the version made current keeps no record',
+        r.status === 0 && root.current() === 'versions/1.1.0' && JSON.stringify(short(root.hooks().slice(n))) === JSON.stringify(['deactivate 1.0.0']) &&
+        !marks.includes('1.1.0') && marks.includes('1.0.0'), `${r.out}\n${JSON.stringify(marks)}\n${root.hooks().slice(n).join('\n')}`);
+
+    // a backup recording the tool's current on the version it is on: no hook
+    root = fresh();
+    r = root.run(['install', '--artifact', hookArtifact('1.1.0'), '--yes'], root.env());
+    if (r.status !== 0) throw new Error(r.out);
+    snap = root.snap(); n = root.hooks().length;
+    r = root.run(['restore', snap, '--yes'], root.env());
+    check('restore deactivate: a backup recording the tool on its current version runs no hook of it',
+        r.status === 0 && root.current() === 'versions/1.1.0' && root.hooks().slice(n).length === 0, `${r.out}\n${root.hooks().slice(n).join('\n')}`);
+
+    // a deactivate that fails: refused, nothing restored, activated again
+    root = fresh(); snap = root.snap(); n = root.hooks().length;
+    r = root.run(['restore', snap, '--yes'], root.env({ FAKE_HOOK_FAIL: 'deactivate@1.1.0' }));
+    check('restore deactivate: a deactivate that fails refuses the restore, exit 2, nothing restored, and that version is activated again',
+        r.status === 2 && root.current() === 'versions/1.1.0' && r.out.includes('fixture-tool 1.1.0: deactivate exited 3') && r.out.includes('nothing restored') &&
+        JSON.stringify(short(root.hooks().slice(n))) === JSON.stringify(['deactivate 1.1.0', 'activate 1.1.0']), `${r.out}\n${root.hooks().slice(n).join('\n')}`);
+
+    // restore stock: the tool goes, after the hooks of its removal (a kept version whose deactivate is owed
+    // runs it too); a restart its deactivate asks for is pending under the deploy tool
+    root = fresh();
+    const owed = root.state();
+    owed.deactivate_owed = { 'fixture-tool': ['1.0.0'] };
+    write(root.p('var/opt/mgu-deploy/state.json'), JSON.stringify(owed));
+    n = root.hooks().length;
+    r = root.run(['restore', 'stock', '--yes'], root.env({ FAKE_HOOK_REBOOT: 'patch removed; the original runs from the next start', FAKE_HOOK_REBOOT_ON: 'deactivate@1.1.0' }));
+    const after = root.state();
+    check('restore deactivate: a restore that removes a tool runs the hooks of its removal first, and keeps no record of it',
+        r.status === 0 && root.current() === null && JSON.stringify(short(root.hooks().slice(n))) === JSON.stringify(['deactivate 1.1.0', 'deactivate 1.0.0']) &&
+        !((after.deactivated || {})['fixture-tool']) && !((after.deactivate_owed || {})['fixture-tool']), `${r.out}\n${root.hooks().slice(n).join('\n')}`);
+    check('restore deactivate: a restart the removed tool\'s deactivate asks for is pending under the deploy tool',
+        (after.pending_reboot || []).some((p) => p.id === 'mgu-deploy' && /fixture-tool removed: patch removed/.test(p.reason)) &&
+        !(after.pending_reboot || []).some((p) => p.id === 'fixture-tool'), JSON.stringify(after.pending_reboot));
+
+    // a backup that leaves the tool on its version: no hook
+    root = fresh();
+    r = root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes'], root.env());
+    if (r.status !== 0) throw new Error(r.out);
+    snap = root.snap(); n = root.hooks().length;
+    r = root.run(['restore', snap, '--yes'], root.env());
+    check('restore deactivate: a restore that leaves a tool on its version runs no hook of it',
+        r.status === 0 && root.current() === 'versions/1.1.0' && root.hooks().slice(n).length === 0, `${r.out}\n${root.hooks().slice(n).join('\n')}`);
+}
+
 function testHooks() {
     const art = (v) => hookArtifact(v);
     const m = JSON.parse(untar(art('1.0.0'))['component.json'].data);
@@ -8136,18 +8219,34 @@ function testToolsAfterFirmwareSetup() {
         r.status === 0 && !hooks(root).slice(n).some((l) => /^deactivate 3\.0\.0/.test(l)) && hooks(root).slice(n).some((l) => /^activate 3\.0\.1/.test(l)) &&
         tool(root).needs_setup === null, `${r.out}\n${hooks(root).slice(n).join('\n')}`);
 
-    // a downgrade after a firmware move, then another install: the replaced 3.0.1's deactivate runs in neither
+    // a downgrade after a firmware move: the replaced 3.0.1's deactivate runs first (it may have changed the
+    // firmware's files since, through its own tool), then 3.0.0's activate; the install after it runs no deactivate
     root = setUp();
     r = root.run(['install', '--artifact', hookArtifact('3.0.1'), '--yes']);
     if (r.status !== 0) throw new Error(r.out);
     firmwareUpdate(root, 'BMW MGU P18_24w07 mgu-high');
     n = hooks(root).length;
     r = root.run(['install', '--artifact', hookArtifact('3.0.0'), '--yes']);
+    const ranDown = hooks(root).slice(n).map((l) => l.split(' ').slice(0, 2).join(' '));
+    n = hooks(root).length;
     const r2 = root.run(['install', '--artifact', hookArtifact('3.0.0'), '--yes']);
-    check('tools after firmware, with an install step: a downgrade after a firmware move, and the install after it, run no deactivate of the version replaced',
-        r.status === 0 && r2.status === 0 && !hooks(root).slice(n).some((l) => /^deactivate/.test(l)) &&
-        hooks(root).slice(n).filter((l) => /^activate 3\.0\.0/.test(l)).length === 2,
-        `${r.out}\n${r2.out}\n${hooks(root).slice(n).join('\n')}`);
+    check('tools after firmware, with an install step: a downgrade after a firmware move runs the deactivate of the version replaced, ' +
+        'all of it in place, then its own activate; the install after it runs no deactivate',
+        r.status === 0 && r2.status === 0 && JSON.stringify(ranDown) === JSON.stringify(['deactivate 3.0.1', 'activate 3.0.0']) &&
+        !hooks(root).slice(n).some((l) => /^deactivate/.test(l)) && fs.readlinkSync(root.p('var/opt/fixture-tool/current')) === 'versions/3.0.0',
+        `${r.out}\n${r2.out}\n${ranDown.join('\n')}`);
+    // the same downgrade whose deactivate fails: refused, exit 2, 3.0.1 stays current
+    root = setUp();
+    r = root.run(['install', '--artifact', hookArtifact('3.0.1'), '--yes']);
+    if (r.status !== 0) throw new Error(r.out);
+    firmwareUpdate(root, 'BMW MGU P18_24w07 mgu-high');
+    n = hooks(root).length;
+    r = root.run(['install', '--artifact', hookArtifact('3.0.0'), '--yes'], { FAKE_HOOK_FAIL: 'deactivate@3.0.1' });
+    check('tools after firmware, with an install step: a downgrade after a firmware move whose deactivate fails is refused, exit 2, ' +
+        'the version replaced stays current, no activate, needing setup',
+        r.status === 2 && r.out.includes('fixture-tool 3.0.1: deactivate exited 3') && fs.readlinkSync(root.p('var/opt/fixture-tool/current')) === 'versions/3.0.1' &&
+        JSON.stringify(hooks(root).slice(n).map((l) => l.split(' ').slice(0, 2).join(' '))) === JSON.stringify(['deactivate 3.0.1']) &&
+        /failed after a firmware update$/.test(tool(root).needs_setup), `${r.out}\n${hooks(root).slice(n).join('\n')}`);
     // the same from another source
     root = setUp();
     n = hooks(root).length;
@@ -8161,7 +8260,7 @@ function testToolsAfterFirmwareSetup() {
     r = root.run(['install', '--artifact', namedHookTool('other-hook', '1.0.0'), '--yes']);
     if (r.status !== 0) throw new Error(r.out);
     firmwareUpdate(root, 'BMW MGU P18_24w07 mgu-high');
-    // other-hook was set up under this firmware's predecessor too: put its record on this one, so its downgrade runs the deactivate
+    // other-hook's record put on this firmware, so its downgrade is not after a firmware update
     const st0 = stateOf(root);
     st0.tools['other-hook'].firmware = 'BMW MGU P18_24w07 mgu-high';
     write(root.p('var/opt/mgu-deploy/state.json'), JSON.stringify(st0));
@@ -9807,6 +9906,7 @@ const SUITES = [
     testPrivacyTool,
     testPrivacyOneBounce,
     testHooks,
+    testRestoreDeactivate,
     testStockFiles,
     testRollbackRemoves,
     testUninstallAfterOldRollback,
