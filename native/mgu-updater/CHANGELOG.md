@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The phone page can change a GitHub source's channel while preserving the source identity used by installed components.
+
 ## 0.8.42
 
 - The deploy tool's safe mode shows in the state (`safeMode`), and the Store's Leave safe mode (`safe-mode-off`) leaves it. The updater runs in safe mode.

@@ -14,19 +14,21 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'web.js'), 'utf8');
 const m = /const PAGE_SCRIPT = `([\s\S]*?)`;\n/.exec(src);
 const js = eval('`' + m[1] + '`');
 const els = {};
-const el = (id) => els[id] || (els[id] = { id, value: '', hidden: false, textContent: '', disabled: false, children: [], style: {},
-    appendChild(c) { this.children.push(c); }, removeAttribute() {}, scrollTop: 0 });
+const el = (id) => els[id] || (els[id] = { id, value: '', hidden: false, disabled: false, children: [], style: {},
+    appendChild(c) { this.children.push(c); }, removeAttribute() {}, scrollTop: 0,
+    get options() { return this.children; },
+    get textContent() { return this.text || ''; },
+    set textContent(v) { this.text = String(v); this.children = []; },
+    get value() { return this.selectedValue !== undefined ? this.selectedValue : this.children[0] && this.children[0].value || ''; },
+    set value(v) { this.selectedValue = v; } });
 ['addType', 'addValue', 'addChannel', 'addNote', 'addForm', 'addSubmit', 'app', 'locked', 'status', 'stateErr', 'err', 'down', 'busy',
     'busyText', 'busyBar', 'loginStart', 'sources', 'tokens', 'components', 'login', 'loginCode', 'loginUrl', 'loginStatus', 'loginCancel',
     'tokenForm', 'tokenValue', 'logForm', 'logSrc', 'log'].forEach(el);
 els.addType.value = 'github';
-// a select's textContent = '' drops its options
-Object.defineProperty(els.addChannel, 'textContent', { set() { this.children = []; }, get() { return ''; } });
-Object.defineProperty(els.addChannel, 'value', { get() { return this.children[0] ? this.children[0].value : ''; }, set() {} });
 const sent = [];
 let answer = null;
 const pending = [];
-global.document = { getElementById: el, createElement: () => ({ value: '', textContent: '', appendChild() {} }) };
+global.document = { getElementById: el, createElement: () => ({ value: '', textContent: '', children: [], appendChild(c) { this.children.push(c); } }) };
 global.location = { hash: '#t=abc', pathname: '/', reload() {} };
 global.history = { replaceState() {} };
 global.sessionStorage = { setItem() {}, getItem: () => 'abc', removeItem() {} };
@@ -37,7 +39,9 @@ global.fetch = (path, o) => {
     const body = o && o.body ? JSON.parse(o.body) : null;
     if (body) { sent.push(body); }
     const reply = body && body.op === 'source-probe' ? new Promise((r) => pending.push(r)) :
-        Promise.resolve({ updater: { version: 'x' }, online: true, sources: [], tokens: [], components: [] });
+        Promise.resolve({ updater: { version: 'x' }, online: true,
+            sources: [{ id: 'source-id', type: 'github', label: 'owner/repo', channel: 'Tags', configuredChannel: 'tags', status: 'ok' }],
+            tokens: [], components: [] });
     return reply.then((j) => ({ status: 200, ok: true, json: () => Promise.resolve(j || { ok: true }) }));
 };
 new Function(js)();
@@ -106,5 +110,25 @@ const assert = require('assert');
     submit();
     await tick();
     assert.deepStrictEqual(sent, [{ op: 'source-add', type: 'https', url: 'https://example.org/catalog.json' }]);
+    // editing an existing GitHub source probes the same repo, then saves only its channel
+    sent.length = 0;
+    const sourceRow = els.sources.children[0];
+    assert(sourceRow, 'the existing GitHub source is shown');
+    const editButton = sourceRow.children.find((c) => c.textContent === 'Edit channel');
+    assert(editButton, 'GitHub sources have an edit action');
+    editButton.onclick();
+    await tick();
+    assert.deepStrictEqual(sent, [{ op: 'source-probe', repo: 'owner/repo', id: 'source-id' }]);
+    assert.strictEqual(els.addSubmit.textContent, 'Save');
+    assert.strictEqual(els.addSubmit.disabled, true, 'Save waits for the source probe');
+    pending.shift()({ repo: 'owner/repo', name: 'owner/repo', status: 'ok', releases: true, tags: true,
+        defaultBranch: 'main', branches: ['main', 'dev'] });
+    await tick();
+    assert.strictEqual(els.addChannel.value, 'tags', 'the configured channel is selected');
+    els.addChannel.value = 'branch:dev';
+    submit();
+    await tick();
+    assert.deepStrictEqual(sent[1], { op: 'source-edit', id: 'source-id', channel: 'branch:dev' });
+    assert.strictEqual(els.addSubmit.textContent, 'Add', 'saving exits edit mode');
     console.log("page: all pass");
 })().catch((e) => { console.error(e); process.exit(1); });

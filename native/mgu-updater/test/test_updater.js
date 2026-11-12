@@ -3064,6 +3064,24 @@ function testSources(certs) {
             ok('source-probe: offline', off.status === 'offline', JSON.stringify(off));
             ok('source-probe: ordering', JSON.stringify(require('../js/sources').orderBranches(['a', 'master', 'trunk'], 'trunk')) ===
                 '["master","trunk","a"]' && JSON.stringify(require('../js/sources').orderBranches(['x'], null)) === '["x"]');
+            return Promise.all([
+                askRaw(sock, { op: 'source-probe', repo: 'third/branchy', id: 'branchy', secret, rid: 'probe-edit' }),
+                priv({ op: 'source-edit', id: 'branchy', channel: null }),
+                priv({ op: 'source-edit', id: 'mgu-store', channel: null }),
+                priv({ op: 'source-edit', id: 'branchy', channel: 'nightly' })
+            ]);
+        })
+        .then((r) => {
+            const [probe, edit, builtin, badChannel] = r;
+            ok('source-probe: an existing source can be checked for channel editing', probe.status === 'ok' && probe.repo === 'third/branchy', JSON.stringify(probe));
+            ok('source-edit: default channel is saved under the same source id', edit === null &&
+                !JSON.parse(fs.readFileSync(sources, 'utf8')).sources.find((s) => s.id === 'branchy').channel, edit);
+            ok('source-edit: the built-in source and an invalid channel are refused', /cannot be edited/.test(builtin) && /channel/.test(badChannel), JSON.stringify([builtin, badChannel]));
+            return until(st, () => src('branchy').status === 'ok' && src('branchy').configuredChannel === null, 20000, 'the edited source read');
+        })
+        .then(() => {
+            ok('source-edit: source identity stays available after its check', src('branchy').id === 'branchy' &&
+                src('branchy').channel === 'branch:main' && comp('p_app').source === 'branchy', JSON.stringify(src('branchy')));
             return Promise.all([priv({ op: 'source-remove', id: 'mgu-store' }), priv({ op: 'source-remove', id: 'second' })]);
         })
         .then((errs) => {

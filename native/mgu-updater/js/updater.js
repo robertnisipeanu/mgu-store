@@ -885,7 +885,7 @@ function under(entry, id) {
 }
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
-const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
+const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-edit', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
     'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
@@ -1577,6 +1577,7 @@ class Updater {
             builtin: !!def.builtin,
             usb: def.type === 'usb',
             channel: def.type === 'github' ? rt.channel || def.channel || null : null,
+            configuredChannel: def.type === 'github' ? def.channel || null : null,
             status: rt.status,
             error: rt.error,
             auth: token ? { kind: 'github', token: token.id, login: token.login || null } : null,
@@ -3762,6 +3763,45 @@ class Updater {
         return null;
     }
 
+    /* Change a GitHub source's channel without changing its source id, so
+     * installed components keep their origin and follow the selected channel. */
+    sourceEdit(id, channel) {
+        const def = this.stored.find((s) => s.id === id);
+        if (!def) {
+            return `no source ${id}`;
+        }
+        if (def.builtin) {
+            return 'the Store\'s own source cannot be edited';
+        }
+        if (def.type !== 'github') {
+            return 'only a GitHub source channel can be edited';
+        }
+        if (channel !== null && !sourcesLib.CHANNEL.test(channel)) {
+            return 'channel must be releases, tags, branch or branch:<name>';
+        }
+        const rt = this.src.get(id);
+        if (this.busy || (rt && rt.checking)) {
+            return 'wait until the updater is idle';
+        }
+        const updated = Object.assign({}, def);
+        if (channel) {
+            updated.channel = channel;
+        } else {
+            delete updated.channel;
+        }
+        if (updated.channel === def.channel) {
+            return null;
+        }
+        rmIfThere(this.cacheFile(id));
+        cp.execFileSync('rm', ['-rf', path.join(this.ctx.cacheDir, id)]);
+        this.saveSources(this.stored.map((s) => s.id === id ? updated : s));
+        this.src.delete(id);
+        this.addRuntime(updated);
+        console.log(`source ${id}: channel changed to ${updated.channel || 'default'}`);
+        this.checkSource(id);
+        return null;
+    }
+
     /* What a GitHub repo offers to be added on, read with each token in
      * turn (as a source is, readSource), then without one:
      * {type:"probe", repo, status} with status ok (and name, releases, tags,
@@ -3771,7 +3811,11 @@ class Updater {
         if (!sourcesLib.REPO.test(req.repo || '')) {
             return 'repo must be <owner>/<repo>';
         }
-        if (this.stored.some((s) => s.type === 'github' && s.repo.toLowerCase() === req.repo.toLowerCase())) {
+        const existing = this.stored.find((s) => s.type === 'github' && s.repo.toLowerCase() === req.repo.toLowerCase());
+        if (req.id !== undefined && (!existing || existing.id !== req.id)) {
+            return `no GitHub source ${req.id} for ${req.repo}`;
+        }
+        if (existing && existing.id !== req.id) {
             return `${req.repo} is already a source`;
         }
         const answer = (fields) => reply(Object.assign({ type: 'probe', repo: req.repo }, fields));
@@ -4086,6 +4130,7 @@ class Updater {
         case 'setup': return typeof req.id === 'string' ? this.requestSetup(req.id) : 'setup needs an id';
         case 'hello': this.storeHello(req); return undefined;
         case 'source-add': return this.sourceAdd(req);
+        case 'source-edit': return this.sourceEdit(req.id, req.channel);
         case 'source-probe': return this.sourceProbe(req, reply);
         case 'source-remove': return this.sourceRemove(req.id);
         case 'login-start': return this.login.start();

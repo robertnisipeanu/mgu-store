@@ -788,8 +788,8 @@ A page the car serves to a phone on its hotspot (`js/web.js`): the
 sources with their channel and status, the components with installed and
 catalog versions (and the short commit of a branch build), what is being
 installed, errors, and the logs. On it the owner adds a GitHub source or a
-catalog URL and removes one: once owner/repo (or its github.com address)
-is typed and the box left, or on the first Add, the page asks
+catalog URL, changes a GitHub source's channel, and removes a source. Once
+owner/repo (or its github.com address) is typed and the box left, or on the first Add, the page asks
 `source-probe`, and Add waits for the answer; its channel list then shows
 only what the repo has, Releases, Tags and its branches in that order (a
 `/tree/<branch>` address names its branch; a repo with nothing listed, or
@@ -826,8 +826,9 @@ on and off (privileged `web` op) and shows its QR code.
   Replies leave through the output chain's established accept.
 - **Requests.** The server talks to the socket with the web secret
   (`web_secret`, `/run/mgu-updater/web-secret`), and passes on only
-  `source-add` (`github` or `https` only), `source-probe` (its answer goes
-  back to the page as it is), `source-remove`, `token-add`,
+  `source-add` (`github` or `https` only), `source-edit` (a GitHub source's channel),
+  `source-probe` (its answer goes back to the page as it is; `id` may name
+  the source being edited), `source-remove`, `token-add`,
   `token-remove`, `login-start`, `login-cancel` and `proxy-set`, each with only its own
   fields; the daemon checks their values.
   Logs: `log_file` (and `.1`) read directly, the last 64 KiB, only while it
@@ -1041,7 +1042,8 @@ Store says it at each connection (below, "The Store's update").
 | `{"op":"setup","id"}` | Set up: a tool whose row has `needsSetup` laid again by the deploy tool from its kept copy with its install step (`mgu-deploy.sh setup <id> --yes`) |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
-| `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A repo that is already a source is refused |
+| `{"op":"source-edit","id","channel"}` | changes a non-built-in GitHub source's channel while the updater is idle; `null` selects the repo's default, and installed components keep the same source origin |
+| `{"op":"source-probe","repo":"o/r","id"?}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on, read with each token in turn, then without one. `id` allows probing that same stored source for a channel edit. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch` (null when no channel takes its name), `branches` (100 a page, at most 300, in the order offered: main, master, the default branch, the rest; names no channel takes left out) and `more` (there are more); `auth-needed` (no token reaches it, or it is not there; a 403 that is no rate limit counts as no reach), `offline`, `rate-limited` (a 429, or a 403 with `x-ratelimit-remaining: 0` or `retry-after`), `error` with `error`. A different existing source is refused |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one); what it installed keeps it as its origin in `origins.json`, and the ids `aliases.json` keeps for it stay |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts ("Tokens"), labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
