@@ -4,7 +4,9 @@
  * Inter (SIL OFL 1.1, src/LICENSE-Inter.txt), baked by tools/bake_fonts.py
  * into src/font_regular.js and src/font_semibold.js. The kit's family
  * names map onto them: label and light the regular face, bold, num and gear
- * the semibold one.
+ * the semibold one; icon is Lucide's icons (ISC,
+ * src/LICENSE-Lucide.txt; src/font_icons.js, tools/bake_icons.py), one
+ * glyph an icon (src/kit_vicons.js).
  *
  * While the display language has a font of its own (src/i18n.js font()),
  * text with a character Inter does not have is drawn with it:
@@ -22,8 +24,8 @@ const path = require('path');
 const zlib = require('zlib');
 const i18n = require('./i18n.js');
 
-const FACES = { regular: require('./font_regular.js'), semibold: require('./font_semibold.js') };
-const FAMILY = { label: 'regular', light: 'regular', bold: 'semibold', num: 'semibold', gear: 'semibold' };
+const FACES = { regular: require('./font_regular.js'), semibold: require('./font_semibold.js'), icon: require('./font_icons.js') };
+const FAMILY = { label: 'regular', light: 'regular', bold: 'semibold', num: 'semibold', gear: 'semibold', icon: 'icon' };
 const OWN = ['latin', 'greek', 'cyrillic', 'vietnamese', 'chinese', 'chinese-tc', 'japanese', 'korean'];
 // Drawn with the plain character when an atlas lacks them: ‘ ’ “ ” and the no-break space.
 const PLAIN = { 0x2018: 0x27, 0x2019: 0x27, 0x201c: 0x22, 0x201d: 0x22, 0xa0: 0x20 };

@@ -52,13 +52,13 @@ const { PHASE, percent, rowAction, statusLine, sourceLabel, sourceState, sourceA
     notForUnit, removable, requiredAlone, undoable, setupable, pickOptions, probeStatus, removeRefusal, sourceNames, listed, startPending } = require('./store_view.js');
 
 const GREEN = '#35d07f';
-const BLUE = '#3d9bff';
+const BLUE = '#2a7fff';
 const AMBER = '#ffb020';
 const RED = '#ff5a5f';
 const TEAL = '#36e0c0';
 const DIM = 'dim';
-const PALETTE = [['#2d7fd6', '#16588e'], ['#ff4b55', '#a8101c'], ['#ffc24d', '#c77700'], ['#5fb4ff', '#1f5fd0'],
-    ['#b48cff', '#6a3fd0'], ['#36e0c0', '#118c78'], ['#5be38e', '#1f9a52'], ['#ff8a4c', '#c4501a']];
+const PALETTE = [['#2a8cff', '#1670f0'], ['#ff2d3d', '#e0182a'], ['#ffb400', '#f09a00'], ['#f0146e', '#d40a5a'],
+    ['#8a4dff', '#6f33ea'], ['#00cfc0', '#00b0a6'], ['#1fd65f', '#10b84a'], ['#ff7a1a', '#f05a00']];
 const TABS = ['store', 'installed', 'usb', 'settings'];
 const FILTERS = ['all', 'app', 'tool'];
 
@@ -720,7 +720,7 @@ function wifiView(m) {
         note: { text: String(m.uplinkNote || w.error || bandNote(w)).slice(0, 160) },
         // Allow 5 GHz, with an uplink that has it (mgu-uplink 0.7.6's wifi.allow5ghz)
         allow5: { items: !waiting && w.enabled && typeof w.allow5ghz === 'boolean' ? [{ id: 'allow5', title: tr("Allow 5 GHz"), sub: tr("May cause CarPlay issues"), subColor: DIM, plain: true,
-            vicon: 'wifi', iconColor: 'text', right: `toggle:${w.allow5ghz ? 'on' : 'off'}`, act: { do: 'wifi-5ghz' } }] : [] },
+            vicon: 'wifi', mark: '5', iconColor: 'text', right: `toggle:${w.allow5ghz ? 'on' : 'off'}`, act: { do: 'wifi-5ghz' } }] : [] },
         power: w.enabled ? button(tr("Don't use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'outline' })
             : button(tr("Use Wi-Fi"), { do: 'wifi-power' }, { vicon: 'wifi', style: 'primary', color: GREEN, disabled: waiting }),
         scan: button(scanning ? tr("Scanning") : tr("Scan"), { do: 'wifi-scan' }, { vicon: 'refresh', style: 'outline',
