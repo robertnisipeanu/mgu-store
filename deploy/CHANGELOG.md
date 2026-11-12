@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+## 0.8.16
+
 - Safe mode: when 4 starts of the head unit in a row end in a restart that recmgr or crashhandler asked for within 2 minutes, our tools' units stay off at the next starts, BMW's start as usual. A switch-off or a normal restart (the HMI's or the Store's) after 2 minutes, a restart our tools ask for and a start that stays up 5 minutes start the count again; a start that leaves no shutdown mark (a power cut, or `var-opt-ro.service` not running the mark) counts nothing. The next install or update that goes through as a whole, or `safe-mode off --yes`, leaves it, and the tools start at the next start. A unit whose `component.json` entry says `"runsInSafeMode": true` (the updater's) runs in safe mode. `status --json` reports `safe_mode`. An install of an older deploy tool, or a rollback to one, that has no safe mode takes the guard out and leaves safe mode. deploy/README.md, "Safe mode".
 - A rollback that puts units, links or drop-ins back reloads systemd, so they take effect: a failed uninstall, restore, fallback switch or app manager takeover. The boot step that removes the deploy tool at the start after `remove-all` on iDrive 8 reloads systemd too.
+
 ## 0.8.15
 
 - `restore` runs, before it puts anything back and with all of each version in place, the `deactivate` of each tool's current version the backup puts on another version, as a rollback does, and the hooks of the removal of each tool the backup shows absent, as a removal does (a restart one asks for is pending under the deploy tool). One that fails refuses the restore (exit 2, nothing restored), and the versions deactivated run their `activate` again, as they do when the restore fails after them, but for a tool it has removed by then. A tool the backup leaves on its version runs no hook.

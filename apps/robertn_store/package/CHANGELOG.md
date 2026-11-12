@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.39
+
 In the deploy tool's safe mode the status line says Safe mode, and Leave
 safe mode under it leaves it.
 

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "robertn_store",
-  "version": "0.9.38",
+  "version": "0.9.39",
   "tree": "package",
   "modules": [
     "src/store.js",
