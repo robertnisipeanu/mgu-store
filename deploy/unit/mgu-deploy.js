@@ -7554,7 +7554,7 @@ function installRun(args, afresh) {
             try { relayFiles(x.t, state, x.why); attempted = true; return true; }
             catch (e) { outerInstall.short = true; warn(x.t.id + ' ' + x.t.version + ' is not laid again: ' + e.message); return false; }
         }).map(function (x) { return x.t.id; });
-        /* lifted before the first artifact, so what it starts runs (cmdInstall settles it) */
+        /* lifted before the first artifact, so what it starts runs (asOuterInstall settles it) */
         if (work.length && lstatOrNull(SAFE_MODE_FILE)) {
             mkdirp(CFG.run);
             fs.writeFileSync(SAFE_MODE_LIFTED, process.pid + '\n');
