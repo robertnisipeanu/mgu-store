@@ -9,7 +9,8 @@
  * iDrive 7, LT_State_Wide_List with LT_Button_MediaEntry_1Row rows on
  * iDrive 8):
  *
- *   1  ST_OnlineApps_Store             the entry state: a status line, Check for
+ *   1  ST_OnlineApps_Store             the entry state: a status line, Leave
+ *                                      safe mode (in safe mode), Check for
  *                                      updates, the progress of the running
  *                                      install, the rows Apps, Head-unit tools,
  *                                      Sources and Phone access, and Restart
@@ -135,6 +136,7 @@ const MAIN = {
     id: 1, name: 'ST_OnlineApps_Store', titleId: 10, title: { value: 'SID_STORE_TITLE', type: 'StringId' },
     components: [
         text(20, 'storeStatus', 'Store'),
+        button(150, 'storeSafeModeOff', 'Leave safe mode'),
         button(21, 'storeCheck', 'Check for updates'),
         { id: 22, kind: 'progress', name: 'storeProgress', focusable: 0 },
         row(23, 'storeNavApps', 'Apps'),

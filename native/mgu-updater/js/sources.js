@@ -672,7 +672,7 @@ function packComponent(entry, files) {
                 throw new Error(`${entry.id}: bad unit name ${u.name}`);
             }
             entries.push({ name: `units/${u.name}`, data: take(u.from || u.name, 'unit'), mode: 0o644 });
-            return { name: u.name };
+            return u.runsInSafeMode === true ? { name: u.name, runsInSafeMode: true } : { name: u.name };
         })
     });
     if (c.dropins !== undefined) {

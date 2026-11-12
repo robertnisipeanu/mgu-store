@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+In the deploy tool's safe mode the status line says Safe mode, and Leave
+safe mode under it leaves it.
+
 ## 0.9.38
 
 Settings shows every Access row at once: when they do not all fit at full

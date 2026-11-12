@@ -303,6 +303,26 @@ function run() {
         app._restart();
         eq(sent.map(secretless), [{ op: 'reboot' }]);
         eq(sent[0].secret, 'deadbeef');
+        // safe mode: the status line says so, Leave safe mode is shown, and it sends safe-mode-off with the secret
+        app._client.emit('state', Object.assign({}, ST, { safeMode: { at: '2026-11-09T10:00:00Z', reason: 'test' } }));
+        return tick();
+    }).then(() => {
+        eq(last(/storeStatus\.\d*\.?Text/).split('=')[1], 'Safe mode');
+        eq(last(/storeSafeModeOff\.Visible/), 'storeSafeModeOff.Visible=1', 'Leave safe mode shown in safe mode');
+        reset();
+        app._components.storeSafeModeOff.emit('action', {});
+        eq(sent.map(secretless), [{ op: 'safe-mode-off' }]);
+        eq(sent[0].secret, 'deadbeef');
+        // not while an install runs
+        app._client.emit('state', Object.assign({}, ST, { safeMode: { at: null, reason: null }, busy: { id: 'doom', op: 'install', phase: 'download' } }));
+        return tick();
+    }).then(() => {
+        eq(last(/storeSafeModeOff\.Visible/), 'storeSafeModeOff.Visible=0', 'Leave safe mode hidden while an install runs');
+        app._client.emit('state', ST);
+        return tick();
+    }).then(() => {
+        eq(last(/storeSafeModeOff\.Visible/), 'storeSafeModeOff.Visible=0', 'Leave safe mode hidden out of safe mode');
+        eq(last(/storeStatus\.\d*\.?Text/).split('=')[1] !== 'Safe mode', true, 'no safe mode in the status line');
         // an error of any length is written whole: the status line and a source's error wrap over their rows
         app._sourceId = 'idrive7-apps';
         app._client.emit('state', Object.assign({}, ST, { components: [comp({ error: LONG })],

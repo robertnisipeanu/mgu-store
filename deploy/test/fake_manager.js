@@ -30,8 +30,9 @@
  * $FAKE_MGR_CRASH_AT-th kill, counted from the first, when set) dies that
  * many ms after its start and oapcontroller starts another (the next pid),
  * logged as "crash <pid> <time in ms>".
- * With $FAKE_MGR_REJECT set, a fresh install is rejected (a manifest naming
- * an interface the unit does not have) and leaves nothing.
+ * With $FAKE_MGR_REJECT set ("1", or the ids it is for, comma-separated), a
+ * fresh install is rejected (a manifest naming an interface the unit does
+ * not have) and leaves nothing.
  * With $FAKE_MGR_UID_ONLY set, a fresh install stops after its uids.txt
  * line, with no registry entry.
  * With $FAKE_MGR_NO_KEYCHAIN set, a fresh install writes no keychain. With
@@ -113,7 +114,7 @@ function install(id, how, source) {
     let uid = range.min;
     while (used.has(uid)) uid += 1;
     const h = home(uid);
-    if (env.FAKE_MGR_REJECT) {
+    if (env.FAKE_MGR_REJECT && (env.FAKE_MGR_REJECT === '1' || env.FAKE_MGR_REJECT.split(',').indexOf(id) >= 0)) {
         log(`rejected install ${id} ${pkg.version}`);
         return null;
     }

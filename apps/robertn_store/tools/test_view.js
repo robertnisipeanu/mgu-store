@@ -293,6 +293,10 @@ const cases = [
     [statusLine(st({ privacy: 'restart-needed', components: [row({})] }), true), 'App privacy patch not in effect'],
     [statusLine(st({ privacy: 'unknown', components: [row({})] }), true), 'App privacy patch not in effect'],
     [statusLine(st({ privacy: 'patched', components: [row({})] }), true), '1 update, checked 14:02'],
+    // the deploy tool's safe mode, before everything but a restart under way
+    [statusLine(st({ safeMode: { at: null, reason: null }, privacy: 'mismatch', components: [row({ error: 'failed' })] }), true), 'Safe mode'],
+    [statusLine(st({ safeMode: { at: null, reason: null }, rebooting: true }), true), 'Restarting'],
+    [statusLine(st({ safeMode: null, components: [row({})] }), true), '1 update, checked 14:02'],
     // the deploy tool's MainApp guard holds app changes until the next start
     [statusLine(st({ mainappGuard: 'the app manager stopped 12s after mgu-deploy restarted it', components: [row({ tileHidden: true })] }), true),
         'Restart head unit to install apps'],

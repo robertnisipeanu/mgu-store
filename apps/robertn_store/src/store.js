@@ -28,7 +28,8 @@
  * Allow 5 GHz, Use Wi-Fi and Scan; the group tried first and Phone over USB; the widget screens
  * have none of it.
  *
- * The start screen has the status line, Check for updates, the progress of
+ * The start screen has the status line, Leave safe mode while the deploy
+ * tool's safe mode keeps our tools off ("safe-mode-off"), Check for updates, the progress of
  * the running install, the rows Apps and Head-unit tools, which open their
  * lists, Sources and Phone access (shown when the updater reports them),
  * and Restart head unit, which opens its confirm step (Cancel, Restart). A
@@ -141,7 +142,7 @@ const LISTS = {
     tool: { state: 'ST_OnlineApps_StoreTools', nav: 'storeNavTools', list: 'storeToolList' }
 };
 const KINDS = Object.keys(LISTS);
-const C = { status: 'storeStatus', check: 'storeCheck', progress: 'storeProgress', restart: 'storeRestart',
+const C = { status: 'storeStatus', safeModeOff: 'storeSafeModeOff', check: 'storeCheck', progress: 'storeProgress', restart: 'storeRestart',
     navSources: 'storeNavSources', navPhone: 'storeNavPhone',
     restartCancel: 'storeRestartCancel', restartConfirm: 'storeRestartConfirm',
     sourcesStatus: 'storeSourcesStatus', sourceList: 'storeSourceList', sourceAdd: 'storeSourceAdd',
@@ -531,6 +532,7 @@ class Store extends OnlineApp {
         });
         removeStaleQr();
         this._bind(C.check, () => this._send({ op: 'check' }));
+        this._bind(C.safeModeOff, () => this._privileged({ op: 'safe-mode-off' }));
         this._bind(C.restart, () => this._openState(S.restart));
         this._bind(C.restartCancel, () => this._closeState(S.restart));
         this._bind(C.restartConfirm, () => this._restart());
@@ -1528,6 +1530,8 @@ class Store extends OnlineApp {
         const connected = this._connected && !!st;
         this._set(C.status, 'Text', connected ? statusLine(st, true) : statusLine(null, false, !!readSecret()), 'Text');
         this._set(C.check, 'Text', connected && st.catalog.checking ? tr("Checking") : tr("Check for updates"), 'Text');
+        // the first item that takes the focus: the start screen opens on it
+        this._show(C.safeModeOff, connected && !!st.safeMode && !st.busy);
 
         const busy = connected ? st.busy : null;
         const busyRow = busy && st.components.find((c) => c.id === busy.id);

@@ -748,6 +748,10 @@ the user out. `systemctl reboot` is not used: it is systemd's stock reboot,
 which no BMW unit hooks, and it stops the services by their `KillSignal`
 (SIGABRT for many of BMW's, the NSM daemon's included).
 
+- Before the command runs, the start's boot id goes into the deploy tool's
+  `/var/opt/mgu-deploy/restart-requested` (when that folder is there), so
+  the deploy tool's safe mode never counts the restart as a failed start
+  (deploy/README.md, "Safe mode").
 - Refused (`an install is running`) while an install runs or waits, so a
   restart never cuts one short. Once the restart is under way, installs
   are refused (`the head unit is restarting`), and a second reboot request
@@ -901,7 +905,7 @@ each request, and whenever it changes (at most every 250 ms):
     "wifi": { "enabled": true, "link": "online", "ssid": "Phone", "ip": "172.20.10.2", "signal": -45, "networks": [ … ],
       "saved": [ "Phone" ], "scanning": false, "error": null } },
   "busy": { "id": "doom", "phase": "download", "progress": 524288, "total": 2080457 },
-  "rebooting": false, "rebootError": null,
+  "rebooting": false, "rebootError": null, "safeMode": null,
   "components": [ { "id": "doom", "kind": "app", "title": "DOOM", "version": "1.0.1",
     "installed": "1.0.0", "size": 2080457, "status": "update", "source": "idrive7-apps",
     "build": null, "optional": false, "uninstallable": true, "revision": null,
@@ -1018,6 +1022,10 @@ each request, and whenever it changes (at most every 250 ms):
   not yet restarted onto it), `unpatched`, `mismatch`, `unknown` (the tool
   gave no answer), or `null` without the tool. `rebooting` and
   `rebootError`: "Restarting the head unit".
+- `safeMode` is the deploy tool's safe mode (`status --json` `safe_mode`,
+  deploy/README.md, "Safe mode"): `{ "at", "reason" }` while our tools'
+  units stay off, else null (also with a deploy tool that does not report
+  it).
 
 Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 (with its missing requirements first), from any app.
@@ -1028,6 +1036,7 @@ Store says it at each connection (below, "The Store's update").
 | Request | Does |
 |---|---|
 | `{"op":"reboot"}` | restarts the head unit ("Restarting the head unit"): at once with the secret; without it while a Store older than 0.9.16 is installed, within the restart limits |
+| `{"op":"safe-mode-off"}` | Leave safe mode: the deploy tool's `safe-mode off --yes`, then its state again; refused while an install runs or waits, nothing while not in safe mode. The tools start at the next start of the head unit (`pendingReboot` on the deploy tool's row) |
 | `{"op":"uninstall","id","tools"?}` | removes an `uninstallable` component (every app but the Store); then each of `tools`, which must be among the app row's `requiredAlone` (else nothing is queued), a tool before those it requires. A tool whose turn comes while something installed still requires it (the app's removal failed) stays; an app whose removal waits for the next start (iDrive 8) requires none |
 | `{"op":"setup","id"}` | Set up: a tool whose row has `needsSetup` laid again by the deploy tool from its kept copy with its install step (`mgu-deploy.sh setup <id> --yes`) |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version, through `mgu-deploy.sh rollback <id> --yes` |
@@ -1122,7 +1131,8 @@ js/client.js             socket client (Store app, command line)
 js/web.js                the phone page
 updater.conf             defaults
 systemd/mgu-updater.service
-component.json           the tool component (deploy tool format)
+component.json           the tool component (deploy tool format); its unit runs in the deploy tool's safe mode
+                         ("runsInSafeMode"), so installs and Leave safe mode work there
 test/                    offline tests (test/run.sh: Node 8.16.2 in Docker; MGU_TEST_NODE_VERSION=8.9.4 for the 2019 MGU's)
 ```
 

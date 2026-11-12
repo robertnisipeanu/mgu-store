@@ -478,6 +478,32 @@ function setupOf(st) {
     return out;
 }
 
+/* The deploy tool's safe mode (status --json safe_mode): { at, reason }
+ * while it is on, else null. */
+function safeModeOf(st) {
+    const s = st && st.safe_mode;
+    if (!s || typeof s !== 'object') {
+        return null;
+    }
+    return { at: typeof s.at === 'string' ? s.at : null, reason: typeof s.reason === 'string' ? s.reason.slice(0, 200) : null };
+}
+
+/* Before a restart the updater asks for: this start's boot id in the
+ * deploy tool's restart-requested, so its safe mode never counts that
+ * restart as a failed start (deploy/README.md, "Safe mode"). */
+function markRestart(conf) {
+    const dir = conf.tool_root ? path.join(conf.tool_root, 'mgu-deploy') : null;
+    const boot = bootId(conf);
+    if (!dir || !boot || !fs.existsSync(dir)) {
+        return;
+    }
+    try {
+        writeAtomic(path.join(dir, 'restart-requested'), `${boot}\n`);
+    } catch (e) {
+        console.log(`restart-requested: ${e.message}`);
+    }
+}
+
 function pendingOf(st) {
     return ((st && st.pending_reboot) || []).map((p) => (p && p.id) || p);
 }
@@ -859,7 +885,7 @@ function under(entry, id) {
 }
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
-const PRIVILEGED = ['reboot', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
+const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
     'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
@@ -1053,6 +1079,8 @@ class Updater {
         this.rebooting = false;
         this.rebootError = null;
         this.rebootErrorTimer = null;
+        // the deploy tool's safe mode: { at, reason } while on (status --json safe_mode)
+        this.safeMode = null;
         this.secret = crypto.randomBytes(32).toString('hex');
         // the uplink's status.json as read last (readUplink)
         this.uplinkText = null;
@@ -1651,6 +1679,7 @@ class Updater {
             busy: this.busy,
             rebooting: this.rebooting,
             rebootError: this.rebootError,
+            safeMode: this.safeMode,
             components: rows
         };
         if (web) {
@@ -2654,12 +2683,37 @@ class Updater {
         this.rebootError = null;
         this.changed();
         console.log(`restarting the head unit: ${argv.join(' ')}`);
+        markRestart(this.conf);
         const timer = setTimeout(() => failed('the head unit did not restart', true), REBOOT_WAIT_MS);
         cp.execFile(argv[0], argv.slice(1), { timeout: 60000, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
             const refused = /\[Error\.\s*([^\]]*)\]/.exec(stdout);
             if (err || refused) {
                 failed(refused ? refused[1] : String(stderr).trim().split('\n').pop() || err.message.split('\n')[0], false);
             }
+        });
+        return null;
+    }
+
+    /* The Store's Leave safe mode: the deploy tool's safe-mode off, then its
+     * state again. Refused while an install runs or waits (the next install
+     * that goes through leaves it too). */
+    leaveSafeMode() {
+        if (this.busy || this.queue.length) {
+            return 'an install is running';
+        }
+        if (!this.safeMode || this.leavingSafeMode) {
+            return null;
+        }
+        this.leavingSafeMode = true;
+        console.log('leaving safe mode');
+        cp.execFile(this.conf.deploy, ['safe-mode', 'off', '--yes'], { timeout: 120000, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
+            if (err) {
+                console.log(`safe mode not left: ${String(stderr).trim().split('\n').pop() || err.message}`);
+            }
+            this.refresh().then(() => {
+                this.leavingSafeMode = false;
+                this.changed();
+            });
         });
         return null;
     }
@@ -3149,6 +3203,7 @@ class Updater {
                 this.own = ownInstalled(this.conf, st);
                 this.lost = lostOf(st);
                 this.guard = typeof st.mainapp_guard === 'string' && st.mainapp_guard ? st.mainapp_guard : null;
+                this.safeMode = safeModeOf(st);
                 this.lastBounceAt = typeof st.last_bounce_at === 'number' ? st.last_bounce_at : null;
                 const apps = (st.components || []).filter((c) => c && c.kind === 'app' && this.own.indexOf(c.id) >= 0);
                 this.ownApps = apps.map((c) => c.id);
@@ -4025,6 +4080,7 @@ class Updater {
         case 'check': this.check(); return null;
         case 'install': return typeof req.id === 'string' ? this.request(req.id) : 'install needs an id';
         case 'reboot': return this.reboot(this.authorized(req.secret));
+        case 'safe-mode-off': return this.leaveSafeMode();
         case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id, req.tools) : 'uninstall needs an id';
         case 'rollback': return typeof req.id === 'string' ? this.requestRollback(req.id) : 'rollback needs an id';
         case 'setup': return typeof req.id === 'string' ? this.requestSetup(req.id) : 'setup needs an id';
