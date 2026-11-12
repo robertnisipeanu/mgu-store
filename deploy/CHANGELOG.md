@@ -31,6 +31,7 @@
 
 - `status --read-only` prints the same report and changes nothing: the repairs, list and drop-in updates and app manager restarts `status` makes as root are left undone, and their lines say `pending (read-only)` when there is something to do.
 - `mgu-install.js status` prints the deploy tool's status from the head unit, found like `first-install`, for users to paste when an app's tile does not show (`install.sh` and `install.ps1` run it the same way). It uses `status --read-only`; with a deploy tool without it, plain `status`, and one line after the report says that may have repaired things. Without a deploy tool it says the Store is not installed.
+- Safe mode: when 4 starts of the head unit in a row end in a restart that recmgr or crashhandler asked for within 2 minutes, our tools' units stay off at the next starts, BMW's start as usual. A switch-off or a normal restart (the HMI's or the Store's) after 2 minutes, a restart our tools ask for and a start that stays up 5 minutes start the count again; a single power cut counts nothing, two in a row, each within 2 minutes of the start, count one. The next install or update that goes through as a whole, or `safe-mode off --yes`, leaves it, and the tools start at the next start. A unit whose `component.json` entry says `"runsInSafeMode": true` (the updater's) runs in safe mode. `status --json` reports `safe_mode`. deploy/README.md, "Safe mode".
 
 ## 0.8.9
 

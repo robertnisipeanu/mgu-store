@@ -303,6 +303,44 @@ function run() {
         app._restart();
         eq(sent.map(secretless), [{ op: 'reboot' }]);
         eq(sent[0].secret, 'deadbeef');
+        // safe mode: the status line says so, and Leave safe mode sends safe-mode-off with the secret
+        app._client.emit('state', Object.assign({}, ST, { safeMode: { at: '2026-11-09T10:00:00Z', reason: 'test' } }));
+        // the HMI gives the start screen its focus (on its first focusable item) as it opens
+        app._states.ST_OnlineApps_Store.emit('focus', { focus: true });
+        return tick();
+    }).then(() => {
+        eq(last(/storeStatus\.\d*\.?Text/).split('=')[1], 'Safe mode');
+        eq(app._written['storeSafeModeOff.visible'], false, 'Leave safe mode not there as the start screen opens');
+        // its timer, fired a little early, shows it all the same
+        const early = app._startFocusTimer._onTimeout;
+        clearTimeout(app._startFocusTimer);
+        early();
+        return tick();
+    }).then(() => {
+        eq(last(/storeSafeModeOff\.Visible/), 'storeSafeModeOff.Visible=1', 'Leave safe mode shown once the start screen has the focus');
+        reset();
+        app._components.storeSafeModeOff.emit('action', {});
+        eq(sent.map(secretless), [{ op: 'safe-mode-off' }]);
+        eq(sent[0].secret, 'deadbeef');
+        // not while an install runs
+        app._client.emit('state', Object.assign({}, ST, { safeMode: { at: null, reason: null }, busy: { id: 'doom', op: 'install', phase: 'download' } }));
+        return tick();
+    }).then(() => {
+        eq(last(/storeSafeModeOff\.Visible/), 'storeSafeModeOff.Visible=0', 'Leave safe mode hidden while an install runs');
+        app._client.emit('state', ST);
+        return tick();
+    }).then(() => {
+        eq(last(/storeSafeModeOff\.Visible/), 'storeSafeModeOff.Visible=0', 'Leave safe mode hidden out of safe mode');
+        // the next visit starts without it again
+        app._client.emit('state', Object.assign({}, ST, { safeMode: { at: null, reason: null } }));
+        app._states.ST_OnlineApps_Store.emit('focus', { focus: false });
+        return tick();
+    }).then(() => {
+        eq(app._written['storeSafeModeOff.visible'], false, 'Leave safe mode hidden while the start screen has no focus');
+        app._client.emit('state', ST);
+        return tick();
+    }).then(() => {
+        eq(last(/storeStatus\.\d*\.?Text/).split('=')[1] !== 'Safe mode', true, 'no safe mode in the status line');
         // an error of any length is written whole: the status line and a source's error wrap over their rows
         app._sourceId = 'idrive7-apps';
         app._client.emit('state', Object.assign({}, ST, { components: [comp({ error: LONG })],

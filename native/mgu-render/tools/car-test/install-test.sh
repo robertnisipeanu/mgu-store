@@ -326,7 +326,9 @@ cmd_reboot() {
 	on_unit "for p in /proc/[0-9]*; do tr '\\0' ' ' <\$p/cmdline 2>/dev/null | grep -q 'mgu-deploy[.]js' && exit 1; done; exit 0" ||
 		die "the deploy tool is running (an install or update): wait until it ends, then run again" 2
 	say "asking the head unit to restart"
-	out=$(on_unit "/usr/bin/nsm_control --requestRestart 7 --normal 2>&1" || true)
+	# this start's boot id in the deploy tool's restart-requested first: its safe mode never counts the
+	# restart as a failed start (deploy/README.md, "Safe mode")
+	out=$(on_unit "R=/var/opt/mgu-deploy/restart-requested; [ -d /var/opt/mgu-deploy ] && cat /proc/sys/kernel/random/boot_id > \$R.tmp && mv -f \$R.tmp \$R; /usr/bin/nsm_control --requestRestart 7 --normal 2>&1" || true)
 	[ -n "$out" ] && say "$out"
 	case "$out" in *rror*) die "the restart was not taken; ask the owner to use the Store's Restart head unit" ;; esac
 	close_link

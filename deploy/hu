@@ -52,6 +52,9 @@ const UNIT_FILES = [
     { name: 'mgu-deploy-verify.service', mode: 0o644 },
     { name: 'mgu-deploy-cleanup.service', mode: 0o644 },
     { name: 'mgu-app-fallback-id8.service', mode: 0o644 },
+    { name: 'safe_mode.sh', mode: 0o755 },
+    { name: 'mgu-deploy-safe-mode.service', mode: 0o644 },
+    { name: 'var-opt-ro-safe-mode.conf', mode: 0o644 },
     { name: 'oap_link.js', mode: 0o644, dir: path.join(__dirname, '..', 'tools') },
     { name: 'oap_pack.js', mode: 0o644, dir: path.join(__dirname, '..', 'tools') }
 ];
@@ -152,7 +155,7 @@ function buildArtifact(compDir, outDir) {
             throw new Error(`${id}: unit ${path.relative(dir, from)} is missing`);
         }
         entries.push({ name: `units/${u.name}`, data: fs.readFileSync(from), mode: 0o644 });
-        return { name: u.name };
+        return u.runsInSafeMode === true ? { name: u.name, runsInSafeMode: true } : { name: u.name };
     });
     const dropins = (c.dropins || []).map((d) => {
         if (!d || !/^[A-Za-z0-9_.@-]{1,100}\.(service|socket|target|mount|path|timer)$/.test(d.unit || '') ||

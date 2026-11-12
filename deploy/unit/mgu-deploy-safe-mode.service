@@ -1,0 +1,18 @@
+[Unit]
+Description=mgu-deploy safe mode: our tools' units stay off after repeated failed starts of the head unit
+# Early at each start, after /var/opt is mounted; no unit is ordered after it.
+DefaultDependencies=no
+RequiresMountsFor=/var/opt
+
+[Service]
+Type=simple
+# recmgr's crash statistics as they stand at the start, for the shutdown's count (safe_mode.sh).
+ExecStartPre=-/bin/sh /var/opt/mgu-deploy/current/safe_mode.sh boot
+# A start that stays up 5 minutes clears the count. The service stays up
+# after, so recmgr never sees it end.
+ExecStart=-/bin/sh -c '/bin/sh /var/opt/mgu-deploy/current/safe_mode.sh up; exec sleep 2147483647'
+TimeoutStartSec=10
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target

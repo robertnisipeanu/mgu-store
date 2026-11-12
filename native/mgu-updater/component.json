@@ -26,7 +26,7 @@
     { "path": "uids.js", "from": "js/uids.js", "mode": "0644" },
     { "path": "updater.conf", "from": "updater.conf", "mode": "0644" }
   ],
-  "units": [{ "name": "mgu-updater.service", "from": "systemd/mgu-updater.service" }],
+  "units": [{ "name": "mgu-updater.service", "from": "systemd/mgu-updater.service", "runsInSafeMode": true }],
   "enable": [{ "unit": "mgu-updater.service", "target": "multi-user.target" }],
   "recmgr": ["mgu-updater"],
   "restart": []

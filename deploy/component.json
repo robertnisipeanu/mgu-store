@@ -14,6 +14,9 @@
     { "path": "mgu-deploy-verify.service", "from": "unit/mgu-deploy-verify.service", "mode": "0644" },
     { "path": "mgu-deploy-cleanup.service", "from": "unit/mgu-deploy-cleanup.service", "mode": "0644" },
     { "path": "mgu-app-fallback-id8.service", "from": "unit/mgu-app-fallback-id8.service", "mode": "0644" },
+    { "path": "safe_mode.sh", "from": "unit/safe_mode.sh", "mode": "0755" },
+    { "path": "mgu-deploy-safe-mode.service", "from": "unit/mgu-deploy-safe-mode.service", "mode": "0644" },
+    { "path": "var-opt-ro-safe-mode.conf", "from": "unit/var-opt-ro-safe-mode.conf", "mode": "0644" },
     { "path": "oap_link.js", "from": "../tools/oap_link.js", "mode": "0644" },
     { "path": "oap_pack.js", "from": "../tools/oap_pack.js", "mode": "0644" }
   ],

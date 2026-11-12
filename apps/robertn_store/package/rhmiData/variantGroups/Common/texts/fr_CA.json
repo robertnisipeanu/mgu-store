@@ -2,6 +2,7 @@
   "SID_TEMP_EMPTY": "",
   "SID_STORE_TITLE": "Store",
   "SID_STORE_STORE": "Store",
+  "SID_STORE_LEAVE_SAFE_MODE": "Quitter le mode sans échec",
   "SID_STORE_CHECK_FOR_UPDATES": "Rechercher les mises à jour",
   "SID_STORE_APPS": "Applis",
   "SID_STORE_HEAD_UNIT_TOOLS": "Outils système",

@@ -12,6 +12,10 @@
                 <property id="2" value="1"/>
                 <property id="3" value="0"/>
             </component>
+            <component id="150" type="button" widget="LT_Button_MediaEntry_1Row">
+                <property id="2" value="1"/>
+                <property id="3" value="3"/>
+            </component>
             <component id="21" type="button" widget="LT_Button_MediaEntry_1Row">
                 <property id="2" value="1"/>
                 <property id="3" value="3"/>

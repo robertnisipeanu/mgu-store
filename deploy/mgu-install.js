@@ -825,12 +825,15 @@ async function reach(o, d = NET) {
 
 /* The head unit's restart, as the Store's Restart head unit makes it
  * (native/mgu-updater/updater.conf, reboot): the Node State Manager's
- * normal restart. Refused (exit 3) while a deploy tool run of this boot
- * holds its lock ("<pid> <boot id>"). nsm_control exits 0 on a refusal
- * too, printing "[Error. <why>]". No double quote or backslash: Windows
- * passes the remote command through its own quoting. */
-const RESTART = "L=/var/opt/mgu-deploy/lock; if [ -e $L ] && [ $(cut -d ' ' -f 2 $L) = $(cat /proc/sys/kernel/random/boot_id) ] && " +
-    "kill -0 $(cut -d ' ' -f 1 $L) 2>/dev/null; then exit 3; fi; /usr/bin/nsm_control --requestRestart 7 --normal 2>&1";
+ * normal restart, this start's boot id in the deploy tool's
+ * restart-requested first, so its safe mode never counts it as a failed
+ * start (deploy/README.md, "Safe mode"). Refused (exit 3) while a deploy
+ * tool run of this boot holds its lock ("<pid> <boot id>"). nsm_control
+ * exits 0 on a refusal too, printing "[Error. <why>]". No double quote or
+ * backslash: Windows passes the remote command through its own quoting. */
+const RESTART = "L=/var/opt/mgu-deploy/lock; B=$(cat /proc/sys/kernel/random/boot_id); if [ -e $L ] && [ $(cut -d ' ' -f 2 $L) = $B ] && " +
+    "kill -0 $(cut -d ' ' -f 1 $L) 2>/dev/null; then exit 3; fi; R=/var/opt/mgu-deploy/restart-requested; " +
+    "[ -d /var/opt/mgu-deploy ] && echo $B > $R.tmp && mv -f $R.tmp $R; /usr/bin/nsm_control --requestRestart 7 --normal 2>&1";
 
 /* A line typed at the terminal, which echoes it. */
 function promptLine(question, input) {

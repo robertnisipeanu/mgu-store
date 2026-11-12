@@ -245,6 +245,9 @@ function statusLine(st, connected, secret) {
     if (st.rebooting) {
         return tr("Restarting");
     }
+    if (st.safeMode) {
+        return tr("Safe mode");
+    }
     if (st.privacy && st.privacy !== 'patched') {
         return tr("App privacy patch not in effect");
     }

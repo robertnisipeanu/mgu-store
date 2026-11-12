@@ -1481,7 +1481,73 @@ function testReboot() {
             u = storeAt('0.9.15');
             ok('reboot: and limited like any other', u.handle({ op: 'reboot' }) === 'too soon after the last restart, possible in 10 min', u.rebootError);
             return sleep(1000);
+        })
+        .then(() => {
+            // the deploy tool's restart-requested names this start before the command runs
+            fs.unlinkSync(record);
+            const tools = path.join(dir, 'tools');
+            mkdirp(path.join(tools, 'mgu-deploy'));
+            const bootFile = path.join(dir, 'boot_id');
+            fs.writeFileSync(bootFile, 'c0ffee00-0000-4000-8000-000000000001\n');
+            const marker = path.join(tools, 'mgu-deploy', 'restart-requested');
+            const seen = path.join(dir, 'marker-at-run');
+            const marking = path.join(dir, 'marking.sh');
+            fs.writeFileSync(marking, `#!/bin/sh\ncat ${marker} > ${seen} 2>/dev/null\nexit 0\n`, { mode: 0o755 });
+            u = make(marking);
+            u.conf.tool_root = tools;
+            u.conf.boot_id = bootFile;
+            ok('reboot: the Store\'s restart is taken', u.handle({ op: 'reboot', secret: u.secret }) === null && u.rebooting);
+            return sleep(1000).then(() => {
+                ok('reboot: the deploy tool\'s restart-requested holds this start\'s boot id, written before the command ran',
+                    fs.existsSync(seen) && fs.readFileSync(seen, 'utf8') === 'c0ffee00-0000-4000-8000-000000000001\n',
+                    fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8') : 'no marker');
+                sh(`rm -rf '${path.join(tools, 'mgu-deploy')}'`);
+                rmIfThere(seen);
+                u = make(marking);
+                u.conf.tool_root = tools;
+                u.conf.boot_id = bootFile;
+                ok('reboot: without the deploy tool, the restart runs and writes no marker',
+                    u.handle({ op: 'reboot', secret: u.secret }) === null);
+                return sleep(1000);
+            }).then(() => ok('reboot: no marker without the deploy tool', !fs.existsSync(marker) && fs.existsSync(seen) &&
+                fs.readFileSync(seen, 'utf8') === ''));
         });
+}
+
+/* The deploy tool's safe mode: in the state from status --json, and the
+ * Store's Leave safe mode (safe-mode-off) running its safe-mode off. */
+function testSafeMode() {
+    const { Updater } = require('../js/updater');
+    const dir = path.join(T, 'safe-mode');
+    mkdirp(dir);
+    const flag = path.join(dir, 'on');
+    const calls = path.join(dir, 'calls');
+    const deploy = path.join(dir, 'mgu-deploy.sh');
+    fs.writeFileSync(deploy, '#!/bin/sh\n' +
+        `echo "$*" >> ${calls}\n` +
+        `if [ "$1" = safe-mode ] && [ "$2" = off ]; then rm -f ${flag}; echo 'safe mode off'; exit 0; fi\n` +
+        `if [ -f ${flag} ]; then echo '{"components":[],"pending_reboot":[],"safe_mode":{"at":"2026-11-09T10:00:00Z","reason":"4 starts"}}'; ` +
+        'else echo \'{"components":[],"pending_reboot":[],"safe_mode":null}\'; fi\n', { mode: 0o755 });
+    fs.writeFileSync(flag, '');
+    const runs = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : []);
+    const u = new Updater({ catalog: `file://${path.join(dir, 'catalog.json')}`, state_dir: path.join(dir, 'state'), deploy,
+        store_app: 'robertn_store' });
+    return u.refresh().then(() => {
+        ok('safe mode: in the state while the deploy tool reports it',
+            JSON.stringify(u.state().safeMode) === JSON.stringify({ at: '2026-11-09T10:00:00Z', reason: '4 starts' }), JSON.stringify(u.state().safeMode));
+        ok('safe mode: Leave safe mode needs the secret', u.handle({ op: 'safe-mode-off' }) === 'forbidden');
+        u.busy = { id: 'demo_app', phase: 'download' };
+        ok('safe mode: not left while an install runs', u.handle({ op: 'safe-mode-off', secret: u.secret }) === 'an install is running');
+        u.busy = null;
+        ok('safe mode: Leave safe mode is taken', u.handle({ op: 'safe-mode-off', secret: u.secret }) === null);
+        return until(() => u.state().safeMode, (s) => s === null && !u.leavingSafeMode, 10000, 'safe mode off in the state');
+    }).then(() => {
+        ok('safe mode: the deploy tool ran safe-mode off --yes once, then status', runs().filter((r) => r === 'safe-mode off --yes').length === 1 &&
+            runs()[runs().length - 1] === 'status --json', runs().join(' | '));
+        const before = runs().length;
+        ok('safe mode: out of safe mode the request runs nothing', u.handle({ op: 'safe-mode-off', secret: u.secret }) === null && runs().length === before);
+        ok('safe mode: an older deploy tool, without safe_mode, reports none', u.state().safeMode === null);
+    });
 }
 
 /* ---- the daemon --------------------------------------------------------------------- */
@@ -2343,7 +2409,8 @@ function testSources(certs) {
         '}'
     ].join('\n');
     const tTool = { id: 't_tool', kind: 'tool', version: '1.0.0', title: 'Tree tool',
-        files: [{ path: 't.sh', from: 'bin/t.sh', mode: '0755' }], units: [{ name: 't.service', from: 'systemd/t.service' }], internet: true };
+        files: [{ path: 't.sh', from: 'bin/t.sh', mode: '0755' }], units: [{ name: 't.service', from: 'systemd/t.service' },
+            { name: 't-boot.service', from: 'systemd/t.service', runsInSafeMode: true }], internet: true };
     const branchFiles = (pVersion, more) => Object.assign({
         'mgu-repo.json': JSON.stringify({ schema: 1, components: [
             { id: 'p_app', kind: 'app', path: 'apps/p_app', build: 'unit', uninstallable: true },
@@ -2804,6 +2871,8 @@ function testSources(certs) {
             ok('repo: a tool is packed as a tool kit, each file with its sha256, the rest of component.json kept',
                 c.files[0].path === 't.sh' && c.files[0].sha256 === sha256(Buffer.from('#!/bin/sh\necho t\n')) && !c.files[0].from &&
                 c.units[0].name === 't.service' && c.internet === true && fs.readFileSync(path.join(dir, 't.sh'), 'utf8') === '#!/bin/sh\necho t\n');
+            ok('repo: a unit\'s runsInSafeMode reaches the kit, on that unit only (the deploy tool\'s safe mode)',
+                JSON.stringify(c.units) === JSON.stringify([{ name: 't.service' }, { name: 't-boot.service', runsInSafeMode: true }]), JSON.stringify(c.units));
             const pFetch = seen.slice(pMark, tMark);
             const cutSeen = gh.repos['third/branchy'].rawCutSeen || [];
             ok('resume: a cut file goes on from where it stopped; pieced together wrong, it is read again whole and installs',
@@ -6709,6 +6778,7 @@ function main() {
         .then(() => testIndexV1Cache().catch((e) => ok('index v1 cache scenario', false, e.stack)))
         .then(() => testBuildDisk().catch((e) => ok('build folders scenario', false, e.stack)))
         .then(() => testReboot())
+        .then(() => testSafeMode())
         .then(() => testUidsDaemon())
         .then(() => testUplink())
         .then(() => Promise.all([startDns(), startHttps(certs, pubDir)]))

@@ -8,6 +8,7 @@ No changes.
 ## 0.6.19
 
 - No Remove in the Store: the Renderer stays while the Store is installed.
+- The car test's `reboot` records the restart for the deploy tool's safe mode before it asks for it.
 
 ## 0.6.18
 

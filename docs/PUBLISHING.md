@@ -57,6 +57,14 @@ read as a repo tree. So a repository that has both releases and
   change takes effect at the next head-unit start says so on its last stdout
   line (`{"reboot": "<why>"}`) and the Store shows the tool as
   restart-pending.
+- **Safe mode.** After repeated failed starts of the head unit, the deploy
+  tool keeps every tool's units off (deploy/README.md, "Safe mode"). A unit
+  that recovers the head unit (one that puts BMW's files back) says
+  `"runsInSafeMode": true` in its `units` entry and keeps running. A tool
+  that asks for a head-unit restart writes the start's boot id
+  (`/proc/sys/kernel/random/boot_id`) to
+  `/var/opt/mgu-deploy/restart-requested` first, so the restart never
+  counts as a failed start.
 - **Renderers** say so: `"mguProvides": "renderer"` in the tool's
   `component.json` and catalog entry. An app that requires a renderer is
   satisfied by any installed one, and renderers install side by side
