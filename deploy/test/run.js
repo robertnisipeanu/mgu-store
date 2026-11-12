@@ -1837,6 +1837,92 @@ function testFallbackHook() {
         handle('other_app', undefined) === undefined);
 }
 
+/* The copy built from fixtures/main_keep.js keeps the entry of an app whose
+ * init failed at the manager's start, as long as its folder holds the app; the
+ * stock fixture shows what it answers. */
+function testKeepEntry() {
+    const dir = fs.mkdtempSync(path.join(T, 'keep-'));
+    const data = path.join(dir, `oap_${MGR}`, 'data');
+    const list = path.join(data, 'custom_apps.json');
+    const fresh = () => {
+        fs.rmSync ? fs.rmSync(path.join(data, 'apps'), { recursive: true, force: true }) : cp.spawnSync('rm', ['-rf', path.join(data, 'apps')]);
+        [['fine_app', 13001], ['flaky_app', 13002], ['down_app', 13003], ['unproven_app', 13004]].forEach(([id, uid]) => {
+            write(path.join(data, 'apps', `${id}.json`), JSON.stringify({ userId: uid }));
+            if (id !== 'unproven_app') write(path.join(dir, `oap_${uid}`, 'source', 'package.json'), JSON.stringify({ name: id, version: '1.0.0' }));
+        });
+    };
+    write(list, '{}');
+    const load = (main) => {
+        const r = cp.spawnSync(UNIT_NODE, [path.join(HERE, 'keep_entry.js'), main, dir], { encoding: 'utf8',
+            env: Object.assign({}, process.env, { MGU_DEPLOY_KEEP_RETRY_MS: '5,5' }) });
+        try { return JSON.parse(r.stdout); } catch (e) { return { error: r.stdout + r.stderr }; }
+    };
+    fresh();
+    const stock = load(path.join(HERE, 'fixtures', 'main_keep.js'));
+    check('keep entry: the stock manager deletes the entry of every app whose init failed',
+        JSON.stringify(stock.entries) === '["fine_app"]', JSON.stringify(stock));
+    const out = path.join(dir, 'built.js');
+    const b = cp.spawnSync(UNIT_NODE, [path.join(DEPLOY, 'unit', 'fallback_build.js'), path.join(HERE, 'fixtures', 'main_keep.js'), out, list], { encoding: 'utf8' });
+    check('keep entry: builds from the registry fixture, with no note', b.status === 0 && !b.stdout.includes('registry entry'), b.stdout + b.stderr);
+    fresh();
+    const r = load(out);
+    check('keep entry: an app whose folder holds its package keeps its entry, one with no such folder loses it',
+        JSON.stringify(r.atLoad) === '["down_app","fine_app","flaky_app"]' &&
+        JSON.stringify(r.entries) === '["down_app","fine_app","flaky_app"]', JSON.stringify(r));
+    check('keep entry: an app that recovers on a retry is loaded and registered under its uid, without an install',
+        JSON.stringify(r.loaded) === '["fine_app","flaky_app"]' && JSON.stringify(r.registered) === '["flaky_app"]' &&
+        r.tries.flaky_app === 2, JSON.stringify(r));
+    check('keep entry: one that stays down is tried again a bounded number of times and allocates no uid',
+        r.tries.down_app === 3 && r.down === 'APP_ALREADY_INSTALLED' && JSON.stringify(r.installs) === '["install new_app"]', JSON.stringify(r));
+    const log = readJson(path.join(data, 'mgu-deploy-init-failures.json'));
+    const whats = (id) => log.filter((e) => e.app === id).map((e) => e.what).join(',');
+    check('keep entry: each failure is recorded with its error',
+        whats('flaky_app') === 'kept,recovered' && whats('down_app') === 'kept,retry failed,retry failed' &&
+        whats('unproven_app') === 'dropped' && log[0].error.includes('aborted'), JSON.stringify(log));
+    const noKeep = cp.spawnSync(UNIT_NODE, [path.join(DEPLOY, 'unit', 'fallback_build.js'), path.join(HERE, 'fixtures', 'main.js'), path.join(dir, 'plain.js'), list], { encoding: 'utf8' });
+    check('keep entry: a manager without the anchors builds without it, and says so',
+        noKeep.status === 0 && noKeep.stdout.includes('keeping a registry entry') &&
+        !fs.readFileSync(path.join(dir, 'plain.js'), 'utf8').includes('__mguDeployKeep'), noKeep.stdout);
+}
+
+/* clean-strays removes a home only when it is provably another uid's copy of
+ * a registered app. */
+function testStrayHomes() {
+    const root = fakeRoot();
+    const pkg = (uid, id, version) => write(path.join(root.home(uid), 'source', 'package.json'), JSON.stringify({ name: id, version: version || '1.0.0' }));
+    const uids = root.p(`var/opt/public/oap/oap_${MGR}/security/uids.txt`);
+    write(root.entry('my_app'), JSON.stringify({ userId: 13002 }));
+    fs.appendFileSync(uids, '13002=my_app\n');
+    pkg(13002, 'my_app', '2.0.0');
+    pkg(13003, 'my_app');                     // left behind
+    write(path.join(root.home(13003), 'data', 'x'), 'old');
+    pkg(13004, 'other_app');                  // no such app registered
+    pkg(13005, 'my_app');                     // uids.txt names it
+    fs.appendFileSync(uids, '13005=my_app\n');
+    write(root.entry('bad_home'), JSON.stringify({ userId: 13006 }));
+    fs.appendFileSync(uids, '13006=bad_home\n');
+    pkg(13007, 'bad_home');                   // its registered home does not hold the app
+    pkg(12999, 'my_app');                     // outside the manager's range
+    write(path.join(root.home(13008), 'data', 'x'), 'no package');
+    write(path.join(root.home(13009), 'source', 'package.json'), 'not json');
+    const stays = [13002, 13004, 13005, 13007, 12999, 13008, 13009, 13000];
+    const st = root.status();
+    check('clean-strays: status lists only the provable home', JSON.stringify((st.stray_homes || []).map((h) => [h.uid, h.id, h.registered])) ===
+        '[[13003,"my_app",13002]]', JSON.stringify(st.stray_homes));
+    const unreadable = root.entry('broken_entry');
+    write(unreadable, 'not json');
+    const refused = root.run(['clean-strays']);
+    check('clean-strays: an unreadable registry entry stops it, nothing removed', refused.status === 0 && fs.existsSync(root.home(13003)), refused.out);
+    fs.unlinkSync(unreadable);
+    const r = root.run(['clean-strays']);
+    check('clean-strays: removes the home an app left under its old uid', r.status === 0 && !fs.existsSync(root.home(13003)) &&
+        r.out.includes('registered as uid 13002'), r.out);
+    check('clean-strays: every other home stays, as does the registered entry', stays.every((u) => u === 13000 || fs.existsSync(root.home(u))) &&
+        readJson(root.entry('my_app')).userId === 13002, r.out);
+    const again = root.run(['clean-strays']);
+    check('clean-strays: nothing further on a second run', again.status === 0 && again.out.includes('no homes left behind'), again.out);
+}
+
 /* The copy built from fixtures/main_queue.js: our apps' installs go first in
  * the controller's queue, behind the one running; an app not listed waits its
  * turn. The stock fixture main.js lacks the anchors: built without, said. */
@@ -9877,6 +9963,8 @@ const SUITES = [
     testGuardStash,
     testGuardBookkeeping,
     testGuardCopy,
+    testKeepEntry,
+    testStrayHomes,
     testNoManagerInstall,
     testDefaultCodingInstall,
     testMainBind,

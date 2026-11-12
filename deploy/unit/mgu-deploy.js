@@ -3667,6 +3667,7 @@ function uptimeS() {
  * and no start repeats it. The results: last-verify.json, status'
  * last_verify. */
 function cmdVerify() {
+    try { cmdCleanStrays(); } catch (e) { warn('homes left behind: ' + e.message); }
     var v = readVerify(), boot = bootId(), due = Object.keys(v).filter(function (id) { return v[id].boot !== boot; });
     if (!due.length) { say('nothing to check at this start'); return 0; }
     var wait = CFG.verifyAfterS - uptimeS();
@@ -4943,6 +4944,92 @@ function uninstallApp(id, state, keepPackages) {
     leftovers.forEach(function (l) { say('leftover: ' + l); });
     say(id + ' uninstalled');
 }
+/* ---- homes left behind under another uid ---------------------------------- */
+/* A home the app manager left when it installed the app again under a new
+ * uid. It counts only with all of this proven: the uid is in the manager's
+ * range; neither a registry entry nor a uids.txt line names it; no process
+ * runs under it; it is a real folder holding a readable package of an app
+ * that is registered under another uid, whose own home holds that app too.
+ * Every registry entry and uids.txt must be readable, or nothing counts. A
+ * fresh install in progress never qualifies: its app has no entry yet or
+ * its uid has a uids.txt line. iDrive 8 has no such homes to look for. */
+function listDir(p) { try { return fs.readdirSync(p); } catch (e) { return []; } }
+function strayHomes() {
+    // none to tell while the app manager has not made its home yet (after a factory reset)
+    if (isId8() || !mgrDataReady()) return [];
+    var cfg = readJsonOrNull(baseJson()), range = cfg && cfg.usableUidsAndGids, listed = {}, registered = {}, taken = {};
+    if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return [];
+    var names = listDir(CFG.oap), text;
+    try {
+        text = fs.readFileSync(uidsFile(), 'utf8');
+        fs.readdirSync(appsDir()).forEach(function (n) {
+            if (n.slice(-5) !== '.json') return;
+            var e = JSON.parse(fs.readFileSync(path.join(appsDir(), n), 'utf8'));
+            if (typeof e.userId !== 'number') throw new Error(n + ' names no uid');
+            registered[n.slice(0, -5)] = e.userId;
+            taken[e.userId] = true;
+        });
+    } catch (e) {
+        // the manager's uid list or registry not there yet (its first start after a factory reset): nothing to tell
+        if (e.code !== 'ENOENT') warn('homes left behind not looked for: ' + e.message);
+        return [];
+    }
+    text.split('\n').forEach(function (l) { var m = /^(\d+)=/.exec(l); if (m) listed[m[1]] = true; });
+    var running = {};
+    listDir(CFG.proc).forEach(function (p) {
+        if (!/^\d+$/.test(p)) return;
+        var st = statOrNull(path.join(CFG.proc, p));
+        if (st) running[st.uid] = true;
+    });
+    function holds(uid, id) {
+        var pkg = readJsonOrNull(path.join(appHome(uid), 'source', 'package.json'));
+        return !!pkg && (!id || pkg.name === id) && pkg;
+    }
+    var out = [];
+    names.forEach(function (n) {
+        var m = /^oap_(\d+)$/.exec(n), uid = m ? Number(m[1]) : 0;
+        if (!m || uid < range.min || uid > range.max || uid === MGR_UID) return;
+        if (taken[uid] || listed[uid] || running[uid]) return;
+        var st = lstatOrNull(appHome(uid));
+        if (!st || !st.isDirectory()) return;
+        var pkg = holds(uid), id = pkg && pkg.name;
+        if (typeof id !== 'string' || !Object.prototype.hasOwnProperty.call(registered, id)) return;
+        if (!holds(registered[id], id)) return;
+        out.push({ uid: uid, id: id, version: typeof pkg.version === 'string' ? pkg.version : null, registered: registered[id] });
+    });
+    return out;
+}
+/* Removes them and clears their quota, which is what frees the uid for the
+ * manager's allocator; state.json's uid of an app follows its registry entry. */
+function cleanStrays(state) {
+    var strays = strayHomes(), done = [];
+    strays.forEach(function (h) {
+        try {
+            rmrf(appHome(h.uid));
+            if (!FAKE && which(CFG.setquota)) {
+                var q = run(CFG.setquota, ['-u', String(h.uid), '0', '0', '0', '0', CFG.varOpt], { allowFail: true });
+                if (q.status !== 0) warn('could not clear quota for uid ' + h.uid);
+            }
+            done.push(h);
+            say('removed ' + appHome(h.uid) + ': ' + h.id + (h.version ? ' ' + h.version : '') +
+                ' left behind; the app is registered as uid ' + h.registered);
+        } catch (e) { warn('could not remove ' + appHome(h.uid) + ': ' + e.message); }
+    });
+    if (state && state.apps) {
+        Object.keys(state.apps).forEach(function (id) {
+            var e = readJsonOrNull(appEntryFile(id));
+            if (e && typeof e.userId === 'number' && state.apps[id] && state.apps[id].uid !== e.userId) state.apps[id].uid = e.userId;
+        });
+    }
+    return done;
+}
+function cmdCleanStrays() {
+    var state = loadState(), done = cleanStrays(state);
+    if (done.length) saveState(state);
+    say(done.length ? done.length + ' home(s) left behind removed' : 'no homes left behind');
+    return 0;
+}
+
 /* What tool component c and every other version kept beside it
  * (root/versions/<v>/component.json) install: their units, enablement
  * links, drop-ins and recmgr names together, as one component. */
@@ -6857,6 +6944,7 @@ function collectStatus(state) {
         display_bridge_todo_on_car: bridgeTodoLines(),
         fallback: fb, backups: backupCount,
         retired_leftovers: retiredBackups().map(function (b) { return b.path; }),
+        stray_homes: strayHomes(),
         updater_tokens: storedTokens().length,
         appmanager: amStatus(),
         idrive7: { apps: i7Apps(state) },
@@ -6912,6 +7000,7 @@ function cmdStatus(args, crashList, live, limits, listing) {
         (s.fallback.apps.join(', ') || '-') + ')');
     say('backups: ' + s.backups + (s.stock_backup ? ' (stock present)' : ' (no stock)'));
     if (s.retired_leftovers.length) say("retired installer's leftovers: " + s.retired_leftovers.join(', '));
+    if (s.stray_homes.length) say('app homes left behind: ' + s.stray_homes.map(function (h) { return h.id + ' ' + h.uid; }).join(', '));
     say('updater tokens: ' + s.updater_tokens);
     if (s.appmanager) {
         say("IterioDev's App Manager: " + (s.appmanager.present ? 'service ' + (s.appmanager.version || '?') + ', daemon ' +
@@ -7376,7 +7465,7 @@ function installRun(args, afresh) {
                     throw e;
                 }
                 if (!id8) {
-                    try { cleanInterrupted(state); saveState(state); }
+                    try { cleanInterrupted(state); cleanStrays(state); saveState(state); }
                     catch (e) { warn('what interrupted installs left was not looked at: ' + e.message); }
                     try { if (listUnlistedId7(state).length) saveState(state); }
                     catch (e) { warn('our unlisted apps were not listed: ' + e.message); }
@@ -8369,6 +8458,7 @@ var HELP = [
     '  updater-token --remove <id>      remove one',
     '  updater-sources                  seed the updater\'s sources.json from stdin (kept when present)',
     '  sdk-donor [--json]               a readable copy of the oap-sdk donor bundle, and its oap-sdk module',
+    '  clean-strays                     remove app homes left behind under another uid, and free those uids',
     '  apply-pending                    iDrive 8: apply the queued app changes (at boot, before MainApp)',
     '  relist                           iDrive 8: list our das-listed apps in custom_apps.json (at boot, before MainApp)',
     '  verify                           check the tools updated for this start; roll back one that does not work (at boot)',
@@ -8407,7 +8497,7 @@ function main() {
 function runCommand() {
     var args = parseArgs(process.argv.slice(2)), locked = false;
     var rootOnly = ['install', 'relay', 'setup', 'uninstall', 'remove-all', 'rollback', 'restore', 'fallback', 'updater-token', 'updater-sources', 'apply-pending',
-        'appmanager', 'verify', 'remove-unused']
+        'appmanager', 'verify', 'remove-unused', 'clean-strays']
         .indexOf(args.command) >= 0;
     try {
         if (args.readOnly && args.command !== 'status') throw refuse('--read-only is only for status');
@@ -8445,6 +8535,7 @@ function runCommand() {
         if (args.command === 'apply-pending') return cmdApplyPending();
         if (args.command === 'verify') return cmdVerify();
         if (args.command === 'remove-unused') return cmdRemoveUnused();
+        if (args.command === 'clean-strays') return cmdCleanStrays();
         if (args.command === 'appmanager') return cmdAppManager(args);
         throw refuse('unknown command ' + args.command + '\n' + HELP);
     } catch (e) {

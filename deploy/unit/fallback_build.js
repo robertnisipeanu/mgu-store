@@ -57,6 +57,16 @@
  * On iDrive 7 every edit of the copy also waits on its guard (guardSource7):
  * when a manager mgu-deploy restarted died within the watch after its
  * start, the copy runs as the stock file for the rest of the boot.
+ *
+ * On iDrive 7 the copy also keeps a registry entry whose app's init failed
+ * at the manager's start (keepFactory). App.init does far more than read
+ * package.json (proxies, services, ACLs), and any failure of it makes the
+ * stock manager delete the entry, keeping the folder, and install the app
+ * afresh under a new uid, the old uid staying taken by the folder's quota.
+ * An entry whose folder holds that app's package stays; the app waits out
+ * this start without a fresh install and takes further tries. The copy
+ * records each such failure in mgu-deploy-init-failures.json beside
+ * custom_apps.json. Its three anchors are optional, as the hook's.
  */
 var fs = require('fs');
 var path = require('path');
@@ -72,12 +82,103 @@ var FIRST_MARK = '/* mgu-deploy apps first */';
 var QUEUE_ANCHOR = 'module.exports={makeMethodQueued:makeMethodQueued,unqueueMethodCall:unqueueMethodCall,' +
     'getCurrentOperationPromise:getCurrentOperationPromise,onQueueIdle:onQueueIdle,configureQueue:configureQueue};';
 /* AppManagementController's constructor, which queues its installs and updates */
+/* AppRegistry's class and its answer to a failed App.init, and the
+ * AppManagerStub's calls into its AppManagement child. */
+var KEEP_MARK = '/* mgu-deploy keeps an entry */';
+var KEEP_CLASS_ANCHOR = 'class AppRegistry extends events.EventEmitter{';
+var KEEP_ANCHOR = 'app.unpersist().catch(()=>logger.debug("No persistency file to delete, ignoring."))';
+var KEEP_STUB_ANCHOR = 'this[methodName]=((...args)=>this._callMethod(methodName,...args))';
 var CONTROLLER_ANCHOR = 'this.queuedRecursiveRetry=makeMethodQueued_1.makeMethodQueued(this,this.queuedRecursiveRetry,!0)';
 
 /* The flags an entry does not name: idrive7-apps' installer lists its apps
  * in the same file with "-appStartType" and "-userLoginRequired" alone. */
 var DEFAULT_FLAGS = { '-enabled': 'true', '-allowed': 'true', '-appStartType': 'manually',
     '-userLoginRequired': 'false', '-updateMechanism': 'PLATFORM' };
+
+/* Runs in the app manager, as global.__mguDeployKeep. A failed app whose
+ * entry names a uid whose folder holds the app's own package stays
+ * registered on disk: it is held (the stub answers an install of it as
+ * already installed, which allocates no uid), and a new App instance tries
+ * again after each delay, without holding up the manager's start. The next
+ * start loads the entry anyway. Anything else is dropped as the stock
+ * manager drops it. */
+function keepFactory(dir) {
+    return function (registry, app, err, log) {
+        var fs = require('fs'), path = require('path'), id = app.getAppId();
+        var held = global.__mguDeployHeld || (global.__mguDeployHeld = {});
+        var delays = (process.env.MGU_DEPLOY_KEEP_RETRY_MS || '10000,30000,60000').split(',').map(Number);
+        function proven() {
+            try {
+                var uid = JSON.parse(fs.readFileSync(path.join(dir, 'apps', id + '.json'), 'utf8')).userId;
+                if (typeof uid !== 'number' || uid % 1 !== 0 || uid <= 0) return 0;
+                var pkg = JSON.parse(fs.readFileSync(path.join(path.dirname(path.dirname(dir)), 'oap_' + uid, 'source',
+                    'package.json'), 'utf8'));
+                return pkg.name === id ? uid : 0;
+            } catch (e) { return 0; }
+        }
+        function note(uid, what, e) {
+            try {
+                var file = path.join(dir, 'mgu-deploy-init-failures.json'), list = [];
+                try { list = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (x) { /* none yet */ }
+                if (!Array.isArray(list)) list = [];
+                list.push({ at: new Date().toISOString(), app: id, uid: uid, what: what,
+                    error: e ? String(e.message || e).slice(0, 400) : null });
+                fs.writeFileSync(file + '.tmp', JSON.stringify(list.slice(-40)));
+                fs.renameSync(file + '.tmp', file);
+            } catch (x) { /* the record never stops the manager */ }
+        }
+        /* what App.init started; App.shutdown would delete the entry */
+        function release(a) {
+            [function () { a.removeAllListeners(); },
+                function () { return a._appHeartbeatMonitor && a._appHeartbeatMonitor.shutdown(); },
+                function () { return a._appStatusProxy && a._appStatusProxy.shutdown(); },
+                function () { return a._wodControl && a._wodControl.shutdown(); },
+                function () { return a._appUpdateImpl && a._appUpdateImpl.stopService(); }
+            ].forEach(function (step) {
+                try { Promise.resolve(step()).catch(function () {}); } catch (e) { /* not started */ }
+            });
+        }
+        var uid = proven();
+        if (!uid) {
+            note(0, 'dropped', err);
+            app.unpersist().catch(function () {});
+            return;
+        }
+        held[id] = true;
+        note(uid, 'kept', err);
+        release(app);
+        (function attempt(n) {
+            if (n >= delays.length) {
+                log.warn('mgu-deploy: ' + id + ' stays held until the next start; its entry is kept');
+                return;
+            }
+            setTimeout(function () {
+                var next;
+                try { next = registry._appFactory.create(id); } catch (e) { note(uid, 'retry failed', e); attempt(n + 1); return; }
+                next.init().then(function () { return next.getUserId(); }).then(function (u) {
+                    registry._apps[u] = next;
+                    delete held[id];
+                    note(u, 'recovered');
+                    try { registry.register(id); } catch (e) { log.warn('mgu-deploy: registering ' + id + ': ' + e); }
+                    return registry.writeUidAppNameMappingFile();
+                }).catch(function (e) {
+                    if (!held[id]) { log.warn('mgu-deploy: ' + id + ' recovered, then: ' + e); return; }
+                    note(uid, 'retry failed', e);
+                    release(next);
+                    attempt(n + 1);
+                });
+            }, delays[n]);
+        })(0);
+    };
+}
+function keepSource(listPath) {
+    return KEEP_MARK + 'global.__mguDeployKeep=(' + keepFactory.toString() + ')(' +
+        JSON.stringify(path.dirname(listPath)) + ');';
+}
+var KEEP_STUB = 'this[methodName]=((...args)=>"install"===methodName&&global.__mguDeployHeld&&global.__mguDeployHeld[args[0]]?' +
+    'Promise.reject(Object.assign(new Error("mgu-deploy: "+args[0]+" has a registry entry"),' +
+    '{reason:"APP_ALREADY_INSTALLED",code:"APP_ALREADY_INSTALLED"})):this._callMethod(methodName,...args))';
+
 
 /* oapcontroller wipes every app at the third MainApp death inside its alive
  * window, and a bounce by mgu-deploy is the first. mgu-deploy records each
@@ -319,7 +420,7 @@ function main() {
         process.stderr.write('fallback_build: input already carries the fallback; refusing to build\n');
         return 3;
     }
-    var statusPath = path.join(path.dirname(listPath), 'mgu-deploy-inplace.json'), hook = true, first = true;
+    var statusPath = path.join(path.dirname(listPath), 'mgu-deploy-inplace.json'), hook = true, first = true, keep = true;
     var id8 = src.indexOf(ID8.hookAnchor) >= 0;
     if (id8 && src.indexOf(HOOK_ANCHOR) >= 0) {
         process.stderr.write('fallback_build: both MainApp variants\' anchors occur; refusing to build\n');
@@ -357,6 +458,15 @@ function main() {
                 .sort(function (x, y) { return y.at - x.at; });
             edits.forEach(function (e) { src = src.slice(0, e.at) + e.text + src.slice(e.at); });
         }
+        keep = [KEEP_CLASS_ANCHOR, KEEP_ANCHOR, KEEP_STUB_ANCHOR].every(function (a) {
+            var at = src.indexOf(a);
+            return at >= 0 && src.indexOf(a, at + 1) < 0;
+        });
+        if (keep) {
+            src = src.replace(KEEP_ANCHOR, function () { return 'global.__mguDeployKeep(this,app,err,logger)'; });
+            src = src.replace(KEEP_STUB_ANCHOR, function () { return KEEP_STUB; });
+            src = src.replace(KEEP_CLASS_ANCHOR, function () { return keepSource(listPath) + KEEP_CLASS_ANCHOR; });
+        }
     }
     var tmp = outFile + '.tmp-' + process.pid;
     fs.writeFileSync(tmp, src);
@@ -369,6 +479,10 @@ function main() {
     if (!id8 && !first) {
         process.stdout.write('fallback_build: anchors for our apps first in the install queue not found exactly once; ' +
             'the copy leaves the queue as it is\n');
+    }
+    if (!id8 && !keep) {
+        process.stdout.write('fallback_build: anchors for keeping a registry entry not found exactly once; ' +
+            'the copy leaves a failed app to the manager\n');
     }
     return 0;
 }
