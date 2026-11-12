@@ -330,7 +330,9 @@ const OPS = {
         }
         return null;
     },
-    'source-probe': (b) => (str(b.repo, 256) ? { repo: b.repo } : null),
+    'source-edit': (b) => (str(b.id, 256) && (b.channel === null || str(b.channel, 256)) ? { id: b.id, channel: b.channel || null } : null),
+    'source-probe': (b) => (str(b.repo, 256) && (b.id === undefined || str(b.id, 256)) ?
+        Object.assign({ repo: b.repo }, b.id ? { id: b.id } : {}) : null),
     'source-remove': (b) => (str(b.id, 256) ? { id: b.id } : null),
     'login-start': () => ({}),
     'login-cancel': () => ({}),
@@ -729,6 +731,31 @@ function channelLabel(c) {
 function confirmRemove(s) {
   if (confirm('Remove ' + s.label + '?')) { op({ op: 'source-remove', id: s.id }); }
 }
+var editingSource = null;
+function editChannel(s) {
+  editingSource = s;
+  $('addType').value = 'github';
+  $('addType').disabled = true;
+  $('addValue').value = s.label || '';
+  $('addValue').disabled = true;
+  $('addSubmit').textContent = 'Save';
+  $('addCancel').hidden = false;
+  $('addSubmit').disabled = true;
+  probe = { key: null, seq: probe.seq + 1, status: null, tokens: probe.tokens, id: s.id };
+  probeRepo(true);
+}
+function cancelEdit() {
+  editingSource = null;
+  $('addType').disabled = false;
+  $('addValue').disabled = false;
+  $('addValue').value = '';
+  $('addSubmit').textContent = 'Add';
+  $('addSubmit').disabled = false;
+  $('addCancel').hidden = true;
+  setChannels([]);
+  addNote('');
+  probe = { key: null, seq: probe.seq + 1, status: null, tokens: probe.tokens, id: null };
+}
 function tokenName(t) { return t.label || t.login || t.id; }
 function confirmRemoveToken(t) {
   if (confirm('Remove token ' + tokenName(t) + '?')) { op({ op: 'token-remove', id: t.id }); }
@@ -756,6 +783,9 @@ function renderSources(sources) {
     main.appendChild(el('div', 'mut', meta.join(' · ')));
     if (s.error) { main.appendChild(el('div', 'bad', s.error)); }
     row.appendChild(main);
+    if (!s.builtin && !s.usb && s.type === 'github') {
+      row.appendChild(button('Edit channel', function () { editChannel(s); }));
+    }
     if (!s.builtin && !s.usb) {
       row.appendChild(button('Remove', function () { confirmRemove(s); }));
     }
@@ -878,7 +908,7 @@ function ghRepo(v) {
   try { return { repo: m[1], branch: m[2] ? decodeURIComponent(m[2]) : '' }; } catch (e) { return null; }
 }
 /* What the typed repository offers (source-probe): the channel list shows only that. */
-var probe = { key: null, seq: 0, status: null, tokens: '' };
+var probe = { key: null, seq: 0, status: null, tokens: '', id: null };
 var PROBE_NOTE = { 'auth-needed': 'Not found or private', offline: 'Offline', 'rate-limited': 'GitHub limit reached. Try later or sign in.' };
 function setChannels(list) {
   var sel = $('addChannel');
@@ -902,35 +932,45 @@ function keyOf(g) { return g ? g.repo + '#' + g.branch : null; }
 function probeRepo(force) {
   var g = typedRepo();
   var key = keyOf(g);
-  if (key === probe.key && !force) { return; }
-  probe = { key: key, seq: probe.seq + 1, status: g && !g.branch ? null : 'none', tokens: probe.tokens };
+  var id = editingSource ? editingSource.id : null;
+  if (key === probe.key && probe.id === id && !force) { return; }
+  probe = { key: key, seq: probe.seq + 1, status: g && !g.branch ? null : 'none', tokens: probe.tokens, id: id };
   setChannels(g && g.branch ? [['branch:' + g.branch, g.branch]] : []);
   addNote('');
-  $('addSubmit').disabled = false;
+  $('addSubmit').disabled = !!editingSource;
   if (!g || g.branch) { return; }
   var seq = probe.seq;
   addNote('Checking');
   $('addSubmit').disabled = true;
   var done = function () { if (seq === probe.seq) { $('addSubmit').disabled = false; } };
-  api('POST', '/api/op', { op: 'source-probe', repo: g.repo }).then(function (p) {
+  api('POST', '/api/op', { op: 'source-probe', repo: g.repo, id: id || undefined }).then(function (p) {
     if (seq !== probe.seq) { return; }
     done();
     probe.status = p.status;
     probe.name = p.name;
-    var list = [];
+    var list = editingSource ? [['', 'Default']] : [];
     if (p.status === 'ok') {
       if (p.releases) { list.push(['releases', 'Releases']); }
       if (p.tags) { list.push(['tags', 'Tags']); }
       (p.branches || []).forEach(function (b) { list.push(['branch:' + b, b === p.defaultBranch ? b + ' (default)' : b]); });
     }
     setChannels(list);
+    if (editingSource && p.status === 'ok') {
+      var current = editingSource.configuredChannel !== undefined ? editingSource.configuredChannel || '' : editingSource.channel || '';
+      if (current === 'branch') { current = ''; }
+      if (Array.prototype.some.call($('addChannel').options, function (o) { return o.value === current; })) {
+        $('addChannel').value = current;
+      }
+    }
     // nothing listed: added with no channel, and the updater picks
     addNote(p.status === 'ok' ? '' : PROBE_NOTE[p.status] || p.error || p.status);
+    if (editingSource && p.status !== 'ok') { $('addSubmit').disabled = true; }
   }, function (e) {
     if (seq !== probe.seq) { return; }
     done();
     probe.status = 'error';
     addNote(e.message);
+    if (editingSource) { $('addSubmit').disabled = true; }
   });
 }
 function addFields() {
@@ -951,6 +991,15 @@ $('addForm').onsubmit = function (ev) {
   ev.preventDefault();
   var v = $('addValue').value.trim();
   if (!v) { return; }
+  if (editingSource) {
+    if (probe.status !== 'ok' || probe.id !== editingSource.id) { return; }
+    var selected = $('addChannel').hidden ? null : $('addChannel').value || null;
+    api('POST', '/api/op', { op: 'source-edit', id: editingSource.id, channel: selected }).then(function () {
+      cancelEdit();
+      poll();
+    }, showError);
+    return;
+  }
   var body = { op: 'source-add', type: 'https', url: v };
   if ($('addType').value === 'github') {
     var g = ghRepo(v);
@@ -970,6 +1019,7 @@ $('addForm').onsubmit = function (ev) {
     probeRepo(false);
   });
 };
+$('addCancel').onclick = cancelEdit;
 $('tokenForm').onsubmit = function (ev) {
   ev.preventDefault();
   var v = $('tokenValue').value.trim();
@@ -1048,7 +1098,7 @@ a{color:var(--acc)}
 </div>
 <h2>Sources</h2>
 <div id="sources"></div>
-<form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel" hidden></select><button id="addSubmit" class="pri">Add</button></form>
+<form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel" hidden></select><button id="addSubmit" class="pri">Add</button><button id="addCancel" type="button" hidden>Cancel</button></form>
 <p id="addNote" class="mut" hidden></p>
 <h2>Tokens</h2>
 <div id="tokens"></div>
