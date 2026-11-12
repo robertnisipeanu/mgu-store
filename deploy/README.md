@@ -543,6 +543,7 @@ first. `restore` needs `--yes`, or `YES` typed at a terminal.
 /var/opt/public/oap/oap_12201/data/custom_apps.json the apps the fallback lists
 /var/opt/public/oap/oap_12201/data/mgu-deploy-inplace.json the manager's in-place hook and its last answer
 /var/opt/public/oap/oap_12201/data/mgu-deploy-guard.json   the MainApp guard for this boot (iDrive 7: the bounces' watch; iDrive 8: the copy's)
+/var/opt/public/oap/oap_12201/data/mgu-deploy-init-failures.json apps whose init failed at the manager's start, last 40
 /var/opt/public/oap/oap_<uid>/           an app's home (source/, data/, security/, someipInterfaces/, ...)
 ```
 

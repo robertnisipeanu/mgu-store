@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- iDrive 7: the fallback copy of the app manager keeps the registry entry of an app whose init failed at the manager's start, when its folder holds that app's package. MainApp deleted such an entry, kept the folder, and installed the app afresh under a new uid, so each such start used up about ten uids of a range of 248. The app is tried again after 10, 30 and 60 s, takes no fresh install while it waits, and loads from its entry at the next start. Each failure is recorded in `oap_12201/data/mgu-deploy-init-failures.json`, with its error.
+- `clean-strays` removes a home left under an old uid and clears that uid's quota, which frees it. It also runs before an app install and at the check after a tool's update. It takes only a home in the manager's range that no registry entry or `uids.txt` line names, under which no process runs, and which holds the package of an app registered under another uid. `status` lists them as `stray_homes`.
+
 ## 0.8.15
 
 - `restore` runs, before it puts anything back and with all of each version in place, the `deactivate` of each tool's current version the backup puts on another version, as a rollback does, and the hooks of the removal of each tool the backup shows absent, as a removal does (a restart one asks for is pending under the deploy tool). One that fails refuses the restore (exit 2, nothing restored), and the versions deactivated run their `activate` again, as they do when the restore fails after them, but for a tool it has removed by then. A tool the backup leaves on its version runs no hook.
@@ -88,7 +91,6 @@ No changes.
 - Every snapshot records the firmware it was taken on (`firmware` in `manifest.json`). `restore` is refused (exit 2, nothing changed) when it would write a file outside `/var/opt` from a snapshot of other firmware, or from one without the record: after a firmware update the stock snapshot holds the firmware before's restart lists and units.
 - iDrive 8: `uninstall app-privacy` goes through while our only apps left are queued for removal at the next start, which removes them before MainApp-21 starts.
 - `mgu-install.js first-install` says `Setup is done` on iDrive 8 only when `status` reports the Store's tile and those of the other apps `custom_apps.json` lists as shown; otherwise it ends with `Restart the head unit to finish setup.` and the restart question, or, when the fallback is off because the copy does not fit, `The Store's tile cannot show:` and the reason. A deploy tool's status without `fallback.listed_by_manager` counts as shown.
-
 ## 0.7.18
 
 - iDrive 7: an update of an app while the app manager runs older code than its files hold (a fallback copy rebuilt by this install, as after a failed install's rollback took the fallback and the app's listing away) lists the app in `custom_apps.json` before it restarts the manager. The restarted manager provisions the app at its start and updates it in place; one it found unlisted refuses the update as disabled (`robertn_store has been disabled (enabled = false / allowed = false)`).
