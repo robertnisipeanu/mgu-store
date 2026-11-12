@@ -1705,13 +1705,15 @@ StartLimitIntervalSec=600
 StartLimitBurst=20
 ConditionPathExists=|!/var/opt/mgu-deploy/safe-mode
 ConditionPathExists=|/run/mgu-deploy/safe-mode-lifted
+ConditionPathExists=|!/var/opt/mgu-deploy/current/safe_mode.sh
 
 [Service]
 LimitCORE=1
 ```
 
-The two triggering `ConditionPathExists=|` lines (either one lets the unit
-start) keep it off in safe mode unless an install lifts it (below); a
+The triggering `ConditionPathExists=|` lines (any one lets the unit start)
+keep it off in safe mode unless an install lifts it (below), and never
+under an installed deploy tool without safe mode (an older one); a
 tool's socket, timer and path units get them alone, in a drop-in of the
 same name. A unit that runs in safe mode (`"runsInSafeMode": true`) has
 none: a service gets the limits alone, any other unit no drop-in. Nothing
@@ -1794,17 +1796,7 @@ Nothing else counts:
 | the start stayed up 5 minutes | back to 0 |
 | a shutdown without either record within 2 minutes (a short drive, or a restart whose records were lost) | kept |
 | a crash restart between 2 and 5 minutes | kept |
-| no shutdown mark (a power cut, a reset that skipped `var-opt-ro.service`, `systemctl reboot`), within 2 minutes: the first | kept |
-| the same, the second in a row | + 1 (and the run of them starts again) |
-| no shutdown mark, after 2 minutes | kept (and the run starts again) |
-
-A start with no shutdown mark is counted at the next start's boot step,
-from what it recorded itself: whether it reached 2 minutes. So two power
-cuts in a row, each within 2 minutes of the start, count as one failed
-start, as does a loop of resets that leave no record; a marked start
-between two unmarked ones starts their run again. When such a pair is the
-fourth failed start, the flag is written at that boot step: the units of
-ours that have not started yet stay off, the rest at the next start.
+| no shutdown mark (a power cut, a reset that skipped `var-opt-ro.service`, `var-opt-ro.service` failing before the mark ran, `systemctl reboot`) | kept |
 
 A suspend keeps the start (and its boot id) and its uptime runs on, so a
 drive after it never counts as an early end. A state file that is missing
@@ -1831,11 +1823,8 @@ never turn safe mode on.
   (`DefaultDependencies=no`, after `/var/opt` is mounted, enabled for
   `multi-user.target`, in recmgr's list, and ordered with no other unit).
   It writes `safe-mode-crashes` (`<boot id> <recmgr's last crash key>`), the
-  baseline for this start's mark, and `safe-mode-start` (`<boot id>
-  short|long <unmarked short starts in a row before it>`), counting the
-  start before when it left no mark (above).
-- `up`, the same service: at 2 minutes of uptime it records the start as
-  `long` in `safe-mode-start`, at 5 minutes the count goes back to 0, both
+  baseline for this start's mark.
+- `up`, the same service: at 5 minutes of uptime the count goes back to 0,
   by `/proc/uptime`, looked at every 5 s, so a suspend counts as time up. The
   service then stays up, so recmgr never sees it end.
 
@@ -1887,6 +1876,15 @@ unit, and until then `status` lists `mgu-deploy` under `pending_reboot`
 for a start without safe mode. `status --json` reports `safe_mode: {at,
 reason}` while it is on (both null for a file that does not read as
 written), else `null`; `safe-mode [--json]` says the same.
+
+**An older deploy tool.** An install of an older deploy tool, or `rollback
+mgu-deploy` to one, that has no safe mode (no `safe_mode.sh` in its
+version) takes the guard's unit, link and drop-in out and leaves safe mode,
+its count and its records with it, as above; the recmgr entry stays, naming
+no unit. Whatever an older version leaves on disk does nothing: the limits
+drop-in's third condition lets every unit start while the installed
+version has no `safe_mode.sh`, and the guard's unit, if still there, runs
+no script and stays up without one.
 
 ### One transaction per artifact
 

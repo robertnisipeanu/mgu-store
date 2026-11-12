@@ -5,11 +5,9 @@
 # The flag is written at a shutdown, so it is there before the next start.
 #
 #   safe_mode.sh boot   early at each start (mgu-deploy-safe-mode.service):
-#                       recmgr's last crash key, the baseline for the mark;
-#                       the start before, when it left no mark, counted
-#   safe_mode.sh up     the same service: records that the start reached
-#                       FAILED_UP_S, and one that stays up RESET_UP_S clears
-#                       the count
+#                       recmgr's last crash key, the baseline for the mark
+#   safe_mode.sh up     the same service: a start that stays up RESET_UP_S
+#                       clears the count
 #   safe_mode.sh mark   at each shutdown through the NodeStateManager
 #                       (var-opt-ro.service, drop-in
 #                       40-mgu-deploy-safe-mode.conf), before /var/opt goes
@@ -32,16 +30,13 @@
 # records were lost, and neither counts nor clears. A start up RESET_UP_S
 # clears it too. A crash restart after FAILED_UP_S neither counts nor
 # clears. A start without a mark (a power cut, a reset that skipped
-# var-opt-ro.service) is seen at the next start's boot step: one that
-# ended within FAILED_UP_S (it never recorded reaching it) neither counts
-# nor clears, the second of them in a row counts one; one that lasted
-# longer, or a marked start between them, starts that run again. A state
-# file that is missing or does not read as written counts nothing.
+# var-opt-ro.service, or var-opt-ro.service failing before this mark
+# runs) neither counts nor clears. A state file that is missing or does
+# not read as written counts nothing.
 #
 # Files in /var/opt/mgu-deploy, each written whole (renamed into place):
 #   safe-mode-count     "<failed starts in a row before the start> <boot id> <with it>"
 #   safe-mode-crashes   "<boot id> <recmgr's last crash key at its boot step>"
-#   safe-mode-start     "<boot id> short|long <unmarked short starts in a row before it>"
 #   last-shutdown       "<boot id> crash|normal <uptime s> [recmgr] [crashhandler] [recmgr_stats]"
 #   restart-requested   "<boot id>": a restart our tools asked for in that start
 #   safe-mode           {"at": "<UTC time>", "reason": "<why>"}
@@ -66,7 +61,6 @@ STATS_RESTART_S=60
 LAST=$DIR/last-shutdown
 COUNT=$DIR/safe-mode-count
 CRASHES=$DIR/safe-mode-crashes
-START=$DIR/safe-mode-start
 REQUESTED=$DIR/restart-requested
 FLAG=$DIR/safe-mode
 STATS=$SIN/recmgr/recmgr_stats.db
@@ -140,28 +134,6 @@ case "$1" in
 boot)
   k=$(crash_key)
   if [ -n "$k" ]; then put "$CRASHES" "$boot $k"; else rm -f "$CRASHES"; fi
-  # shellcheck disable=SC2046 # three words
-  set -- $(first_line "$START")
-  s_boot=$1 s_len=$2 s_run=$3
-  # shellcheck disable=SC2046 # the boot id the last mark names first
-  set -- $(first_line "$LAST")
-  if [ "$s_boot" != "$boot" ]; then
-    run=0
-    # the start before left no mark and never reached FAILED_UP_S
-    if [ -n "$s_boot" ] && [ "$1" != "$s_boot" ] && [ "$s_len" = short ] && is_number "$s_run"; then
-      run=$((s_run + 1))
-    fi
-    if [ "$run" -ge 2 ]; then
-      run=0
-      # shellcheck disable=SC2046 # three words
-      set -- $(first_line "$COUNT")
-      base=$3
-      is_count "$base" && [ -n "$2" ] || base=0
-      count_set "$base" "$s_boot" $((base + 1))
-      say "two starts in a row ended within ${FAILED_UP_S} s without a shutdown: one failed start"
-    fi
-    put "$START" "$boot short $run"
-  fi
   [ -e "$FLAG" ] && say "on: our tools' units do not start"
   ;;
 mark)
@@ -211,10 +183,6 @@ mark)
   count_set "$base" "$boot" "$count"
   ;;
 up)
-  wait_up "$FAILED_UP_S"
-  # shellcheck disable=SC2046 # three words
-  set -- $(first_line "$START")
-  [ "$1" = "$boot" ] && put "$START" "$boot long $3"
   wait_up "$RESET_UP_S"
   # shellcheck disable=SC2046 # three words
   set -- $(first_line "$COUNT")

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The deploy tool's safe mode shows in the state (`safeMode`), and the Store's Leave safe mode (`safe-mode-off`) leaves it. The updater runs in safe mode.
+- A tool installed from a repository's tree keeps its units' `runsInSafeMode`.
+- Before it asks for a restart of the head unit, the updater records it for the deploy tool, so the restart never counts against safe mode.
 ## 0.8.41
 
 - The phone page's Logs list the Renderer's journals (`mgu-render`, `mgu-render-hmi`) and the deploy tool's check after a restart (`mgu-deploy-verify`).
@@ -22,9 +25,6 @@
 ## 0.8.37
 
 - The tools the Store's setup installs (Internet uplink, Renderer, App privacy, Python, the deploy tool and the updater) can't be removed from the Store: not on their own page, and not with an app's Remove all.
-- The deploy tool's safe mode shows in the state (`safeMode`), and the Store's Leave safe mode (`safe-mode-off`) leaves it. The updater runs in safe mode.
-- A tool installed from a repository's tree keeps its units' `runsInSafeMode`.
-- Before it asks for a restart of the head unit, the updater records it for the deploy tool, so the restart never counts against safe mode.
 
 ## 0.8.36
 
