@@ -894,9 +894,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "rect",
      "x": 1840,
-     "y": 336,
+     "y": 114,
      "w": 1000,
-     "h": 494,
+     "h": 716,
      "opts": {
       "color": "panelTop",
       "radius": 28
@@ -907,7 +907,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 1880,
-     "y": 368,
+     "y": 128,
      "w": 600,
      "h": 38,
      "opts": {
@@ -923,9 +923,9 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "appList",
      "x": 1880,
-     "y": 412,
+     "y": 172,
      "w": 920,
-     "h": 360,
+     "h": 600,
      "opts": {
       "items": [],
       "rowH": 120
@@ -936,7 +936,7 @@ module.exports = {
      "rtype": "gpu",
      "gpu": "text",
      "x": 2293,
-     "y": 374,
+     "y": 134,
      "w": 507,
      "h": 30,
      "opts": {
@@ -951,16 +951,17 @@ module.exports = {
      "name": "versions",
      "rtype": "gpu",
      "gpu": "text",
-     "x": 1880,
-     "y": 341,
-     "w": 920,
-     "h": 28,
+     "x": 480,
+     "y": 180,
+     "w": 1260,
+     "h": 26,
      "opts": {
       "text": "",
-      "size": 22,
+      "size": 20,
       "font": "label",
       "align": "right",
-      "color": "dim"
+      "color": "dim",
+      "after": "title"
      }
     },
     {

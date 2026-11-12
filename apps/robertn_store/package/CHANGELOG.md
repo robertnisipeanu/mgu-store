@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Settings on iDrive 8 shows every Access row at once, at full size: the Access card
+reaches the top of the page, and the versions line sits beside the title.
+
 ## 0.9.37
 
 Tilting the controller right or down moves the focus to the nearest item that way: across the app grid, from the side menu to the grid, to a row's button. With idrive7-apps' controller gate loaded, tilting up and left moves it too, and tilting left with nothing further left goes back a page.
