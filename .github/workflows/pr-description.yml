@@ -1,0 +1,47 @@
+# A pull request description has an "AI:" and a "Tested:" field with a
+# value (AGENTS.md, "Pull requests by AI agents"). Field names match in any
+# case, with Markdown emphasis, code or a list marker around them; the value
+# can follow on the next lines.
+name: PR description
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  fields:
+    if: >-
+      !contains(fromJSON('["dependabot[bot]", "github-actions[bot]"]'),
+      github.event.pull_request.user.login)
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node <<'JS'
+          const body = (process.env.BODY || '').replace(/<!--[\s\S]*?-->/g, '');
+          const label = /^[\s>*_#+`\d.)-]*(ai|tested|human review)[\s*_`]*:(.*)$/i;
+          const fields = {};
+          let cur = null;
+          for (const line of body.split(/\r?\n/)) {
+            const m = line.match(label);
+            if (m) {
+              cur = m[1].toLowerCase();
+              fields[cur] = (fields[cur] || '') + m[2];
+            } else if (cur && /^\s*#/.test(line)) {
+              cur = null;
+            } else if (cur) {
+              fields[cur] += line;
+            }
+          }
+          const missing = ['AI', 'Tested'].filter(
+            (f) => !(fields[f.toLowerCase()] || '').replace(/[\s*_`]/g, ''));
+          if (missing.length) {
+            console.log(`::error::The pull request description needs ${missing.map((f) => f + ':').join(' and ')} ` +
+              '(AGENTS.md, "Pull requests by AI agents"; "AI: none" without AI).');
+            process.exit(1);
+          }
+          console.log('AI and Tested fields present');
+          JS
