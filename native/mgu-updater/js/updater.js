@@ -1049,6 +1049,7 @@ class Updater {
         this.privacy = null;
         this.clients = new Set();
         this.checking = null;
+        this.checkAgain = null;
         this.sendTimer = null;
         this.rebooting = false;
         this.rebootError = null;
@@ -2035,9 +2036,18 @@ class Updater {
         return true;
     }
 
+    /* A check asked for while one runs is made once more after it: the
+     * running one may have read the sources before what was asked about
+     * changed (a Store's Check now right after a publish). */
     check() {
         if (this.checking) {
-            return this.checking;
+            if (!this.checkAgain) {
+                this.checkAgain = this.checking.then(() => {
+                    this.checkAgain = null;
+                    return this.check();
+                });
+            }
+            return this.checkAgain;
         }
         this.changed();
         this.rebootError = null;
