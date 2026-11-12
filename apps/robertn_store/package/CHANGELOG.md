@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The drawn screens look cleaner: Lucide icons, flat app icons with a lit edge and download progress as a ring inside the icon, raised buttons, a lit edge on rows, panels and dialogs, and a row's state as a pill with an icon.
+- The header's controls share one height, the Access rows are one list, the switch is square, and the on-screen keyboard's keys are flat, tinted by what they do.
+- The QR codes sit in the middle of their cards.
+
 ## 0.9.47
 
 - Smaller app package with lower memory use and smoother scrolling: translations load only for the active language, font data is more compact, and app icons decode as they scroll into view.

@@ -19,7 +19,7 @@ const NAV_ITEMS = 'Store, grid\nInstalled, check\nUSB, usb\nSettings, gear';
 const TEXT = 'text';
 const DIM = 'dim';
 const AMBER = '#ffb020';
-const BLUE = '#3d9bff';
+const BLUE = '#2a7fff';
 
 const el = (name, gpu, x, y, w, h, opts, onTap) => Object.assign({ name, rtype: 'gpu', gpu, x: Math.round(x), y: Math.round(y),
     w: Math.round(w), h: Math.round(h), opts }, onTap ? { onTap } : {});
@@ -36,11 +36,12 @@ function compact(W, H) {
     const nav = (sel) => el('nav', 'sideNav', M, M, RAIL, H - 2 * M, { items: NAV_ITEMS, sel, labelSize: 24 });
     const screen = (name, sel, components) => ({ kind: 'gpu', name, theme: 'm_tricolour', bg: 'theme',
         components: [nav(sel)].concat(components) });
-    // the header row: the title, then the status on its baseline (one right after the title moved right of a longer title)
+    // the header row: the title, then the status on its baseline (one right after the title moved right of a longer
+    // title); its controls (buttons, filters, the online state) one height and corner radius, in the title's box
     const HEAD = M + 64;
     const title = (t, x) => text('title', x === undefined ? X : x, M + 2, 640, 60, t, 50, 'bold');
-    const status = (name, x, w, color) => text(name, x, M + 24, w, 30, '', 23, 'label', color || DIM);
-    const after = (name, x, w, color) => text(name, x, M + 24, w, 30, '', 23, 'label', color || DIM, { after: 'title' });
+    const status = (name, x, w, color) => text(name, x, M + 23, w, 30, '', 23, 'label', color || DIM);
+    const after = (name, x, w, color) => text(name, x, M + 23, w, 30, '', 23, 'label', color || DIM, { after: 'title' });
     const back = () => el('back', 'vbutton', X, M, 64, 64, { text: '', vicon: 'back', style: 'round', color: '#f4f7fb' }, 'event:back');
     const BTN_H = 76;
     const GRID_Y = HEAD + 10;
@@ -52,23 +53,25 @@ function compact(W, H) {
 
     // Update all's button, and Restart now beside it while a restart waits (store_ui.js restartNow); shown, it moves shift
     const HB_W = 360;
-    const HB_H = 66;
-    const restartNow = (x, shift) => button('restartNow', x, M, HB_W, HB_H, 'Restart now', 'primary', 25,
+    const HB_Y = M + 2;
+    const HB_H = 60;
+    const HB_R = 18;
+    const restartNow = (x, shift) => button('restartNow', x, HB_Y, HB_W, HB_H, 'Restart now', 'primary', 25,
         { vicon: 'refresh', color: BLUE, hidden: true, shift });
 
     const SAFE_W = 470;
     const FILTER_W = 420;
-    const ONLINE_W = 190;
-    const filterX = R - ONLINE_W - 20 - FILTER_W;
+    const ONLINE_W = 194;
+    const filterX = R - ONLINE_W - 16 - FILTER_W;       // the header controls 16 apart
     const store = screen('store', 0, [
         title('Store'),
         after('subtitle', X + 160, filterX - X - 180),
         restartNow(filterX - 16 - HB_W, { subtitle: [0, -HB_W - 16] }),
         // Leave safe mode in Restart now's place (store_ui.js safeModeOff), wider for its longer words
-        button('safeModeOff', filterX - 16 - SAFE_W, M, SAFE_W, HB_H, 'Leave safe mode', 'primary', 25,
+        button('safeModeOff', filterX - 16 - SAFE_W, HB_Y, SAFE_W, HB_H, 'Leave safe mode', 'primary', 25,
             { vicon: 'unlock', color: BLUE, hidden: true, shift: { subtitle: [0, -SAFE_W - 16] } }),
-        el('filter', 'tabs', filterX, M + 2, FILTER_W, 60, { items: 'All,Apps,Tools', sel: 0, style: 'joined', size: 24 }),
-        el('online', 'chips', R - ONLINE_W, M + 8, ONLINE_W, 48, { items: '', align: 'right' }),
+        el('filter', 'tabs', filterX, HB_Y, FILTER_W, HB_H, { items: 'All,Apps,Tools', sel: 0, style: 'joined', size: 24, radius: HB_R }),
+        el('online', 'chips', R - ONLINE_W, HB_Y, ONLINE_W, HB_H, { items: '', radius: HB_R, size: 23 }),
         grid()
     ]);
     const usb = screen('usb', 2, [title('USB'), after('subtitle', X + 130, CW - 130), grid()]);
@@ -78,11 +81,11 @@ function compact(W, H) {
     const installed = screen('installed', 1, [
         title('Installed'),
         after('subtitle', X + 240, CW - 240 - 380),
-        button('updateAll', R - HB_W, M, HB_W, HB_H, '', 'primary', 25, { vicon: 'arrowDown', color: BLUE }),
+        button('updateAll', R - HB_W, HB_Y, HB_W, HB_H, '', 'primary', 25, { vicon: 'arrowDown', color: BLUE }),
         restartNow(R - HB_W, { updateAll: [-HB_W - 16, 0], subtitle: [0, -HB_W - 16] }),
-        label('appsLabel', X, HEAD + 8, 'APPS'),
+        label('appsLabel', X, HEAD + 11, 'APPS'),
         list('apps', X, LIST_Y, colW, B - LIST_Y, { empty: 'No apps installed' }),
-        label('svcLabel', X + colW + 24, HEAD + 8, 'HEAD-UNIT TOOLS'),
+        label('svcLabel', X + colW + 24, HEAD + 11, 'HEAD-UNIT TOOLS'),
         list('services', X + colW + 24, LIST_Y, colW, B - LIST_Y)
     ]);
 
@@ -93,7 +96,7 @@ function compact(W, H) {
     const settings = screen('settings', 3, [
         title('Settings'),
         after('note', X + 230, CW - 230, AMBER),
-        label('reposLabel', X, HEAD + 8, 'SOURCES'),
+        label('reposLabel', X, HEAD + 11, 'SOURCES'),
         list('repos', X, LIST_Y, leftW, B - SET_H - 12 - LIST_Y),
         button('addRepo', X, B - SET_H, leftW, SET_H, 'Add source', 'tinted', 25, { vicon: 'plus', color: BLUE }),
         el('connPanel', 'rect', rx, HEAD + 4, rw, B - HEAD - 4, { color: 'panelTop', radius: 20 }),
@@ -101,9 +104,10 @@ function compact(W, H) {
         list('access', rx + 12, HEAD + 52, rw - 24, 3 * LIST.rowH, { fit: true }),
         text('unit', rx + 18, HEAD + 60 + 3 * LIST.rowH, rw - 36, 34, '', 26, 'bold'),
         text('versions', rx + 18, HEAD + 100 + 3 * LIST.rowH, rw - 36, 60, '', 22, 'label', DIM, { wrap: true }),
-        button('checkNow', rx + 16, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Check now', 'outline', 25, { vicon: 'refresh' }),
-        button('restart', rx + 28 + (rw - 44) / 2, B - SET_H - 14, (rw - 44) / 2, SET_H, 'Restart head unit', 'outline', 25,
-            { vicon: 'refresh' })
+        // Check now across the panel; Restart head unit, shown, takes its right half
+        button('checkNow', rx + 16, B - SET_H - 16, rw - 32, SET_H, 'Check now', 'outline', 25, { vicon: 'refresh' }),
+        button('restart', rx + 28 + (rw - 44) / 2, B - SET_H - 16, (rw - 44) / 2, SET_H, 'Restart head unit', 'outline', 25,
+            { vicon: 'refresh', shift: { checkNow: [0, -(rw - 44) / 2 - 12] } })
     ]);
 
     // a component's page: what it is on the left, the versions and the buttons in the panel on the right
@@ -111,15 +115,16 @@ function compact(W, H) {
     const px = R - PW;
     const lw = px - X - 24;
     const ix = X + 224;
-    const secondaryY = B - BTN_H - 14;
+    const secondaryY = B - BTN_H - 20;       // as far from the panel's bottom as from its sides
     const primaryY = secondaryY - 12 - 84;
     const app = screen('app', 0, [
         back(),
         el('icon', 'appIcon', X + 84, M, 120, 120, { vicon: '', colors: '#3a4352,#232a35' }),
-        text('name', ix, M, lw - 224, 72, '', 63, 'bold'),
-        text('author', ix, M + 76, lw - 224, 32, '', 27, 'label', DIM),
-        el('facts', 'chips', ix, M + 114, lw - 224, 44, { items: '' }),
-        text('desc', X, M + 176, lw, B - M - 176 - 84, '', 27, 'label', TEXT, { wrap: true }),
+        // the name, the author and the facts beside the icon, in its height
+        text('name', ix, M, lw - 224, 58, '', 52, 'bold'),
+        text('author', ix, M + 54, lw - 224, 28, '', 24, 'label', DIM),
+        el('facts', 'chips', ix, M + 84, lw - 224, 38, { items: '' }),
+        text('desc', X, M + 142, lw, B - M - 142 - 84, '', 27, 'label', TEXT, { wrap: true }),
         text('problem', X, B - 76, lw, 76, '', 27, 'label', AMBER, { wrap: true }),
         el('panel', 'rect', px, M, PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
         text('instLabel', px + 20, M + 16, 200, 28, '', 22, 'label', DIM),
@@ -158,10 +163,10 @@ function compact(W, H) {
     const source = screen('source', 3, [
         back(),
         el('icon', 'appIcon', X + 84, M, 120, 120, { vicon: 'lock', kind: 'service', colors: '#3a4352,#232a35' }),
-        text('name', ix, M, sw, 62, '', 53, 'bold'),
-        text('state', ix, M + 66, sw, 32, '', 27, 'label', DIM),
-        el('facts', 'chips', ix, M + 104, sw, 44, { items: [] }),
-        text('desc', X, M + 166, qx - X - 24, B - BTN_H - 24 - M - 166, '', 26, 'label', AMBER, { wrap: true }),
+        text('name', ix, M, sw, 58, '', 52, 'bold'),
+        text('state', ix, M + 54, sw, 28, '', 24, 'label', DIM),
+        el('facts', 'chips', ix, M + 84, sw, 38, { items: [] }),
+        text('desc', X, M + 142, qx - X - 24, B - BTN_H - 24 - M - 142, '', 26, 'label', AMBER, { wrap: true }),
         button('remove', X, B - BTN_H, 420, BTN_H, 'Remove', 'outline', 29, { vicon: 'trash' }),
         el('panel', 'rect', qx, M, QR_PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
         text('appLabel', qx + 20, M + 14, QR_PW - 40, 34, '', 26, 'bold'),
@@ -218,13 +223,13 @@ function compact(W, H) {
         el('keyboard', 'keyboard', X, keysY, CW, B - keysY, { shift: false })
     ]);
     // Wi-Fi: the networks on the left, the state and its buttons in the panel on the right
-    const wbY = (k) => B - 14 - (3 - k) * BTN_H - (2 - k) * 12;      // the panel's k-th button slot (0, 1, 2; 2 is empty)
+    const wbY = (k) => B - 20 - (3 - k) * BTN_H - (2 - k) * 12;      // the panel's k-th button slot (0, 1, 2; 2 is empty)
     const wifi = screen('wifi', 3, [
         back(),
         title('Wi-Fi', titleX),
         after('subtitle', titleX + 170, px - titleX - 194),
         list('allow5', X, HEAD + 14, px - X - 24, LIST.rowH),
-        list('networks', X, HEAD + 14 + LIST.rowH + 8, px - X - 24, B - HEAD - 22 - LIST.rowH, { empty: '' }),
+        list('networks', X, HEAD + 14 + LIST.rowH, px - X - 24, B - HEAD - 14 - LIST.rowH, { empty: '' }),
         el('panel', 'rect', px, M, PW, H - 2 * M, { color: 'panelTop', radius: 20 }),
         el('icon', 'appIcon', px + 20, M + 20, 96, 96, { vicon: 'wifi', kind: 'service', colors: '#7a808a,#3a3f47' }),
         text('state', px + 132, M + 30, PW - 152, 36, '', 28, 'bold'),
@@ -238,7 +243,7 @@ function compact(W, H) {
         title('Preferred connection', titleX),
         status('status', R - 420, 420),
         list('list', X, HEAD + 14, Math.min(1100, CW), 4 * LIST.rowH, { empty: '' }),
-        list('usbPhone', X, HEAD + 14 + 4 * LIST.rowH + 8, Math.min(1100, CW), LIST.rowH, { empty: '' })
+        list('usbPhone', X, HEAD + 14 + 4 * LIST.rowH, Math.min(1100, CW), LIST.rowH, { empty: '' })
     ]);
     const proxyW = Math.min(1100, CW);
     const proxy = screen('proxy', 3, [

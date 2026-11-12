@@ -72,16 +72,16 @@ module.exports = {
      "name": "restartNow",
      "rtype": "gpu",
      "gpu": "vbutton",
-     "x": 936,
-     "y": 134,
+     "x": 1162,
+     "y": 140,
      "w": 540,
-     "h": 84,
+     "h": 88,
      "opts": {
       "text": "Restart now",
       "vicon": "refresh",
       "style": "primary",
       "size": 34,
-      "color": "#3d9bff",
+      "color": "#2a7fff",
       "hidden": true,
       "shift": {}
      },
@@ -91,16 +91,16 @@ module.exports = {
      "name": "safeModeOff",
      "rtype": "gpu",
      "gpu": "vbutton",
-     "x": 936,
-     "y": 134,
+     "x": 1162,
+     "y": 140,
      "w": 540,
-     "h": 84,
+     "h": 88,
      "opts": {
       "text": "Leave safe mode",
       "vicon": "unlock",
       "style": "primary",
       "size": 34,
-      "color": "#3d9bff",
+      "color": "#2a7fff",
       "hidden": true
      },
      "onTap": "event:safeModeOff"
@@ -109,28 +109,30 @@ module.exports = {
      "name": "filter",
      "rtype": "gpu",
      "gpu": "tabs",
-     "x": 1500,
+     "x": 1726,
      "y": 140,
      "w": 760,
-     "h": 92,
+     "h": 88,
      "opts": {
       "items": "All,Apps,Tools",
       "sel": 0,
       "style": "joined",
-      "size": 34
+      "size": 34,
+      "radius": 26
      }
     },
     {
      "name": "online",
      "rtype": "gpu",
      "gpu": "chips",
-     "x": 1980,
-     "y": 146,
-     "w": 860,
-     "h": 84,
+     "x": 2510,
+     "y": 140,
+     "w": 330,
+     "h": 88,
      "opts": {
       "items": "",
-      "align": "right"
+      "radius": 26,
+      "size": 34
      }
     },
     {
@@ -335,7 +337,7 @@ module.exports = {
       "size": 64,
       "font": "num",
       "align": "left",
-      "color": "#3d9bff"
+      "color": "#2a7fff"
      }
     },
     {
@@ -416,7 +418,7 @@ module.exports = {
       "text": "",
       "vicon": "arrowDown",
       "style": "primary",
-      "color": "#3d9bff"
+      "color": "#2a7fff"
      },
      "onTap": "event:primary"
     },
@@ -560,7 +562,7 @@ module.exports = {
       "text": "Restart now",
       "vicon": "refresh",
       "style": "primary",
-      "color": "#3d9bff"
+      "color": "#2a7fff"
      },
      "onTap": "event:restartNow"
     },
@@ -657,12 +659,12 @@ module.exports = {
      "x": 2300,
      "y": 140,
      "w": 540,
-     "h": 100,
+     "h": 88,
      "opts": {
       "text": "",
       "vicon": "arrowDown",
       "style": "primary",
-      "color": "#3d9bff"
+      "color": "#2a7fff"
      },
      "onTap": "event:updateAll"
     },
@@ -673,13 +675,13 @@ module.exports = {
      "x": 2300,
      "y": 140,
      "w": 540,
-     "h": 100,
+     "h": 88,
      "opts": {
       "text": "Restart now",
       "vicon": "refresh",
       "style": "primary",
       "size": 34,
-      "color": "#3d9bff",
+      "color": "#2a7fff",
       "hidden": true,
       "shift": {
        "updateAll": [
@@ -903,7 +905,7 @@ module.exports = {
       "text": "Add source",
       "vicon": "plus",
       "style": "tinted",
-      "color": "#3d9bff"
+      "color": "#2a7fff"
      },
      "onTap": "event:addRepo"
     },
@@ -1309,7 +1311,7 @@ module.exports = {
       "text": "Sign in with GitHub",
       "vicon": "plus",
       "style": "primary",
-      "color": "#3d9bff"
+      "color": "#2a7fff"
      },
      "onTap": "event:signIn"
     },
@@ -1423,7 +1425,7 @@ module.exports = {
       "text": "Sign in with GitHub",
       "vicon": "plus",
       "style": "primary",
-      "color": "#3d9bff"
+      "color": "#2a7fff"
      },
      "onTap": "event:signIn"
     },
