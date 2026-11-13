@@ -123,8 +123,10 @@ packer in `tools/`) and a private `TMPDIR`. The app builds take their `build.jso
 gzip header. The same tree gives the same bytes on any machine, so a
 version has exactly one artifact and a rebuild can be checked against the
 published sha256; `check` proves it for every component. Node's bundled
-zlib is the one outside input: a Node release with another zlib can
-compress differently, which publishing reports as other content.
+zlib is one outside input: a Node release with another zlib can
+compress differently, which publishing reports as other content. The
+other is the host Python 3.12 that compiles mgu-python's `.pyc`: another
+3.12.x release can write different bytecode.
 
 ## The catalog
 
