@@ -125,14 +125,16 @@ Client to daemon:
 | 0x4d520003 | X_PIXMAP | u32 id, w, h (1..2048), format (1 premultiplied RGBA, 2 RGBA shown opaque, 3 INDEX8), filter (0 nearest, 1 linear): an image written in regions, drawn with op 18 |
 | 0x4d520004 | X_PIXELS | u32 id, n (1..64), n × u32 x, y, w, h, then each rect's pixels in turn, rows top-down, packed (w × 1 or 4 bytes a row) |
 | 0x4d520005 | X_PALETTE | u32 id, 768 bytes RGB: an INDEX8 pixmap's colours, for the whole picture from now on |
+| 0x4d520006 | X_FINGERS | u32 on: every finger of a gesture in the app's claims comes as X_FINGER, with its id; TOUCH no longer comes. Off by default |
 
 Daemon to client:
 
 | Type | Name | Payload |
 |---|---|---|
-| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
+| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy, 64 X_FINGERS), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
 | 0x4d520102 | X_STATE | u32 mode, on screen, in front (the HMI shows the app's screen); sent whenever one changes |
 | 0x4d520103 | X_CCU | as upstream's CCU |
+| 0x4d520104 | X_FINGER | u32 phase (1 down, 2 move, 3 up, 4 cancel), u32 finger id (0..15, the display's), f32 x, y logical px: one finger of a gesture that began in a claim (after X_FINGERS 1). Cancel: the finger's lift was never seen and it is gone (x, y where it was last): drop it without acting on it, never as a tap or a release there |
 
 Pixmaps share the id space of IMAGE pictures. Pictures, upstream images and
 pixmaps count towards 64 per app and 96 MiB for all apps; pictures also
@@ -219,7 +221,12 @@ disconnected once so they connect again to that.
 - **Touch** is IterioDev's divert (`src/touch.c`): while a shown app claims
   areas, one nftables rule (table `ip mgu_render`) sends the display's touch
   PDUs (UDP 30567) to the daemon on port 30570; a gesture that starts in a claim goes to that app as TOUCH, every
-  other PDU goes on to the HMI unchanged. A layer app that claims is hidden
+  other PDU goes on to the HMI unchanged. A gesture lasts until its last finger is up: every finger in it is the
+  owner's, wherever it is. TOUCH carries the finger that began the gesture; a native app that sends X_FINGERS 1 gets
+  every finger as X_FINGER (phase, finger id, x, y) instead. A finger that was down and is missing from a report, or
+  goes down again, lost its UP (a lost datagram, the divert taken out while the HMI covered the app, the app hidden):
+  it is let go first, with no TOUCH, and as X_FINGER cancel only to an app still on screen. An app that goes off
+  screen (X_STATE) drops the fingers it holds. A layer app that claims is hidden
   and gets CLOSED when the HMI is touched outside its claims; an embed app's
   page is the HMI's to leave, so it is not closed. A guard process removes the
   rule if the daemon dies or hangs.

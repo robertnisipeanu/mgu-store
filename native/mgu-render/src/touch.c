@@ -6,9 +6,10 @@
  * The HMI (Hmi8 on iDrive 8, HmiMain3D on iDrive 7) reads the centre display's touch as UDP PDUs on port 30567 -
  * on the car from the display (APIX3 Ethernet, 160.48.199.115 on vlan73), in the MGU VM from vminput (lo). While a
  * visible app has claimed an area, one stateless nftables rule (raw prerouting, notrack, destination port
- * rewritten 30567 -> 30570) sends them here instead. Per gesture, decided when the finger goes down: inside a
+ * rewritten 30567 -> 30570) sends them here instead. Per gesture, decided when its first finger goes down: inside a
  * claim (and the -a area) -> the app's (E_TOUCH), else every PDU goes on to the HMI unchanged (127.0.0.1:30567,
- * from port 30571, which the VM rule skips so nothing loops). Non-finger PDUs always go to the HMI. One finger.
+ * from port 30571, which the VM rule skips so nothing loops). Non-finger PDUs always go to the HMI. Every finger of
+ * the gesture goes to its owner: TOUCH for the first, X_FINGER for each to a native app that asked (X_FINGERS).
  *
  * Beside IterioDev's renderer, which diverts the same PDUs with its own rule (table ip touchroute, ports 30568 in
  * and 30569 out): ours has its own table (ip mgu_render) and ports, so neither removes the other's rule or takes
@@ -24,7 +25,8 @@
  * PDU (Hmi8 CHmiTouchScreenDevice::decodeTouchScreenPduData): 16-byte header, big-endian id + length + 8-byte
  * timestamp; touchscreen data = id 0xB0048002, payload [12] >> 4 word type (0/1/2/4/8: the car's display sends
  * other types than the 8 vminput sends, so it is not checked), [37] & 0x1f finger count (0: no finger, the HMI's),
- * first finger [38] X u16, [44] Y u16, [47] bits 4-5 event (1 down, 2 move, 3 up; bits 6-7 its touch type).
+ * first finger [38] X u16, [44] Y u16, [47] bits 4-5 event (1 down, 2 move, 3 up; bits 6-7 its touch type), bits 0-3
+ * its id; the further fingers where report(), below, puts them.
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -43,7 +45,7 @@
 
 enum { PORT_HMI = 30567, PORT_IN = 30570, PORT_OUT = 30571, PORT_OTHER_OUT = 30569, GUARD_MS = 1500, REFRESH_MS = 10000, JOB_MS = 10000, RETRY_MS = 5000 };
 #define TABLE "ip mgu_render"
-enum { DOWN = 1, MOVE = 2, UP = 3 };
+enum { DOWN = 1, MOVE = 2, UP = 3, CANCEL = 4 };
 enum { NONE = -1, HMI = -2, GONE = -3 };       /* gesture owner, else a client slot; GONE: its app left */
 
 /* On the car the release firewall (ip filter input, ends in logblocked = drop) only accepts the display's touch
@@ -54,7 +56,6 @@ static char rule[384], open_fw[512];
 static int in = -1, out = -1, beat = -1, loaded, owner = NONE;
 static int ax, ay, aw, ah;                     /* area apps may claim; aw 0 = whole screen */
 
-static unsigned be16(const unsigned char *p) { return p[0] << 8 | p[1]; }
 static unsigned be32(const unsigned char *p) { return (unsigned)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
 
 /* nft runs beside the render loop, never in it: one job at a time, a shell started with posix_spawn and looked at
@@ -257,7 +258,7 @@ void touch_tick(int claimed)
 
 int touch_busy(void) { return job != JOB_NONE; }
 
-void touch_forget(int slot) { if (owner == slot) owner = GONE; }
+void touch_forget(int slot) { if (owner == slot) owner = GONE; }   /* its fingers are still tracked, to the gesture's end */
 
 /* at exit: a running nft is stopped, and the guard, seeing the renderer gone, takes the rule out */
 void touch_stop(void)
@@ -267,20 +268,96 @@ void touch_stop(void)
     loaded = stray = 0;
 }
 
-/* one finger PDU: 1 = it is an app's (sent to it, or dropped), 0 = forward to the HMI */
-static int route_finger(const unsigned char *p)
+/* The PDU's fingers. The payload after the 16-byte header is a row of 8-byte records (4 bytes header, 4 data); the
+ * data bytes of all records in a row are the report: [17] finger count (payload [37]), from [18] six bytes per finger,
+ * xH xL yH yL size state (state bits 4-5 the event, bits 0-3 the display's finger id). Report byte i is payload byte
+ * 4 + 8 * (i / 4) + i % 4, so the first finger is payload [38] x, [44] y, [47] event, the second [52] x, [54] y,
+ * [61] event (measured on an MGU18, F93: one and two fingers). -1 past the PDU's end. */
+static int report(const unsigned char *p, size_t plen, int i)
 {
-    int x = be16(p + 38), y = be16(p + 44), ev = (p[47] >> 4) & 3;
-    /* every DOWN starts a gesture (one finger): an UP we never saw - the rule went (HMI touched, app gone) or a
-     * lost datagram - must not hand the next gesture to the last owner */
-    if (ev == DOWN) {
-        int slot = touch_owner_at(x, y, !aw || (x >= ax && y >= ay && x < ax + aw && y < ay + ah));
-        owner = slot >= 0 ? slot : HMI;
-        if (owner == HMI) touch_outside();       /* e.g. the HMI's home button: the shown app is left */
+    size_t o = 4 + 8 * (size_t)(i / 4) + (size_t)(i % 4);
+    return o < plen ? p[o] : -1;
+}
+
+enum { FINGERS = 16 };
+static int fdown[FINGERS], fx[FINGERS], fy[FINGERS];   /* per finger id: down in this gesture, where it was last */
+static int first = -1;                         /* the finger that began the gesture: it also goes as TOUCH */
+
+/* the app's events for one finger: X_FINGER to an app that asked, TOUCH for the gesture's first finger */
+static void send_finger(int phase, int id, int x, int y)
+{
+    if (owner < 0) return;
+    touch_finger(owner, phase, id, x, y);
+    if (id == first) touch_send(owner, phase, x, y);
+}
+static void finger_up(int id)
+{
+    send_finger(UP, id, fx[id], fy[id]);
+    fdown[id] = 0;
+    if (id == first) first = -1;
+}
+/* how many fingers are down, and in *last the highest id of them */
+static int downs(int *last)
+{
+    int n = 0;
+    for (int f = 0; f < FINGERS; f++) if (fdown[f]) { n++; if (last) *last = f; }
+    return n;
+}
+/* a finger whose UP was never seen: no TOUCH (an UP there would tap what it was on), CANCEL to an app that asked */
+static void finger_lost(int id)
+{
+    if (owner >= 0) touch_finger(owner, CANCEL, id, fx[id], fy[id]);
+    fdown[id] = 0;
+    if (id == first) first = -1;
+}
+
+/* a touchscreen PDU with fingers: 1 = it is an app's (sent to it, or dropped), 0 = forward to the HMI.
+ * A gesture begins when a finger goes down while none is: the owner is decided there (the app claiming that point,
+ * else the HMI) and keeps every finger until none is down. A finger that was down and is missing from a report, or
+ * goes down again, lost its UP (a lost datagram, the rule taken out meanwhile): it is let go first, without a TOUCH,
+ * so a lost UP never hands the next gesture to the last owner. A listed finger with event 0 stays down, nothing sent.
+ * A report of one finger while one is down is that finger, whatever its id. One finger: DOWN, MOVEs, UP as TOUCH. */
+static int route_pdu(const unsigned char *p, size_t plen)
+{
+    int n = p[37] & 0x1f, m = 0, id[FINGERS], ev[FINGERS], x[FINGERS], y[FINGERS], seen[FINGERS] = { 0 }, only = -1;
+    for (int k = 0; k < n && m < FINGERS; k++) {
+        int b[6];
+        for (int j = 0; j < 6; j++) if ((b[j] = report(p, plen, 18 + 6 * k + j)) < 0) goto parsed;
+        int e = (b[5] >> 4) & 3, f = b[5] & 15;
+        if (seen[f]) continue;
+        seen[f] = 1; id[m] = f; ev[m] = e; x[m] = b[0] << 8 | b[1]; y[m] = b[2] << 8 | b[3]; m++;
+    }
+parsed:
+    if (m == 1 && ev[0] != DOWN && downs(&only) == 1) id[0] = only;
+    for (int f = 0; f < FINGERS; f++) {
+        if (!fdown[f]) continue;
+        int k = 0;
+        while (k < m && id[k] != f) k++;
+        if (k == m || ev[k] == DOWN) finger_lost(f);
+    }
+    if (!downs(NULL)) {
+        owner = NONE;                             /* the last gesture's fingers are all gone */
+        int k = 0;
+        while (k < m && ev[k] != DOWN) k++;
+        if (k < m) {
+            int slot = touch_owner_at(x[k], y[k], !aw || (x[k] >= ax && y[k] >= ay && x[k] < ax + aw && y[k] < ay + ah));
+            owner = slot >= 0 ? slot : HMI;
+            first = id[k];
+            if (owner == HMI) touch_outside();   /* e.g. the HMI's home button: the shown app is left */
+        }
     }
     int app = owner >= 0 || owner == GONE;
-    if (owner >= 0 && ev >= DOWN && ev <= UP) touch_send(owner, ev, x, y);
-    if (ev == UP) owner = NONE;
+    if (owner != NONE) {
+        for (int k = 0; k < m; k++) {
+            int f = id[k];
+            if (!ev[k]) continue;
+            if (ev[k] == UP) { if (fdown[f]) { fx[f] = x[k]; fy[f] = y[k]; finger_up(f); } continue; }
+            int phase = fdown[f] ? MOVE : DOWN;       /* a move whose DOWN we missed begins that finger */
+            fdown[f] = 1; fx[f] = x[k]; fy[f] = y[k];
+            send_finger(phase, f, x[k], y[k]);
+        }
+        if (!downs(NULL)) owner = NONE;
+    }
     return app;
 }
 
@@ -295,7 +372,7 @@ void touch_read(void)
             size_t plen = be32(b + at + 4), end = at + 16 + plen;
             if (end > (size_t)len) { end = len; plen = len - at - 16; }
             const unsigned char *p = b + at + 16;
-            if (!(be32(b + at) == 0xB0048002 && plen >= 48 && (p[37] & 0x1f) && route_finger(p))) {
+            if (!(be32(b + at) == 0xB0048002 && plen >= 48 && (p[37] & 0x1f) && route_pdu(p, plen))) {
                 memcpy(f + fn, b + at, end - at); fn += end - at;
             }
             at = end;

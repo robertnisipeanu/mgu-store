@@ -83,6 +83,7 @@ enum {
     X_PIXELS = 0x4d520004,  /* u32 id, u32 n (1..64), (u32 x y w h)*n, then each rect's pixels in turn, rows top-down,
                                packed (w * bytes per pixel per row), the whole padded to 4 */
     X_PALETTE = 0x4d520005, /* u32 id, 256 * 3 bytes RGB: an INDEX8 pixmap's colours, for the whole picture */
+    X_FINGERS = 0x4d520006, /* u32 on: every finger of a gesture in a claim comes as X_FINGER, instead of TOUCH */
 };
 
 /* pixmap formats */
@@ -121,6 +122,9 @@ enum {
                                u32 refresh mHz */
     X_STATE = 0x4d520102,   /* u32 mode, u32 on screen, u32 in front (the HMI shows the app's screen): on change */
     X_CCU = 0x4d520103,     /* as EU_CCU */
+    X_FINGER = 0x4d520104,  /* u32 phase (1 down, 2 move, 3 up, 4 cancel: its UP was lost, not a tap), u32 finger id
+                               (0..15), f32 x, f32 y logical px: one finger of a gesture that began in a claim
+                               (after X_FINGERS 1) */
 };
 
 enum {
@@ -130,6 +134,7 @@ enum {
     CAP_PIXMAP = 8,         /* X_PIXMAP / X_PIXELS / X_PALETTE */
     CAP_VIDEO = 16,         /* MI_VIDEO / MI_DROP_VIDEO / OP_VIDEO */
     CAP_EMBED_ZERO_COPY = 32, /* embed frames are drawn straight into the HMI compositor's GPU buffers (no readback) */
+    CAP_FINGERS = 64,       /* X_FINGERS: every finger, with its id (X_FINGER) */
 };
 
 /* draw opcodes, all dialects */

@@ -154,6 +154,7 @@ typedef struct client {
     uint32_t tr_frames, tr_touches, tr_drawn, tr_committed;   /* trace.h: frames and touches on this connection */
     /* controller grab: last time the app asked for it, 0 = not */
     uint64_t grab_t;
+    int fingers;            /* native: every finger as X_FINGER (X_FINGERS), instead of TOUCH */
     /* inputs it got that left its picture as it was: how many, since when, the frame's hash then; until when it
        takes no input (DEAF_US); its last controller input */
     uint32_t unanswered; uint64_t unanswered_t, unanswered_hash, deaf_until, ccu_t;
@@ -832,6 +833,7 @@ void touch_send(int slot, int phase, int x, int y) {
         dbr_send(c, DBR_TOUCH, 0, t, sizeof t);
         return;
     }
+    if (c->fingers) return;                              /* it gets every finger as X_FINGER instead */
     memcpy(&p[1], &lx, 4); memcpy(&p[2], &ly, 4);
     send_msg(c, EI_TOUCH, p, sizeof p);
     c->tr_touches++;
@@ -839,6 +841,17 @@ void touch_send(int slot, int phase, int x, int y) {
         trace(t_in, "touch-in", c->app, c->tr_touches);
         trace(now_us(), "touch-fwd", c->app, c->tr_touches);
     }
+}
+
+void touch_finger(int slot, int phase, int id, int x, int y) {
+    client *c = clients[slot];
+    if (!c || !c->fingers || (phase == 4 && !shown(c))) return;   /* CANCEL: only to an app still on screen */
+    float bx, by; origin(c, &bx, &by);
+    float lx = (x - bx - c->xf.ox) / c->xf.s, ly = (y - by - c->xf.oy) / c->xf.s;
+    uint32_t p[4] = { (uint32_t)phase, (uint32_t)id };
+    memcpy(&p[2], &lx, 4); memcpy(&p[3], &ly, 4);
+    send_msg(c, X_FINGER, p, sizeof p);
+    c->tr_touches++;
 }
 
 /* the HMI was touched: layer apps that claim close (an embed app's page is the HMI's to leave) */
@@ -969,7 +982,8 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         int emb = embed_available(), area[4];
         app_area(area);
         uint32_t caps = CAP_PIXMAP | CAP_VIDEO | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
-                        (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0);
+                        (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
+                        (touch_on ? CAP_FINGERS : 0);
         /* a gate that cannot tell which app is in front would never show the app: no mode, the app keeps its own screens */
         uint32_t modes = gate_applies(c) && gate_unavailable() ? 0 : (1u << (MODE_LAYER - 1)) | (emb ? 1u << (MODE_EMBED - 1) : 0);
         uint32_t x[15] = { MGU_NATIVE_VERSION, modes, caps };
@@ -1177,6 +1191,10 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
         return set_mode(c, w[0]);
     case X_GRAB:
         return grab(c, w, nw);
+    case X_FINGERS:
+        if (nw < 1) return -1;
+        c->fingers = w[0] != 0;
+        return 0;
     case X_PIXMAP:
         if (nw < 5) return -1;
         make_current_any(c);
