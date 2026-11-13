@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.43
+
 - Installing or updating from a public repository's branch downloads the component's files over a few connections kept open, six at a time, instead of starting a new download for each file. The progress moves as the bytes come.
 
 ## 0.8.42
