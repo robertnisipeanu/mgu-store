@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.21
+
 - Multi-touch: a gesture in a claim keeps every finger until the last one is up; a native app that sends X_FINGERS 1 gets
   each finger with its id (X_FINGER, `fingers()` / `finger` in the JS client, caps bit 64). TOUCH stays the first finger's.
 - Touch: a finger whose UP was lost (missing from a report, or down again) is let go before the next gesture with no
