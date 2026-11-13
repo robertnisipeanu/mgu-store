@@ -643,10 +643,23 @@ function copyTree(from, to) {
     });
 }
 
+/* Whether file compiles as a CommonJS module, judged as `node --check file`
+ * judges it (shebang line, then BOM, stripped; the module wrapper around
+ * it; compiled, never run), in this process: a Node per file costs a third
+ * of a second each on the unit. */
 function nodeCheck(file) {
-    const r = cp.spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
-    if (r.status !== 0) {
-        throw new Error(`node --check ${path.basename(file)}: ${(r.stderr || r.error || '').toString().trim()}`);
+    let text = fs.readFileSync(file, 'utf8');
+    if (text.charAt(0) === '#' && text.charAt(1) === '!') {
+        const nl = text.slice(2).search(/[\r\n]/);
+        text = nl < 0 ? '' : text.slice(nl + 2);
+    }
+    if (text.charCodeAt(0) === 0xFEFF) {
+        text = text.slice(1);
+    }
+    try {
+        new vm.Script(require('module').wrap(text), { filename: file, displayErrors: true });
+    } catch (e) {
+        throw new Error(`node --check ${path.basename(file)}: ${String(e.stack || e).split('\n    at ')[0].trim()}`);
     }
 }
 

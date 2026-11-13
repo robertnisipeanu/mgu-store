@@ -25,6 +25,20 @@
  *
  *   foreground [uid ...]
  *
+ * An app in front is covered while the HMI shows something over it that
+ * takes the input: a popup, the header menu, the voice assistant, or
+ * another screen opened from there. The HMI then takes the focus from the
+ * app's states (its notify event: FOCUS false for the state's id; the
+ * states' ids are the ones in its applicationStack and the ones the HMI
+ * sends VISIBLE for) and gives it back when that goes. The covered apps in
+ * front, on each change:
+ *
+ *   covered [uid ...]
+ *
+ * A page opening in the app moves the focus from one of its states to the
+ * next in one burst, so an app counts as covered only once no state of it has
+ * had the focus for COVER_SETTLE_MS; it is uncovered at once.
+ *
  *   node foreground_gate.js [--someip /usr/lib/someip.node]
  *       [--interface <RemoteHmiApplication interface json>] [--apps /var/opt/public/oap]
  *
@@ -37,6 +51,7 @@ const fs = require('fs');
 const path = require('path');
 
 const MAX_APP_JSON = 65536;
+const COVER_SETTLE_MS = 150;
 const MAX_INTERFACE_JSON = 4 << 20;
 
 const ID7_INTERFACE = 'de_bmw_infotainment_hmi_remote_RemoteHmiApplication.json';
@@ -162,25 +177,76 @@ function hasRootApp(stack) {
         : !!stack && Object.prototype.hasOwnProperty.call(stack, 'ROOT_APP');
 }
 
+/* The state ids an applicationStack lists, under any key. */
+function stackStates(stack) {
+    const lists = stack instanceof Map ? [...stack.values()] : Object.keys(stack || {}).map((k) => stack[k]);
+    return [].concat(...lists.filter(Array.isArray));
+}
+
+/* A notify event's value (parameter 0), when it is a boolean. */
+function eventFlag(ev) {
+    const params = ev && ev.parameterMap;
+    const v = params instanceof Map ? params.get(0) : params && params[0];
+    return v && typeof v.booleanValue === 'boolean' ? v.booleanValue : undefined;
+}
+
 function startGate(opts) {
     const { someip, interfaceConfig, appsDir, write, log } = opts;
     const front = new Map();   // instance name -> its stack has ROOT_APP
     const shown = new Map();   // instance name in front -> its uuid
+    const focus = new Map();   // instance name -> { states, focused (state ids with the HMI focus), lost }
     let apps = readApps(appsDir, log);
     let last = null;
+    let lastCovered = 'covered';
+    let settle = null;
 
-    const report = () => {
+    const focusOf = (name) => {
+        if (!focus.has(name)) {
+            focus.set(name, { states: new Set(), focused: new Set(), lost: false });
+        }
+        return focus.get(name);
+    };
+    const uidsOf = (names) => {
         const uids = new Set();
-        shown.forEach((uuid) => {
+        names.forEach((name) => {
+            const uuid = shown.get(name);
             if (apps.has(uuid)) {
                 uids.add(apps.get(uuid));
             }
         });
-        const line = ['foreground'].concat([...uids].sort((a, b) => a - b)).join(' ');
+        return [...uids].sort((a, b) => a - b);
+    };
+    const report = () => {
+        const line = ['foreground'].concat(uidsOf([...shown.keys()])).join(' ');
         if (line !== last) {
             last = line;
             write(`${line}\n`);
         }
+        reportCovered(false);
+    };
+    /* An app newly covered is reported once it has stayed so for COVER_SETTLE_MS since the last change. */
+    const reportCovered = (settled) => {
+        const covered = [...shown.keys()].filter((name) => {
+            const f = focus.get(name);
+            return f && f.lost && f.focused.size === 0;
+        });
+        const uids = uidsOf(covered);
+        const line = ['covered'].concat(uids).join(' ');
+        clearTimeout(settle);
+        settle = null;
+        if (line === lastCovered) {
+            return;
+        }
+        const was = lastCovered.split(' ').slice(1).map(Number);
+        if (!settled && uids.some((uid) => !was.includes(uid))) {
+            settle = setTimeout(() => {
+                settle = null;
+                reportCovered(true);
+            }, COVER_SETTLE_MS);
+            return;
+        }
+        lastCovered = line;
+        write(`${line}\n`);
     };
     const fail = (name) => (e) => log(`${name}: ${e && e.message || e}`);
 
@@ -190,6 +256,7 @@ function startGate(opts) {
     const watch = (name) => someip.buildProxy(interfaceConfig, name).then((proxy) => proxy.init().then(() => {
         const leave = () => {
             front.set(name, false);
+            focus.delete(name);
             if (shown.delete(name)) {
                 report();
             }
@@ -199,6 +266,25 @@ function startGate(opts) {
                 leave();
             }
         });
+        proxy.subscribe({
+            name: 'notify',
+            onReceive: (ev) => {
+                const f = focusOf(name);
+                const flag = eventFlag(ev);
+                if (ev && ev.eventType === 'VISIBLE') {
+                    f.states.add(ev.sourceId);
+                } else if (ev && ev.eventType === 'FOCUS' && flag !== undefined && f.states.has(ev.sourceId)) {
+                    if (flag) {
+                        f.focused.add(ev.sourceId);
+                        f.lost = false;
+                    } else {
+                        f.focused.delete(ev.sourceId);
+                        f.lost = true;
+                    }
+                    reportCovered(false);
+                }
+            }
+        });
         return proxy.subscribe({
             name: 'applicationStack',
             onReceive: (stack) => {
@@ -206,6 +292,7 @@ function startGate(opts) {
                     leave();
                     return;
                 }
+                stackStates(stack).forEach((id) => focusOf(name).states.add(id));
                 front.set(name, true);
                 proxy.getValue('uuid').then((uuid) => {
                     if (front.get(name)) {
@@ -252,4 +339,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { startGate, readApps, hasRootApp, findInterface, INTERFACES };
+module.exports = { startGate, readApps, hasRootApp, findInterface, INTERFACES, COVER_SETTLE_MS };
