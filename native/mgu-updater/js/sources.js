@@ -43,9 +43,9 @@ const PACKAGE = /^([a-z0-9][a-z0-9_-]{0,63})@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?
 const CHANNEL = /^(releases|tags|branch|branch:[A-Za-z0-9._][A-Za-z0-9._\/-]{0,199})$/;
 const SMALL = 1 << 20; // a JSON file of a source: catalog part, mgu-repo.json, component.json
 const ICON_BYTES = 128 << 10; // a component's icon (PNG)
-// a GitHub component read file by file (githubReader partFiles): at most this many files, this many at a time
+// a GitHub component read file by file (githubReader partFiles): at most this many files, this many at a time (fetch.js)
 const PART_FILES = 400;
-const PART_PARALLEL = 4;
+const PART_PARALLEL = 6;
 // what one queue's installs keep (batchCache): repo files by git id, and the last whole repo read
 const BATCH_BYTES = 64 << 20;
 const WHOLE_BYTES = 96 << 20;
@@ -1075,28 +1075,6 @@ function gitBlobId(data) {
     return crypto.createHash('sha1').update(`blob ${data.length}\0`).update(data).digest('hex');
 }
 
-/* run(item) over items, at most n at a time; resolves with the results in
- * items' order. After a run rejects no other starts. */
-function pool(items, n, run) {
-    const out = new Array(items.length);
-    let i = 0;
-    let failed = false;
-    const worker = () => {
-        if (failed || i >= items.length) {
-            return Promise.resolve();
-        }
-        const k = i++;
-        return run(items[k]).then((r) => {
-            out[k] = r;
-            return worker();
-        }, (err) => {
-            failed = true;
-            throw err;
-        });
-    };
-    return Promise.all(Array.from({ length: Math.min(n, items.length) }, worker)).then(() => out);
-}
-
 /* A folder source: catalog.json or mgu-repo.json at root. */
 function folderReader(root, ctx) {
     const readFile = (rel) => Promise.resolve().then(() => readInside(root, rel, SMALL)).catch((err) => {
@@ -1781,11 +1759,14 @@ function githubReader(s, ctx) {
     };
 
     /* The files under paths at commit, by the commit's tree (one API
-     * request, kept for the batch), each from raw.githubusercontent.com
-     * without a token, gzipped on the way, and checked against its git id;
-     * a file the batch holds by that id is not read again. Links and
-     * submodules are left out, as a tarball leaves them. Rejects when the
-     * first path is not there, or for more than PART_FILES files. */
+     * request, kept for the batch), from raw.githubusercontent.com without
+     * a token in one download child (PART_PARALLEL at a time, the largest
+     * first, over connections it keeps open), gzipped on the way, and
+     * checked against their git ids; a file the batch holds by that id is
+     * not read again. onProgress(bytes, total) in the files' own sizes, each
+     * file's share growing as its gzipped bytes come. Links and submodules
+     * are left out, as a tarball leaves them. Rejects when the first path is
+     * not there, or for more than PART_FILES files. */
     const partFiles = (commit, paths, onProgress) => {
         const batch = ctx.batch;
         const key = `${s.repo} ${commit}`;
@@ -1794,6 +1775,7 @@ function githubReader(s, ctx) {
             batch.trees.set(key, tree);
         }
         const inside = (rel, p) => rel === p || rel.indexOf(`${p}/`) === 0;
+        const sizeOf = (e) => Number(e.size) || 0;
         return tree.then((t) => {
             const want = t.entries.filter((e) => e.type === 'blob' && e.mode !== '120000' && !e.path.split('/').some(SKIP) &&
                 paths.some((p) => inside(e.path, p)));
@@ -1803,47 +1785,55 @@ function githubReader(s, ctx) {
             if (want.length > PART_FILES) {
                 throw new Error(`${want.length} files`);
             }
-            const total = want.reduce((n, e) => n + (Number(e.size) || 0), 0);
-            let done = 0;
-            // once a file fails, the reads still under way end without a word: the whole repo is read instead
-            let failed = false;
-            const read = (e) => {
-                const url = `${rawHost}/${s.repo}/${commit}/${encode(e.path)}`;
-                const size = Number(e.size) || 0;
-                // a file at a commit never changes, and is checked: a cut download goes on from where it
-                // stopped; one pieced together from cut tries that is not the file is read once more, whole
-                const get = (fresh) => counted(url, () => ctx.net.get(url, Object.assign({ Accept: 'application/octet-stream', 'Accept-Encoding': 'gzip' },
-                    ua(ctx.version)), path.posix.basename(e.path), size + 65536 + (size >> 3), null, ['content-encoding'], { immutable: true, fresh }))
-                    .then((b) => (/^gzip$/i.test(b.headers['content-encoding'] || '') ? tar.gunzipBounded(b, size) : Promise.resolve(b))
-                        .then((data) => (gitBlobId(data) === e.sha ? data : null), () => null)
+            const total = want.reduce((n, e) => n + sizeOf(e), 0);
+            const got = new Map(want.filter((e) => batch && batch.blobs.has(e.sha)).map((e) => [e, batch.blobs.get(e.sha)]));
+            const share = new Map(Array.from(got.keys()).map((e) => [e, sizeOf(e)]));
+            const show = () => {
+                if (onProgress) {
+                    onProgress(Array.from(share.values()).reduce((n, b) => n + b, 0), total);
+                }
+            };
+            show();
+            // a file at a commit never changes, and is checked: a cut download goes on from where it
+            // stopped; one pieced together from cut tries that is not the file is read once more, whole
+            const read = (list, fresh) => {
+                const urls = list.map((e) => `${rawHost}/${s.repo}/${commit}/${encode(e.path)}`);
+                return counted(urls[0], () => ctx.net.getAll(urls.map((url, k) => ({ url, name: path.posix.basename(list[k].path),
+                    maxBytes: sizeOf(list[k]) + 65536 + (sizeOf(list[k]) >> 3) })),
+                Object.assign({ Accept: 'application/octet-stream', 'Accept-Encoding': 'gzip' }, ua(ctx.version)),
+                { immutable: true, fresh, parallel: PART_PARALLEL }, (k, bytes, wire) => {
+                    if (wire) {
+                        share.set(list[k], Math.max(share.get(list[k]) || 0, Math.floor(sizeOf(list[k]) * Math.min(1, bytes / wire))));
+                        show();
+                    }
+                }, ['content-encoding']))
+                    .then((bufs) => Promise.all(bufs.map((b, k) => (/^gzip$/i.test(b.headers['content-encoding'] || '')
+                        ? tar.gunzipBounded(b, sizeOf(list[k])) : Promise.resolve(b))
+                        .then((data) => (gitBlobId(data) === list[k].sha ? data : null), () => null)
                         .then((data) => {
                             if (data) {
-                                return data;
+                                got.set(list[k], data);
+                                share.set(list[k], sizeOf(list[k]));
+                                return null;
                             }
                             if (b.resumed && !fresh) {
-                                return get(true);
+                                return list[k];
                             }
-                            throw new Error(`${e.path} is not the file the tree lists`);
-                        }));
-                return get(false)
-                    .then((data) => {
-                        if (batch && !failed) {
-                            batch.keep(e.sha, data);
-                        }
-                        return data;
+                            throw new Error(`${list[k].path} is not the file the tree lists`);
+                        }))))
+                    .then((again) => {
+                        show();
+                        again = again.filter(Boolean);
+                        return again.length ? read(again, true) : null;
                     });
             };
-            return pool(want, PART_PARALLEL, (e) => (batch && batch.blobs.has(e.sha) ? Promise.resolve(batch.blobs.get(e.sha)) : read(e))
-                .then((data) => {
-                    done += data.length;
-                    if (onProgress && !failed) {
-                        onProgress(done, total);
-                    }
-                    return { name: e.path, data, mode: e.mode === '100755' ? 0o755 : 0o644 };
-                }, (err) => {
-                    failed = true;
-                    throw err;
-                }));
+            const missing = want.filter((e) => !got.has(e)).sort((a, b) => sizeOf(b) - sizeOf(a));
+            return (missing.length ? read(missing, false) : Promise.resolve()).then(() => want.map((e) => {
+                if (batch) {
+                    batch.keep(e.sha, got.get(e));
+                }
+                return { name: e.path, data: got.get(e), mode: e.mode === '100755' ? 0o755 : 0o644 };
+            }));
         });
     };
 

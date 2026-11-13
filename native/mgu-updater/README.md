@@ -221,8 +221,11 @@ commit). Without one: `releases` when the repo has a release, else
   `build.shared` paths and the script) from
   `raw.githubusercontent.com`, gzipped on the way, each checked against its
   git id; a build that fails with only those runs again with the whole
-  repo. A build without `build.shared`, a private repo, or a tree or file
-  that cannot be read downloads the repo tarball at the commit
+  repo. One download process fetches them, six at a time, the largest
+  first, over connections it keeps open, and the progress counts each
+  file's share of their total size as its bytes come. A build without
+  `build.shared`, a private repo, or a tree or file that cannot be read
+  downloads the repo tarball at the commit
   (`/tarball/<sha>`, at most `repo_max_bytes`; links in it are left out).
   While queued installs run, the tree, the files (by git id, up to 64 MB)
   and the last tarball are kept for the next ones, so an Update all reads

@@ -736,6 +736,15 @@ class Fetcher {
         return this.request(Object.assign({ url, headers, name, maxBytes, onProgress, keep }, opts || {}));
     }
 
+    /* get() of several files at once, in one child: files [{ url, name,
+     * maxBytes }], each with headers and opts; resolves with their bytes in
+     * files' order (each with .headers, keep's, and .resumed). onProgress(i,
+     * bytes, total) as file i comes, and when it is done. Fails with the
+     * first file that fails. */
+    getAll(files, headers, opts, onProgress, keep) {
+        return this.request(Object.assign({ files, headers, onProgress, keep }, opts || {}));
+    }
+
     /* get() for an answer that carries an ETag: asked for again with
      * If-None-Match, a 304 (unchanged; GitHub does not count it against a
      * token's rate limit) gives the body kept from before. Bodies of at most
@@ -802,7 +811,10 @@ class Fetcher {
         if (process.getuid() === 0) {
             fs.chownSync(dir, this.uid, this.gid);
         }
-        const dest = path.join(dir, name);
+        const dest = path.join(dir, name || 'download');
+        // a set's files by their index: names alone may repeat
+        const files = job.files && job.files.map((f, i) => Object.assign({}, f, { dest: path.join(dir, String(i)) }));
+        const got = files && [];
         return new Promise((resolve, reject) => {
             const child = cp.spawn(process.execPath, [path.join(HERE, 'fetch.js')],
                 this.asFetchUid({ stdio: ['pipe', 'pipe', 'inherit'], cwd: dir, env: {} }));
@@ -821,14 +833,30 @@ class Fetcher {
                     } catch (e) {
                         continue;
                     }
-                    if (ev.progress !== undefined && onProgress) {
-                        onProgress(ev.progress, ev.total || maxBytes || null);
+                    if (files && ev.file !== undefined && ev.done) {
+                        // read as it comes: what a later failure leaves is not needed
+                        try {
+                            got[ev.file] = Object.assign(this.collect(files[ev.file].dest, files[ev.file].maxBytes),
+                                { headers: ev.headers || {}, resumed: !!ev.resumed });
+                            if (onProgress) {
+                                onProgress(ev.file, ev.bytes, ev.bytes);
+                            }
+                        } catch (err) {
+                            result = { error: err.message };
+                            child.kill();
+                        }
+                    } else if (ev.progress !== undefined && onProgress) {
+                        if (files) {
+                            onProgress(ev.file, ev.progress, ev.total || null);
+                        } else {
+                            onProgress(ev.progress, ev.total || maxBytes || null);
+                        }
                     } else if (ev.certDates) {
                         this.datesIgnored(ev.certDates, ev.error);
                     } else if (ev.retry) {
-                        console.log(`fetch: ${name}: ${ev.error}; trying again in ${ev.after / 1000} s` +
+                        console.log(`fetch: ${files && ev.file !== undefined && files[ev.file] ? files[ev.file].name : name}: ${ev.error}; trying again in ${ev.after / 1000} s` +
                             `${ev.from ? ` from byte ${ev.from}` : ''}`);
-                    } else if (ev.done || ev.error || ev.notModified) {
+                    } else if ((ev.done || ev.error || ev.notModified) && !(result && result.error)) {
                         result = ev;
                         if (this.conf.proxy) {
                             this.noteProxy(ev.error && /^proxy /.test(ev.error) ? ev.error : ev.error ? this.proxyError : null);
@@ -840,6 +868,8 @@ class Fetcher {
             child.on('close', () => {
                 if (result && result.notModified) {
                     resolve(Object.assign(Buffer.alloc(0), { headers: result.headers || {}, notModified: true }));
+                } else if (result && result.done && files) {
+                    resolve(got);
                 } else if (result && result.done) {
                     try {
                         resolve(Object.assign(this.collect(dest, maxBytes), { headers: result.headers || {}, resumed: !!result.resumed }));
@@ -854,7 +884,8 @@ class Fetcher {
             });
             child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, lease: this.conf.lease || undefined, ca: this.ca,
                 method: job.method || 'GET', body: job.body, keep: job.keep || [], proxy: this.conf.proxy || undefined,
-                immutable: !!job.immutable, fresh: !!(job.fresh || this.fresh) }));
+                immutable: !!job.immutable, fresh: !!(job.fresh || this.fresh),
+                files: files ? files.map((f) => ({ url: f.url, dest: f.dest, maxBytes: f.maxBytes })) : undefined, parallel: job.parallel }));
         }).then((bytes) => {
             this.retire(dir);
             return bytes;

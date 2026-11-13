@@ -1,13 +1,19 @@
 'use strict';
 /**
- * One HTTPS download, run by the updater as a child process under the
- * fetch uid (uids.js): the only identity the apps-only
+ * One HTTPS download, or a set of them, run by the updater as a child
+ * process under the fetch uid (uids.js): the only identity the apps-only
  * uplink lets out, and one that can write nothing but its download folder.
  * Node 8.
  *
  * stdin: one JSON job
  *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], lease, ca, method, body, keep,
- *     connectMs, idleMs, retryMs, proxy, immutable, fresh }
+ *     connectMs, idleMs, retryMs, proxy, immutable, fresh, files, parallel }
+ *   files: GETs of several files, [{ url, dest, maxBytes }, ...], each
+ *   with the job's other settings, at most parallel (4) at a time over
+ *   connections kept open for the next file of the same host. Each file's
+ *   events carry its index as file; after its done the next starts. A
+ *   file's error ends the job with that error (and its file); { done: true }
+ *   ends it once every file is done.
  *   dns: resolve host names through these servers (the uplink lease's);
  *   empty: the system resolver. lease: the uplink's lease file, read again
  *   for each try: its dns servers replace dns, and a try without one fails
@@ -90,11 +96,35 @@ const IDLE_MS = 30000;
 const RETRIES = 4;             // tries in a row that get no further, after the first
 const RETRY_MS = 1000;         // the wait before the first of them, doubled for each after
 const RETRY_STATUS = [500, 502, 503, 504];
+const PARALLEL = 4;          // a set's files under way at once
 const NO_SUCH_NAME = ['ENOTFOUND', 'ENODATA'];
 const DATE_ERRORS = ['CERT_NOT_YET_VALID', 'CERT_HAS_EXPIRED'];
 
 function emit(obj) {
     process.stdout.write(JSON.stringify(obj) + '\n');
+}
+
+/* An event of job's: of its file, in a set of files. */
+function tell(job, obj) {
+    emit(job.file === undefined ? obj : Object.assign({ file: job.file }, obj));
+}
+
+/* Connections for a job's requests, kept open for the next request to the
+ * same host. Each is made by connect() with the dns the job's try set last;
+ * its failure carries connectFailed. Node 8 counts a connection only once
+ * it is made, so the job itself bounds how many requests run at once. */
+class Connections extends https.Agent {
+    constructor(job) {
+        super({ keepAlive: true });
+        this.job = job;
+        this.dns = job.dns;
+    }
+
+    createConnection(options, cb) {
+        connect(Object.assign({}, this.job, { dns: this.dns }), { hostname: options.host, port: options.port }, (err, sock) => {
+            cb(err ? Object.assign(err, { connectFailed: true }) : null, sock);
+        });
+    }
 }
 
 function lookupVia(servers) {
@@ -218,15 +248,7 @@ function get(job, url, headers, hops, from, validator, finish) {
         finish({ error: `refusing ${target.protocol} URL` });
         return;
     }
-    connect(job, target, (err, sock) => {
-        if (err) {
-            // a proxy's error names the proxy
-            finish({ error: err.proxy ? err.message : `${target.hostname}: ${err.code || err.message}`,
-                retry: !err.refused && NO_SUCH_NAME.indexOf(err.code) < 0 });
-            return;
-        }
-        request(job, url, target, headers, hops, sock, from, validator, finish);
-    });
+    request(job, url, target, headers, hops, from, validator, finish);
 }
 
 /* What lets a cut download ask for the rest, when the response says it
@@ -242,7 +264,7 @@ function validatorOf(job, res) {
     return ifRange || job.immutable ? { ifRange, encoding: res.headers['content-encoding'] || '' } : null;
 }
 
-function request(job, url, target, headers, hops, sock, from, validator, settle) {
+function request(job, url, target, headers, hops, from, validator, settle) {
     const host = target.hostname;
     const post = hops === 0 && job.method === 'POST';
     const body = post ? Buffer.from(String(job.body || '')) : null;
@@ -268,14 +290,13 @@ function request(job, url, target, headers, hops, sock, from, validator, settle)
         port: target.port || 443,
         path: target.pathname + target.search,
         headers: post ? Object.assign({}, headers, { 'Content-Length': body.length }) : headers,
-        createConnection: () => sock
+        agent: job.agent
     }, (res) => {
         wait();
         if (!post && [301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
             res.resume();
             clearTimeout(timer);
             stop = () => {};   // the next host's request answers from here
-            sock.destroy();
             if (hops >= MAX_REDIRECTS) {
                 finish({ error: 'too many redirects' });
                 return;
@@ -352,7 +373,7 @@ function request(job, url, target, headers, hops, sock, from, validator, settle)
             }
             if (Date.now() - last > 250) {
                 last = Date.now();
-                emit({ progress: bytes, total });
+                tell(job, { progress: bytes, total });
             }
         });
         // Node before 8.10 (the 2019 MGU's 8.9.4) also says aborted when the connection
@@ -380,14 +401,23 @@ function request(job, url, target, headers, hops, sock, from, validator, settle)
             finish(failure);
         });
     });
-    req.on('error', (err) => lost(`${host}: ${err.code || err.message}`));
+    req.on('error', (err) => {
+        if (!err.connectFailed) {
+            lost(`${host}: ${err.code || err.message}`);
+            return;
+        }
+        // a proxy's error names the proxy
+        finish({ error: err.proxy ? err.message : `${host}: ${err.code || err.message}`,
+            retry: !err.refused && NO_SUCH_NAME.indexOf(err.code) < 0 });
+    });
+    // the connection has connectMs of its own
+    req.on('socket', wait);
     req.end(body || undefined);
-    wait();
 }
 
 /* job, tried again while the connection fails, from where the last try
- * stopped when the server takes byte ranges; one result emitted. */
-function download(job) {
+ * stopped when the server takes byte ranges; end(result) once. */
+function download(job, end) {
     const retryMs = job.retryMs || RETRY_MS;
     let tries = 0;
     let misses = 0;
@@ -434,7 +464,7 @@ function download(job) {
                 return;
             }
             const after = retryMs * Math.pow(2, Math.max(0, misses - 1));
-            emit({ retry: tries, error: r.error, from, after });
+            tell(job, { retry: tries, error: r.error, from, after });
             setTimeout(next, after);
         };
         // the network's servers now: a network joined since the job started has its own
@@ -443,7 +473,8 @@ function download(job) {
             tried({ error: 'no internet (the uplink is down)', retry: true });
             return;
         }
-        get(Object.assign({}, job, { dns }), job.url, headers, 0, from, from > 0 ? validator : null, tried);
+        job.agent.dns = dns;
+        get(job, job.url, headers, 0, from, from > 0 ? validator : null, tried);
     };
     const finishAll = (r) => {
         delete r.retry;
@@ -452,10 +483,49 @@ function download(job) {
         if (r.error && tries > 1) {
             r.error += ` (${tries} tries)`;
         }
-        // a name lookup still under way would keep the process, and the updater waiting, for minutes
-        process.stdout.write(JSON.stringify(r) + '\n', () => process.exit(r.error ? 1 : 0));
+        end(r);
     };
     next();
+}
+
+/* job's files, at most job.parallel at a time; end(result) once: the first
+ * file's error, else { done: true }. */
+function downloadAll(job, end) {
+    const files = job.files;
+    let next = 0;
+    let left = files.length;
+    let over = !left;
+    const one = () => {
+        if (over || next >= files.length) {
+            return;
+        }
+        const i = next++;
+        download(Object.assign({}, job, files[i], { file: i, files: undefined }), (r) => {
+            if (over) {
+                return;
+            }
+            if (r.error) {
+                over = true;
+                end(Object.assign({ file: i }, r));
+                return;
+            }
+            tell({ file: i }, r);
+            left -= 1;
+            if (!left) {
+                over = true;
+                end({ done: true });
+                return;
+            }
+            // the connection is free for the next file once the answer has ended
+            setImmediate(one);
+        });
+    };
+    if (over) {
+        end({ done: true });
+    }
+    for (let k = 0; k < Math.max(1, Math.min(job.parallel || PARALLEL, files.length)); k++) {
+        one();
+    }
 }
 
 /* The dns servers of the lease file at file; null without a lease. */
@@ -483,6 +553,8 @@ if (require.main === module) {
             process.exitCode = 2;
             return;
         }
-        download(job);
+        job.agent = new Connections(job);
+        // a name lookup still under way would keep the process, and the updater waiting, for minutes
+        (job.files ? downloadAll : download)(job, (r) => process.stdout.write(JSON.stringify(r) + '\n', () => process.exit(r.error ? 1 : 0)));
     });
 }
