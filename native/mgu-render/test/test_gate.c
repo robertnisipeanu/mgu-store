@@ -1,4 +1,4 @@
-/* The renderer's side of the foreground gate: its reports, its end, and "unavailable". */
+/* The renderer's side of the foreground gate: its reports, the covered apps, its end, and "unavailable". */
 #include <poll.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -20,9 +20,17 @@ static void drain(void)
 
 int main(void)
 {
-    gate_start("printf 'foreground 12204\\n' >&3; sleep 0.2");
+    gate_start("printf 'foreground 12204 12205\\ncovered 12204\\n' >&3; sleep 0.5");
+    for (int i = 0; i < 20 && !gate_covered(12204); i++) {
+        struct pollfd p = { gate_fd(), POLLIN, 0 };
+        poll(&p, 1, 100);
+        gate_read();
+    }
+    CHECK(gate_front(12204) && gate_front(12205), "in front");
+    CHECK(gate_covered(12204) && !gate_covered(12205), "12204 covered, 12205 not");
     drain();
     CHECK(gate_fd() < 0, "the gate ended");
+    CHECK(!gate_covered(12204) && !gate_front(12204), "an ended gate: nothing in front or covered");
     CHECK(!gate_unavailable(), "a gate that reported is not unavailable");
 
     gate_start("printf 'unavailable\\n' >&3");

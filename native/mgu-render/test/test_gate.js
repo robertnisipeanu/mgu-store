@@ -1,10 +1,11 @@
 'use strict';
-/* The foreground gate's interface description: the files it is found in, in order, and none. */
+/* The foreground gate's interface description: the files it is found in, in order, and none; which apps it
+ * reports in front and covered for the HMI's events. */
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { findInterface, readApps } = require('../js/foreground_gate.js');
+const { findInterface, readApps, startGate, COVER_SETTLE_MS } = require('../js/foreground_gate.js');
 
 const ID7 = 'de_bmw_infotainment_hmi_remote_RemoteHmiApplication.json';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
@@ -72,5 +73,54 @@ fs.rmSync(`${apps}/oap_12201/data/apps/robertn_store_copy.json`);
 put(`${apps}/oap_12201/data/apps/broken.json`, '{ not json');
 check('a broken registry entry is passed over', mapped(), [['other', 12211], ['store', 12246]]);
 
-fs.rmSync(root, { recursive: true, force: true });
-console.log(`test_gate.js: ${checks} checks passed`);
+// in front and covered, for the HMI's events as an iDrive 7 sends them (instance 10: the Store, uuid 'store')
+const subs = {};
+const someip = {
+    buildProxy: (cfg, name) => Promise.resolve({
+        init: () => Promise.resolve(),
+        subscribeToAvailability: () => {},
+        subscribe: (s) => { subs[`${name} ${s.name}`] = s.onReceive; return Promise.resolve(); },
+        getValue: () => Promise.resolve(name === 'RemoteHmiApplicationInst10' ? 'store' : 'none')
+    })
+};
+const lines = [];
+startGate({ someip, interfaceConfig: { instances: { RemoteHmiApplicationInst10: 1, RemoteHmiApplicationInst11: 2 } },
+    appsDir: apps, write: (l) => lines.push(l.trim()), log: () => {} });
+const stack = (ids) => subs['RemoteHmiApplicationInst10 applicationStack'](new Map(ids ? [['ROOT_APP', ids]] : []));
+const ev = (eventType, sourceId, value) => subs['RemoteHmiApplicationInst10 notify'](
+    { eventType, sourceId, parameterMap: new Map([[0, { booleanValue: value }]]) });
+const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms === undefined ? COVER_SETTLE_MS + 50 : ms));
+const since = (n) => lines.splice(0).slice(n);
+
+(async () => {
+    await settle(0);
+    check('nothing in front at start', since(0), ['foreground']);
+    ev('VISIBLE', 54, true); ev('FOCUS', 54, true); stack([54]);
+    await settle();
+    check('the Store opened', since(0), ['foreground 12246']);
+    ev('FOCUS', 54, false); ev('VISIBLE', 55, true); ev('FOCUS', 55, true); stack([54, 55]);
+    await settle();
+    check('a page opening in it does not cover it', since(0), []);
+    ev('FOCUS', 1300, false);
+    ev('FOCUS', 55, false);
+    await settle(COVER_SETTLE_MS / 3);
+    check('a popup: not yet', since(0), []);
+    await settle();
+    check('a popup covers it once it stays', since(0), ['covered 12246']);
+    ev('FOCUS', 55, true);
+    check('the popup gone: uncovered at once', since(0), ['covered']);
+    ev('FOCUS', 55, false); ev('FOCUS', 55, true);
+    await settle();
+    check('focus back within the settle time: no report', since(0), []);
+    ev('FOCUS', 55, false);
+    await settle();
+    since(0);
+    ev('VISIBLE', 55, false); ev('VISIBLE', 54, false); stack([55]); stack();
+    await settle();
+    check('it leaves while covered: neither in front nor covered', since(0), ['foreground', 'covered']);
+    ev('VISIBLE', 54, true); ev('FOCUS', 54, true); stack([54]);
+    await settle();
+    check('back again, not covered', since(0), ['foreground 12246']);
+    fs.rmSync(root, { recursive: true, force: true });
+    console.log(`test_gate.js: ${checks} checks passed`);
+})().catch((e) => { console.error(e); process.exit(1); });
