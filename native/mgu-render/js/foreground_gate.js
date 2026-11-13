@@ -26,7 +26,7 @@
  *   foreground [uid ...]
  *
  * An app in front is covered while the HMI shows something over it that
- * takes the input: a popup (check control, a warning), the header menu, or
+ * takes the input: a popup, the header menu, the voice assistant, or
  * another screen opened from there. The HMI then takes the focus from the
  * app's states (its notify event: FOCUS false for the state's id; the
  * states' ids are the ones in its applicationStack and the ones the HMI
