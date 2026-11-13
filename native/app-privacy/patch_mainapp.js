@@ -370,6 +370,31 @@ const PATCH_SETS_8_2_10 = {
     appmanagement: APPMANAGEMENT_PATCHES
 };
 
+// oap-mainapp 8.2.0. It has no platform analytics and no
+// AppManagementController sweep; its update-availability sweep is
+// AppsAutoupdater._areUpdatesAvailable, a forEach over the registry. Its
+// crash recovery declares appCorruptInfo and recoveryAction in one const
+// list, so the gate ends that list after appCorruptInfo and recoveryAction
+// is picked after the gate, by the counter the gate leaves; the gate
+// precedes no analytics event. Its other edits are 8.3.2's.
+const KNOWN_SHA256_8_2_0 = {
+    main: '1b18dc65dfa79352e0fb4baa0f06960831207f81775c75c77764af8bec5f34ca',
+    appmanagement: 'd354b0f7fd4d4c396df62fce4d90495a0335ffb1c2225a27ac9178882dc6115c'
+};
+const CRASH_GATE_AFTER_8_2_0 = 'recoveryAction={0:';
+const MAIN_EDITS_8_2_0 = {
+    'update-availability-sweep': edit('update-availability-sweep', 'helper:AppsAutoupdater',
+        ins('return this._appRegistry.getAll()', KEEP_APP, '.forEach(app=>{checkUpdateAvailablePromises', 1)),
+    'crash-gate': edit('crash-gate', 'helper:CorruptAppsHandler', [
+        CRASH_GATE_BEFORE.slice(0, -1) + ',' + CRASH_GATE_AFTER_8_2_0,
+        CRASH_GATE_BEFORE + crashGateJs('CorruptAppsHandler::_tryRecoverApp', '', '') + 'const ' + CRASH_GATE_AFTER_8_2_0, 1])
+};
+const PATCH_SETS_8_2_0 = {
+    main: MAIN_PATCHES.filter((p) => ['helper:AppManagementController', 'analytics-install'].indexOf(EDIT_INFO.get(p).id) < 0)
+        .map((p) => MAIN_EDITS_8_2_0[EDIT_INFO.get(p).id] || p),
+    appmanagement: APPMANAGEMENT_PATCHES
+};
+
 // MainApp-21 (iDrive 8). Its predicate decides an app MainApp-21 is
 // installing by MainApp-21's own preinstalled_apps; registry, app folders
 // and override list are where iDrive 7 has them.
@@ -532,6 +557,7 @@ const UNITS = {
     ID7: { paths: DEFAULT_PATHS, mainapps: [
         { version: '8.3.2', sets: { current: PATCH_SETS, earlier: EARLIER_PATCH_SETS }, known: KNOWN_SHA256 },
         { version: '8.2.10', sets: { current: PATCH_SETS_8_2_10, earlier: [] }, known: KNOWN_SHA256_8_2_10 },
+        { version: '8.2.0', sets: { current: PATCH_SETS_8_2_0, earlier: [] }, known: KNOWN_SHA256_8_2_0 },
         { version: '8.1.1', sets: { current: PATCH_SETS_8_1_1, earlier: [] }, known: KNOWN_SHA256_8_1_1 },
         { version: '6.5.5', sets: { current: PATCH_SETS_8_1_1, earlier: [] }, known: KNOWN_SHA256_6_5_5 }
     ] },
@@ -1357,6 +1383,7 @@ function main(argv) {
 module.exports = {
     VERSION, MARKER_KEY, OVERRIDE_FILE, PREINSTALLED_DIR, HELPER_JS, PATCH_SETS, EARLIER_PATCH_SETS, KNOWN_SHA256,
     PATCH_SETS_8_1_1, KNOWN_SHA256_8_1_1, KNOWN_SHA256_6_5_5, PATCH_SETS_8_2_10, KNOWN_SHA256_8_2_10,
+    PATCH_SETS_8_2_0, KNOWN_SHA256_8_2_0,
     PREINSTALLED_DIR_21, HELPER_JS_21, PATCH_SETS_21, KNOWN_SHA256_21,
     PATCH_SETS_21_9_2_15, KNOWN_SHA256_21_9_2_15,
     UNITS, unitOf, bundlePathFor, resolveBundlePaths,
