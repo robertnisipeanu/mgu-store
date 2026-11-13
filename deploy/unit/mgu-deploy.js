@@ -4489,7 +4489,7 @@ function managerReason(err) {
 function installInPlace(a, existing) {
     var action = existing ? 'update' : 'install', q = inplaceAsk(a.id, a.version, action);
     if (!q.pid) return { why: q.why };
-    var m = { pid: q.pid }, id = q.id, st = q.st, poll = Math.min(CFG.watchPollMs, 250);
+    var m = { pid: q.pid }, id = q.id, st = q.st, poll = Math.min(CFG.watchPollMs, 1000);
     var doneAt = null, t0 = Date.now(), reported = t0, s, cur;
     var secs = function () { return Math.round((Date.now() - t0) / 1000) + 's'; };
     for (;;) {
@@ -5046,7 +5046,7 @@ function cleanNpmCache(id) {
 function uninstallInPlace(id, version) {
     var q = inplaceAsk(id, version, 'uninstall');
     if (!q.pid) return { why: q.why };
-    var st = q.st, t0 = Date.now(), reported = t0, poll = Math.min(CFG.watchPollMs, 250), cur;
+    var st = q.st, t0 = Date.now(), reported = t0, poll = Math.min(CFG.watchPollMs, 1000), cur;
     var secs = function () { return Math.round((Date.now() - t0) / 1000) + 's'; };
     for (;;) {
         if (st.state === 'running' && Date.now() - reported >= CFG.inplaceReportMs) {

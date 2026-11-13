@@ -2895,14 +2895,14 @@ class Updater {
                     this.checkUids();
                 }
             };
-            const build = (got) => Promise.resolve().then(() => prepare(got)).then((made) => donorLookup
+            const build = (got, lookup) => Promise.resolve().then(() => prepare(got)).then((made) => lookup
                     // a network build's proxy runs as the fetch uid: once the uplink lets it out
                     .then((donor) => new Promise((resolve) => setTimeout(resolve, Math.max(0, (this.fetcher.notBefore || 0) - Date.now())))
                         .then(() => donor))
                     .then((donor) => runBuild({ conf: this.conf, entry: made.entry, files: made.files, donor: donor.path, sdk: donor.module,
                         lease: readLease(this.conf), log: (l) => console.log(l) })));
             // a build that fails with only the files it names is run again with the whole repo
-            return build(first)
+            return build(first, donorLookup)
                 .catch((err) => {
                     if (!first.partial) {
                         throw err;
@@ -2913,7 +2913,7 @@ class Updater {
                     return files(null).then((whole) => {
                         this.busy.phase = 'build';
                         this.changed();
-                        return build(whole);
+                        return build(whole, this.sdkDonor());
                     });
                 })
                 .then((bytes) => {
