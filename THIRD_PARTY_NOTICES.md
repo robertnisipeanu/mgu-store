@@ -14,6 +14,7 @@ the `LICENSES.txt` its build writes.
 | Wayland ivi-application / ivi-controller protocols (DENSO, BMW Car IT) | `native/mgu-render/protocol` | MIT | in each XML file |
 | Inter font (The Inter Project Authors) | `apps/robertn_store/src`, `apps/robertn_store/package/fonts` | SIL Open Font License 1.1 | `apps/robertn_store/src/LICENSE-Inter.txt` |
 | Noto Sans SC, TC, JP and KR fonts (Adobe) | `apps/robertn_store/package/fonts/chinese.json`, `chinese-tc.json`, `japanese.json`, `korean.json` | SIL Open Font License 1.1 | `apps/robertn_store/src/LICENSE-NotoSansSC.txt`, `LICENSE-NotoSansTC.txt`, `LICENSE-NotoSansJP.txt`, `LICENSE-NotoSansKR.txt` |
+| Lucide icons (Lucide Icons and Contributors; some derived from Feather, Cole Bemis) | `apps/robertn_store/src/font_icons.js` | ISC; MIT (Feather) | `apps/robertn_store/src/LICENSE-Lucide.txt` |
 | QR Code generator (Project Nayuki) | `apps/robertn_store/src/qrcodegen.js` | MIT | `apps/robertn_store/src/LICENSE-qrcodegen.txt` |
 | netlink, netns (vishvananda) | `native/mgu-uplink` (Go modules) | Apache-2.0 | `native/mgu-uplink/LICENSES.txt` |
 | golang.org/x/sys, Go runtime and standard library (The Go Authors) | `native/mgu-uplink` (built into the binary) | BSD-3-Clause | `native/mgu-uplink/LICENSES.txt` |

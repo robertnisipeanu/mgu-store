@@ -87,15 +87,15 @@ function itemsOf(st, page) {
         if (c.gpu === 'sideNav') {
             const list = navItems(o);
             const ih = b.h / Math.max(1, list.length);
-            list.forEach((it, i) => items.push({ x: b.x + 8, y: b.y + i * ih + 8, w: b.w - 24, h: ih - 16, r: 16, label: it.label, act: it.act }));
+            list.forEach((it, i) => items.push({ x: b.x + 12, y: b.y + i * ih + 8, w: b.w - 24, h: ih - 16, r: 16, label: it.label, act: it.act }));
         } else if (c.gpu === 'vbutton') {
             if (o.act && !o.disabled) {
                 const round = o.style === 'round';
-                items.push({ x: b.x, y: b.y, w: b.w, h: b.h, r: round ? b.w / 2 : Math.min(18, b.h / 2), label: o.text || 'Back', act: o.act });
+                items.push({ x: b.x, y: b.y, w: b.w, h: b.h, r: round ? Math.min(b.w, b.h) * 0.28 : Math.min(18, b.h / 2), label: o.text || 'Back', act: o.act });
             }
         } else if (c.gpu === 'tabs') {
             const t = tabCells(b, o);
-            String(o.items).split(',').forEach((label, i) => items.push({ x: b.x + i * (t.cw + t.gap), y: b.y, w: t.cw, h: b.h, r: 14,
+            String(o.items).split(',').forEach((label, i) => items.push({ x: b.x + i * (t.cw + t.gap), y: b.y, w: t.cw, h: b.h, r: o.radius || 14,
                 label: label.trim(), act: (o.acts || [])[i] }));
         } else if (c.gpu === 'appGrid') {
             const g = gridView(b, o);
@@ -123,8 +123,8 @@ function itemsOf(st, page) {
                 if (it.chipAct) {
                     const chip = rightBoxes({ x: b.x, y, w: b.w, h: v.rh - gap }, it, measure, o.ctlK).find((rb) => rb.kind === 'chip');
                     if (chip) {
-                        const ch = 72 * (o.ctlK || 1);
-                        items.push({ x: chip.x, y: y + (v.rh - gap - ch) / 2, w: chip.w - 12, h: ch, r: ch / 2, label: chip.arg, act: it.chipAct, reveal, box: b,
+                        const k = o.ctlK || 1, ch = 50 * k;
+                        items.push({ x: chip.x, y: y + (v.rh - gap - ch) / 2, w: chip.w - 24 * k, h: ch, r: 13 * k, label: chip.arg, act: it.chipAct, reveal, box: b,
                             list: key });
                     }
                 }

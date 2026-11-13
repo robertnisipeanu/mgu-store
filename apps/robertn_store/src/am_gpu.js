@@ -39,7 +39,11 @@ const DRAW = {
             y += Math.max(1, W.wrap(cv, para, b.x, y, b.w, o.size, pc, room, o.font)) * o.size * 1.25;
         }
     },
-    rect: (cv, t, b, o) => cv.roundRect(b.x, b.y, b.w, b.h, Math.min(o.radius || 0, b.w / 2, b.h / 2), t[o.color] || o.color || t.panelTop),
+    rect: (cv, t, b, o) => {
+        const r = Math.min(o.radius || 0, b.w / 2, b.h / 2);
+        if (r) W.lit(cv, b.x, b.y, b.w, b.h, r, t[o.color] || o.color || t.panelTop);       // a panel: a card, its edge lit
+        else cv.roundRect(b.x, b.y, b.w, b.h, r, t[o.color] || o.color || t.panelTop);
+    },
     line: (cv, t, b, o) => cv.line(b.x, b.y, b.x + b.w, b.y + b.h, o.width || 2, t[o.color] || o.color || t.dim),
     ...W.DRAW,
     ...S.DRAW,

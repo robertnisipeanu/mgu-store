@@ -95,7 +95,7 @@ screens out for the box itself at full size. Text is
 Inter (SIL OFL, `src/LICENSE-Inter.txt`), baked by `tools/bake_fonts.py`;
 the atlases are at most 1024 px wide and use about a quarter of the
 renderer's glyph texture, which all apps share. Nothing from the HMI is
-drawn: icons are the kit's vector icons or package pictures.
+drawn: icons are Lucide's or package pictures.
 
 **The HMI's own widgets** (below) whenever the renderer is not there, not
 yet answering at start (1.5 s), or gone (the Store installs or updates it):
@@ -414,15 +414,17 @@ src/am_gpu.js, src/am_elements.js, src/am_widgets.js, src/am_store_widgets.js
 locales/<code>.json        a language's words (README "Languages")
 src/i18n.js                the words in the display language
 src/locales.js             the languages, written by tools/gen_locales.js
-src/kit_*.js               the kit: record, canvas, vicons, png, themes (MIT, src/LICENSE-kit.txt);
+src/kit_*.js               the kit: record, canvas, png, themes (MIT, src/LICENSE-kit.txt); kit_vicons.js draws the icons;
                            kit_fonts.js maps its families onto Inter, and a language's font onto its own atlases
 src/font_regular.js, src/font_semibold.js   Inter glyph atlases (tools/bake_fonts.py)
+src/font_icons.js          Lucide's icons as glyph atlases (tools/bake_icons.py; ISC, src/LICENSE-Lucide.txt)
 package/fonts/<font>.json   a language's glyph atlases (tools/bake_inter.py, tools/bake_cjk.py)
 lib/mgu_render_client.js   mgu-render's client, copied by tools/build.js
 tools/gen_locales.js       src/locales.js from locales/*.json
 tools/gen_rhmi.js          application.xml + uiDescription.json for iDrive 7 and 8 from one table, and the RHMI texts
 tools/build.js             languages, RHMI, lib/, the source package, and given a donor the OAP tgz
 tools/bake_fonts.py        the Inter atlases (Pillow, Inter 4.1's TTFs)
+tools/bake_icons.py        the icon atlases (Pillow, fontTools, lucide-static 1.72.0's font)
 tools/bake_inter.py        the Latin, Greek, Cyrillic and Vietnamese atlases (Pillow, Inter 4.1's TTFs)
 tools/bake_cjk.py          the Noto Sans SC, TC, JP and KR atlases (Pillow, google/fonts' TTFs, SHA-256 checked)
 tools/gen_screens.py       src/am_screens.js from App Manager 2's screens.json

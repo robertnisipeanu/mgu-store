@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+The drawn screens look cleaner. Icons are Lucide's. An app's letter tile is
+flat with a lit edge, and a download shows as a ring inside the dimmed
+icon. Buttons are raised; rows, panels and dialogs have a lit edge; a row's
+state is a pill with an icon. The header's controls share one height, the
+Access rows are one list, the switch is square, and the on-screen keyboard's
+keys are flat, tinted by what they do. The QR codes sit in the middle of
+their cards.
+
 ## 0.9.40
 
 On the drawn screens, Store has Leave safe mode in the deploy tool's
