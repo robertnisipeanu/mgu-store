@@ -384,6 +384,7 @@ gpu.fps(30);                                        // optional: at most 30 fram
 gpu.on('tick', () => gpu.frame(recorder));          // kit Recorder, or gpu.frameWords(ops)
 gpu.on('state', (s) => { /* { mode, onScreen, front } */ });
 gpu.on('touch', (phase, x, y) => { /* in claimed areas: gpu.claim([...]) */ });
+// gpu.fingers(true): every finger instead, as gpu.on('finger', (phase, id, x, y) => ...) (info.fingers)
 gpu.connect();
 ```
 

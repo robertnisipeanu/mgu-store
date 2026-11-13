@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Multi-touch: a gesture in a claim keeps every finger until the last one is up; a native app that sends X_FINGERS 1 gets
+  each finger with its id (X_FINGER, `fingers()` / `finger` in the JS client, caps bit 64). TOUCH stays the first finger's.
+- Touch: a finger whose UP was lost (missing from a report, or down again) is let go with an UP to its app first.
 - Build: the build image's tag is a hash of its definition, so builds from different definitions never share an image.
 - The car test's `reboot` records the restart for the deploy tool's safe mode before it asks for it.
 No changes.
