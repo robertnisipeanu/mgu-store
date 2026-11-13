@@ -7,7 +7,8 @@
  * (FIRMWARE_MAINAPP_DIR names iDrive 7's folder, FIRMWARE_MAINAPP21_DIR
  * iDrive 8's MainApp-21, 9.3.4 or 9.2.15, FIRMWARE_MAINAPP_8_1_1_DIR
  * iDrive 7's MainApp 8.1.1, FIRMWARE_MAINAPP_8_2_10_DIR its 8.2.10,
- * FIRMWARE_MAINAPP_6_5_5_DIR its 6.5.5); each is skipped otherwise.
+ * FIRMWARE_MAINAPP_8_2_0_DIR its 8.2.0, FIRMWARE_MAINAPP_6_5_5_DIR its
+ * 6.5.5); each is skipped otherwise.
  */
 const assert = require('assert');
 const childProcess = require('child_process');
@@ -308,6 +309,21 @@ test('the MainApp 8.2.10 patch set is recorded', () => {
         '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
 });
 
+// sha256 of JSON.stringify(PATCH_SETS_8_2_0) as released, and of MainApp
+// 8.2.0's bundles as it patches them.
+const PATCH_SETS_8_2_0_SHA256 = '060a699c20e2fdd7d95584aad7a547560bc30a2625e2ce22830a1a19e9fc0050';
+const PATCHED_8_2_0_SHA256 = {
+    main: '8af837208daacb87d2f76a597b697ea7984a738bd61ed2f372a7920c4e97e4a4',
+    appmanagement: '0b7e7fad43493f88dbf321e5315c623eb26fcad767de0c218e4d4ebb775e9db7'
+};
+
+test('the MainApp 8.2.0 patch set is recorded', () => {
+    const sha = setsSha(patcher.PATCH_SETS_8_2_0);
+    assert.strictEqual(sha, PATCH_SETS_8_2_0_SHA256,
+        'PATCH_SETS_8_2_0 differs from the released one: keep the released sets as 8.2.0\'s earlier release ' +
+        '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
+});
+
 // sha256 of JSON.stringify(PATCH_SETS_21_9_2_15) as shipped by 1.6.1, and of
 // MainApp-21 9.2.15's bundles as it patches them.
 const PATCH_SETS_21_9_2_15_SHA256 = '9ada4eaecdba9320ee00d699758d84960e59bee09a1b37aca29c0cb1d4cdc03f';
@@ -341,10 +357,10 @@ function withReleaseBundles(unit, sets, fn) {
 }
 
 test('bundles take the edits of the MainApp release they fit', () => {
-    assert.deepStrictEqual(patcher.UNITS.ID7.mainapps.map((m) => m.version), ['8.3.2', '8.2.10', '8.1.1', '6.5.5']);
+    assert.deepStrictEqual(patcher.UNITS.ID7.mainapps.map((m) => m.version), ['8.3.2', '8.2.10', '8.2.0', '8.1.1', '6.5.5']);
     assert.deepStrictEqual(patcher.UNITS.ID8.mainapps.map((m) => m.version), ['9.3.4', '9.2.15']);
     [['ID7', patcher.PATCH_SETS, '8.3.2'], ['ID7', patcher.PATCH_SETS_8_2_10, '8.2.10'],
-        ['ID7', patcher.PATCH_SETS_8_1_1, '8.1.1'], ['ID8', patcher.PATCH_SETS_21, '9.3.4'],
+        ['ID7', patcher.PATCH_SETS_8_2_0, '8.2.0'], ['ID7', patcher.PATCH_SETS_8_1_1, '8.1.1'], ['ID8', patcher.PATCH_SETS_21, '9.3.4'],
         ['ID8', patcher.PATCH_SETS_21_9_2_15, '9.2.15']].forEach((release) => withReleaseBundles(release[0], release[1], (b) => {
         const stock = { main: b.read('main'), appmanagement: b.read('appmanagement') };
         let r = runTool(b.args('check'));
@@ -390,9 +406,11 @@ test('bundles with 6.5.5\'s stock fingerprint are named 6.5.5, others with its e
         }
     }));
 
-// 8.2.10's AppManagement.js edits are 8.3.2's: its main.js tells them apart.
+// 8.2.10's and 8.2.0's AppManagement.js edits are 8.3.2's: their main.js
+// tells them apart.
 test('each iDrive 7 release\'s edits fit only its own bundles', () => {
-    const sets = { '8.3.2': patcher.PATCH_SETS, '8.2.10': patcher.PATCH_SETS_8_2_10, '8.1.1': patcher.PATCH_SETS_8_1_1 };
+    const sets = { '8.3.2': patcher.PATCH_SETS, '8.2.10': patcher.PATCH_SETS_8_2_10,
+        '8.2.0': patcher.PATCH_SETS_8_2_0, '8.1.1': patcher.PATCH_SETS_8_1_1 };
     Object.keys(sets).forEach((mine) => Object.keys(sets).filter((other) => other !== mine).forEach((other) => {
         [false, true].forEach((patched) => {
             const refused = ['main', 'appmanagement'].filter((kind) => {
@@ -1046,15 +1064,16 @@ test('reference firmware bundles patch, upgrade, parse and revert exactly', () =
     return null;
 });
 
-/* The reference firmware's CorruptAppsHandler module, patched, run against
- * fake collaborators. apps maps appId to { start } (start(args) returns a
+/* An iDrive 7 MainApp's CorruptAppsHandler module, patched with sets (the
+ * reference firmware's PATCH_SETS when not given), run against fake
+ * collaborators. apps maps appId to { start } (start(args) returns a
  * promise); local-only apps are named by the override list, which reads
  * as missing while state.unreadable is set. Returns the handler, what it
  * did (events), the clock and state (shuttingDown: the head unit shuts
  * down). */
-function crashHandler(root, apps, localOnly) {
+function crashHandler(root, apps, localOnly, sets) {
     const main = patcher.applyPatches(fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8'),
-        patcher.PATCH_SETS.main);
+        (sets || patcher.PATCH_SETS).main);
     const source = main.split('\n').filter((l) => l.indexOf('class CorruptAppsHandler{') >= 0)[0];
     const events = [];
     const clock = { now: 1e12 };
@@ -1125,21 +1144,19 @@ function crashes(h, id, n) {
     return p;
 }
 
-test('reference firmware: a local-only app is only restarted, a stock app keeps its recovery', () => {
-    const root = firmwareDir();
-    if (!root) {
-        return 'skipped: decoded oap-mainapp not available';
-    }
+/* Five crashes of a local-only app, then four of a stock one, whose
+ * recovery (data wipes and their folders aside) is stockLadder with
+ * stockWipes folder removals; then a sixth crash of ours, and one ten
+ * minutes on. */
+function onlyRestarted(root, sets, stockLadder, stockWipes) {
     const ok = () => Promise.resolve();
-    const h = crashHandler(root, { ours: { start: ok }, stock: { start: ok } }, ['ours']);
+    const h = crashHandler(root, { ours: { start: ok }, stock: { start: ok } }, ['ours'], sets);
     return crashes(h, 'ours', 5).then(() => crashes(h, 'stock', 4)).then(() => {
         assert.deepStrictEqual(h.kinds('ours'), ['start', 'start', 'start', 'start', 'start']);
         assert.strictEqual(h.registry.ours.isStartable(), true);
         const stock = h.kinds('stock');
-        assert.deepStrictEqual(stock.filter((k) => k !== 'wipe' && k !== 'create'), [
-            'analytics', 'start', 'analytics', 'start', 'analytics', 'uninstall', 'install', 'start',
-            'analytics', 'disable', 'report']);
-        assert.strictEqual(stock.filter((k) => k === 'wipe').length, 8);
+        assert.deepStrictEqual(stock.filter((k) => k !== 'wipe' && k !== 'create'), stockLadder);
+        assert.strictEqual(stock.filter((k) => k === 'wipe').length, stockWipes);
         assert.strictEqual(h.registry.stock.isStartable(), false);
         // A sixth crash within ten minutes leaves it stopped, still startable.
         return h.crash('ours');
@@ -1156,27 +1173,19 @@ test('reference firmware: a local-only app is only restarted, a stock app keeps 
         assert.strictEqual(h.kinds('ours').filter((k) => k === 'start').length, 6);
         assert.deepStrictEqual(h.kinds('ours').filter((k) => k !== 'start' && k !== 'warn'), []);
     });
-});
+}
 
-test('reference firmware: a local-only app whose restart fails is tried 5 times', () => {
-    const root = firmwareDir();
-    if (!root) {
-        return 'skipped: decoded oap-mainapp not available';
-    }
-    const h = crashHandler(root, { ours: { start: () => Promise.reject(new Error('no start')) } }, ['ours']);
+function failedRestartTriedFiveTimes(root, sets) {
+    const h = crashHandler(root, { ours: { start: () => Promise.reject(new Error('no start')) } }, ['ours'], sets);
     return h.crash('ours').then(() => {
         assert.deepStrictEqual(h.kinds('ours'), ['start', 'start', 'start', 'start', 'start', 'warn']);
         assert.strictEqual(h.registry.ours.isStartable(), true);
     });
-});
+}
 
-test('reference firmware: a local-only app stays so through a failed read, and shutdown deaths do not count', () => {
-    const root = firmwareDir();
-    if (!root) {
-        return 'skipped: decoded oap-mainapp not available';
-    }
+function staysLocalOnly(root, sets) {
     const ok = () => Promise.resolve();
-    const h = crashHandler(root, { ours: { start: ok } }, ['ours']);
+    const h = crashHandler(root, { ours: { start: ok } }, ['ours'], sets);
     const starts = () => h.kinds('ours').filter((k) => k === 'start').length;
     return h.crash('ours').then(() => {
         assert.strictEqual(h.handler.getRecoveryAttempt('ours'), 0);
@@ -1195,6 +1204,45 @@ test('reference firmware: a local-only app stays so through a failed read, and s
         assert.strictEqual(starts(), 5);
         assert.deepStrictEqual(h.kinds('ours').filter((k) => k !== 'start'), ['warn']);
     });
+}
+
+test('reference firmware: a local-only app is only restarted, a stock app keeps its recovery', () => {
+    const root = firmwareDir();
+    return root ? onlyRestarted(root, patcher.PATCH_SETS, [
+        'analytics', 'start', 'analytics', 'start', 'analytics', 'uninstall', 'install', 'start',
+        'analytics', 'disable', 'report'], 8) : 'skipped: decoded oap-mainapp not available';
+});
+
+test('reference firmware: a local-only app whose restart fails is tried 5 times', () => {
+    const root = firmwareDir();
+    return root ? failedRestartTriedFiveTimes(root, patcher.PATCH_SETS) : 'skipped: decoded oap-mainapp not available';
+});
+
+test('reference firmware: a local-only app stays so through a failed read, and shutdown deaths do not count', () => {
+    const root = firmwareDir();
+    return root ? staysLocalOnly(root, patcher.PATCH_SETS) : 'skipped: decoded oap-mainapp not available';
+});
+
+function firmware820Dir() {
+    const dir = process.env.FIRMWARE_MAINAPP_8_2_0_DIR;
+    return dir && fs.existsSync(path.join(dir, 'src', 'main.js')) ? dir : null;
+}
+
+test('MainApp 8.2.0: a local-only app is only restarted, a stock app keeps its recovery', () => {
+    const root = firmware820Dir();
+    return root ? onlyRestarted(root, patcher.PATCH_SETS_8_2_0,
+        ['start', 'start', 'uninstall', 'install', 'start', 'disable', 'report'], 8) :
+        'skipped: decoded oap-mainapp 8.2.0 not available';
+});
+
+test('MainApp 8.2.0: a local-only app whose restart fails is tried 5 times', () => {
+    const root = firmware820Dir();
+    return root ? failedRestartTriedFiveTimes(root, patcher.PATCH_SETS_8_2_0) : 'skipped: decoded oap-mainapp 8.2.0 not available';
+});
+
+test('MainApp 8.2.0: a local-only app stays so through a failed read, and shutdown deaths do not count', () => {
+    const root = firmware820Dir();
+    return root ? staysLocalOnly(root, patcher.PATCH_SETS_8_2_0) : 'skipped: decoded oap-mainapp 8.2.0 not available';
 });
 
 /* MainApp-21's CorruptAppsHandler module (its browserify module, patched),
@@ -1507,6 +1555,9 @@ test('MainApp 8.1.1 bundles patch, parse and revert exactly', () =>
 test('MainApp 8.2.10 bundles patch, parse and revert exactly', () =>
     releaseFirmware(process.env.FIRMWARE_MAINAPP_8_2_10_DIR, '8.2.10', patcher.PATCH_SETS_8_2_10, PATCHED_8_2_10_SHA256));
 
+test('MainApp 8.2.0 bundles patch, parse and revert exactly', () =>
+    releaseFirmware(process.env.FIRMWARE_MAINAPP_8_2_0_DIR, '8.2.0', patcher.PATCH_SETS_8_2_0, PATCHED_8_2_0_SHA256));
+
 test('MainApp 6.5.5 bundles patch, parse and revert exactly', () =>
     releaseFirmware(process.env.FIRMWARE_MAINAPP_6_5_5_DIR, '6.5.5', patcher.PATCH_SETS_8_1_1, PATCHED_6_5_5_SHA256));
 
@@ -1516,6 +1567,7 @@ test('MainApp 6.5.5 bundles patch, parse and revert exactly', () =>
 const RELEASES = [
     ['ID7', '8.3.2', () => patcher.PATCH_SETS, ['crash-gate', 'crash-count', 'package-source', 'keychain-time']],
     ['ID7', '8.2.10', () => patcher.PATCH_SETS_8_2_10, ['crash-gate', 'crash-count', 'package-source', 'keychain-time']],
+    ['ID7', '8.2.0', () => patcher.PATCH_SETS_8_2_0, ['crash-gate', 'crash-count', 'package-source', 'keychain-time']],
     ['ID7', '8.1.1', () => patcher.PATCH_SETS_8_1_1, ['crash-gate', 'crash-count', 'package-source', 'keychain-time']],
     ['ID8', '9.3.4', () => patcher.PATCH_SETS_21, ['crash-gate', 'crash-count', 'package-source']],
     ['ID8', '9.2.15', () => patcher.PATCH_SETS_21_9_2_15, ['crash-gate', 'crash-count', 'package-source']]
