@@ -34,7 +34,9 @@ USB, Settings) beside:
   42 %`, `Waiting`, `Not for this head unit`, `Failed`, `Restart pending`, `Not working`,
   version and size) and a badge or progress ring. While a listed app or tool waits
   for a restart, **Restart now** sits left of the filters: Settings' confirm
-  step, whose Restart is off while an install runs or waits. A component for another
+  step, whose Restart is off while an install runs or waits. In the deploy
+  tool's safe mode, while nothing installs, **Leave safe mode** takes that
+  place. A component for another
   head unit only (the updater's `compat: "no"`) is listed only while
   installed, so it can be removed (on the widget screens too). A version
   not for this head unit is not counted as an update.

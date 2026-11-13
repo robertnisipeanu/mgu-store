@@ -105,6 +105,8 @@ function screens() {
         ['installed', { tab: 'installed', stack: main }],
         // nothing installing, a restart pending: Restart now on Store and Installed (with a tool that does not work)
         ['store-restart', { tab: 'store', stack: main }, idleSt(st)],
+        // the deploy tool's safe mode, nothing installing, a restart pending: Leave safe mode in Restart now's place
+        ['store-safe-mode', { tab: 'store', stack: main, focus: 4 }, Object.assign(idleSt(st), { safeMode: { at: '2026-11-09T10:00:00Z', reason: '4 starts' } })],
         ['installed-restart', { tab: 'installed', stack: main }, failedSt(idleSt(st), 'mgu-uplink', { repair: 'installed under firmware 23-07' })],
         ['usb', { tab: 'usb', stack: main }],
         ['settings', { tab: 'settings', stack: main }],

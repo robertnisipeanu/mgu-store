@@ -743,6 +743,7 @@ class Store extends OnlineApp {
         case 'undo': this._undoId = act.id; this._undo(); break;
         case 'setup': this._setup(act.id); break;
         case 'restart': this._restart(); break;
+        case 'safe-mode-off': this._privileged({ op: 'safe-mode-off' }); break;
         case 'source-remove': this._sourceId = act.id; this._removeSource(); break;
         case 'account-remove': this._tokenId = act.id; this._removeAccount(); break;
         case 'add-source': this._addSource(); break;

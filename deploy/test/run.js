@@ -5425,6 +5425,9 @@ function testSafeModeAfresh() {
     root = undo();
     r = root.run(['rollback', 'fixture_app', '--yes']);
     check('safe mode: an app rollback that goes through leaves it', r.status === 0 && !on_(root) && !lifted(root), r.out);
+    root = undo();
+    r = root.run(['rollback', 'fixture_app', '--keep-safe-mode', '--yes']);
+    check('safe mode: an app rollback with --keep-safe-mode that goes through keeps it', r.status === 0 && on_(root) && !lifted(root), r.out);
 
     // the tool's first lay fails (its next start runs), the app's install afresh lays it again and goes through
     root = setup();
@@ -6096,6 +6099,12 @@ function testSafeMode() {
     check('safe mode: an install that goes through leaves it, the tools pending the next start',
         r.status === 0 && !fs.existsSync(FLAG) && /safe mode off/.test(r.out) &&
         root.status().pending_reboot.some((p) => p.id === 'mgu-deploy' && p.reason === 'our tools start at the next start'), r.out);
+    // the updater's own repairs (--keep-safe-mode): an install that goes through keeps it, its lift in RAM gone
+    write(FLAG, on);
+    r = root.run(['install', '--artifact', kit('0.2.1'), '--yes', '--keep-safe-mode']);
+    check('safe mode: an install with --keep-safe-mode that goes through keeps it',
+        r.status === 0 && fs.readFileSync(FLAG, 'utf8') === on && !/safe mode off/.test(r.out) &&
+        !fs.existsSync(root.p('run/mgu-deploy/safe-mode-lifted')), r.out);
     write(FLAG, on);
     r = root.run(['install', '--artifact', path.join(T, 'no-such.tgz'), '--yes']);
     check('safe mode: a refused install keeps it', r.status === 2 && fs.readFileSync(FLAG, 'utf8') === on, r.out);
@@ -8628,6 +8637,18 @@ function testToolsAfterFirmware() {
     check('tools after firmware: relay lays a tool with no install step again whole, never needing setup',
         r.status === 0 && r.out.includes('laid again from the copy kept here') && fs.existsSync(sys(root, 'fixture-tool.service')) &&
         tool(root).stale === null && tool(root).needs_setup === null, r.out);
+    // in safe mode: relay --keep-safe-mode (the updater's repair) keeps it, a plain relay, an install of it, leaves it
+    const safeFlag = root.p('var/opt/mgu-deploy/safe-mode');
+    const safeOn = '{"at":"2026-11-09T10:00:00Z","reason":"test"}\n';
+    [[['relay', '--keep-safe-mode', '--yes'], true], [['relay', '--yes'], false]].forEach(([args, kept]) => {
+        reset(root, 'BMW MGU P18_23w44.2-1-3 mgu-high');
+        write(safeFlag, safeOn);
+        r = root.run(args);
+        check(`tools after firmware: in safe mode, ${args.join(' ')} lays it again whole and ${kept ? 'keeps' : 'leaves'} safe mode`,
+            r.status === 0 && r.out.includes('laid again from the copy kept here') && tool(root).stale === null &&
+            fs.existsSync(safeFlag) === kept && !fs.existsSync(root.p('run/mgu-deploy/safe-mode-lifted')), r.out);
+    });
+    if (fs.existsSync(safeFlag)) fs.unlinkSync(safeFlag);
 
     write(root.p(FW), 'BMW MGU P18_24w07 mgu-high\n');
     check('tools after firmware: with its pieces in place, another firmware still counts',

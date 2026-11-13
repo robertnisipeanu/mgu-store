@@ -3715,7 +3715,7 @@ function cmdRelay(args) {
         done.push(t.id);
     });
     if (done.length) { syncDropIns(); saveState(state); }
-    if (whole.length) return cmdInstall({ artifacts: [], positional: [], setup: whole });
+    if (whole.length) return cmdInstall({ artifacts: [], positional: [], setup: whole, keepSafeMode: args.keepSafeMode });
     if (!done.length) say('nothing to lay again');
     return 0;
 }
@@ -7384,21 +7384,22 @@ var leaveIds = [];
  * failing it). */
 var outerInstall = null;
 /* An install that goes through as a whole leaves safe mode; one that
- * fails, falls short, stops or is cut short keeps it (settleSafeMode). Only
- * the outermost one settles it; one inside it (an app installed afresh)
- * counts towards it. */
+ * fails, falls short, stops or is cut short keeps it (settleSafeMode), and
+ * so does one with --keep-safe-mode (the updater's own repairs). Only the
+ * outermost one settles it; one inside it (an app installed afresh) counts
+ * towards it. */
 function cmdInstall(args) {
     if (outerInstall) return installAll(args);
-    return asOuterInstall(function () { return installAll(args); }, function (code) { return code === 0; });
+    return asOuterInstall(function () { return installAll(args); }, function (code) { return code === 0; }, args.keepSafeMode);
 }
 /* run() as the outermost install, which settles safe mode: left when
- * through(its result) and nothing in it fell short. */
-function asOuterInstall(run, through) {
+ * through(its result), nothing in it fell short and keep is not set. */
+function asOuterInstall(run, through, keep) {
     var outer = outerInstall = { short: false }, ok = false;
     try {
         return onGuardStop(function () { settleSafeMode(false); }, function () {
             var r = run();
-            ok = through(r) && !outer.short;
+            ok = !keep && through(r) && !outer.short;
             return r;
         });
     } finally {
@@ -8089,7 +8090,7 @@ function cmdRollback(args) {
     if (!id) throw refuse('rollback needs a tool or app id');
     var tool = installedTools().filter(function (t) { return t.id === id; })[0];
     if (!tool) {
-        if (readJsonOrNull(appEntryFile(id))) return rollbackAppCmd(id);
+        if (readJsonOrNull(appEntryFile(id))) return rollbackAppCmd(id, args.keepSafeMode);
         throw refuse(id + ': no installed tool or app with that id');
     }
     var root = tool.root, cur = currentTarget(root);
@@ -8286,7 +8287,7 @@ function keepPackage(a) {
  * The app's data folder is carried over to the new install's home. When
  * that install fails, the version that was there is installed again from
  * its kept package. */
-function rollbackAppCmd(id) {
+function rollbackAppCmd(id, keep) {
     if (isId8()) throw refuse(id + ': apps go back to an earlier version on iDrive 7 only');
     var app = installedApp(id);
     if (!app) throw refuse(id + ': not installed');
@@ -8295,7 +8296,7 @@ function rollbackAppCmd(id) {
     if (!prev) throw refuse(id + ' ' + app.version + ': no earlier version is kept to roll back to');
     say('rolling back ' + id + ' ' + app.version + ' -> ' + prev.version);
     /* one install as to safe mode: a failed one with the version before installed again keeps it */
-    var err = asOuterInstall(function () { return reinstallApp(app, prev.file, cur, prev.version); }, function (e) { return !e; });
+    var err = asOuterInstall(function () { return reinstallApp(app, prev.file, cur, prev.version); }, function (e) { return !e; }, keep);
     if (err) throw fail(id + ': the rollback to ' + prev.version + ' failed: ' + err.message);
     say(id + ' rolled back to ' + prev.version);
     return 0;
@@ -8546,16 +8547,18 @@ var HELP = [
     'mgu-deploy ' + VERSION,
     'usage: mgu-deploy.sh <command> ...',
     '  check [--artifact <file>...]     read-only checks; exits 2 on a hard problem',
-    '  install [--artifact <file>...] [--skip-older] [--leave <id>...] [--yes]',
-    '                                    install tools/apps (default: ./artifacts/*.tgz)',
+    '  install [--artifact <file>...] [--skip-older] [--leave <id>...] [--keep-safe-mode] [--yes]',
+    '                                    install tools/apps (default: ./artifacts/*.tgz); --keep-safe-mode: safe mode stays on',
     '  status [--json]                  installed components and pending reboots',
     '  status --read-only [--json]      the same, its upkeep left undone: changes nothing',
-    '  relay [<id>...] --yes            lay a stale tool\'s files again from the copy kept here, without its install step',
+    '  relay [<id>...] [--keep-safe-mode] --yes',
+    '                                    lay a stale tool\'s files again from the copy kept here, without its install step',
     '  setup <id> --yes                 a tool laid again from the copy kept here, its install step included',
     '  uninstall <id> [--yes]           remove one tool or app',
     '  remove-all [--json]              what the Store setup put on this unit',
     '  remove-all --yes                 remove all of it, this tool last',
-    '  rollback <id> [--yes]            a tool back to its other kept version, an app to its kept older package',
+    '  rollback <id> [--keep-safe-mode] [--yes]',
+    '                                    a tool back to its other kept version, an app to its kept older package',
     '  restore [name] [--yes]           restore a backup (default stock); verified',
     '  backups                          list backups (stock marked)',
     '  fallback <on|off|status>         provisioning fallback for our apps',
@@ -8584,6 +8587,7 @@ function parseArgs(argv) {
         else if (argv[i] === '--json') out.json = true;
         else if (argv[i] === '--skip-older') out.skipOlder = true;
         else if (argv[i] === '--other-source') out.otherSource = true;
+        else if (argv[i] === '--keep-safe-mode') out.keepSafeMode = true;
         else if (argv[i] === '--yes') out.yes = true;
         else if (argv[i] === '--remove') out.remove = argv[++i] || '';
         else if (argv[i] === '--list') out.list = true;
