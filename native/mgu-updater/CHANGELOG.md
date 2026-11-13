@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Only an install asked for (the Store, the phone page) leaves the deploy tool's safe mode. The updater's own repairs (a lost app installed again, a stale tool laid again, updated or installed again, and the rollback of a Store such a repair updated that did not start) keep it.
+
 ## 0.8.43
 
 - Installing or updating from a public repository's branch downloads the component's files over a few connections kept open, six at a time, instead of starting a new download for each file. The progress moves as the bytes come.

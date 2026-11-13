@@ -477,13 +477,13 @@ and the stick's other files stay. A root-service package of another
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--leave <id>...] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--leave <id>...] [--keep-safe-mode] [--yes]
 mgu-deploy.sh status [--read-only] [--json]   # --read-only: changes nothing
-mgu-deploy.sh relay [<id>...] --yes           # a stale tool's files from the copy kept here, no install step
+mgu-deploy.sh relay [<id>...] [--keep-safe-mode] --yes   # a stale tool's files from the copy kept here, no install step
 mgu-deploy.sh setup <id> --yes                # a tool laid again from that copy, its install step included
 mgu-deploy.sh uninstall <id> [--yes]
 mgu-deploy.sh remove-all [--json] | remove-all --yes
-mgu-deploy.sh rollback <id> [--yes]
+mgu-deploy.sh rollback <id> [--keep-safe-mode] [--yes]
 mgu-deploy.sh restore [name] [--yes]
 mgu-deploy.sh backups
 mgu-deploy.sh fallback <on|off|status|migrate> [--yes]
@@ -1870,7 +1870,11 @@ next run of the deploy tool or the next start (a power cut included), as
 `/run` does not outlive a start. Only the outermost install settles it;
 an app installed afresh inside it counts towards it, and an app's
 `rollback` (Undo update) is one install: one that fails keeps it, also when
-the version before goes back in. `safe-mode off --yes`
+the version before goes back in. An install, `relay` or app `rollback`
+with `--keep-safe-mode` (the updater's own repairs: a lost app installed
+again, a stale tool laid again or updated, and the rollback of a Store such
+a repair updated that did not start) lifts it the same way and keeps it.
+`safe-mode off --yes`
 removes it too: the Store's Leave safe mode, through the updater. Either
 way the count starts again, the tools start at the next start of the head
 unit, and until then `status` lists `mgu-deploy` under `pending_reboot`

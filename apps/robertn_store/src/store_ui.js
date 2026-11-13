@@ -25,7 +25,7 @@ const { t: tr } = require('./i18n.js');
  * each nav, grid and list item, on each filter cell (acts). The acts:
  * { do: 'tab', tab }, { do: 'filter', filter }, { do: 'open', page },
  * { do: 'back' }, { do: 'check' }, { do: 'install', id }, { do: 'update-all' },
- * { do: 'remove', id, tools? }, { do: 'restart' },
+ * { do: 'remove', id, tools? }, { do: 'restart' }, { do: 'safe-mode-off' },
  * { do: 'source-remove', id }, { do: 'account-remove', id }, { do: 'add-source' },
  * { do: 'add-token' }, { do: 'sign-in' }, { do: 'sign-in-cancel' }, { do: 'phone' },
  * { do: 'pick', channel }, { do: 'pick-retry' }, { do: 'pick-add-token' }, { do: 'key', key } (typeKey),
@@ -129,6 +129,15 @@ function restartNow(m, keep) {
         : hidden;
 }
 
+/* Leave safe mode on Store while the deploy tool's safe mode keeps our
+ * tools off and nothing installs (the widget start screen's rule); Restart
+ * now gives it its place meanwhile. */
+function safeModeOff(m) {
+    return m.connected && m.st && m.st.safeMode && !m.st.busy
+        ? button(tr("Leave safe mode"), { do: 'safe-mode-off' }, { vicon: 'unlock', style: 'primary', color: BLUE })
+        : hidden;
+}
+
 /* Why the last restart failed or was refused, beside Restart head unit. */
 function restartFailed(m) {
     const st = m.connected ? m.st : null;
@@ -228,7 +237,8 @@ function storeView(m) {
         filter: { sel: Math.max(0, FILTERS.indexOf(m.filter)), acts: FILTERS.map((f) => ({ do: 'filter', filter: f })) },
         online: { items: !m.connected ? [] : checking ? [{ text: tr("Checking"), color: BLUE, dot: true }]
             : online ? [{ text: tr("Online"), color: GREEN, dot: true }] : [{ text: tr("Offline"), color: AMBER, dot: true }] },
-        restartNow: restartNow(m),
+        safeModeOff: safeModeOff(m),
+        restartNow: safeModeOff(m).hidden ? restartNow(m) : hidden,
         grid: { items: list.map((c) => tile(m, c, busy, name)), empty: m.connected ? tr("Nothing here") : '' }
     };
 }

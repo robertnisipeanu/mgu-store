@@ -513,6 +513,31 @@ Object.keys(UNITS).forEach((unit) => {
     });
 });
 
+// Leave safe mode on Store: in the deploy tool's safe mode while nothing installs, after the side menu, in Restart now's place
+const SAFE = { safeMode: { at: '2026-11-09T10:00:00Z', reason: '4 starts' } };
+f = screen('store-safe-mode');
+eq([f.labels.slice(0, 5), f.items[4].act, text(f, 'subtitle')], [['Store', 'Installed', 'USB', 'Settings', 'Leave safe mode'],
+    { do: 'safe-mode-off' }, 'Safe mode'], 'Store in safe mode: the side menu, then Leave safe mode; the status line says so');
+eq(f.labels.indexOf('Restart now'), -1, 'Restart now gives it its place');
+eq(screen('store-safe-mode', {}, { busy: { id: 'doom', op: 'install', phase: 'download' } }).labels.indexOf('Leave safe mode'), -1,
+    'hidden while an install runs');
+eq(screen('store-safe-mode', { connected: false }).labels.indexOf('Leave safe mode'), -1, 'hidden without the updater');
+eq(screen('store-restart').labels.indexOf('Leave safe mode'), -1, 'none out of safe mode');
+eq(['installed', 'usb', 'settings'].map((n) => screen(n, {}, SAFE).labels.indexOf('Leave safe mode')), [-1, -1, -1], 'on Store only');
+Object.keys(UNITS).forEach((unit) => {
+    const p = UNITS[unit];
+    const at = (name) => {
+        const s = fixture.screens().find((x) => x[0] === name);
+        const m = fixture.model(s[1], Object.assign(fixture.state(), s[2]));
+        return frame(m, { textScale: p.scale, focus: -1, scroll: {}, layout: p.layout });
+    };
+    const g = at('store-safe-mode');
+    const it = g.items[4];
+    const now = at('store-restart').items.find((o) => o.label === 'Restart now');
+    eq([it.label, it.x + it.w, it.y, it.h], ['Leave safe mode', now.x + now.w, now.y, now.h], `${unit} Store: Leave safe mode where Restart now is`);
+    eq(g.items.filter((o) => o !== it && !o.box && overlap(it, o)).map((o) => o.label), [], `${unit} Store: Leave safe mode overlaps no other button`);
+});
+
 // a source: Remove; the GitHub App's install page while a sign-in does not reach it
 f = screen('source');
 eq(own(f), ['Remove', 'Back']);

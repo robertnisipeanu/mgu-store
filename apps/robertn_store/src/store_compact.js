@@ -56,6 +56,7 @@ function compact(W, H) {
     const restartNow = (x, shift) => button('restartNow', x, M, HB_W, HB_H, 'Restart now', 'primary', 25,
         { vicon: 'refresh', color: BLUE, hidden: true, shift });
 
+    const SAFE_W = 470;
     const FILTER_W = 420;
     const ONLINE_W = 190;
     const filterX = R - ONLINE_W - 20 - FILTER_W;
@@ -63,6 +64,9 @@ function compact(W, H) {
         title('Store'),
         after('subtitle', X + 160, filterX - X - 180),
         restartNow(filterX - 16 - HB_W, { subtitle: [0, -HB_W - 16] }),
+        // Leave safe mode in Restart now's place (store_ui.js safeModeOff), wider for its longer words
+        button('safeModeOff', filterX - 16 - SAFE_W, M, SAFE_W, HB_H, 'Leave safe mode', 'primary', 25,
+            { vicon: 'unlock', color: BLUE, hidden: true, shift: { subtitle: [0, -SAFE_W - 16] } }),
         el('filter', 'tabs', filterX, M + 2, FILTER_W, 60, { items: 'All,Apps,Tools', sel: 0, style: 'joined', size: 24 }),
         el('online', 'chips', R - ONLINE_W, M + 8, ONLINE_W, 48, { items: '', align: 'right' }),
         grid()

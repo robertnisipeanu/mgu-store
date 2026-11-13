@@ -88,6 +88,24 @@ module.exports = {
      "onTap": "event:restartNow"
     },
     {
+     "name": "safeModeOff",
+     "rtype": "gpu",
+     "gpu": "vbutton",
+     "x": 936,
+     "y": 134,
+     "w": 540,
+     "h": 84,
+     "opts": {
+      "text": "Leave safe mode",
+      "vicon": "unlock",
+      "style": "primary",
+      "size": 34,
+      "color": "#3d9bff",
+      "hidden": true
+     },
+     "onTap": "event:safeModeOff"
+    },
+    {
      "name": "filter",
      "rtype": "gpu",
      "gpu": "tabs",

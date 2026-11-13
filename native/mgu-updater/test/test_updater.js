@@ -4552,7 +4552,8 @@ function testSelfRepair() {
         .then(() => {
             const i = installs();
             ok('self-repair: after a wipe the Store and our other lost app are installed again from their kept packages, the Store first',
-                i.length === 4 && /verified\/robertn_store@0\.9\.0\.tgz --yes$/.test(i[2]) && /verified\/cat_app@1\.1\.0\.tgz --yes$/.test(i[3]), i.join('\n'));
+                i.length === 4 && /verified\/robertn_store@0\.9\.0\.tgz --yes --keep-safe-mode$/.test(i[2]) &&
+                /verified\/cat_app@1\.1\.0\.tgz --yes --keep-safe-mode$/.test(i[3]), i.join('\n'));
             ok('self-repair: an app removed on purpose (no kept package) stays removed', !fs.existsSync(reg('gone_app')));
             wipe();
             u.watchLost();
@@ -4618,7 +4619,7 @@ function testSelfRepair() {
         })
         .then(() => {
             ok('factory reset: once the app manager runs on its own home, the lost apps are installed again, the Store first',
-                installs().length === 8 && /robertn_store@0\.9\.0\.tgz --yes$/.test(installs()[6]), installs().join('\n'));
+                installs().length === 8 && /robertn_store@0\.9\.0\.tgz --yes --keep-safe-mode$/.test(installs()[6]), installs().join('\n'));
             ['lost', 'tiles', 'previous'].forEach((x) => fs.unlinkSync(`${deployLog}.${x}`));
         });
 }
@@ -4686,7 +4687,7 @@ function testFirmwareSetup() {
     return fresh()
         .then(() => {
             ok('firmware: a stale tool its source lists newer, online, is updated from it, no files laid again',
-                calls().length === 1 && /^install --artifact .*fw_tool@1\.1\.0\.tgz --yes$/.test(calls()[0]) && comp().installed === '1.1.0' &&
+                calls().length === 1 && /^install --artifact .*fw_tool@1\.1\.0\.tgz --yes --keep-safe-mode$/.test(calls()[0]) && comp().installed === '1.1.0' &&
                 !comp().needsSetup, calls().join('\n'));
             // B: no newer version listed
             fs.writeFileSync(deployLog, '');
@@ -4697,7 +4698,7 @@ function testFirmwareSetup() {
         })
         .then(() => {
             ok('firmware: with no newer version its files are laid again (relay), no install, and the row needs setup',
-                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup === 'installed under firmware old',
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes --keep-safe-mode']) && comp().needsSetup === 'installed under firmware old',
                 `${calls().join('\n')} ${JSON.stringify(comp())}`);
             return ask(conf.socket, { op: 'setup', id: 'fw_tool' }).then((e1) => ask(conf.socket, { op: 'setup', id: 'fw_tool', secret: u.secret })
                 .then((e2) => [e1, e2]));
@@ -4716,7 +4717,7 @@ function testFirmwareSetup() {
         })
         .then(() => {
             ok('firmware: offline, a stale tool its source lists newer has its files laid again, no download',
-                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup, calls().join('\n'));
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes --keep-safe-mode']) && comp().needsSetup, calls().join('\n'));
             // a tool that needs setup, its source then lists a newer version, online: updated
             fs.writeFileSync(deployLog, '');
             online(true);
@@ -4736,7 +4737,7 @@ function testFirmwareSetup() {
         .then(() => {
             const c = calls();
             ok('firmware: an update that fails falls back to laying its files again',
-                c.length === 2 && /fw_tool@1\.1\.0\.tgz/.test(c[0]) && c[1] === 'relay fw_tool --yes' && comp().needsSetup, c.join('\n'));
+                c.length === 2 && /fw_tool@1\.1\.0\.tgz/.test(c[0]) && c[1] === 'relay fw_tool --yes --keep-safe-mode' && comp().needsSetup, c.join('\n'));
             // the next check, the same updater: that version is not asked for again
             fs.writeFileSync(deployLog, '');
             return u.check().then(() => idle('a second check'));
@@ -4764,6 +4765,22 @@ function testFirmwareSetup() {
         .then(() => {
             ok('firmware: the same updater, online: the tool that needs setup is updated from its source',
                 calls().length === 1 && /fw_tool@1\.1\.0\.tgz/.test(calls()[0]) && !comp().needsSetup, calls().join('\n'));
+            // the deploy tool's safe mode: a repair's install keeps it; the same install asked for (the Store) leaves it
+            u.busy = { id: 'held', op: 'install' };
+            const repair = u.request('fw_tool', true);
+            const queued = u.queue.map((q) => !!q.auto);
+            const asked = u.handle({ op: 'install', id: 'fw_tool' });
+            ok('safe mode: a repair\'s install is queued to keep safe mode, and asked for from the Store it is not',
+                repair === null && asked === null && JSON.stringify(queued) === '[true]' && JSON.stringify(u.queue.map((q) => !!q.auto)) === '[false]',
+                JSON.stringify(u.queue));
+            u.queue = [];
+            u.busy = null;
+            fs.writeFileSync(deployLog, '');
+            return ask(conf.socket, { op: 'install', id: 'fw_tool' }).then(() => idle('an install asked for'));
+        })
+        .then(() => {
+            ok('safe mode: an install asked for goes to the deploy tool without --keep-safe-mode',
+                calls().length === 1 && /^install --artifact .*fw_tool@1\.1\.0\.tgz --yes$/.test(calls()[0]), calls().join('\n'));
             // a failing setup: the row's error, the Store's usual failed state
             fs.writeFileSync(deployLog, '');
             tool('fw_tool', '1.0.0');
@@ -4789,7 +4806,7 @@ function testFirmwareSetup() {
         })
         .then(() => {
             ok('firmware: a newer version the updater cannot queue leaves the stale tool to its files laid again',
-                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes']) && comp().needsSetup, calls().join('\n'));
+                JSON.stringify(calls()) === JSON.stringify(['relay fw_tool --yes --keep-safe-mode']) && comp().needsSetup, calls().join('\n'));
             ['fail', 'stale', 'setup', 'setupfail'].forEach((x) => rmIfThere(`${deployLog}.${x}`));
             u.server.close();
         }, (e) => {
@@ -4954,6 +4971,25 @@ function testUndo() {
             const s = comp('robertn_store');
             ok('Store trial: a Store whose tile showed and does not show after its update goes back',
                 s.installed === '0.9.12' && s.error === '0.9.13\'s tile does not show; 0.9.12 is back', JSON.stringify(s));
+            // a Store the updater's own repair updated: its trial says so, also to the next updater, and its rollback keeps safe mode
+            fs.writeFileSync(`${deployLog}.previous`, JSON.stringify({ robertn_store: '0.9.11' }));
+            return u.refresh();
+        })
+        .then(() => {
+            u.startStoreTrial('0.9.12', true);
+            ok('Store trial: a repair\'s update is on trial as one, also for the next updater',
+                JSON.parse(fs.readFileSync(trialFile, 'utf8')).auto === true && new Updater(conf).storeTrial.auto === true, fs.readFileSync(trialFile, 'utf8'));
+            fs.writeFileSync(path.join(proc, '4242', 'cmdline'), `node\0${oap}/oap_12470/source/javascript/app.js\0`);
+            u.watchStoreTrial();
+            return sleep(1700);
+        })
+        .then(() => {
+            u.watchStoreTrial();
+            return idle('the repaired Store back');
+        })
+        .then(() => {
+            ok('Store trial: the rollback of a Store a repair updated keeps the deploy tool\'s safe mode',
+                /^rollback robertn_store --yes --keep-safe-mode$/m.test(fs.readFileSync(deployLog, 'utf8')), fs.readFileSync(deployLog, 'utf8'));
             done();
         }, (e) => {
             done();

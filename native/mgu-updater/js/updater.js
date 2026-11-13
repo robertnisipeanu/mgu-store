@@ -1095,7 +1095,7 @@ class Updater {
         this.previous = {};
         // by id: what the last start's check found not working (last_verify)
         this.lastVerify = {};
-        // the Store update waiting for the new Store to say hello: { version, tileBefore, seenAt, since } (store-trial.json)
+        // the Store update waiting for the new Store to say hello: { version, tileBefore, seenAt, since, auto (a repair's update) } (store-trial.json)
         this.storeTrial = null;
         this.unit = null;
         this.providers = {};
@@ -1136,7 +1136,7 @@ class Updater {
         try {
             const trial = readJson(path.join(conf.state_dir, 'store-trial.json'));
             this.storeTrial = catalogLib.SEMVER.test(trial.version) ? { version: trial.version, tileBefore: trial.tileBefore === true,
-                seenAt: 0, since: 0 } : null;
+                seenAt: 0, since: 0, auto: trial.auto === true } : null;
         } catch (e) { /* no Store update on trial */ }
         // { "<origin>:<id its source lists>": "<id it is installed under>" } (README.md, "Ids")
         this.aliases = {};
@@ -2216,8 +2216,10 @@ class Updater {
     }
 
     /* Queues an install of id, after the requirements it lacks. One that
-     * is not for this head unit is refused. */
-    request(id) {
+     * is not for this head unit is refused. auto: the updater's own repair
+     * (repairStale), which leaves the deploy tool's safe mode on; an install
+     * asked for (the Store, the phone page) of one queued so leaves it. */
+    request(id, auto) {
         if (this.rebooting) {
             return 'the head unit is restarting';
         }
@@ -2258,12 +2260,15 @@ class Updater {
             return null;
         }
         const items = steps.map((s) => Object.assign({ op: 'install', id: s.id, source: s.source }, s.listed ? { listed: s.listed } : {},
-            s.unit ? { unit: s.unit } : {}));
+            s.unit ? { unit: s.unit } : {}, auto ? { auto: true } : {}));
         const refused = items.map((i) => this.conflict(i)).filter(Boolean)[0];
         if (refused) {
             return refused;
         }
         items.forEach((i) => this.enqueue(i));
+        if (!auto) {
+            this.queue.filter((q) => q.op === 'install' && items.some((i) => i.id === q.id)).forEach((q) => delete q.auto);
+        }
         this.changed();
         if (!this.busy) {
             this.next();
@@ -2328,7 +2333,7 @@ class Updater {
         this.busy = { id: item.id, op: item.op, phase: 'install' };
         this.changed();
         console.log(`${id}: ${item.op === 'setup' ? 'set up from the copy the deploy tool keeps' : 'its files laid again'}`);
-        return this.deployTool([item.op, id, '--yes'])
+        return this.deployTool([item.op, id, '--yes'].concat(item.op === 'relay' ? ['--keep-safe-mode'] : []))
             .then((code) => {
                 if (code !== 0 && code !== GUARD_STOPPED) {
                     throw new Error(`${item.op === 'setup' ? 'setup' : 'laying it again'} failed${this.deployError ? ': ' + this.deployError : ''}`);
@@ -2381,7 +2386,7 @@ class Updater {
         this.busy = { id: key, op: 'rollback', phase: 'install' };
         this.changed();
         console.log(`${id}: back to ${this.previous[id] || 'its version before'}`);
-        return this.deployTool(['rollback', id, '--yes'])
+        return this.deployTool(['rollback', id, '--yes'].concat(item.auto ? ['--keep-safe-mode'] : []))
             .then((code) => {
                 if (code !== 0 && code !== GUARD_STOPPED) {
                     const why = this.deployError;
@@ -2434,10 +2439,11 @@ class Updater {
 
     /* A new Store version installs: once it is installed, its tile must
      * show if it did before, and the Store must say hello once it runs. */
-    startStoreTrial(version) {
-        this.storeTrial = { version, tileBefore: storeTileShows(this.conf), seenAt: 0, since: 0 };
+    startStoreTrial(version, auto) {
+        this.storeTrial = { version, tileBefore: storeTileShows(this.conf), seenAt: 0, since: 0, auto: !!auto };
         mkdirp(this.conf.state_dir, 0o755);
-        writeAtomic(path.join(this.conf.state_dir, 'store-trial.json'), JSON.stringify({ version, tileBefore: this.storeTrial.tileBefore }));
+        writeAtomic(path.join(this.conf.state_dir, 'store-trial.json'), JSON.stringify(Object.assign({ version, tileBefore: this.storeTrial.tileBefore },
+            auto ? { auto: true } : {})));
     }
 
     endStoreTrial() {
@@ -2488,7 +2494,8 @@ class Updater {
             this.changed();
             return;
         }
-        this.enqueue({ op: 'rollback', id, why });
+        // the rollback of a repair's update keeps the deploy tool's safe mode, as that update did
+        this.enqueue(Object.assign({ op: 'rollback', id, why }, t.auto ? { auto: true } : {}));
         this.errors[id] = why;
         this.changed();
         this.next();
@@ -3019,12 +3026,12 @@ class Updater {
                 // a new Store version: on trial from before the install, so a hello as soon as it runs counts
                 if (id === this.conf.store_app && entry.kind === 'app' && catalogLib.compareVersions(entry.version, STORE_HELLO_SINCE) >= 0 &&
                     this.installedVersion(id, 'app') !== entry.version) {
-                    this.startStoreTrial(entry.version);
+                    this.startStoreTrial(entry.version, !!item.auto);
                 }
                 // a tool installed from another origin: the version it replaces is deactivated first
                 const rec = this.origins[id];
                 const moved = entry.kind === 'tool' && !!this.installedVersion(id, 'tool') && !!rec && rec.source !== this.originOf(item.source);
-                return this.deploy(verified, moved);
+                return this.deploy(verified, moved, !!item.auto);
             })
             .then((code) => {
                 const stopped = code === GUARD_STOPPED;
@@ -3315,7 +3322,7 @@ class Updater {
                 mkdirp(path.dirname(verified), 0o700);
                 fs.writeFileSync(verified, fs.readFileSync(item.package), { mode: 0o600 });
                 console.log(`${item.id}@${item.version}: install from its kept package`);
-                return this.deploy(verified, false).then((code) => {
+                return this.deploy(verified, false, true).then((code) => {
                     if (code !== 0 && code !== GUARD_STOPPED) {
                         throw new Error(`${this.deployError || 'install failed'}; ${item.id} stays removed until it is installed again`);
                     }
@@ -3391,7 +3398,7 @@ class Updater {
             if (newer && !this.tried[key]) {
                 this.tried[key] = true;
                 this.relayOnFail[id] = !!s.kept && !s.setup;
-                const refused = this.request(id);
+                const refused = this.request(id, true);
                 if (refused === null && this.asked(id)) {
                     console.log(`${id}: ${s.setup ? 'needs setup' : `not working (${s.why})`}: updated to ${r.entry.version} from its source`);
                     return;
@@ -3412,7 +3419,7 @@ class Updater {
                 if (!this.busy) {
                     this.next();
                 }
-            } else if (r && this.request(id) === null) {
+            } else if (r && this.request(id, true) === null) {
                 console.log(`${id}: not working (${s.why}): installed again from its source`);
                 this.repairs[id] = s.why;
             }
@@ -3537,9 +3544,11 @@ class Updater {
             });
     }
 
-    /* otherSource: the artifact replaces an installed tool another origin installed. */
-    deploy(file, otherSource) {
-        return this.deployTool(['install', '--artifact', file, '--yes'].concat(otherSource ? ['--other-source'] : []))
+    /* otherSource: the artifact replaces an installed tool another origin
+     * installed. keep: the updater's own repair, which leaves the deploy
+     * tool's safe mode on (a deploy tool before it ignores the option). */
+    deploy(file, otherSource, keep) {
+        return this.deployTool(['install', '--artifact', file, '--yes'].concat(otherSource ? ['--other-source'] : [], keep ? ['--keep-safe-mode'] : []))
             .then((code) => this.checkUids().then(() => code));
     }
 

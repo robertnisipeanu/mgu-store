@@ -1028,7 +1028,11 @@ each request, and whenever it changes (at most every 250 ms):
 - `safeMode` is the deploy tool's safe mode (`status --json` `safe_mode`,
   deploy/README.md, "Safe mode"): `{ "at", "reason" }` while our tools'
   units stay off, else null (also with a deploy tool that does not report
-  it).
+  it). An install asked for (the Store, the phone page) that goes through
+  leaves it; the updater's own repairs (a lost app installed again from its
+  kept package, a stale tool laid again, updated or installed again from its
+  source, the requirements those install, and the rollback of a Store such a
+  repair updated that did not start) keep it (`--keep-safe-mode`).
 
 Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 (with its missing requirements first), from any app.
