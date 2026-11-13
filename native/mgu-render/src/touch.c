@@ -296,6 +296,13 @@ static void finger_up(int id)
     fdown[id] = 0;
     if (id == first) first = -1;
 }
+/* how many fingers are down, and in *last the highest id of them */
+static int downs(int *last)
+{
+    int n = 0;
+    for (int f = 0; f < FINGERS; f++) if (fdown[f]) { n++; if (last) *last = f; }
+    return n;
+}
 /* a finger whose UP was never seen: no TOUCH (an UP there would tap what it was on), CANCEL to an app that asked */
 static void finger_lost(int id)
 {
@@ -312,7 +319,7 @@ static void finger_lost(int id)
  * A report of one finger while one is down is that finger, whatever its id. One finger: DOWN, MOVEs, UP as TOUCH. */
 static int route_pdu(const unsigned char *p, size_t plen)
 {
-    int n = p[37] & 0x1f, m = 0, id[FINGERS], ev[FINGERS], x[FINGERS], y[FINGERS], seen[FINGERS] = { 0 };
+    int n = p[37] & 0x1f, m = 0, id[FINGERS], ev[FINGERS], x[FINGERS], y[FINGERS], seen[FINGERS] = { 0 }, only = -1;
     for (int k = 0; k < n && m < FINGERS; k++) {
         int b[6];
         for (int j = 0; j < 6; j++) if ((b[j] = report(p, plen, 18 + 6 * k + j)) < 0) goto parsed;
@@ -321,21 +328,15 @@ static int route_pdu(const unsigned char *p, size_t plen)
         seen[f] = 1; id[m] = f; ev[m] = e; x[m] = b[0] << 8 | b[1]; y[m] = b[2] << 8 | b[3]; m++;
     }
 parsed:
-    if (m == 1 && ev[0] != DOWN) {
-        int only = -1, downs = 0;
-        for (int f = 0; f < FINGERS; f++) if (fdown[f]) { only = f; downs++; }
-        if (downs == 1) id[0] = only;
-    }
+    if (m == 1 && ev[0] != DOWN && downs(&only) == 1) id[0] = only;
     for (int f = 0; f < FINGERS; f++) {
         if (!fdown[f]) continue;
         int k = 0;
         while (k < m && id[k] != f) k++;
         if (k == m || ev[k] == DOWN) finger_lost(f);
     }
-    int down = 0;
-    for (int f = 0; f < FINGERS; f++) down |= fdown[f];
-    if (!down) {
-        if (owner != NONE) owner = NONE;          /* the last gesture's fingers are all gone */
+    if (!downs(NULL)) {
+        owner = NONE;                             /* the last gesture's fingers are all gone */
         int k = 0;
         while (k < m && ev[k] != DOWN) k++;
         if (k < m) {
@@ -355,9 +356,7 @@ parsed:
             fdown[f] = 1; fx[f] = x[k]; fy[f] = y[k];
             send_finger(phase, f, x[k], y[k]);
         }
-        down = 0;
-        for (int f = 0; f < FINGERS; f++) down |= fdown[f];
-        if (!down) { owner = NONE; first = -1; }
+        if (!downs(NULL)) owner = NONE;
     }
     return app;
 }
