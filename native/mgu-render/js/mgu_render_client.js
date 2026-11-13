@@ -51,7 +51,9 @@ const E = { READY: 101, TICK: 102, ERROR: 103, STATS: 104, TOUCH: 105, CLOSED: 1
 const MODES = { layer: 1, embed: 2 };
 const MODE_NAMES = [null, 'layer', 'embed'];
 const FORMATS = { rgba: 1, rgbx: 2, index8: 3 };
-const CAPS = { touch: 1, controller: 2, frontGate: 4, pixmap: 8, video: 16, zeroCopy: 32, fingers: 64 };
+const CAPS = { touch: 1, controller: 2, frontGate: 4, pixmap: 8, video: 16, zeroCopy: 32, fingers: 64, controllerHold: 128 };
+// X_GRAB's hold: the parts of the controller the HMI doesn't get while the app grabs it (none named: all three)
+const HOLD = { knob: 1, press: 2, tilt: 4 };
 const PHASES = [null, 'down', 'move', 'up', 'cancel'];
 const IMG_MAX = 64, IMG_BYTES = 32 << 20;
 const OP_IMAGE = 18, OP_VIDEO = 19;
@@ -197,7 +199,7 @@ class RenderClient extends EventEmitter {
                 pixmapSide: p.readUInt32LE(44), refreshMhz: p.readUInt32LE(48),
                 touch: !!(caps & CAPS.touch), controller: !!(caps & CAPS.controller),
                 frontGate: !!(caps & CAPS.frontGate), pixmap: !!(caps & CAPS.pixmap), video: !!(caps & CAPS.video),
-                zeroCopy: !!(caps & CAPS.zeroCopy), fingers: !!(caps & CAPS.fingers),
+                zeroCopy: !!(caps & CAPS.zeroCopy), fingers: !!(caps & CAPS.fingers), controllerHold: !!(caps & CAPS.controllerHold),
             };
         } else if (type === E.READY) {
             this.ready = true; this.errLogged = false;
@@ -212,7 +214,7 @@ class RenderClient extends EventEmitter {
                 this._sendVideos();
                 if (this.claims.length) this._sendClaim();
                 if (this.visible) this._write(u32msg(M.SHOW, [1]));
-                if (this.grabbing) this._write(u32msg(X.GRAB, [1]));
+                if (this.grabbing) this._write(u32msg(X.GRAB, [1, this.holdMask || 0]));
                 if (this.wantFingers) this._write(u32msg(X.FINGERS, [1]));
                 if (this.maxFps !== null) this._write(u32msg(M.FPS, [this.maxFps]));
             }
@@ -295,14 +297,20 @@ class RenderClient extends EventEmitter {
         this.wantFingers = !!on;
         if (this.ready && this.native) this._write(u32msg(X.FINGERS, [on ? 1 : 0]));
     }
-    /** The iDrive controller to this app while it is shown (needs the HMI's controller gate: info.controller). */
-    grab(on) {
+    /**
+     * The iDrive controller to this app while it is shown (needs the HMI's controller gate: info.controller).
+     * hold: the parts the HMI doesn't get meanwhile, of 'knob', 'press', 'tilt' (the others stay the HMI's: a tilt
+     * still leaves the app); none named, all three. Only where info.controllerHold: elsewhere all three are held.
+     */
+    grab(on, hold) {
         on = !!on;
-        if (on === this.grabbing) return;
+        const mask = (hold || []).reduce((m, part) => m | (HOLD[part] || 0), 0);
+        if (on === this.grabbing && mask === (this.holdMask || 0)) return;
         this.grabbing = on;
+        this.holdMask = mask;
         if (this.grabTimer) { clearInterval(this.grabTimer); this.grabTimer = null; }
-        if (on) this.grabTimer = setInterval(() => { if (this.ready && this.native) this._write(u32msg(X.GRAB, [1])); }, 500);
-        if (this.ready && this.native) this._write(u32msg(X.GRAB, [on ? 1 : 0]));
+        if (on) this.grabTimer = setInterval(() => { if (this.ready && this.native) this._write(u32msg(X.GRAB, [1, this.holdMask])); }, 500);
+        if (this.ready && this.native) this._write(u32msg(X.GRAB, [on ? 1 : 0, mask]));
     }
 
     /* ---- pixel images ---- */
