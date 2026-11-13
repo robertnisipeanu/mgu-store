@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.20
+
 - Build: the build image's tag is a hash of its definition, so builds from different definitions never share an image.
 - The car test's `reboot` records the restart for the deploy tool's safe mode before it asks for it.
 - Touch and the iDrive controller go back to the HMI as soon as it shows something over an app that takes the input: a popup, the header menu, the voice assistant, or a screen opened from there. The foreground gate follows the HMI's focus on the app's states and reports the app covered once none of them has had it for 150 ms; the renderer then takes the touch divert out and releases `@mgu-renderd-ccu` (`covered by the HMI: <uid>`), and takes them again when the focus comes back (`covered by the HMI: no app`). An app in the HMI's box stays drawn under the popup; an app on a layer is taken off until it goes. Touch and the controller stayed with the app in front: the popup could not be closed, and a screen opened from the header menu answered neither, its touches going to the app hidden under it.
