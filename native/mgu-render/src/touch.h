@@ -24,7 +24,8 @@ int touch_owner_at(int x, int y, int in_area);      /* the client slot claiming 
 void touch_send(int slot, int phase, int x, int y); /* E_TOUCH to it (phase 1 down, 2 move, 3 up; screen px): the
                                                        finger that began the gesture */
 void touch_finger(int slot, int phase, int id, int x, int y); /* X_FINGER to it, if it asked (X_FINGERS): every
-                                                       finger, id = the display's finger id (0..15) */
+                                                       finger, id = the display's finger id (0..15); phase 4 (CANCEL)
+                                                       a finger whose UP was lost, only while the app is shown */
 void touch_outside(void);                           /* a gesture went to the HMI: the claiming apps close */
 
 #endif

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+No change on screen: the renderer client it carries has multi-touch
+for apps that ask for it.
+
 ## 0.9.40
 
 On the drawn screens, Store has Leave safe mode in the deploy tool's

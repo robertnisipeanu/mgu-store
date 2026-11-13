@@ -52,7 +52,7 @@ const MODES = { layer: 1, embed: 2 };
 const MODE_NAMES = [null, 'layer', 'embed'];
 const FORMATS = { rgba: 1, rgbx: 2, index8: 3 };
 const CAPS = { touch: 1, controller: 2, frontGate: 4, pixmap: 8, video: 16, zeroCopy: 32, fingers: 64 };
-const PHASES = [null, 'down', 'move', 'up'];
+const PHASES = [null, 'down', 'move', 'up', 'cancel'];
 const IMG_MAX = 64, IMG_BYTES = 32 << 20;
 const OP_IMAGE = 18, OP_VIDEO = 19;
 

@@ -845,7 +845,7 @@ void touch_send(int slot, int phase, int x, int y) {
 
 void touch_finger(int slot, int phase, int id, int x, int y) {
     client *c = clients[slot];
-    if (!c || !c->fingers) return;
+    if (!c || !c->fingers || (phase == 4 && !shown(c))) return;   /* CANCEL: only to an app still on screen */
     float bx, by; origin(c, &bx, &by);
     float lx = (x - bx - c->xf.ox) / c->xf.s, ly = (y - by - c->xf.oy) / c->xf.s;
     uint32_t p[4] = { (uint32_t)phase, (uint32_t)id };

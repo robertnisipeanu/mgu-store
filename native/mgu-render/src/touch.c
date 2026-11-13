@@ -45,7 +45,7 @@
 
 enum { PORT_HMI = 30567, PORT_IN = 30570, PORT_OUT = 30571, PORT_OTHER_OUT = 30569, GUARD_MS = 1500, REFRESH_MS = 10000, JOB_MS = 10000, RETRY_MS = 5000 };
 #define TABLE "ip mgu_render"
-enum { DOWN = 1, MOVE = 2, UP = 3 };
+enum { DOWN = 1, MOVE = 2, UP = 3, CANCEL = 4 };
 enum { NONE = -1, HMI = -2, GONE = -3 };       /* gesture owner, else a client slot; GONE: its app left */
 
 /* On the car the release firewall (ip filter input, ends in logblocked = drop) only accepts the display's touch
@@ -296,12 +296,20 @@ static void finger_up(int id)
     fdown[id] = 0;
     if (id == first) first = -1;
 }
+/* a finger whose UP was never seen: no TOUCH (an UP there would tap what it was on), CANCEL to an app that asked */
+static void finger_lost(int id)
+{
+    if (owner >= 0) touch_finger(owner, CANCEL, id, fx[id], fy[id]);
+    fdown[id] = 0;
+    if (id == first) first = -1;
+}
 
 /* a touchscreen PDU with fingers: 1 = it is an app's (sent to it, or dropped), 0 = forward to the HMI.
  * A gesture begins when a finger goes down while none is: the owner is decided there (the app claiming that point,
  * else the HMI) and keeps every finger until none is down. A finger that was down and is missing from a report, or
- * goes down again, lost its UP (a lost datagram, the rule taken out meanwhile): it is let go first, so a lost UP
- * never hands the next gesture to the last owner. One finger: DOWN, MOVEs, UP as TOUCH. */
+ * goes down again, lost its UP (a lost datagram, the rule taken out meanwhile): it is let go first, without a TOUCH,
+ * so a lost UP never hands the next gesture to the last owner. A listed finger with event 0 stays down, nothing sent.
+ * A report of one finger while one is down is that finger, whatever its id. One finger: DOWN, MOVEs, UP as TOUCH. */
 static int route_pdu(const unsigned char *p, size_t plen)
 {
     int n = p[37] & 0x1f, m = 0, id[FINGERS], ev[FINGERS], x[FINGERS], y[FINGERS], seen[FINGERS] = { 0 };
@@ -309,15 +317,20 @@ static int route_pdu(const unsigned char *p, size_t plen)
         int b[6];
         for (int j = 0; j < 6; j++) if ((b[j] = report(p, plen, 18 + 6 * k + j)) < 0) goto parsed;
         int e = (b[5] >> 4) & 3, f = b[5] & 15;
-        if (e < DOWN || seen[f]) continue;
+        if (seen[f]) continue;
         seen[f] = 1; id[m] = f; ev[m] = e; x[m] = b[0] << 8 | b[1]; y[m] = b[2] << 8 | b[3]; m++;
     }
 parsed:
+    if (m == 1 && ev[0] != DOWN) {
+        int only = -1, downs = 0;
+        for (int f = 0; f < FINGERS; f++) if (fdown[f]) { only = f; downs++; }
+        if (downs == 1) id[0] = only;
+    }
     for (int f = 0; f < FINGERS; f++) {
         if (!fdown[f]) continue;
         int k = 0;
         while (k < m && id[k] != f) k++;
-        if (k == m || ev[k] == DOWN) finger_up(f);
+        if (k == m || ev[k] == DOWN) finger_lost(f);
     }
     int down = 0;
     for (int f = 0; f < FINGERS; f++) down |= fdown[f];
@@ -336,6 +349,7 @@ parsed:
     if (owner != NONE) {
         for (int k = 0; k < m; k++) {
             int f = id[k];
+            if (!ev[k]) continue;
             if (ev[k] == UP) { if (fdown[f]) { fx[f] = x[k]; fy[f] = y[k]; finger_up(f); } continue; }
             int phase = fdown[f] ? MOVE : DOWN;       /* a move whose DOWN we missed begins that finger */
             fdown[f] = 1; fx[f] = x[k]; fy[f] = y[k];

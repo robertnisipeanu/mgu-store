@@ -390,7 +390,8 @@ gpu.fps(30);                                        // optional: at most 30 fram
 gpu.on('tick', () => gpu.frame(recorder));          // kit Recorder, or gpu.frameWords(ops)
 gpu.on('state', (s) => { /* { mode, onScreen, front } */ });
 gpu.on('touch', (phase, x, y) => { /* in claimed areas: gpu.claim([...]) */ });
-// gpu.fingers(true): every finger instead, as gpu.on('finger', (phase, id, x, y) => ...) (info.fingers)
+// gpu.fingers(true): every finger instead, as gpu.on('finger', (phase, id, x, y) => ...) (info.fingers);
+//   phase 'cancel': the finger is gone without a lift seen, drop it (not a tap)
 gpu.connect();
 ```
 
@@ -416,6 +417,9 @@ taken for hung and hidden. The frame file must be the app's (its uid), or a
 system player's (root, or `nobody`). IterioDev's YouTube app
 (IterioDev/car-apps, with its player mgu-ytplay) uses it through IterioDev's
 kit.
+
+Multi-touch (`info.fingers`, `gpu.fingers(true)`) was contributed by
+[ciscospirit](https://github.com/ciscospirit).
 
 The controller: read FrontCCU over SOME/IP in the app (display-bridge's
 `display_input.js` does) and keep the page's hidden focusable components for

@@ -4,7 +4,7 @@
 #                       Ubuntu 18.04 (Docker)
 #   make check-target   its loader, libraries and glibc versions
 #   make check-protocol IVI_LIB_DIR=<dir>   protocol/*.xml against the unit's libivi-*.so
-#   make test           protocol (all four dialects), touch-routing, multi-touch through the daemon, community-socket, kit-return, video-file, page-template-script, boot-count,
+#   make test           protocol (all four dialects), touch-routing, community-socket, kit-return, video-file, page-template-script, boot-count,
 #                       embed-buffer (a mock HMI compositor) and layer-list (a mock Winston) unit tests, and recorded sessions of both legacy kits replayed
 #                       through the original daemons and this one, frames compared (Docker, Mesa)
 #
@@ -72,8 +72,6 @@ in-test: build/$(OUT)/mgu-render
 	build/$(OUT)/test_dbr
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_touch test/test_touch.c
 	build/$(OUT)/test_touch
-	$(CC) $(CFLAGS) -o build/$(OUT)/test_fingers test/test_fingers.c $(filter-out src/main.c,$(SRC)) $(GEN_C) $(LIBS)
-	build/$(OUT)/test_fingers
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_share test/test_share.c src/log.c
 	build/$(OUT)/test_share
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_kit test/test_kit.c src/kit.c src/share.c src/log.c

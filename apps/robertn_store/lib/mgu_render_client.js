@@ -27,7 +27,7 @@
  * frame draws the app's last frame again, but the app still sends at least one message a second while shown (an app
  * silent for 3 s is hidden). video(id, null) forgets it.
  *
- * Events: ready (screen, info), tick (n, ms), touch (phase, x, y), closed, state ({ mode, onScreen,
+ * Events: ready (screen, info), tick (n, ms), touch (phase, x, y), finger (phase, id, x, y), closed, state ({ mode, onScreen,
  * front }), ccu ({ seq, knob, press, tilt, raw }), stats, close. With `kit` (idrive7-apps / IterioDev
  * record.js), frame(recorder) uploads the fonts, ramps, layers and pictures a recording uses once per
  * connection; least-recently-used pictures are dropped to stay in the renderer's limits.
@@ -45,14 +45,14 @@ const SOCKETS = process.env.MGU_RENDERD_SOCKET ? [process.env.MGU_RENDERD_SOCKET
     ['/run/mgu-render/render.sock', '/run/mgu-renderd/renderd.sock'];
 const M = { HELLO: 1, PLACE: 2, SHOW: 3, ATLAS: 4, RAMP: 5, LAYER: 6, FRAME: 7, DROP_LAYER: 8, CLAIM: 9, IMAGE: 10, DROP_IMAGE: 11, FPS: 12,
     VIDEO: 13, DROP_VIDEO: 14 };
-const X = { MODE: 0x4d520001, GRAB: 0x4d520002, PIXMAP: 0x4d520003, PIXELS: 0x4d520004, PALETTE: 0x4d520005,
-    READY: 0x4d520101, STATE: 0x4d520102, CCU: 0x4d520103 };
+const X = { MODE: 0x4d520001, GRAB: 0x4d520002, PIXMAP: 0x4d520003, PIXELS: 0x4d520004, PALETTE: 0x4d520005, FINGERS: 0x4d520006,
+    READY: 0x4d520101, STATE: 0x4d520102, CCU: 0x4d520103, FINGER: 0x4d520104 };
 const E = { READY: 101, TICK: 102, ERROR: 103, STATS: 104, TOUCH: 105, CLOSED: 106 };
 const MODES = { layer: 1, embed: 2 };
 const MODE_NAMES = [null, 'layer', 'embed'];
 const FORMATS = { rgba: 1, rgbx: 2, index8: 3 };
-const CAPS = { touch: 1, controller: 2, frontGate: 4, pixmap: 8, video: 16, zeroCopy: 32 };
-const PHASES = [null, 'down', 'move', 'up'];
+const CAPS = { touch: 1, controller: 2, frontGate: 4, pixmap: 8, video: 16, zeroCopy: 32, fingers: 64 };
+const PHASES = [null, 'down', 'move', 'up', 'cancel'];
 const IMG_MAX = 64, IMG_BYTES = 32 << 20;
 const OP_IMAGE = 18, OP_VIDEO = 19;
 
@@ -107,6 +107,7 @@ class RenderClient extends EventEmitter {
         this.wantMode = this.opts.mode || 'layer';
         this.claims = [];
         this.grabbing = false;
+        this.wantFingers = false;     // every finger as `finger` events (X_FINGERS)
         this.maxFps = null;           // fps(): the frame cap, sent again after a reconnect
         this.inbuf = Buffer.alloc(0);
         this.sent = { atlas: new Set(), ramp: new Set(), layer: new Set(), image: new Map() };
@@ -196,7 +197,7 @@ class RenderClient extends EventEmitter {
                 pixmapSide: p.readUInt32LE(44), refreshMhz: p.readUInt32LE(48),
                 touch: !!(caps & CAPS.touch), controller: !!(caps & CAPS.controller),
                 frontGate: !!(caps & CAPS.frontGate), pixmap: !!(caps & CAPS.pixmap), video: !!(caps & CAPS.video),
-                zeroCopy: !!(caps & CAPS.zeroCopy),
+                zeroCopy: !!(caps & CAPS.zeroCopy), fingers: !!(caps & CAPS.fingers),
             };
         } else if (type === E.READY) {
             this.ready = true; this.errLogged = false;
@@ -212,11 +213,14 @@ class RenderClient extends EventEmitter {
                 if (this.claims.length) this._sendClaim();
                 if (this.visible) this._write(u32msg(M.SHOW, [1]));
                 if (this.grabbing) this._write(u32msg(X.GRAB, [1]));
+                if (this.wantFingers) this._write(u32msg(X.FINGERS, [1]));
                 if (this.maxFps !== null) this._write(u32msg(M.FPS, [this.maxFps]));
             }
             this.emit('ready', this.screen, this.info);
         } else if (type === E.TOUCH) {
             if (PHASES[p.readUInt32LE(0)]) this.emit('touch', PHASES[p.readUInt32LE(0)], p.readFloatLE(4), p.readFloatLE(8));
+        } else if (type === X.FINGER && p.length >= 16) {
+            if (PHASES[p.readUInt32LE(0)]) this.emit('finger', PHASES[p.readUInt32LE(0)], p.readUInt32LE(4), p.readFloatLE(8), p.readFloatLE(12));
         } else if (type === E.CLOSED) {
             this.visible = false;
             this.emit('closed');
@@ -284,6 +288,12 @@ class RenderClient extends EventEmitter {
         b.writeUInt32LE(this.claims.length, 0);
         this.claims.forEach((r, i) => [r.x, r.y, r.w, r.h].forEach((v, k) => b.writeFloatLE(v, 4 + i * 16 + k * 4)));
         this._write(msg(M.CLAIM, b));
+    }
+    /** Every finger (info.fingers): `finger` (phase, id, x, y) events for each finger of a gesture in the claims,
+     *  instead of `touch` for the first one only. */
+    fingers(on) {
+        this.wantFingers = !!on;
+        if (this.ready && this.native) this._write(u32msg(X.FINGERS, [on ? 1 : 0]));
     }
     /** The iDrive controller to this app while it is shown (needs the HMI's controller gate: info.controller). */
     grab(on) {

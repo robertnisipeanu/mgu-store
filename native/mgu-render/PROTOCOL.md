@@ -134,7 +134,7 @@ Daemon to client:
 | 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy, 64 X_FINGERS), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
 | 0x4d520102 | X_STATE | u32 mode, on screen, in front (the HMI shows the app's screen); sent whenever one changes |
 | 0x4d520103 | X_CCU | as upstream's CCU |
-| 0x4d520104 | X_FINGER | u32 phase (1 down, 2 move, 3 up), u32 finger id (0..15, the display's), f32 x, y logical px: one finger of a gesture that began in a claim (after X_FINGERS 1) |
+| 0x4d520104 | X_FINGER | u32 phase (1 down, 2 move, 3 up, 4 cancel), u32 finger id (0..15, the display's), f32 x, y logical px: one finger of a gesture that began in a claim (after X_FINGERS 1). Cancel: the finger's lift was never seen and it is gone (x, y where it was last): drop it without acting on it, never as a tap or a release there |
 
 Pixmaps share the id space of IMAGE pictures. Pictures, upstream images and
 pixmaps count towards 64 per app and 96 MiB for all apps; pictures also
@@ -224,7 +224,9 @@ disconnected once so they connect again to that.
   other PDU goes on to the HMI unchanged. A gesture lasts until its last finger is up: every finger in it is the
   owner's, wherever it is. TOUCH carries the finger that began the gesture; a native app that sends X_FINGERS 1 gets
   every finger as X_FINGER (phase, finger id, x, y) instead. A finger that was down and is missing from a report, or
-  goes down again, lost its UP and is let go (UP) first. A layer app that claims is hidden
+  goes down again, lost its UP (a lost datagram, the divert taken out while the HMI covered the app, the app hidden):
+  it is let go first, with no TOUCH, and as X_FINGER cancel only to an app still on screen. An app that goes off
+  screen (X_STATE) drops the fingers it holds. A layer app that claims is hidden
   and gets CLOSED when the HMI is touched outside its claims; an embed app's
   page is the HMI's to leave, so it is not closed. A guard process removes the
   rule if the daemon dies or hangs.

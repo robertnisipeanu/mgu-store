@@ -227,16 +227,34 @@ int main(void)
     CHECK(nsent == 3 && sent[0][1] == DOWN && sent[1][1] == MOVE && sent[2][1] == UP && sent[2][2] == 1200,
           "2f: TOUCH followed the second finger (%d)", nsent);
 
-    /* a finger missing from a report lost its UP: let go then; the next DOWN is a new gesture */
+    /* a finger missing from a report lost its UP: let go then (CANCEL, never an UP: that would tap where it was, e.g.
+     * the Store's button under a popup that took the UP); the next DOWN is a new gesture */
     nsent = 0; nfing = 0;
     { const int f[][4] = { { 1, DOWN, 1200, 300 } }; n = pdun(b, 1, f); route(b, n); }
     { const int f[][4] = { { 1, MOVE, 1200, 300 }, { 2, DOWN, 1300, 300 } }; n = pdun(b, 2, f); route(b, n); }
     { const int f[][4] = { { 1, MOVE, 1205, 300 } }; n = pdun(b, 1, f); route(b, n); }
-    CHECK(has_finger(3, 0, UP, 2, 1300, 300) && has_finger(4, 0, MOVE, 1, 1205, 300), "lost UP of the second finger");
+    CHECK(has_finger(3, 0, CANCEL, 2, 1300, 300) && has_finger(4, 0, MOVE, 1, 1205, 300), "lost UP of the second finger");
     { const int f[][4] = { { 1, DOWN, 500, 300 } }; n = pdun(b, 1, f);
-      CHECK(route(b, n) == (ssize_t)n && has_finger(5, 0, UP, 1, 1205, 300) && outside == 1,
-            "a DOWN again: the old finger let go to its app, the new gesture the HMI's"); }
+      CHECK(route(b, n) == (ssize_t)n && has_finger(5, 0, CANCEL, 1, 1205, 300) && outside == 1,
+            "a DOWN again: the old finger cancelled, the new gesture the HMI's"); }
+    CHECK(nsent == 3 && sent[2][1] == MOVE, "a lost UP: %d TOUCH events, the last phase %d", nsent, sent[nsent - 1][1]);
     { const int f[][4] = { { 1, UP, 500, 300 } }; n = pdun(b, 1, f); CHECK(route(b, n) == (ssize_t)n, "HMI gesture UP"); }
+
+    /* a listed finger with event 0 is still down: the gesture stays the app's, nothing sent for it */
+    nsent = 0; nfing = 0;
+    { const int f[][4] = { { 1, DOWN, 1200, 300 } }; n = pdun(b, 1, f); route(b, n); }
+    { const int f[][4] = { { 1, 0, 1200, 300 } }; n = pdun(b, 1, f); CHECK(route(b, n) == 0, "event 0: forwarded"); }
+    { const int f[][4] = { { 1, MOVE, 1210, 300 } }; n = pdun(b, 1, f); CHECK(route(b, n) == 0, "after event 0: MOVE forwarded"); }
+    { const int f[][4] = { { 1, UP, 1210, 300 } }; n = pdun(b, 1, f); route(b, n); }
+    CHECK(nsent == 3 && sent[1][1] == MOVE && sent[2][1] == UP, "event 0: %d TOUCH events", nsent);
+
+    /* one finger reported while one is down is that finger, whatever its id: a single-finger gesture never depends on
+     * the display's finger ids */
+    nsent = 0;
+    { const int f[][4] = { { 0, DOWN, 1200, 300 } }; n = pdun(b, 1, f); route(b, n); }
+    { const int f[][4] = { { 5, MOVE, 1220, 300 } }; n = pdun(b, 1, f); CHECK(route(b, n) == 0, "new id: MOVE forwarded"); }
+    { const int f[][4] = { { 7, UP, 1230, 300 } }; n = pdun(b, 1, f); route(b, n); }
+    CHECK(nsent == 3 && sent[1][1] == MOVE && sent[2][1] == UP && sent[2][2] == 1230, "new id: %d TOUCH events", nsent);
 
     /* a gesture that begins outside: every finger the HMI's, PDUs unchanged */
     nsent = 0; nfing = 0; outside = 0;
