@@ -91,18 +91,41 @@ function usage(dir) {
     }
 }
 
+/* Whether a process whose real uid is uid still runs (not a zombie). */
+function anyRunning(uid) {
+    let pids;
+    try {
+        pids = fs.readdirSync('/proc').filter((n) => /^\d+$/.test(n));
+    } catch (e) {
+        return true;
+    }
+    return pids.some((pid) => {
+        let text;
+        try {
+            text = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+        } catch (e) {
+            return false; // gone
+        }
+        const real = /^Uid:\s+(\d+)/m.exec(text);
+        return !!real && Number(real[1]) === uid && !/^State:\s+[ZX]/m.test(text);
+    });
+}
+
 /* Kills every process of the build uid (kill(-1) as that uid, which spares
- * only the caller). Not as root (tests): there is no build uid then. */
+ * only the caller): the system's kill, which starts far faster than a Node;
+ * a Node's when there is no kill or something of the uid still runs after
+ * it. Not as root (tests): there is no build uid then. */
 function killAll(uid, gid) {
     if (process.getuid() !== 0) {
         return Promise.resolve();
     }
-    return new Promise((resolve) => {
-        const k = cp.spawn(process.execPath, ['-e', 'try { process.kill(-1, "SIGKILL"); } catch (e) { /* none */ }'],
-            { uid, gid, stdio: 'ignore', env: {} });
-        k.on('error', () => resolve());
-        k.on('close', () => resolve());
+    const as = (cmd, args) => new Promise((resolve) => {
+        const k = cp.spawn(cmd, args, { uid, gid, stdio: 'ignore', env: {} });
+        k.on('error', () => resolve(false));
+        k.on('close', () => resolve(true));
     });
+    return as('/bin/kill', ['-KILL', '--', '-1']).then((ran) => (ran && !anyRunning(uid) ? null :
+        as(process.execPath, ['-e', 'try { process.kill(-1, "SIGKILL"); } catch (e) { /* none */ }'])));
 }
 
 /* The proxy for a network build, as the fetch uid: resolves with

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `status` asks systemctl about all tools' units in one run per question and reads the process list once, so the status after each install or update takes about a second less.
+- Building a source package on the unit checks that each module compiles inside the deploy tool's own Node, as `node --check` does, without starting a Node per module: an app built on the unit installs a few seconds sooner.
+
 ## 0.8.17
 
 - `install`, `relay` and an app's `rollback` take `--keep-safe-mode`: an install that goes through keeps safe mode on. The updater's own repairs use it.

@@ -32,15 +32,18 @@ crashing() {
 case "$1" in
 --version) echo "systemd 237"; exit 0 ;;
 is-active)
-    a=$(active_of "$2"); echo "$a"
-    [ "$a" = active ] && exit 0
-    exit 3 ;;
+    shift; rc=3
+    for u in "$@"; do a=$(active_of "$u"); echo "$a"; [ "$a" = active ] && rc=0; done
+    exit $rc ;;
 is-system-running)
     if [ -n "$S" ] && [ -f "$S/system" ]; then cat "$S/system"; else echo running; fi
     exit 0 ;;
 is-enabled)
-    if [ -f "$MGU_DEPLOY_SYSTEMD/$2" ]; then echo enabled; exit 0; fi
-    echo disabled; exit 1 ;;
+    shift; rc=1
+    for u in "$@"; do
+        if [ -f "$MGU_DEPLOY_SYSTEMD/$u" ]; then echo enabled; rc=0; else echo disabled; fi
+    done
+    exit $rc ;;
 show)
     for unit in "$@"; do :; done
     n=0

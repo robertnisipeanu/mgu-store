@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- An app built by its repository's script has its SDK donor looked up while its files download, and the build uid's processes are killed with the system's `kill` (with Node where there is none, or something of that uid is still running): its build starts and ends sooner.
+
 ## 0.8.44
 
 - Only an install asked for (the Store, the phone page) leaves the deploy tool's safe mode. The updater's own repairs (a lost app installed again, a stale tool laid again, updated or installed again, and the rollback of a Store such a repair updated that did not start) keep it.
