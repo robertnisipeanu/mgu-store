@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.17
+
 - `install`, `relay` and an app's `rollback` take `--keep-safe-mode`: an install that goes through keeps safe mode on. The updater's own repairs use it.
 
 ## 0.8.16

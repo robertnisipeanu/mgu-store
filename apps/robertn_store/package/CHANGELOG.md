@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.40
+
 On the drawn screens, Store has Leave safe mode in the deploy tool's
 safe mode, as the widget screens do.
 
