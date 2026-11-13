@@ -473,9 +473,23 @@ function unitState(unit, verb) {
     var r = systemctl(unit ? [verb, unit] : [verb]);
     return (r.stdout || '').trim() || 'unknown';
 }
+/* unitState(unit, verb) of each unit, by name, from one systemctl run:
+ * it prints a line per unit, in order, unless it stops at one it cannot
+ * answer for (is-enabled of a unit without a file), and then each unit is
+ * asked on its own. */
+function unitStates(units, verb) {
+    var out = {}, lines = units.length ? (systemctl([verb].concat(units)).stdout || '').split('\n').filter(Boolean) : [];
+    units.forEach(function (u, i) {
+        out[u] = lines.length === units.length ? lines[i].trim() || 'unknown' : unitState(u, verb);
+    });
+    return out;
+}
+/* Within a status, one ps for every question about processes. */
+var psSnapshot = null;
 /* Full command lines: busybox's "ps w" cuts them at 131 columns, before
  * the app manager's main.js path. */
 function psLines() {
+    if (psSnapshot) return psSnapshot;
     var r = run(CFG.ps, ['ww'], { allowFail: true });
     if (r.status !== 0) r = run(CFG.ps, ['auxww'], { allowFail: true });
     return (r.stdout || '').split('\n');
@@ -4475,7 +4489,7 @@ function managerReason(err) {
 function installInPlace(a, existing) {
     var action = existing ? 'update' : 'install', q = inplaceAsk(a.id, a.version, action);
     if (!q.pid) return { why: q.why };
-    var m = { pid: q.pid }, id = q.id, st = q.st, poll = Math.min(CFG.watchPollMs, 1000);
+    var m = { pid: q.pid }, id = q.id, st = q.st, poll = Math.min(CFG.watchPollMs, 250);
     var doneAt = null, t0 = Date.now(), reported = t0, s, cur;
     var secs = function () { return Math.round((Date.now() - t0) / 1000) + 's'; };
     for (;;) {
@@ -5032,7 +5046,7 @@ function cleanNpmCache(id) {
 function uninstallInPlace(id, version) {
     var q = inplaceAsk(id, version, 'uninstall');
     if (!q.pid) return { why: q.why };
-    var st = q.st, t0 = Date.now(), reported = t0, poll = Math.min(CFG.watchPollMs, 1000), cur;
+    var st = q.st, t0 = Date.now(), reported = t0, poll = Math.min(CFG.watchPollMs, 250), cur;
     var secs = function () { return Math.round((Date.now() - t0) / 1000) + 's'; };
     for (;;) {
         if (st.state === 'running' && Date.now() - reported >= CFG.inplaceReportMs) {
@@ -6974,6 +6988,10 @@ function journalTail(unit) {
     return (r.stdout || '').split('\n').filter(function (l) { return l; }).slice(-5);
 }
 function collectStatus(state) {
+    psSnapshot = psLines();
+    try { return collectStatusNow(state); } finally { psSnapshot = null; }
+}
+function collectStatusNow(state) {
     var fb = fallbackState(), components = [], pending = [], seen = {};
     fb.manager_runs_copy = isId8() ? null : managerRunsCopy();
     if (isId8()) fb.listed_by_manager = filledByManager();
@@ -6984,10 +7002,13 @@ function collectStatus(state) {
     }
     state.pending_reboot.forEach(function (p) { pend(p.id, p.reason); });
     readPending().forEach(function (c) { pend(c.id, c.action === 'install' ? ID8_INSTALLS : ID8_REMOVES); });
-    installedTools().forEach(function (t) {
+    var tools = installedTools(), names = [];
+    tools.forEach(function (t) { names = names.concat(unitNames(t.component)); });
+    var enabled = unitStates(names, 'is-enabled'), active = unitStates(names, 'is-active');
+    tools.forEach(function (t) {
         var units = (t.component.units || []).map(function (u) {
-            return { name: u.name, enabled: unitState(u.name, 'is-enabled'),
-                active: unitState(u.name, 'is-active'), journal: journalTail(u.name) };
+            return { name: u.name, enabled: enabled[u.name],
+                active: active[u.name], journal: journalTail(u.name) };
         });
         if (recmgrPresent()) recmgrNamesOf(t.component).forEach(function (n) {
             if (recmgrHas(n) && !recmgrLoaded(n)) pend(t.id, PENDING_RECMGR);

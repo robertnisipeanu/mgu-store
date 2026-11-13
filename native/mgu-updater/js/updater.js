@@ -2872,6 +2872,11 @@ class Updater {
         // a build script needs the whole repo, or its folder and the shared files it names; packing, the
         // component's folder. A public repo's are read file by file (sources.js partFiles)
         const files = (paths) => rt.reader.files(entry.commit, progress, entry.script ? null : entry.path, paths);
+        // a build's donor is looked up while its files download
+        const donorLookup = entry.script ? this.sdkDonor() : null;
+        if (donorLookup) {
+            donorLookup.catch(() => { /* the build reports it */ });
+        }
         return files(rt.public ? sourcesLib.partPaths(entry) : null).then((first) => {
             const prepare = (got) => {
                 const job = { entry: own, files: entry.script ? got : sourcesLib.subtree(got, entry.path) };
@@ -2890,7 +2895,7 @@ class Updater {
                     this.checkUids();
                 }
             };
-            const build = (got) => Promise.resolve().then(() => prepare(got)).then((made) => this.sdkDonor()
+            const build = (got) => Promise.resolve().then(() => prepare(got)).then((made) => donorLookup
                     // a network build's proxy runs as the fetch uid: once the uplink lets it out
                     .then((donor) => new Promise((resolve) => setTimeout(resolve, Math.max(0, (this.fetcher.notBefore || 0) - Date.now())))
                         .then(() => donor))
@@ -2925,6 +2930,12 @@ class Updater {
                         }
                         return bytes;
                     })));
+        }, (err) => {
+            // a failed download ends once the donor lookup it started has
+            const rethrow = () => {
+                throw err;
+            };
+            return donorLookup ? donorLookup.then(rethrow, rethrow) : Promise.reject(err);
         });
     }
 
