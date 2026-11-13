@@ -36,7 +36,7 @@ either on the app's own layer over the HMI or inside the app's own HMI page.
   states: the foreground gate reports the app covered, and touch and the
   controller are the HMI's until the focus comes back. An app whose picture
   stays as it was through 4 touches or controller turns in a row gets neither
-  for 10 s.
+  for 10 s (a layer app is taken off meanwhile).
 
 It is a Store tool component (`component.json`, `mguProvides: renderer`,
 optional): installed and updated by the updater like the other tools.

@@ -79,7 +79,8 @@
 #define DROP_MAX 10
 /* An app whose picture stays as it was through DEAF_INPUTS touches or controller turns in a row (in DEAF_WINDOW_US)
  * is not acting on them: touch and the controller go to the HMI for DEAF_US. Controller events count once per
- * CCU_INPUT_US. */
+ * CCU_INPUT_US. Its picture changed: a frame of other words, or any message but a frame or GRAB (pictures, pixmaps,
+ * layers, claims); an app with a video changes it without a message, so it is never counted. */
 #define DEAF_INPUTS 4
 #define DEAF_WINDOW_US 10000000ull
 #define DEAF_US 10000000ull
@@ -384,6 +385,7 @@ static uint64_t frame_hash(const client *c) {
 
 /* the app got a touch or a controller input */
 static void note_input(client *c, uint64_t t) {
+    if (!c->uid || c->g.videos) return;
     if (!c->unanswered || t - c->unanswered_t > DEAF_WINDOW_US) {
         c->unanswered = 0; c->unanswered_t = t; c->unanswered_hash = frame_hash(c);
     }
@@ -394,7 +396,7 @@ static void note_input(client *c, uint64_t t) {
              c->app, DEAF_INPUTS, DEAF_US / 1000000);
     update_all();
 }
-/* a new picture: what the app got so far was acted on */
+/* a new frame: what the app got so far was acted on if it differs */
 static void answered(client *c) {
     if (c->unanswered && (c->dialect == DIALECT_DBR || frame_hash(c) != c->unanswered_hash)) c->unanswered = 0;
 }
@@ -1057,6 +1059,7 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
         if (d == DIALECT_UNKNOWN) return -1;              /* fits neither dialect's message */
         set_dialect(c, d);
     }
+    if (type != M_FRAME && type != X_GRAB && !(type == 10 && c->dialect == DIALECT_UPSTREAM)) c->unanswered = 0;
     switch (type) {
     case M_HELLO:
         hello(c, p, len);

@@ -224,7 +224,7 @@ function startGate(opts) {
         }
         reportCovered(false);
     };
-    /* An app newly covered is reported once it has stayed so for COVER_SETTLE_MS. */
+    /* An app newly covered is reported once it has stayed so for COVER_SETTLE_MS since the last change. */
     const reportCovered = (settled) => {
         const covered = [...shown.keys()].filter((name) => {
             const f = focus.get(name);
@@ -232,17 +232,17 @@ function startGate(opts) {
         });
         const uids = uidsOf(covered);
         const line = ['covered'].concat(uids).join(' ');
+        clearTimeout(settle);
+        settle = null;
         if (line === lastCovered) {
             return;
         }
         const was = lastCovered.split(' ').slice(1).map(Number);
         if (!settled && uids.some((uid) => !was.includes(uid))) {
-            if (!settle) {
-                settle = setTimeout(() => {
-                    settle = null;
-                    reportCovered(true);
-                }, COVER_SETTLE_MS);
-            }
+            settle = setTimeout(() => {
+                settle = null;
+                reportCovered(true);
+            }, COVER_SETTLE_MS);
             return;
         }
         lastCovered = line;
