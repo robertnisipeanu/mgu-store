@@ -31,6 +31,12 @@ either on the app's own layer over the HMI or inside the app's own HMI page.
 - **Touch** is IterioDev's divert of the display's touch PDUs to the app that
   claims the area, per unit from the configuration; the **iDrive controller**
   can be held for an app through the HMI's controller gate (upstream's GRAB).
+- **Anything of the HMI's over an app** (a popup, its menu, the voice
+  assistant, a screen opened from there) takes the focus from the app's
+  states: the foreground gate reports the app covered, and touch and the
+  controller are the HMI's until the focus comes back. An app whose picture
+  stays as it was through 4 touches or controller turns in a row gets neither
+  for 10 s (a layer app is taken off meanwhile).
 
 It is a Store tool component (`component.json`, `mguProvides: renderer`,
 optional): installed and updated by the updater like the other tools.
