@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Installing or updating from a public repository's branch downloads the component's files over a few connections kept open, six at a time, instead of starting a new download for each file. The progress moves as the bytes come.
+
 ## 0.8.42
 
 - The deploy tool's safe mode shows in the state (`safeMode`), and the Store's Leave safe mode (`safe-mode-off`) leaves it. The updater runs in safe mode.

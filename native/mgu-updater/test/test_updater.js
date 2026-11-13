@@ -9,7 +9,8 @@
  *  - build folders removed as the uid that owns each part (root's too, after
  *    a build and at a start), and a build's output in the log bounded;
  *  - fetch.js: HTTPS through a given DNS server, redirects that drop the
- *    token, size limits, running as the fetch uid;
+ *    token, size limits, running as the fetch uid, a set of files over
+ *    connections kept open and a set's failure;
  *  - the daemon under its supervisor, against an HTTPS catalog and a stand-in
  *    deploy tool: install an app, update itself, return to the previous
  *    version when a new one crashes or never comes up, refuse a download
@@ -166,6 +167,7 @@ function startDns() {
 }
 
 const seen = [];
+let connections = 0;
 
 /* ---- a fake GitHub (api.github.com, github.com, codeload.github.com, raw.githubusercontent.com) -- */
 
@@ -530,7 +532,8 @@ function startHttps(certs, dir) {
         req.on('end', () => {
             const host = String(req.headers.host).replace(/:\d+$/, '');
             const auth = req.headers.authorization || null;
-            seen.push({ host: req.headers.host, url: req.url, auth, method: req.method });
+            // conn: which TLS connection the request came on
+            seen.push({ host: req.headers.host, url: req.url, auth, method: req.method, conn: req.socket.seenId || (req.socket.seenId = ++connections) });
             if (host === 'api.github.com') {
                 // a repo's delayMs holds its answers back: a read stays under way
                 const m = /^\/repos\/([^/]+\/[^/?]+)/.exec(req.url);
@@ -1133,6 +1136,24 @@ function testFetch(certs, pubDir) {
         })
         .then((r) => {
             ok('fetch: the fetch uid cannot write outside its folder', r.code !== 0 && !fs.existsSync('/root/forbidden.bin'));
+            seen.length = 0;
+            return runFetch(Object.assign({}, base, { headers: {}, parallel: 2, files: [0, 1, 2, 3, 4].map((i) => ({
+                url: `https://updates.test:${HTTPS_PORT}/payload.bin`, dest: path.join(dl, `set${i}`), maxBytes: 300000 })) }), FETCH_UID);
+        })
+        .then((r) => {
+            const done = r.events.filter((e) => e.file !== undefined && e.done).map((e) => e.file).sort();
+            const same = [0, 1, 2, 3, 4].every((i) => fs.existsSync(path.join(dl, `set${i}`)) &&
+                fs.readFileSync(path.join(dl, `set${i}`)).equals(fs.readFileSync(path.join(pubDir, 'payload.bin'))));
+            const conns = new Set(seen.filter((s) => s.url === '/payload.bin').map((s) => s.conn));
+            ok('fetch: a set of files, each whole, then done', r.code === 0 && done.join() === '0,1,2,3,4' && same &&
+                r.events[r.events.length - 1].done && r.events[r.events.length - 1].file === undefined, JSON.stringify(r.events.slice(-2)));
+            ok('fetch: a set runs at most parallel files at once, over connections kept open', conns.size === 2, `${conns.size} connections`);
+            return runFetch(Object.assign({}, base, { headers: {}, files: [`payload.bin`, 'missing.bin', 'payload.bin'].map((n, i) => ({
+                url: `https://updates.test:${HTTPS_PORT}/${n}`, dest: path.join(dl, `bad${i}`) })) }), FETCH_UID);
+        })
+        .then((r) => {
+            const last = r.events[r.events.length - 1];
+            ok('fetch: a file that fails ends the set with its error and its index', r.code !== 0 && last.error && last.file === 1, JSON.stringify(last));
         });
 }
 
