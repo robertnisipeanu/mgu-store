@@ -613,24 +613,35 @@ func TestCarWiFiTakenBack(t *testing.T) {
 	waitWiFi(t, p, "joined again", func(st wifiStatus) bool { return st.Link == "connected" && st.SSID == "Robert’s iPhone" })
 }
 
-// The car switches its Wi-Fi off under us: unavailable, given back (not a
-// failure), and joined again once it is back on.
+// The car switches its Wi-Fi off under us, as connman does it (the
+// interface disabled, or taken out of the supplicant and back under a new
+// object): unavailable, given back (not a failure), and joined again once
+// it is back on, without a give-back's wait.
 func TestCarWiFiSwitchedOff(t *testing.T) {
 	p, _, f := carProvider(t)
+	wifiRetake = time.Hour
 	p.car.writeSaved([]savedNet{{ssid: "Robert’s iPhone", psk: "rightpass1", priority: 5}})
 	p.setEnabled(true)
 	p.start()
 	defer p.stop()
 	waitWiFi(t, p, "joined", func(st wifiStatus) bool { return st.Link == "connected" })
-	f.do(func() { f.disabled = true })
-	waitWiFi(t, p, "unavailable", func(st wifiStatus) bool {
-		return st.Link == "unavailable" && st.Error != nil && strings.Contains(*st.Error, "radio is blocked")
-	})
-	if ours, _ := f.count(); ours != 0 || p.guarding() {
-		t.Fatalf("after the car's Wi-Fi went off: %d ours, guarding %v", ours, p.guarding())
+	for i, off := range []func(){
+		func() { f.disabled = true },
+		func() { f.has = false },
+	} {
+		f.do(off)
+		waitWiFi(t, p, "unavailable", func(st wifiStatus) bool {
+			return st.Link == "unavailable" && st.Error != nil && *st.Error == carWiFiOff
+		})
+		if ours, _ := f.count(); ours != 0 || p.guarding() {
+			t.Fatalf("after the car's Wi-Fi went off: %d ours, guarding %v", ours, p.guarding())
+		}
+		f.do(func() {
+			f.disabled, f.has = false, true
+			f.path, f.nets, f.current = objPath(fmt.Sprintf("/fi/w1/wpa_supplicant1/Interfaces/%d", 20+i)), map[objPath]map[string]string{}, ""
+		})
+		waitWiFi(t, p, "joined again", func(st wifiStatus) bool { return st.Link == "connected" })
 	}
-	f.do(func() { f.disabled = false })
-	waitWiFi(t, p, "joined again", func(st wifiStatus) bool { return st.Link == "connected" })
 }
 
 // The driver reloads (suspend): wlan0 comes back with a new index and the
@@ -779,7 +790,7 @@ func TestWiFiPick(t *testing.T) {
 	p.setEnabled(true)
 	p.start()
 	waitWiFi(t, p, "the car's supplicant lacks wlan0", func(st wifiStatus) bool {
-		return st.Link == "unavailable" && st.Error != nil && strings.Contains(*st.Error, "does not have wlanc0")
+		return st.Link == "unavailable" && st.Error != nil && *st.Error == carWiFiOff
 	})
 	p.stop()
 
