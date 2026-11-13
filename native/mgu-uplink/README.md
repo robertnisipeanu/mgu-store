@@ -203,7 +203,11 @@ CarPlay keep running. Everything else is as above. Our networks are added
 to the car's supplicant only while Wi-Fi is on and are never written to
 its configuration; the car's own networks, hotspot and radio are left
 alone. Wi-Fi is `unavailable` while the car uses `wlan0` itself (a network
-of its own, or its Wi-Fi switched off). WPA2 personal and open networks.
+of its own), or while the car's Wi-Fi is switched off; once it is back on,
+`wlan0` is taken again at the next 10 s check, without a give-back's wait.
+Outside a give-back's wait, a `wifi-scan` request while Wi-Fi is
+`unavailable` checks again at once.
+WPA2 personal and open networks.
 
 The radio is shared with wireless CarPlay, and every station scan takes it
 off CarPlay's channel. So while the uplink is online on a device that ranks

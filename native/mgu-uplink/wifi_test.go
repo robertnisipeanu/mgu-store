@@ -546,7 +546,12 @@ func TestWiFiUnavailable(t *testing.T) {
 		}, "the D-Bus wpa_supplicant has wlant0"},
 		{func() { set(nl80211Station, false, errors.New("no reply")) }, "can't ask the D-Bus wpa_supplicant"},
 	} {
-		step.setup()
+		// the provider sees each step's change whole: a scan has it look again at once
+		func() {
+			p.reqMu.Lock()
+			defer p.reqMu.Unlock()
+			step.setup()
+		}()
 		waitWiFi(t, p, step.why, func(st wifiStatus) bool {
 			return st.Link == "unavailable" && st.Error != nil && strings.Contains(*st.Error, step.why)
 		})

@@ -45,6 +45,10 @@ const (
 
 	backendMGU = "mgu-wpa"
 	backendCar = "car-supplicant"
+
+	// carUse's finding when the car's Wi-Fi is switched off: connman takes
+	// the interface out of its supplicant and blocks the radio
+	carWiFiOff = "the car's Wi-Fi is off"
 )
 
 var dbusTimeout = 3 * time.Second // replaced by tests
@@ -182,9 +186,10 @@ func (s *carSupplicant) tagged(n objPath) bool {
 	return strings.Trim(str, `"`) == carTag
 }
 
-// carUse says why the car uses the interface ("" when it does not): its
-// supplicant does not have it, it holds a network of the car's, or it is
-// joined to one. sure: a finding; else a check failed.
+// carUse says why the car uses the interface ("" when it does not): the
+// car's Wi-Fi is off (its supplicant does not have the interface, or has
+// it disabled), it holds a network of the car's, or it is joined to one.
+// sure: a finding; else a check failed.
 func (s *carSupplicant) carUse() (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -195,7 +200,7 @@ func (s *carSupplicant) carUse() (string, bool) {
 			return fmt.Sprintf("can't ask the car's wpa_supplicant about %s: %v", s.iface, err), false
 		}
 	case wpaDBus + ".InterfaceUnknown":
-		return fmt.Sprintf("the car's wpa_supplicant does not have %s", s.iface), true
+		return carWiFiOff, true
 	default:
 		return fmt.Sprintf("can't ask the car's wpa_supplicant about %s: %v", s.iface, err), false
 	}
@@ -204,8 +209,7 @@ func (s *carSupplicant) carUse() (string, bool) {
 		return fmt.Sprintf("can't ask the car's wpa_supplicant about %s: %v", s.iface, err), false
 	}
 	if st, _ := prop[string](m, "State"); st == "interface_disabled" {
-		// connman blocks the radio when the car's Wi-Fi is switched off
-		return fmt.Sprintf("%s is down or its radio is blocked", s.iface), true
+		return carWiFiOff, true
 	}
 	for _, n := range paths(m, "Networks") {
 		if _, ours := s.ours[n]; !ours && !s.tagged(n) {

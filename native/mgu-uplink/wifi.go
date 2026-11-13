@@ -700,18 +700,22 @@ func (p *wifiProvider) carUseNow() (string, bool) {
 
 // giveBack hands the interface to the car (release) and keeps it from
 // being taken again for wifiRetake, doubling with each give-back in a row
-// (up to wifiRetakeMax), so a car that keeps taking it is not fought.
+// (up to wifiRetakeMax), so a car that keeps taking it is not fought. The
+// car's Wi-Fi switched off takes nothing to fight over: the interface is
+// taken again once a check finds the car's Wi-Fi on.
 func (p *wifiProvider) giveBack(why string) {
 	logf("wifi: giving %s back: %s", p.iface, why)
 	if time.Since(p.ownedAt) >= wifiHeld {
 		p.givebacks = 0
 	}
-	p.givebacks++
-	wait := wifiRetakeMax
-	if p.givebacks <= 16 && wifiRetake<<(p.givebacks-1) < wait {
-		wait = wifiRetake << (p.givebacks - 1)
+	if why != carWiFiOff {
+		p.givebacks++
+		wait := wifiRetakeMax
+		if p.givebacks <= 16 && wifiRetake<<(p.givebacks-1) < wait {
+			wait = wifiRetake << (p.givebacks - 1)
+		}
+		p.retakeAt = time.Now().Add(wait)
 	}
-	p.retakeAt = time.Now().Add(wait)
 	p.release(errors.New(why), true)
 }
 
@@ -944,6 +948,9 @@ func (p *wifiProvider) scan() error {
 	p.reqMu.Lock()
 	defer p.reqMu.Unlock()
 	if err := p.ready(); err != nil {
+		// the next tick looks again at what the stock system uses
+		p.usedAt = time.Time{}
+		p.poke()
 		return err
 	}
 	p.mu.Lock()
