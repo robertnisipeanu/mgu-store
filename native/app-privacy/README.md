@@ -7,7 +7,7 @@ paths; the patch in this directory makes each of them skip local-only
 apps. It also makes MainApp only restart a local-only app that crashed.
 Genuine backend-delivered apps are reported, updated, diagnosed and
 recovered exactly as before. It covers iDrive 7's MainApp 8.3.2,
-8.2.10, 8.1.1 and 6.5.5 (`/usr/lib/oap-mainapp`) and iDrive 8's MainApp-21 9.3.4 and
+8.2.10, 8.1.1, 6.5.5 and 6.4.8 (`/usr/lib/oap-mainapp`) and iDrive 8's MainApp-21 9.3.4 and
 9.2.15 (`/usr/lib/oap-mainapp21`).
 
 ## Which apps are local-only
