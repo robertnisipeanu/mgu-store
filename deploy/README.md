@@ -2085,7 +2085,13 @@ has initialized, at the step after `mainApp.init()`:
 mainApp.init()}).then(()=>{
 ```
 
-When that anchor does not occur exactly once, the copy is built without
+or, on MainApp 6.4.8, which initializes its bookmark controller beside it:
+
+```
+Promise.all([mainApp.init(),bookmarkController.init()])}).then(()=>{
+```
+
+Unless exactly one of them occurs exactly once, the copy is built without
 the hook and the build says so; app installs then go through a bounce.
 
 On iDrive 7 the copy also puts our apps first in MainApp's install queue.

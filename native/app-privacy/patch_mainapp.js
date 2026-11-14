@@ -188,7 +188,8 @@ function ins(before, insert, after, n) {
 // once stays so for that MainApp's life (its localOnlyRestarts list), so a
 // failed read of its files cannot send its next crash down the ladder.
 // Only restarts MainApp goes on to make count (not a death while the head
-// unit shuts down; a failed restart does count): after CRASH_RESTARTS of
+// unit shuts down, except on 6.4.8, which restarts an app then too; a
+// failed restart does count): after CRASH_RESTARTS of
 // them within CRASH_WINDOW_MS, the next crash leaves the app stopped,
 // installed, its data kept and its tile enabled. Starting it again (its
 // tile, MainApp's own start of an app it keeps running, a reboot) runs it,
@@ -214,7 +215,7 @@ function crashGateJs(logPrefix, giveUp, after) {
         'appCorruptInfo.recoveryAttemptsSinceCorruption=0}' + (after === undefined ? 'else ' : after);
 }
 const CRASH_GATE_JS = crashGateJs('CorruptAppsHandler::_tryRecoverApp');
-// At the restart, after MainApp's head-unit-shutdown check.
+// At the restart, after MainApp's head-unit-shutdown check (6.4.8 has none).
 const CRASH_COUNT_JS = 'appCorruptInfo.localOnlyRestarts&&(appCorruptInfo.recoveryAttemptsSinceCorruption=0,' +
     'appCorruptInfo.localOnlyRestarts.push(Date.now())),';
 const CRASH_EDITS = [

@@ -29,8 +29,9 @@
  * Both fallback anchors must occur exactly once in the stock file. Any
  * other count refuses the build: exit 3, nothing written, so the boot unit
  * logs the refusal and leaves the stock file in effect. The hook's anchor
- * is optional: when it does not occur exactly once, the copy is built
- * without the hook, and says so on stdout. Exit 2 is a usage error, exit
+ * (INPLACE_ANCHOR, or INPLACE_ANCHOR_6_4_8) is optional: unless exactly one
+ * of them occurs exactly once, the copy is built without the hook, and
+ * says so on stdout. Exit 2 is a usage error, exit
  * 1 any other failure. Runs under Node 8.
  *
  * iDrive 8's MainApp-21 (its provisioning anchor ID8.hookAnchor) takes
