@@ -152,8 +152,9 @@ typedef struct client {
     /* frame cap (MI_FPS): at least min_us between two frames drawn; 0 = none */
     uint64_t min_us, last_draw;
     uint32_t tr_frames, tr_touches, tr_drawn, tr_committed;   /* trace.h: frames and touches on this connection */
-    /* controller grab: last time the app asked for it, 0 = not */
+    /* controller grab: last time the app asked for it, 0 = not; the parts it holds from the HMI (HOLD_*, 0 = all) */
     uint64_t grab_t;
+    uint32_t hold;
     int fingers;            /* native: every finger as X_FINGER (X_FINGERS), instead of TOUCH */
     /* inputs it got that left its picture as it was: how many, since when, the frame's hash then; until when it
        takes no input (DEAF_US); its last controller input */
@@ -889,6 +890,8 @@ static int grabbing(const client *c, uint64_t t) { return c->grab_t && t - c->gr
  * the controller stays the HMI's (and that renderer's) for our apps. */
 static void ctl_gate_update(uint64_t t) {
     static char holder[sizeof ((client *)0)->app];    /* the app the controller was last held for */
+    /* the parts held, as the gate reads them: the file's words; empty (all three) is what every renderer wrote */
+    static uint32_t written = HOLD_ALL;
     if (!cfg.controller_gate[0]) return;
     const client *by = NULL;
     for (int i = 0; i < MAX_CLIENTS && !by; i++) if (clients[i] && grabbing(clients[i], t)) by = clients[i];
@@ -900,17 +903,35 @@ static void ctl_gate_update(uint64_t t) {
     if (ccu_fd < 0) want = 0;
     if (want) {
         int was = ctl_gate_on;
-        if (!ctl_gate_on || t - ctl_gate_t >= GATE_TOUCH_US) {
+        uint32_t hold = by->hold ? by->hold : HOLD_ALL;
+        if (!ctl_gate_on || hold != written) {
+            /* new parts: a new file renamed over the old one (the gate reads the words only from a new file;
+               a touch keeps the inode). All three: empty, as every renderer wrote before. */
+            char tmp[sizeof cfg.controller_gate + 8];
+            snprintf(tmp, sizeof tmp, "%s.new", cfg.controller_gate);
+            int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
+            if (fd >= 0) {
+                char words[32] = "";
+                if (hold != HOLD_ALL)
+                    snprintf(words, sizeof words, "%s%s%s\n", hold & HOLD_KNOB ? "knob " : "",
+                             hold & HOLD_PRESS ? "press " : "", hold & HOLD_TILT ? "tilt " : "");
+                if (words[0] && write(fd, words, strlen(words)) < 0) { /* best effort: empty holds all three */ }
+                close(fd);
+                if (rename(tmp, cfg.controller_gate) == 0) written = hold;
+                else unlink(tmp);
+            }
+            ctl_gate_on = 1; ctl_gate_t = t;
+        } else if (t - ctl_gate_t >= GATE_TOUCH_US) {
             int fd = open(cfg.controller_gate, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0644);
             if (fd >= 0) { futimens(fd, NULL); close(fd); }
-            ctl_gate_on = 1; ctl_gate_t = t;
+            ctl_gate_t = t;
         }
         if (!was || strcmp(holder, by->app)) {
             log_info("controller: held for %s%s", by->app, was ? "" : " (@mgu-renderd-ccu bound)");
             snprintf(holder, sizeof holder, "%s", by->app);
         }
     } else if (ctl_gate_on) {
-        unlink(cfg.controller_gate); ctl_gate_on = 0;
+        unlink(cfg.controller_gate); ctl_gate_on = 0; written = HOLD_ALL;
         log_info("controller: back to the HMI, @mgu-renderd-ccu released (was held for %s)", holder);
     }
     if (!want && ccu_fd >= 0) { close(ccu_fd); ccu_fd = -1; }
@@ -942,6 +963,32 @@ static int ctl_gate_loaded(void) {
     while (f && !found && fgets(line, sizeof line, f)) found = strstr(line, cfg.controller_lib) != NULL;
     if (f) fclose(f);
     return found;
+}
+
+/* the loaded gate holds only the parts X_GRAB names: its library carries the marker "mgu-inputgate-hold:" (a gate
+ * without it holds all three whatever the file says). The library as the HMI mapped it: /proc/<HMI>/maps. */
+static int ctl_gate_holds_parts(void) {
+    static const char marker[] = "mgu-inputgate-hold:";
+    int pid = cfg.controller_lib[0] ? hmi_pid() : -1;
+    if (pid < 0) return 0;
+    char p[64], line[512], lib[400] = "";
+    snprintf(p, sizeof p, "/proc/%d/maps", pid);
+    FILE *f = fopen(p, "r");
+    while (f && !lib[0] && fgets(line, sizeof line, f)) {
+        const char *path = strchr(line, '/');
+        if (path && strstr(path, cfg.controller_lib)) {
+            snprintf(lib, sizeof lib, "%s", path);
+            lib[strcspn(lib, "\n")] = 0;
+        }
+    }
+    if (f) fclose(f);
+    if (!lib[0]) return 0;
+    FILE *so = fopen(lib, "rb");
+    if (!so) return 0;
+    static char buf[256 * 1024];
+    size_t n = fread(buf, 1, sizeof buf, so);
+    fclose(so);
+    return memmem(buf, n, marker, sizeof marker - 1) != NULL;
 }
 
 /* ---------------- messages ---------------- */
@@ -982,7 +1029,8 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         int emb = embed_available(), area[4];
         app_area(area);
         uint32_t caps = CAP_PIXMAP | CAP_VIDEO | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
-                        (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
+                        (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0) |
+                        (ctl_gate_loaded() && ccu_free() && ctl_gate_holds_parts() ? CAP_CONTROLLER_HOLD : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
                         (touch_on ? CAP_FINGERS : 0);
         /* a gate that cannot tell which app is in front would never show the app: no mode, the app keeps its own screens */
         uint32_t modes = gate_applies(c) && gate_unavailable() ? 0 : (1u << (MODE_LAYER - 1)) | (emb ? 1u << (MODE_EMBED - 1) : 0);
@@ -1061,6 +1109,7 @@ static int video(client *c, const uint8_t *p, uint32_t len) {
 static int grab(client *c, const uint32_t *w, size_t nw) {
     if (nw < 1) return -1;
     c->grab_t = w[0] ? now_us() : 0;
+    c->hold = nw >= 2 ? (w[1] & HOLD_ALL) : 0;
     return 0;
 }
 

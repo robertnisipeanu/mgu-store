@@ -121,7 +121,7 @@ Client to daemon:
 | Type | Name | Payload |
 |---|---|---|
 | 0x4d520001 | X_MODE | u32 mode: 1 layer, 2 embed. Before PLACE, or again to move the app |
-| 0x4d520002 | X_GRAB | u32 on: as upstream's GRAB; events come as X_CCU |
+| 0x4d520002 | X_GRAB | u32 on[, u32 hold]: as upstream's GRAB; events come as X_CCU. hold: the parts of the controller the HMI doesn't get meanwhile, bits 1 knob, 2 press, 4 tilt; 0 or left out: all three ("Touch and controller") |
 | 0x4d520003 | X_PIXMAP | u32 id, w, h (1..2048), format (1 premultiplied RGBA, 2 RGBA shown opaque, 3 INDEX8), filter (0 nearest, 1 linear): an image written in regions, drawn with op 18 |
 | 0x4d520004 | X_PIXELS | u32 id, n (1..64), n × u32 x, y, w, h, then each rect's pixels in turn, rows top-down, packed (w × 1 or 4 bytes a row) |
 | 0x4d520005 | X_PALETTE | u32 id, 768 bytes RGB: an INDEX8 pixmap's colours, for the whole picture from now on |
@@ -131,7 +131,7 @@ Daemon to client:
 
 | Type | Name | Payload |
 |---|---|---|
-| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy, 64 X_FINGERS), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
+| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy, 64 X_FINGERS, 128 the loaded gate holds only the parts X_GRAB's hold names), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
 | 0x4d520102 | X_STATE | u32 mode, on screen, in front (the HMI shows the app's screen); sent whenever one changes |
 | 0x4d520103 | X_CCU | as upstream's CCU |
 | 0x4d520104 | X_FINGER | u32 phase (1 down, 2 move, 3 up, 4 cancel), u32 finger id (0..15, the display's), f32 x, y logical px: one finger of a gesture that began in a claim (after X_FINGERS 1). Cancel: the finger's lift was never seen and it is gone (x, y where it was last): drop it without acting on it, never as a tap or a release there |
@@ -237,6 +237,16 @@ disconnected once so they connect again to that.
   is bound only while an app grabs, and is upstream's renderer's when that one
   holds it. Without the gate the HMI keeps the controller; apps read FrontCCU
   over SOME/IP themselves and keep their RHMI focus proxies.
+- **Holding parts of the controller**: X_GRAB's second word names the parts
+  the HMI doesn't get (1 knob, 2 press, 4 tilt); the others stay the HMI's,
+  so an app that holds the knob and the press is still left with a tilt. The
+  renderer writes them into the gate's file as words (`knob press`): a new
+  file renamed over the old one when they change, only touched otherwise, so
+  the gate reads the words once per change. A gate that reads them (its library carries the marker `mgu-inputgate-hold:`;
+  X_READY caps 128) holds only those. An empty file, what every renderer wrote
+  before, holds all three, and so does a gate that doesn't read the words: an
+  app that names parts gets at least what it asked for. X_CCU still carries
+  the whole event.
 
 ## Draw ops
 

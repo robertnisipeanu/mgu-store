@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The controller in parts: X_GRAB's second word names the parts of the iDrive controller the HMI doesn't get while the
+  app grabs it (1 knob, 2 press, 4 tilt; 0 or left out: all three, as before), written into the gate's file as words
+  (a new file renamed over it when they change, only touched otherwise: the gate reads them once per change).
+  A gate that reads them (idrive7-apps' mgu-inputgate with the marker `mgu-inputgate-hold:`; X_READY caps 128,
+  `info.controllerHold`, `grab(on, ['knob', 'press'])` in the JS client) leaves the others to the HMI: a tilt still
+  leaves an app that holds the knob and the press. Older gates hold all three.
+
 ## 0.6.21
 
 - Multi-touch: a gesture in a claim keeps every finger until the last one is up; a native app that sends X_FINGERS 1 gets
