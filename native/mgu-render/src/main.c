@@ -904,21 +904,27 @@ static void ctl_gate_update(uint64_t t) {
     if (want) {
         int was = ctl_gate_on;
         uint32_t hold = by->hold ? by->hold : HOLD_ALL;
-        if (!ctl_gate_on || hold != written || t - ctl_gate_t >= GATE_TOUCH_US) {
-            int fd = open(cfg.controller_gate, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0644);
+        if (!ctl_gate_on || hold != written) {
+            /* new parts: a new file renamed over the old one (the gate reads the words only from a new file;
+               a touch keeps the inode). All three: empty, as every renderer wrote before. */
+            char tmp[sizeof cfg.controller_gate + 8];
+            snprintf(tmp, sizeof tmp, "%s.new", cfg.controller_gate);
+            int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
             if (fd >= 0) {
-                if (!ctl_gate_on || hold != written) {
-                    char words[32] = "";
-                    if (hold != HOLD_ALL)
-                        snprintf(words, sizeof words, "%s%s%s\n", hold & HOLD_KNOB ? "knob " : "",
-                                 hold & HOLD_PRESS ? "press " : "", hold & HOLD_TILT ? "tilt " : "");
-                    if (ftruncate(fd, 0) == 0 && words[0] && write(fd, words, strlen(words)) < 0) { /* best effort */ }
-                    written = hold;
-                }
-                futimens(fd, NULL);
+                char words[32] = "";
+                if (hold != HOLD_ALL)
+                    snprintf(words, sizeof words, "%s%s%s\n", hold & HOLD_KNOB ? "knob " : "",
+                             hold & HOLD_PRESS ? "press " : "", hold & HOLD_TILT ? "tilt " : "");
+                if (words[0] && write(fd, words, strlen(words)) < 0) { /* best effort: empty holds all three */ }
                 close(fd);
+                if (rename(tmp, cfg.controller_gate) == 0) written = hold;
+                else unlink(tmp);
             }
             ctl_gate_on = 1; ctl_gate_t = t;
+        } else if (t - ctl_gate_t >= GATE_TOUCH_US) {
+            int fd = open(cfg.controller_gate, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0644);
+            if (fd >= 0) { futimens(fd, NULL); close(fd); }
+            ctl_gate_t = t;
         }
         if (!was || strcmp(holder, by->app)) {
             log_info("controller: held for %s%s", by->app, was ? "" : " (@mgu-renderd-ccu bound)");
