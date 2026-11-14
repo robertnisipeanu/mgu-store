@@ -1,5 +1,9 @@
 # app-privacy changelog
 
+## Unreleased
+
+- iDrive 7 (MainApp 8.3.2): BMW apps listed in `/var/opt/public/oap/oap_12201/data/never-start-apps.json` never start: MainApp treats them as not startable (no tile, widget, voice, backend, autostart or last-used start) and as start type `manually`. Calls, diagnosis, privacy and the platform's own app are never matched. Without the file nothing changes. Bundles patched by 1.7.1 are upgraded by `apply`. Other MainApp releases are patched exactly as before.
+
 ## 1.7.1
 
 - iDrive 7: MainApp 6.5.5 is patched too, with the same effect as on 8.1.1: our apps are left out of its backend app inventory, backend-triggered and autonomous updates, app-repository queries and downloads and corrupt-app reports, and a crashed one is only restarted. On 6.5.5 `main.js` and `AppManagement.js` are bytecode-loader stubs, so the tool patches `main.bundle.js` and `AppManagement.bundle.js` beside them.

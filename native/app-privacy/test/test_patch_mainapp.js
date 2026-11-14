@@ -206,8 +206,9 @@ test('boot exits 0 on a mismatch and leaves the files', () => withBundles((b) =>
 
 // sha256 of JSON.stringify(PATCH_SETS) as shipped by 1.5.0, and of the
 // earlier entries of EARLIER_PATCH_SETS.
-const PATCH_SETS_SHA256 = '6598d28199d4003fed2494ff6381c777206a85a1f3d7cdcd865196e2f8912ce0';
+const PATCH_SETS_SHA256 = '811c8f10894d72e25a5c4cf633f49d6c24bda409d36cdc70e2da35e6ba1f2c22';
 const EARLIER_SETS_SHA256 = {
+    '1.7.1': '6598d28199d4003fed2494ff6381c777206a85a1f3d7cdcd865196e2f8912ce0',
     '1.4.0': 'a83ed0b557ee2ab52871388768f6e06bad255fbcb08c947e378db2872a310eed',
     '1.2.2': 'd494bf13326a07a6275f762b25d0639efb6eb12258718289000bb05ecbca5d8c',
     '1.1.0': '65fdf5a71cb95d465b37811cb2f326495686d4edcbd33566c07bad6c3ddc484e'
@@ -216,6 +217,7 @@ const EARLIER_SETS_SHA256 = {
 // earlier release's edits: none when this release keeps them; 1.2.2's
 // AppManagement.js edits are 1.4.0's.
 const PATCHED_BY = {
+    '1.7.1': { main: '1.7.1', appmanagement: null },
     '1.4.0': { main: null, appmanagement: '1.4.0' },
     '1.2.2': { main: '1.2.2', appmanagement: '1.4.0' },
     '1.1.0': { main: '1.1.0', appmanagement: '1.1.0' }
@@ -225,6 +227,10 @@ const PATCHED_BY = {
 // 1.2.1's) and 1.1.0's (and 1.0.0's).
 const PATCHED_SHA256 = {
     current: {
+        main: null,     // this release's main.js not recorded yet: null skips that one compare
+        appmanagement: 'fbd85004e927f2ff28f33bef15540fb677026dda53e85cc4a07a98ab284bbc2a'
+    },
+    '1.7.1': {
         main: '51d714ea0cd3e1127924fd1779b3cac82938715ee89c9e89e83351c80f347c8e',
         appmanagement: 'fbd85004e927f2ff28f33bef15540fb677026dda53e85cc4a07a98ab284bbc2a'
     },
@@ -985,8 +991,10 @@ test('reference firmware bundles patch, upgrade, parse and revert exactly', () =
         };
         Object.keys(paths).forEach((kind) => {
             fs.writeFileSync(paths[kind], stock[kind]);
-            assert.strictEqual(sha256(patcher.applyPatches(stock[kind], patcher.PATCH_SETS[kind])),
-                PATCHED_SHA256.current[kind], kind + ': the edits differ from the released ones');
+            if (PATCHED_SHA256.current[kind] !== null) {
+                assert.strictEqual(sha256(patcher.applyPatches(stock[kind], patcher.PATCH_SETS[kind])),
+                    PATCHED_SHA256.current[kind], kind + ': the edits differ from the released ones');
+            }
             patcher.EARLIER_PATCH_SETS.forEach((earlier) => assert.strictEqual(
                 sha256(patcher.applyPatches(stock[kind], earlier[kind])), PATCHED_SHA256[earlier.version][kind],
                 kind + ': ' + earlier.version + '\'s edits differ from the released ones'));
@@ -1414,6 +1422,9 @@ function helperPerModule(text) {
         if (m.indexOf('isLocalOnlyApp(') >= 0) {
             assert.strictEqual(m.split('function isLocalOnlyApp(').length - 1, 1, 'module ' + i + ' has no single helper');
         }
+        if (m.indexOf('isNeverStartApp(') >= 0) {
+            assert.strictEqual(m.split('function isNeverStartApp(').length - 1, 1, 'module ' + i + ' has no single helper');
+        }
     });
 }
 
@@ -1578,7 +1589,7 @@ test('every edit has an id, a title and its predicate copy in its own file', () 
             ids.push(info.id);
             if (info.id.indexOf('helper:') === 0) {
                 assert.strictEqual(info.helper, null);
-                assert.strictEqual(p[1].indexOf('function isLocalOnlyApp('), 0);
+                assert.ok(/^function (isLocalOnlyApp|isNeverStartApp)\(/.test(p[1]), info.id);
             } else {
                 assert.ok(patcher.EDIT_TITLES[info.id], info.id);
                 assert.ok(sets[kind].some((h) => infoOf(h).id === info.helper), release[1] + ' ' + info.id);
@@ -1621,9 +1632,9 @@ test('an optional anchor with no occurrence is skipped and the rest applied, on 
             assert.strictEqual(r.code, 0, release[1] + ' ' + id + ': ' + r.stdout);
             let json = lastJson(r.stdout);
             assert.strictEqual(json.state, 'patched');
-            // without its sweep anchor an 8.2.10 bundle fits 8.3.2's edits as
-            // well, the same ones; the newer release is named
-            assert.strictEqual(json.mainapp, release[1] === '8.2.10' && id === 'update-availability-sweep' ? '8.3.2' : release[1]);
+            // (without its sweep anchor an 8.2.10 bundle still lacks 8.3.2's
+            // never-start anchors, so 8.2.10 fits it best)
+            assert.strictEqual(json.mainapp, release[1]);
             assert.deepStrictEqual(json.skipped, [id]);
             assert.strictEqual(resultOf(json, id).result, 'skipped-not-found');
             assert.strictEqual(resultOf(json, id).found, 0);
@@ -1946,13 +1957,123 @@ test('boot applies with the same rules and records the run', () => {
 
 test('a bundle with all of an earlier release\'s edits is named as patched by it and upgraded', () => withBundles((b) => {
     const stock = b.read('main');
-    const earlier = patcher.applyPatches(stock, patcher.EARLIER_PATCH_SETS[1].main);
+    const earlier = patcher.applyPatches(stock, patcher.EARLIER_PATCH_SETS[2].main);
     fs.writeFileSync(b.paths.main, earlier);
     const r = patcher.run('check', b.paths, quiet, NO_PROC);
     assert.strictEqual(r.result.files[0].patchedBy, '1.2.2');
     assert.strictEqual(patcher.run('apply', b.paths, quiet, NO_PROC).code, 0);
     assert.strictEqual(b.read('main'), patcher.applyPatches(stock, patcher.PATCH_SETS.main));
 }));
+
+/* The never-start edits, on a stock-shaped AppsRuntimeController. */
+const NEVER_START_PATCHES = patcher.PATCH_SETS.main.filter((p) => p[1].indexOf('isNeverStartApp') >= 0);
+const APP_PATCHES = NEVER_START_PATCHES.filter((p) => p[0].indexOf('AppsRuntimeController') < 0 && /App extends|_isStartable/.test(p[0]));
+const RUNTIME_PATCHES = NEVER_START_PATCHES.filter((p) => APP_PATCHES.indexOf(p) < 0);
+
+function neverStartHelper(file) {
+    const sandbox = { require: () => ({ readFileSync: (f) => {
+        if (f === patcher.NEVER_START_FILE && file !== undefined) {
+            return file;
+        }
+        const e = new Error('ENOENT: ' + f);
+        e.code = 'ENOENT';
+        throw e;
+    } }), JSON, Array };
+    vm.runInNewContext(patcher.NEVER_START_JS + ';this.isNeverStartApp=isNeverStartApp;', sandbox);
+    return sandbox.isNeverStartApp;
+}
+
+function runtimeController(listed) {
+    const stock = 'const CONFIG_STATE_QUEUE_KEY="configStateQueue";' +
+        'class AppsRuntimeController{constructor(registry){this._appRegistry=registry;this.queued=[]}' +
+        '_appProvisioningChangedHandler(appId,newProvisioning){const app=this._appRegistry.getById(appId);' +
+        'try{app.setStartType(newProvisioning["-appStartType"])}catch(e){}}' +
+        '_addToConfigStateQueue(appId){const logPrefix=`AppsRuntimeController::_addToConfigStateQueue ${appId}`;' +
+        'const app=this._appRegistry.getById(appId);' +
+        'if(app.isAutostart())return logger.verbose(`${logPrefix} Skip autostart app.`),Promise.resolve();' +
+        'return this.queued.push(appId),Promise.resolve()}' +
+        '_configStateQueue(){return this._appRegistry.getAll().filter(app=>(app.isAutostart()&&' +
+        '(app.runtimeProperties[CONFIG_STATE_QUEUE_KEY]=null),"number"==typeof app.runtimeProperties[CONFIG_STATE_QUEUE_KEY]))' +
+        '.map(app=>app.getAppId())}}module.exports=AppsRuntimeController;';
+    const source = patcher.applyPatches(stock, RUNTIME_PATCHES);
+    assert.strictEqual(patcher.classify(source, RUNTIME_PATCHES), 'patched');
+    const module = { exports: null };
+    const fakeFs = { readFileSync: (file) => {
+        if (file === patcher.NEVER_START_FILE) {
+            return JSON.stringify(listed);
+        }
+        throw new Error('ENOENT: ' + file);
+    } };
+    vm.runInNewContext(source, { require: (name) => { assert.strictEqual(name, 'fs'); return fakeFs; }, module,
+        logger: { verbose() {} }, Promise, JSON, Array });
+    const apps = {};
+    const app = (id, startType, queueIndex) => {
+        apps[id] = { startType, runtimeProperties: { configStateQueue: queueIndex }, getAppId: () => id,
+            setStartType(t) { this.startType = t; }, isAutostart() { return this.startType === 'autostart'; } };
+    };
+    const controller = new module.exports({ getById: (id) => apps[id], getAll: () => Object.keys(apps).map((id) => apps[id]) });
+    return { controller, apps, app };
+}
+
+test('never-start helper: listed apps only, never a denied one, never on a bad file', () => {
+    const list = JSON.stringify(['cmusic', 'x_call', 'privacy_manager']);
+    assert.strictEqual(neverStartHelper(list)('cmusic'), true);
+    assert.strictEqual(neverStartHelper(list)('waze'), false);
+    assert.strictEqual(neverStartHelper(list)('x_call'), false);
+    assert.strictEqual(neverStartHelper(list)('privacy_manager'), false);
+    assert.strictEqual(neverStartHelper(undefined)('cmusic'), false);
+    assert.strictEqual(neverStartHelper('not json')('cmusic'), false);
+    assert.strictEqual(neverStartHelper('{"cmusic":1}')('cmusic'), false);
+});
+
+test('a never-start app is started manually only; its provisioning is untouched', () => {
+    const r = runtimeController(['cmusic', 'road-ahead', 'x_call']);
+    r.app('cmusic'); r.app('road-ahead'); r.app('waze'); r.app('x_call');
+    const provisioning = { cmusic: { '-appStartType': 'autostart' }, 'road-ahead': { '-appStartType': 'lum' },
+        waze: { '-appStartType': 'autostart' }, x_call: { '-appStartType': 'autostart' } };
+    Object.keys(provisioning).forEach((id) => r.controller._appProvisioningChangedHandler(id, provisioning[id]));
+    assert.deepStrictEqual(Object.keys(r.apps).map((id) => r.apps[id].startType),
+        ['manually', 'manually', 'autostart', 'autostart']);
+    assert.deepStrictEqual(provisioning.cmusic, { '-appStartType': 'autostart' });
+    assert.deepStrictEqual(provisioning['road-ahead'], { '-appStartType': 'lum' });
+});
+
+test('a never-start app stays out of the config-state start queue', () => {
+    const r = runtimeController(['cmusic']);
+    r.app('cmusic', 'manually', 0); r.app('news', 'manually', 1); r.app('waze', 'autostart', 2);
+    assert.deepStrictEqual(Array.from(r.controller._configStateQueue()), ['news']);
+    assert.strictEqual(r.apps.cmusic.runtimeProperties.configStateQueue, null);
+    return Promise.all(['cmusic', 'news', 'waze'].map((id) => r.controller._addToConfigStateQueue(id)))
+        .then(() => assert.deepStrictEqual(Array.from(r.controller.queued), ['news']));
+});
+
+test('a never-start app is not startable; others vote as before', () => {
+    const stock = 'const events={EventEmitter:class{}};class App extends events.EventEmitter{' +
+        'constructor(id,vote){super();this._appId=id;this._startableCouncil={vote:()=>vote};this._isLoginRequired=!1}' +
+        '_isStartable(){return Boolean(this._startableCouncil.vote()&&(!this._isLoginRequired||this._userSession.isUserLoggedIn()))}' +
+        '}module.exports=App;';
+    const source = patcher.applyPatches(stock, APP_PATCHES);
+    assert.strictEqual(patcher.classify(source, APP_PATCHES), 'patched');
+    const module = { exports: null };
+    const fakeFs = { readFileSync: (file) => {
+        if (file === patcher.NEVER_START_FILE) {
+            return JSON.stringify(['cmusic', 'x_call']);
+        }
+        throw new Error('ENOENT: ' + file);
+    } };
+    vm.runInNewContext(source, { require: () => fakeFs, module, JSON, Array, Boolean });
+    const App = module.exports;
+    assert.strictEqual(new App('cmusic', true)._isStartable(), false);
+    assert.strictEqual(new App('x_call', true)._isStartable(), true);
+    assert.strictEqual(new App('waze', true)._isStartable(), true);
+    assert.strictEqual(new App('waze', false)._isStartable(), false);
+});
+
+test('earlier releases\' edits carry no never-start edit', () => {
+    patcher.EARLIER_PATCH_SETS.forEach((s) => assert.strictEqual(JSON.stringify(s).indexOf('isNeverStartApp'), -1, s.version));
+    assert.deepStrictEqual([APP_PATCHES.length, RUNTIME_PATCHES.length], [2, 4]);
+    assert.ok(patcher.PATCH_SETS_8_2_10.main.every((p) => p[1].indexOf('isNeverStartApp') < 0), '8.2.10 unchanged');
+});
 
 let failed = 0;
 tests.reduce((p, t) => p.then(() => t.fn()).then((note) => {
