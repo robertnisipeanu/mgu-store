@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.7.2
+
 - iDrive 7: MainApp 6.4.8 is patched too, with the same effect as on 8.1.1. Its second backend app-management service also leaves our apps out of its app inventory and its update of every app. Like 6.5.5 it ships `main.bundle.js` and `AppManagement.bundle.js` beside bytecode-loader stubs, which the tool patches.
 
 ## 1.7.1
