@@ -148,6 +148,8 @@ const REQUIRED_EDITS = ['crash-gate', 'crash-count', 'package-source', 'keychain
 const EDIT_TITLES = {
     'backend-inventory': 'backend app inventory',
     'backend-update-all': 'backend update of every app',
+    'provider-inventory': 'backend app inventory (AppManagement)',
+    'provider-update-all': 'backend update of every app (AppManagement)',
     'update-availability-sweep': 'update-availability sweep',
     'analytics-install': 'install analytics',
     'analytics-install-failed': 'failed-install analytics',
@@ -186,7 +188,8 @@ function ins(before, insert, after, n) {
 // once stays so for that MainApp's life (its localOnlyRestarts list), so a
 // failed read of its files cannot send its next crash down the ladder.
 // Only restarts MainApp goes on to make count (not a death while the head
-// unit shuts down; a failed restart does count): after CRASH_RESTARTS of
+// unit shuts down, except on 6.4.8, which restarts an app then too; a
+// failed restart does count): after CRASH_RESTARTS of
 // them within CRASH_WINDOW_MS, the next crash leaves the app stopped,
 // installed, its data kept and its tile enabled. Starting it again (its
 // tile, MainApp's own start of an app it keeps running, a reboot) runs it,
@@ -212,7 +215,7 @@ function crashGateJs(logPrefix, giveUp, after) {
         'appCorruptInfo.recoveryAttemptsSinceCorruption=0}' + (after === undefined ? 'else ' : after);
 }
 const CRASH_GATE_JS = crashGateJs('CorruptAppsHandler::_tryRecoverApp');
-// At the restart, after MainApp's head-unit-shutdown check.
+// At the restart, after MainApp's head-unit-shutdown check (6.4.8 has none).
 const CRASH_COUNT_JS = 'appCorruptInfo.localOnlyRestarts&&(appCorruptInfo.recoveryAttemptsSinceCorruption=0,' +
     'appCorruptInfo.localOnlyRestarts.push(Date.now())),';
 const CRASH_EDITS = [
@@ -355,6 +358,48 @@ const KNOWN_SHA256_6_5_5 = {
     main: '78a37fcafdb780771226e9710de9911ffc9608e3be2a394360874f0ec16faa25',
     appmanagement: 'f53e7e8a9775c36a136f38de89cebd8eec58cb88e079ce3ca5d4f1b1447b8200'
 };
+
+// oap-mainapp 6.4.8. Laid out as 6.5.5 (bytecode-loader stubs, edits in
+// main.bundle.js and AppManagement.bundle.js); its AppManagement bundle takes
+// 8.1.1's edits. Its main bundle differs from 8.1.1's in three places:
+// - besides AppManagementFfProviderImpl it has AppManagementProviderImpl,
+//   also a joynr provider registered out-car (outCarProviderQos), with its
+//   own getAllInstalledApps and updateAllApps: both are filtered as the
+//   AppManagement_ff ones are, so the backend inventory anchor is pinned to
+//   the _ff one by what follows it;
+// - its crash recovery has no StartableCouncil: the restart counted is the
+//   one after app.disableStart();
+// - its autonomous update of every app calls update(appId) alone.
+const KNOWN_SHA256_6_4_8 = {
+    main: '44f1fe1e0ff589984b9812d3cbff25671e01d2e21fd3ff9d4f8d9d193962738c',
+    appmanagement: '68df36d7b37ee7180c7863331f9616e5e6641e056c982374167f42fc2916c00c'
+};
+const MAIN_PATCHES_6_4_8 = [
+    helperInjection('AppManagementFfProviderImpl', 'class AppManagementFfProviderImpl{'),
+    helperInjection('AppManagementProviderImpl', 'class AppManagementProviderImpl{'),
+    helperInjection('CorruptAppsHandler', 'class CorruptAppsHandler{'),
+    helperInjection('AppsAutoupdater', 'class AppsAutoupdater{'),
+    helperInjection('MainApp', 'class MainApp{'),
+    edit('backend-inventory', 'helper:AppManagementFfProviderImpl',
+        ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';logger.debug(`${logPrefix} retrieved', 1)),
+    edit('backend-update-all', 'helper:AppManagementFfProviderImpl',
+        ins('getAllAppIds()', KEEP_APP_ID, ';const resultArgs=', 1)),
+    edit('provider-inventory', 'helper:AppManagementProviderImpl',
+        ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';return logger.debug(`${logPrefix} retrieved', 1)),
+    edit('provider-update-all', 'helper:AppManagementProviderImpl',
+        ins('getAllAppIds()', KEEP_APP_ID, ';return Promise.mapSeries(installedAppIds,appId=>this.updateApp(', 1)),
+    edit('crash-gate', 'helper:CorruptAppsHandler',
+        ins(CRASH_GATE_BEFORE, crashGateJs('CorruptAppsHandler::_tryRecoverApp', '', ''), 'let recoveryAction=', 1)),
+    edit('crash-count', 'helper:CorruptAppsHandler',
+        ins('appCorruptInfo.recoveryAttemptsSinceCorruption++,', CRASH_COUNT_JS, 'app.disableStart();', 1)),
+    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('()=>', 'isLocalOnlyApp(appId)?Promise.resolve():',
+        'this._backendTransport.reportCorruptApp(appId,version', 1)),
+    edit('autoupdate-all', 'helper:AppsAutoupdater',
+        ins('getAllAppIds()', KEEP_APP_ID, '.forEach(appId=>{this._appManager.update(appId)})', 1)),
+    edit('user-update-all', 'helper:MainApp',
+        ins('getAllAppIds()', KEEP_APP_ID, ';return logger.info(`${logPrefix} Trying', 1))
+];
+const PATCH_SETS_6_4_8 = { main: MAIN_PATCHES_6_4_8, appmanagement: PATCH_SETS_8_1_1.appmanagement };
 
 // oap-mainapp 8.2.10. Its update-availability sweep is
 // AppsAutoupdater._areUpdatesAvailable, which reads the registry as
@@ -533,7 +578,8 @@ const UNITS = {
         { version: '8.3.2', sets: { current: PATCH_SETS, earlier: EARLIER_PATCH_SETS }, known: KNOWN_SHA256 },
         { version: '8.2.10', sets: { current: PATCH_SETS_8_2_10, earlier: [] }, known: KNOWN_SHA256_8_2_10 },
         { version: '8.1.1', sets: { current: PATCH_SETS_8_1_1, earlier: [] }, known: KNOWN_SHA256_8_1_1 },
-        { version: '6.5.5', sets: { current: PATCH_SETS_8_1_1, earlier: [] }, known: KNOWN_SHA256_6_5_5 }
+        { version: '6.5.5', sets: { current: PATCH_SETS_8_1_1, earlier: [] }, known: KNOWN_SHA256_6_5_5 },
+        { version: '6.4.8', sets: { current: PATCH_SETS_6_4_8, earlier: [] }, known: KNOWN_SHA256_6_4_8 }
     ] },
     ID8: { paths: bundlePaths('/usr/lib/oap-mainapp21'), mainapps: [
         { version: '9.3.4', sets: { current: PATCH_SETS_21, earlier: [] }, known: KNOWN_SHA256_21 },
@@ -1356,7 +1402,7 @@ function main(argv) {
 
 module.exports = {
     VERSION, MARKER_KEY, OVERRIDE_FILE, PREINSTALLED_DIR, HELPER_JS, PATCH_SETS, EARLIER_PATCH_SETS, KNOWN_SHA256,
-    PATCH_SETS_8_1_1, KNOWN_SHA256_8_1_1, KNOWN_SHA256_6_5_5, PATCH_SETS_8_2_10, KNOWN_SHA256_8_2_10,
+    PATCH_SETS_8_1_1, KNOWN_SHA256_8_1_1, KNOWN_SHA256_6_5_5, PATCH_SETS_6_4_8, KNOWN_SHA256_6_4_8, PATCH_SETS_8_2_10, KNOWN_SHA256_8_2_10,
     PREINSTALLED_DIR_21, HELPER_JS_21, PATCH_SETS_21, KNOWN_SHA256_21,
     PATCH_SETS_21_9_2_15, KNOWN_SHA256_21_9_2_15,
     UNITS, unitOf, bundlePathFor, resolveBundlePaths,

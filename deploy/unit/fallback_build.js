@@ -29,8 +29,9 @@
  * Both fallback anchors must occur exactly once in the stock file. Any
  * other count refuses the build: exit 3, nothing written, so the boot unit
  * logs the refusal and leaves the stock file in effect. The hook's anchor
- * is optional: when it does not occur exactly once, the copy is built
- * without the hook, and says so on stdout. Exit 2 is a usage error, exit
+ * (INPLACE_ANCHOR, or INPLACE_ANCHOR_6_4_8) is optional: unless exactly one
+ * of them occurs exactly once, the copy is built without the hook, and
+ * says so on stdout. Exit 2 is a usage error, exit
  * 1 any other failure. Runs under Node 8.
  *
  * iDrive 8's MainApp-21 (its provisioning anchor ID8.hookAnchor) takes
@@ -66,6 +67,8 @@ var CLASS_ANCHOR = 'class ProvisioningNotifier ';
 var HOOK_ANCHOR = 'isMainapp&&section===mainAppSection&&(newProvisioning.';
 var INPLACE_MARK = '/* mgu-deploy in-place install */';
 var INPLACE_ANCHOR = 'mainApp.init()}).then(()=>{';
+/* MainApp 6.4.8 initializes its bookmark controller beside MainApp */
+var INPLACE_ANCHOR_6_4_8 = 'Promise.all([mainApp.init(),bookmarkController.init()])}).then(()=>{';
 var FIRST_MARK = '/* mgu-deploy apps first */';
 /* the end of MainApp's own makeMethodQueued module (utils/makeMethodQueued, the one the
  * controller requires; oap-sdk's copy of it is another module), where its queues are in scope */
@@ -121,7 +124,7 @@ var HOOK = 'if(!__mguDeployGuard.on);else if(isMainapp&&section===mainAppSection
     MARK + ';';
 
 /* Runs in the app manager once MainApp has initialized, with main.js's own
- * appManager (AppManagementController; on MainApp 6.5.5, which has none,
+ * appManager (AppManagementController; on MainApp 6.5.5 and 6.4.8, which have none,
  * the AppManagerStub itself), appRegistry and logger. It writes
  * the status file {pid, start, at, state: "ready"} and polls the request
  * file each second. A request, {id, app, action: "install"|"update"|"uninstall",
@@ -144,7 +147,7 @@ var HOOK = 'if(!__mguDeployGuard.on);else if(isMainapp&&section===mainAppSection
  * carries that trace each second, with the manager's network-retry count
  * and whether a retry delay or an NSM resume is pending. */
 /* iDrive 7: the AppManagerStub is the controller's appManager, or on
- * MainApp 6.5.5, which has no controller (ID7_NO_CONTROLLER), the hook's
+ * MainApp 6.5.5 and 6.4.8, which have no controller (ID7_NO_CONTROLLER), the hook's
  * appManager itself. */
 var ID7 = { start: 'const g=global.__mguDeployGuard;if(g&&!g.on)return void put({state:"off",why:g.why});', stub: '_', installer: 'mgr&&mgr.appManager', run: '"update"===r.action?mgr.update(r.app,"PLATFORM"):' +
     '"uninstall"===r.action?mgr.uninstall(r.app):mgr.install(r.app)', args: '(appManager,appRegistry,logger)' };
@@ -341,10 +344,14 @@ function main() {
         src = src.slice(0, h) + HOOK + src.slice(h);
         var c = once(src, CLASS_ANCHOR, 'the ProvisioningNotifier class');
         src = src.slice(0, c) + helperSource(listPath) + src.slice(c);
-        var p = src.indexOf(INPLACE_ANCHOR);
-        hook = p >= 0 && src.indexOf(INPLACE_ANCHOR, p + 1) < 0;
+        var anchor = [INPLACE_ANCHOR, INPLACE_ANCHOR_6_4_8].filter(function (a) {
+            var i = src.indexOf(a);
+            return i >= 0 && src.indexOf(a, i + 1) < 0;
+        });
+        hook = anchor.length === 1;
+        var p = hook ? src.indexOf(anchor[0]) : -1;
         if (hook) {
-            p += INPLACE_ANCHOR.length;
+            p += anchor[0].length;
             src = src.slice(0, p) + inplaceSource(requestPath, statusPath,
                 src.indexOf('class AppManagementController{') >= 0 ? ID7 : ID7_NO_CONTROLLER) + src.slice(p);
         }

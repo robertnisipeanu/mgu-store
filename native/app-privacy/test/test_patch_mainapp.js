@@ -7,7 +7,7 @@
  * (FIRMWARE_MAINAPP_DIR names iDrive 7's folder, FIRMWARE_MAINAPP21_DIR
  * iDrive 8's MainApp-21, 9.3.4 or 9.2.15, FIRMWARE_MAINAPP_8_1_1_DIR
  * iDrive 7's MainApp 8.1.1, FIRMWARE_MAINAPP_8_2_10_DIR its 8.2.10,
- * FIRMWARE_MAINAPP_6_5_5_DIR its 6.5.5); each is skipped otherwise.
+ * FIRMWARE_MAINAPP_6_5_5_DIR its 6.5.5, FIRMWARE_MAINAPP_6_4_8_DIR its 6.4.8); each is skipped otherwise.
  */
 const assert = require('assert');
 const childProcess = require('child_process');
@@ -301,6 +301,21 @@ const PATCHED_8_2_10_SHA256 = {
     appmanagement: '2c430e9adbb0035998331c5b1c8431ee28d72b91735848eb98ef91c9889df4ba'
 };
 
+// sha256 of JSON.stringify(PATCH_SETS_6_4_8), and of MainApp 6.4.8's
+// bundles as it patches them.
+const PATCH_SETS_6_4_8_SHA256 = '7e62e1e555f44d89f4da24c1828ee23e7ea0477af130015aa5368d47f701964a';
+const PATCHED_6_4_8_SHA256 = {
+    main: '4717a2dab53111d93fee4e6f218fa6cf40d35c69a9ba777c90171258db8af507',
+    appmanagement: 'e2a06518e6edf7b6612e92f0fd190271d3cd730f7b476486658a76d2da253229'
+};
+
+test('the MainApp 6.4.8 patch set is recorded', () => {
+    const sha = setsSha(patcher.PATCH_SETS_6_4_8);
+    assert.strictEqual(sha, PATCH_SETS_6_4_8_SHA256,
+        'PATCH_SETS_6_4_8 differs from the released one: keep the released sets as 6.4.8\'s earlier release ' +
+        '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
+});
+
 test('the MainApp 8.2.10 patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS_8_2_10);
     assert.strictEqual(sha, PATCH_SETS_8_2_10_SHA256,
@@ -341,10 +356,11 @@ function withReleaseBundles(unit, sets, fn) {
 }
 
 test('bundles take the edits of the MainApp release they fit', () => {
-    assert.deepStrictEqual(patcher.UNITS.ID7.mainapps.map((m) => m.version), ['8.3.2', '8.2.10', '8.1.1', '6.5.5']);
+    assert.deepStrictEqual(patcher.UNITS.ID7.mainapps.map((m) => m.version), ['8.3.2', '8.2.10', '8.1.1', '6.5.5', '6.4.8']);
     assert.deepStrictEqual(patcher.UNITS.ID8.mainapps.map((m) => m.version), ['9.3.4', '9.2.15']);
     [['ID7', patcher.PATCH_SETS, '8.3.2'], ['ID7', patcher.PATCH_SETS_8_2_10, '8.2.10'],
-        ['ID7', patcher.PATCH_SETS_8_1_1, '8.1.1'], ['ID8', patcher.PATCH_SETS_21, '9.3.4'],
+        ['ID7', patcher.PATCH_SETS_8_1_1, '8.1.1'], ['ID7', patcher.PATCH_SETS_6_4_8, '6.4.8'],
+        ['ID8', patcher.PATCH_SETS_21, '9.3.4'],
         ['ID8', patcher.PATCH_SETS_21_9_2_15, '9.2.15']].forEach((release) => withReleaseBundles(release[0], release[1], (b) => {
         const stock = { main: b.read('main'), appmanagement: b.read('appmanagement') };
         let r = runTool(b.args('check'));
@@ -392,7 +408,8 @@ test('bundles with 6.5.5\'s stock fingerprint are named 6.5.5, others with its e
 
 // 8.2.10's AppManagement.js edits are 8.3.2's: its main.js tells them apart.
 test('each iDrive 7 release\'s edits fit only its own bundles', () => {
-    const sets = { '8.3.2': patcher.PATCH_SETS, '8.2.10': patcher.PATCH_SETS_8_2_10, '8.1.1': patcher.PATCH_SETS_8_1_1 };
+    const sets = { '8.3.2': patcher.PATCH_SETS, '8.2.10': patcher.PATCH_SETS_8_2_10, '8.1.1': patcher.PATCH_SETS_8_1_1,
+        '6.4.8': patcher.PATCH_SETS_6_4_8 };
     Object.keys(sets).forEach((mine) => Object.keys(sets).filter((other) => other !== mine).forEach((other) => {
         [false, true].forEach((patched) => {
             const refused = ['main', 'appmanagement'].filter((kind) => {
@@ -1510,6 +1527,9 @@ test('MainApp 8.2.10 bundles patch, parse and revert exactly', () =>
 test('MainApp 6.5.5 bundles patch, parse and revert exactly', () =>
     releaseFirmware(process.env.FIRMWARE_MAINAPP_6_5_5_DIR, '6.5.5', patcher.PATCH_SETS_8_1_1, PATCHED_6_5_5_SHA256));
 
+test('MainApp 6.4.8 bundles patch, parse and revert exactly', () =>
+    releaseFirmware(process.env.FIRMWARE_MAINAPP_6_4_8_DIR, '6.4.8', patcher.PATCH_SETS_6_4_8, PATCHED_6_4_8_SHA256));
+
 /* ---- required and optional edits, the record -------------------------- */
 
 // Each unit's MainApp releases, with the edits our apps need there.
@@ -1517,6 +1537,7 @@ const RELEASES = [
     ['ID7', '8.3.2', () => patcher.PATCH_SETS, ['crash-gate', 'crash-count', 'package-source', 'keychain-time']],
     ['ID7', '8.2.10', () => patcher.PATCH_SETS_8_2_10, ['crash-gate', 'crash-count', 'package-source', 'keychain-time']],
     ['ID7', '8.1.1', () => patcher.PATCH_SETS_8_1_1, ['crash-gate', 'crash-count', 'package-source', 'keychain-time']],
+    ['ID7', '6.4.8', () => patcher.PATCH_SETS_6_4_8, ['crash-gate', 'crash-count', 'package-source', 'keychain-time']],
     ['ID8', '9.3.4', () => patcher.PATCH_SETS_21, ['crash-gate', 'crash-count', 'package-source']],
     ['ID8', '9.2.15', () => patcher.PATCH_SETS_21_9_2_15, ['crash-gate', 'crash-count', 'package-source']]
 ];

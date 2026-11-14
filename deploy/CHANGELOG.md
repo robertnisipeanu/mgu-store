@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- iDrive 7 with MainApp 6.4.8: the provisioning fallback copy carries the in-place install hook, at its start-up's `Promise.all([mainApp.init(),bookmarkController.init()])`, so an app install or update restarts only that app instead of the app manager.
+
 ## 0.8.18
 
 - `status` asks systemctl about all tools' units in one run per question and reads the process list once, so the status after each install or update takes about a second less.

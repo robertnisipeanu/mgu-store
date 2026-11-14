@@ -7,8 +7,9 @@ paths; the patch in this directory makes each of them skip local-only
 apps. It also makes MainApp only restart a local-only app that crashed.
 Genuine backend-delivered apps are reported, updated, diagnosed and
 recovered exactly as before. It covers iDrive 7's MainApp 8.3.2,
-8.2.10, 8.1.1 and 6.5.5 (`/usr/lib/oap-mainapp`) and iDrive 8's MainApp-21 9.3.4 and
-9.2.15 (`/usr/lib/oap-mainapp21`).
+8.2.10, 8.1.1, 6.5.5 and 6.4.8 (`/usr/lib/oap-mainapp`) and iDrive 8's MainApp-21 9.3.4 and
+9.2.15 (`/usr/lib/oap-mainapp21`). Support for MainApp 6.4.8 was
+contributed by [nurlan83](https://github.com/nurlan83).
 
 ## Which apps are local-only
 
@@ -38,16 +39,16 @@ without the marker. Installers do not maintain it.
 ### iDrive 7
 
 All sites are in `/usr/lib/oap-mainapp/src/main.js` and
-`/usr/lib/oap-mainapp/src/AppManagement/AppManagement.js` (on 6.5.5
-`main.bundle.js` and `AppManagement.bundle.js`, which the bytecode-loader
-stubs `main.js` and `AppManagement.js` run). MainApp 8.1.1 and 6.5.5
-have no platform analytics, no update-availability sweep and no
+`/usr/lib/oap-mainapp/src/AppManagement/AppManagement.js` (on 6.5.5 and
+6.4.8 `main.bundle.js` and `AppManagement.bundle.js`, which the
+bytecode-loader stubs `main.js` and `AppManagement.js` run). MainApp
+8.1.1, 6.5.5 and 6.4.8 have no platform analytics, no update-availability sweep and no
 `DiagOapProvider`, so those rows apply to 8.3.2 and 8.2.10 only.
 
 | Path | Site |
 |---|---|
-| Backend app inventory, `AppManagement_ff.getAllInstalledApps` → `AppManagementResult.getAllInstalledAppsResult` (joynr, domain `inf.apr`) | `AppManagementFfProviderImpl.getAllInstalledApps` |
-| Backend-triggered update of every app | `AppManagementFfProviderImpl.updateAllApps` |
+| Backend app inventory, `AppManagement_ff.getAllInstalledApps` → `AppManagementResult.getAllInstalledAppsResult` (joynr, domain `inf.apr`) | `AppManagementFfProviderImpl.getAllInstalledApps` (6.4.8: and `AppManagementProviderImpl.getAllInstalledApps`) |
+| Backend-triggered update of every app | `AppManagementFfProviderImpl.updateAllApps` (6.4.8: and `AppManagementProviderImpl.updateAllApps`) |
 | App-repository version queries (`GET <repo_url>/<appId>` with a `BMW-Vin` header) | `NpmPackageManager.getLatestAppVersion`; the sweeps in `AppManagementController.getAvailableUpdatesFromBackend` (8.2.10: `AppsAutoupdater._areUpdatesAvailable`), `AppsAutoupdater._performUpdate` and `MainApp._contextUpdateHandler` skip local-only apps as well |
 | App-repository package downloads | `NpmPackageManager.download` (preinstalled folder only) |
 | Platform analytics events carrying an app name (`APP_INSTALL`, `APP_CRASH`), forwarded via the CDC app | `AppManagementController.queuedRecursiveRetry`, `CorruptAppsHandler._tryRecoverApp` (with the crash recovery below); `APP_DOWNLOAD` and `APP_SIGNATURE_CHECK` fire only for app-repository downloads, which local-only apps never make |
@@ -89,7 +90,8 @@ minutes; left stopped until it is started again`: an app that crashes on
 every start stops after a few tries. Opening it from its tile starts it
 again, MainApp may start it again on its own (as it does an app it keeps
 running), and the next boot starts it too. A restart that fails counts;
-a death while the head unit shuts down does not.
+a death while the head unit shuts down does not (MainApp 6.4.8 restarts
+an app then too, and that restart counts).
 
 This is the same on both head units. Other apps keep the stock ladder.
 
@@ -137,7 +139,7 @@ remounted read-write for the write only; a file bind-mounted over a bundle
 path is written in place. With `--json`, the last stdout line is
 `{"version","command","state","changed","files":[...],"edits":[...],"skipped":[...],"restartNeeded","unit","mainapp","mainappVersion","fingerprint"}`;
 `mainapp` names the MainApp release whose edits the bundles take (`8.3.2`,
-`8.2.10`, `8.1.1`, `6.5.5`, on iDrive 8 `9.3.4`, `9.2.15`; null on a mismatch; when releases share edits, a bundle carrying no stock fingerprint takes the first release's name),
+`8.2.10`, `8.1.1`, `6.5.5`, `6.4.8`, on iDrive 8 `9.3.4`, `9.2.15`; null on a mismatch; when releases share edits, a bundle carrying no stock fingerprint takes the first release's name),
 `mainappVersion` the installed MainApp's own version, `fingerprint` its
 stock bundles (the same patched or not). `edits` holds every edit's
 result (see "Record"), `skipped` the ids of the optional ones left out;
@@ -241,5 +243,5 @@ node native/app-privacy/patch_mainapp.js check-apps apps
 Set `FIRMWARE_MAINAPP_DIR` to a decoded oap-mainapp folder to also test
 against its bundles; `run.sh` passes it into the container.
 `FIRMWARE_MAINAPP21_DIR` does the same with a decoded MainApp-21 (9.3.4 or 9.2.15),
-`FIRMWARE_MAINAPP_8_1_1_DIR`, `FIRMWARE_MAINAPP_8_2_10_DIR` and `FIRMWARE_MAINAPP_6_5_5_DIR` with a decoded
-oap-mainapp 8.1.1, 8.2.10 or 6.5.5.
+`FIRMWARE_MAINAPP_8_1_1_DIR`, `FIRMWARE_MAINAPP_8_2_10_DIR`, `FIRMWARE_MAINAPP_6_5_5_DIR` and
+`FIRMWARE_MAINAPP_6_4_8_DIR` with a decoded oap-mainapp 8.1.1, 8.2.10, 6.5.5 or 6.4.8.
