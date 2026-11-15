@@ -51,6 +51,7 @@
 #include <wayland-client.h>
 #include <wayland-egl.h>
 #include "config.h"
+#include "ctlgate.h"
 #include "dbr.h"
 #include "dialect.h"
 #include "embed.h"
@@ -888,10 +889,13 @@ static int grabbing(const client *c, uint64_t t) { return c->grab_t && t - c->gr
 /* The gate's file and event socket are upstream's interface, which upstream's renderer also uses: they are held
  * only while one of our apps grabs, and the file only while the event socket is ours. Bound by another renderer,
  * the controller stays the HMI's (and that renderer's) for our apps. */
+static int ctl_gate_holds_parts(void);
+/* the parts held as the gate reads them: the file's words (HOLD_ALL: empty, or no file); the loaded gate reads them */
+static uint32_t ctl_held = HOLD_ALL;
+static int ctl_gate_parts;
+
 static void ctl_gate_update(uint64_t t) {
     static char holder[sizeof ((client *)0)->app];    /* the app the controller was last held for */
-    /* the parts held, as the gate reads them: the file's words; empty (all three) is what every renderer wrote */
-    static uint32_t written = HOLD_ALL;
     if (!cfg.controller_gate[0]) return;
     const client *by = NULL;
     for (int i = 0; i < MAX_CLIENTS && !by; i++) if (clients[i] && grabbing(clients[i], t)) by = clients[i];
@@ -904,50 +908,47 @@ static void ctl_gate_update(uint64_t t) {
     if (want) {
         int was = ctl_gate_on;
         uint32_t hold = by->hold ? by->hold : HOLD_ALL;
-        if (!ctl_gate_on || hold != written) {
-            /* new parts: a new file renamed over the old one (the gate reads the words only from a new file;
-               a touch keeps the inode). All three: empty, as every renderer wrote before. */
-            char tmp[sizeof cfg.controller_gate + 8];
-            snprintf(tmp, sizeof tmp, "%s.new", cfg.controller_gate);
-            int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
-            if (fd >= 0) {
-                char words[32] = "";
-                if (hold != HOLD_ALL)
-                    snprintf(words, sizeof words, "%s%s%s\n", hold & HOLD_KNOB ? "knob " : "",
-                             hold & HOLD_PRESS ? "press " : "", hold & HOLD_TILT ? "tilt " : "");
-                if (words[0] && write(fd, words, strlen(words)) < 0) { /* best effort: empty holds all three */ }
-                close(fd);
-                if (rename(tmp, cfg.controller_gate) == 0) written = hold;
-                else unlink(tmp);
-            }
-            ctl_gate_on = 1; ctl_gate_t = t;
-        } else if (t - ctl_gate_t >= GATE_TOUCH_US) {
+        if (!was) ctl_gate_parts = ctl_gate_holds_parts();
+        if (hold != ctl_held && ctlgate_write(cfg.controller_gate, hold) == 0) {
+            ctl_held = hold; ctl_gate_on = 1; ctl_gate_t = t;
+        } else if (!ctl_gate_on || t - ctl_gate_t >= GATE_TOUCH_US) {
             int fd = open(cfg.controller_gate, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0644);
             if (fd >= 0) { futimens(fd, NULL); close(fd); }
-            ctl_gate_t = t;
+            ctl_gate_on = 1; ctl_gate_t = t;
         }
         if (!was || strcmp(holder, by->app)) {
             log_info("controller: held for %s%s", by->app, was ? "" : " (@mgu-renderd-ccu bound)");
             snprintf(holder, sizeof holder, "%s", by->app);
         }
     } else if (ctl_gate_on) {
-        unlink(cfg.controller_gate); ctl_gate_on = 0; written = HOLD_ALL;
+        unlink(cfg.controller_gate); ctl_gate_on = 0; ctl_held = HOLD_ALL;
         log_info("controller: back to the HMI, @mgu-renderd-ccu released (was held for %s)", holder);
     }
     if (!want && ccu_fd >= 0) { close(ccu_fd); ccu_fd = -1; }
 }
 
+/* killed by a fault while it held parts: no words of ours left for another renderer's grab (it only touches the file) */
+static void on_fault(int s) {
+    if (ctl_gate_on) unlink(cfg.controller_gate);
+    signal(s, SIG_DFL);
+    raise(s);
+}
+
 static void ccu_read(void) {
+    static uint8_t last[5];
     uint8_t ev[64];
     ssize_t n;
     uint64_t t = now_us();
     while ((n = recv(ccu_fd, ev, sizeof ev, MSG_DONTWAIT)) > 0) {
         if (!ctl_gate_on || n < 5) continue;
+        /* the safety net counts what moves a part the app holds (a gate without parts holds all three) */
+        int moves = ctlgate_moves(last, ev, ctl_gate_parts ? ctl_held : HOLD_ALL);
+        memcpy(last, ev, sizeof last);
         for (int i = 0; i < MAX_CLIENTS; i++) {
             client *c = clients[i];
             if (!c || !grabbing(c, t)) continue;
             send_msg(c, c->dialect == DIALECT_NATIVE ? X_CCU : EU_CCU, ev, (uint32_t)n);
-            if (t - c->ccu_t >= CCU_INPUT_US) { c->ccu_t = t; note_input(c, t); }
+            if (moves && t - c->ccu_t >= CCU_INPUT_US) { c->ccu_t = t; note_input(c, t); }
         }
     }
 }
@@ -1711,6 +1712,9 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
     signal(SIGTERM, on_sig); signal(SIGINT, on_sig);
+    signal(SIGSEGV, on_fault); signal(SIGBUS, on_fault); signal(SIGABRT, on_fault); signal(SIGFPE, on_fault);
+    if (cfg.controller_gate[0] && ctlgate_clear(cfg.controller_gate))
+        log_info("controller: emptied the parts a previous run left in %s", cfg.controller_gate);
     if (!getenv("XDG_RUNTIME_DIR")) setenv("XDG_RUNTIME_DIR", "/run/wayland", 1);
     dpy = wl_display_connect(cfg.wayland_display);
     if (!dpy) { log_error("cannot connect to the compositor %s (%s)", cfg.wayland_display, strerror(errno)); return 1; }

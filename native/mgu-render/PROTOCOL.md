@@ -239,14 +239,14 @@ disconnected once so they connect again to that.
   over SOME/IP themselves and keep their RHMI focus proxies.
 - **Holding parts of the controller**: X_GRAB's second word names the parts
   the HMI doesn't get (1 knob, 2 press, 4 tilt); the others stay the HMI's,
-  so an app that holds the knob and the press is still left with a tilt. The
-  renderer writes them into the gate's file as words (`knob press`): a new
-  file renamed over the old one when they change, only touched otherwise, so
-  the gate reads the words once per change. A gate that reads them (its library carries the marker `mgu-inputgate-hold:`;
-  X_READY caps 128) holds only those. An empty file, what every renderer wrote
-  before, holds all three, and so does a gate that doesn't read the words: an
-  app that names parts gets at least what it asked for. X_CCU still carries
-  the whole event.
+  so a tilt still leaves an app that holds the knob and the press. The
+  renderer writes them into the gate's file as words (`knob press`); a gate
+  that reads them (its library carries the marker `mgu-inputgate-hold:`;
+  X_READY caps 128) looks at the words every 50 ms while the file is fresh
+  and not empty, and holds only those. An empty file holds all three, and so
+  does a gate without the marker. The words go when the controller goes back
+  to the HMI, and at the renderer's start. X_CCU still carries the whole
+  event; the 4-inputs safety net counts only events that move a held part.
 
 ## Draw ops
 

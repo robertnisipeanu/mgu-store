@@ -425,6 +425,12 @@ The controller: read FrontCCU over SOME/IP in the app (display-bridge's
 `display_input.js` does) and keep the page's hidden focusable components for
 the HMI's own focus and BACK; `gpu.grab(true)` holds the dial back from the
 HMI only where the HMI's controller gate is loaded (`info.controller`).
+`gpu.grab(true, ['knob', 'press'])` holds only those parts (`'knob'`,
+`'press'`, `'tilt'`) where the gate can (`info.controllerHold`); the HMI
+keeps the rest. Elsewhere it holds all three.
+
+Holding parts of the controller (`info.controllerHold`) was contributed by
+[JuMalIO](https://github.com/JuMalIO).
 
 ## Build and test
 

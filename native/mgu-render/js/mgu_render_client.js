@@ -214,7 +214,7 @@ class RenderClient extends EventEmitter {
                 this._sendVideos();
                 if (this.claims.length) this._sendClaim();
                 if (this.visible) this._write(u32msg(M.SHOW, [1]));
-                if (this.grabbing) this._write(u32msg(X.GRAB, [1, this.holdMask || 0]));
+                if (this.grabbing) this._write(this._grabMsg(1));
                 if (this.wantFingers) this._write(u32msg(X.FINGERS, [1]));
                 if (this.maxFps !== null) this._write(u32msg(M.FPS, [this.maxFps]));
             }
@@ -299,19 +299,24 @@ class RenderClient extends EventEmitter {
     }
     /**
      * The iDrive controller to this app while it is shown (needs the HMI's controller gate: info.controller).
-     * hold: the parts the HMI doesn't get meanwhile, of 'knob', 'press', 'tilt' (the others stay the HMI's: a tilt
-     * still leaves the app); none named, all three. Only where info.controllerHold: elsewhere all three are held.
+     * hold: the part or parts the HMI doesn't get meanwhile, 'knob', 'press', 'tilt' (a string or an array; any other
+     * name throws); none named, all three. Only where info.controllerHold: elsewhere all three are held.
      */
     grab(on, hold) {
         on = !!on;
-        const mask = (hold || []).reduce((m, part) => m | (HOLD[part] || 0), 0);
+        let mask = 0;
+        for (const part of hold == null ? [] : [].concat(hold)) {
+            if (!Object.prototype.hasOwnProperty.call(HOLD, part)) throw new TypeError(`grab: no controller part '${part}'`);
+            mask |= HOLD[part];
+        }
         if (on === this.grabbing && mask === (this.holdMask || 0)) return;
         this.grabbing = on;
         this.holdMask = mask;
         if (this.grabTimer) { clearInterval(this.grabTimer); this.grabTimer = null; }
-        if (on) this.grabTimer = setInterval(() => { if (this.ready && this.native) this._write(u32msg(X.GRAB, [1, this.holdMask])); }, 500);
-        if (this.ready && this.native) this._write(u32msg(X.GRAB, [on ? 1 : 0, mask]));
+        if (on) this.grabTimer = setInterval(() => { if (this.ready && this.native) this._write(this._grabMsg(1)); }, 500);
+        if (this.ready && this.native) this._write(this._grabMsg(on ? 1 : 0));
     }
+    _grabMsg(on) { return u32msg(X.GRAB, on && this.holdMask ? [1, this.holdMask] : [on]); }
 
     /* ---- pixel images ---- */
     pixmap(id, w, h, format, filter) {
