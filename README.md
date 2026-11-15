@@ -4,6 +4,10 @@ An app store for BMW iDrive 7 and iDrive 8 head units (MGU). Browse,
 install, update and remove apps on the car's screen, from GitHub
 repositories, web addresses or a USB stick.
 
+The **BABO CODING** Windows laptop companion is in
+[`desktop/BABOCoding`](desktop/BABOCoding/README.md). It currently runs in
+offline simulation mode and does not connect to or install on a head unit.
+
 It installs:
 
 - the **Store** app;

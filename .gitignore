@@ -9,4 +9,5 @@ native/*/build/
 # Release builds and local publish target (release/README.md)
 release/out/
 release/published/
+desktop/BABOCoding/out/
 
