@@ -77,7 +77,8 @@ struct mgu_video_head {
 /* client -> daemon, native only ("MR" + n: clear of every number the other dialects use) */
 enum {
     X_MODE = 0x4d520001,    /* u32 mode (MODE_*): where the surface goes; before PLACE, or again to move it */
-    X_GRAB = 0x4d520002,    /* u32 on: as MU_GRAB, events come as X_CCU */
+    X_GRAB = 0x4d520002,    /* u32 on[, u32 hold (HOLD_*)]: as MU_GRAB, events come as X_CCU; hold: the parts the HMI
+                               doesn't get meanwhile, 0 or none = all three (the gate's file names them) */
     X_PIXMAP = 0x4d520003,  /* u32 id, u32 w, u32 h (1..GFX_PIXMAP_SIDE), u32 format (PIX_*), u32 filter (0 nearest,
                                1 linear): an image the app writes in regions (X_PIXELS); drawn with OP_IMAGE */
     X_PIXELS = 0x4d520004,  /* u32 id, u32 n (1..64), (u32 x y w h)*n, then each rect's pixels in turn, rows top-down,
@@ -135,6 +136,15 @@ enum {
     CAP_VIDEO = 16,         /* MI_VIDEO / MI_DROP_VIDEO / OP_VIDEO */
     CAP_EMBED_ZERO_COPY = 32, /* embed frames are drawn straight into the HMI compositor's GPU buffers (no readback) */
     CAP_FINGERS = 64,       /* X_FINGERS: every finger, with its id (X_FINGER) */
+    CAP_CONTROLLER_HOLD = 128, /* the loaded gate holds only the parts X_GRAB's hold names (else all three) */
+};
+
+/* X_GRAB's hold: the parts of the controller the HMI doesn't get while the app grabs it */
+enum {
+    HOLD_KNOB = 1,
+    HOLD_PRESS = 2,
+    HOLD_TILT = 4,
+    HOLD_ALL = 7,
 };
 
 /* draw opcodes, all dialects */

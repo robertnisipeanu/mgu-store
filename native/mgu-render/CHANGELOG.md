@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- An app can hold only some parts of the iDrive controller: X_GRAB's second word (1 knob, 2 press, 4 tilt; 0 or left
+  out: all three), `grab(on, 'knob')` or `grab(on, ['knob', 'press'])` in the JS client. Where the HMI's gate reads the
+  parts (X_READY caps 128, `info.controllerHold`), the others stay the HMI's: a tilt still leaves an app that holds the
+  knob and the press. Every other gate holds all three, as before.
+
 ## 0.6.21
 
 - Multi-touch: a gesture in a claim keeps every finger until the last one is up; a native app that sends X_FINGERS 1 gets
