@@ -245,7 +245,7 @@ disconnected once so they connect again to that.
   X_READY caps 128) looks at the words every 50 ms while the file is fresh
   and not empty, and holds only those. An empty file holds all three, and so
   does a gate without the marker. The words go when the controller goes back
-  to the HMI, and at the renderer's start. X_CCU still carries the whole
+  to the HMI, and when the renderer stops or starts. X_CCU still carries the whole
   event; the 4-inputs safety net counts only events that move a held part.
 
 ## Draw ops

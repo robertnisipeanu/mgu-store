@@ -886,14 +886,36 @@ static void touch_defaults(int area[4]) {
 /* ---------------- controller gate (upstream inputgate) ---------------- */
 static int grabbing(const client *c, uint64_t t) { return c->grab_t && t - c->grab_t < GRAB_US && takes_input(c); }
 
+/* the HMI runs with the controller gate library: 1, or 2 when it holds only the parts X_GRAB names (it carries the
+ * marker "mgu-inputgate-hold:"; a gate without it holds all three whatever the file says) */
+static int ctl_gate_loaded(void) {
+    static const char marker[] = "mgu-inputgate-hold:";
+    int pid = cfg.controller_lib[0] ? hmi_pid() : -1;
+    if (pid < 0) return 0;
+    char p[64], line[512];
+    snprintf(p, sizeof p, "/proc/%d/maps", pid);
+    FILE *f = fopen(p, "r");
+    int found = 0;
+    while (f && !found && fgets(line, sizeof line, f)) found = strstr(line, cfg.controller_lib) != NULL;
+    if (f) fclose(f);
+    char *lib = found ? strchr(line, '/') : NULL;
+    if (!lib) return found;
+    lib[strcspn(lib, "\n")] = 0;
+    FILE *so = fopen(lib, "rb");
+    if (!so) return 1;
+    static char buf[256 * 1024];
+    size_t n = fread(buf, 1, sizeof buf, so);
+    fclose(so);
+    return memmem(buf, n, marker, sizeof marker - 1) ? 2 : 1;
+}
+
+/* the parts held as the gate reads them: the file's words (HOLD_ALL: empty, or no file) */
+static uint32_t ctl_held = HOLD_ALL;
+static int ctl_gate_parts;    /* the loaded gate reads them */
+
 /* The gate's file and event socket are upstream's interface, which upstream's renderer also uses: they are held
  * only while one of our apps grabs, and the file only while the event socket is ours. Bound by another renderer,
  * the controller stays the HMI's (and that renderer's) for our apps. */
-static int ctl_gate_holds_parts(void);
-/* the parts held as the gate reads them: the file's words (HOLD_ALL: empty, or no file); the loaded gate reads them */
-static uint32_t ctl_held = HOLD_ALL;
-static int ctl_gate_parts;
-
 static void ctl_gate_update(uint64_t t) {
     static char holder[sizeof ((client *)0)->app];    /* the app the controller was last held for */
     if (!cfg.controller_gate[0]) return;
@@ -908,10 +930,12 @@ static void ctl_gate_update(uint64_t t) {
     if (want) {
         int was = ctl_gate_on;
         uint32_t hold = by->hold ? by->hold : HOLD_ALL;
-        if (!was) ctl_gate_parts = ctl_gate_holds_parts();
-        if (hold != ctl_held && ctlgate_write(cfg.controller_gate, hold) == 0) {
+        int refresh = !was || t - ctl_gate_t >= GATE_TOUCH_US;
+        if (!was) ctl_gate_parts = ctl_gate_loaded() == 2;
+        /* parts are written again at each refresh: another renderer's start deletes the file */
+        if ((hold != ctl_held || (refresh && hold != HOLD_ALL)) && ctlgate_write(cfg.controller_gate, hold) == 0) {
             ctl_held = hold; ctl_gate_on = 1; ctl_gate_t = t;
-        } else if (!ctl_gate_on || t - ctl_gate_t >= GATE_TOUCH_US) {
+        } else if (refresh) {
             int fd = open(cfg.controller_gate, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0644);
             if (fd >= 0) { futimens(fd, NULL); close(fd); }
             ctl_gate_on = 1; ctl_gate_t = t;
@@ -925,13 +949,6 @@ static void ctl_gate_update(uint64_t t) {
         log_info("controller: back to the HMI, @mgu-renderd-ccu released (was held for %s)", holder);
     }
     if (!want && ccu_fd >= 0) { close(ccu_fd); ccu_fd = -1; }
-}
-
-/* killed by a fault while it held parts: no words of ours left for another renderer's grab (it only touches the file) */
-static void on_fault(int s) {
-    if (ctl_gate_on) unlink(cfg.controller_gate);
-    signal(s, SIG_DFL);
-    raise(s);
 }
 
 static void ccu_read(void) {
@@ -951,45 +968,6 @@ static void ccu_read(void) {
             if (moves && t - c->ccu_t >= CCU_INPUT_US) { c->ccu_t = t; note_input(c, t); }
         }
     }
-}
-
-/* the HMI runs with the controller gate library */
-static int ctl_gate_loaded(void) {
-    int pid = cfg.controller_lib[0] ? hmi_pid() : -1;
-    if (pid < 0) return 0;
-    char p[64], line[512];
-    snprintf(p, sizeof p, "/proc/%d/maps", pid);
-    FILE *f = fopen(p, "r");
-    int found = 0;
-    while (f && !found && fgets(line, sizeof line, f)) found = strstr(line, cfg.controller_lib) != NULL;
-    if (f) fclose(f);
-    return found;
-}
-
-/* the loaded gate holds only the parts X_GRAB names: its library carries the marker "mgu-inputgate-hold:" (a gate
- * without it holds all three whatever the file says). The library as the HMI mapped it: /proc/<HMI>/maps. */
-static int ctl_gate_holds_parts(void) {
-    static const char marker[] = "mgu-inputgate-hold:";
-    int pid = cfg.controller_lib[0] ? hmi_pid() : -1;
-    if (pid < 0) return 0;
-    char p[64], line[512], lib[400] = "";
-    snprintf(p, sizeof p, "/proc/%d/maps", pid);
-    FILE *f = fopen(p, "r");
-    while (f && !lib[0] && fgets(line, sizeof line, f)) {
-        const char *path = strchr(line, '/');
-        if (path && strstr(path, cfg.controller_lib)) {
-            snprintf(lib, sizeof lib, "%s", path);
-            lib[strcspn(lib, "\n")] = 0;
-        }
-    }
-    if (f) fclose(f);
-    if (!lib[0]) return 0;
-    FILE *so = fopen(lib, "rb");
-    if (!so) return 0;
-    static char buf[256 * 1024];
-    size_t n = fread(buf, 1, sizeof buf, so);
-    fclose(so);
-    return memmem(buf, n, marker, sizeof marker - 1) != NULL;
 }
 
 /* ---------------- messages ---------------- */
@@ -1027,11 +1005,10 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
     int native = hello_parse(p, len, c->app, sizeof c->app);
     if (native) {
         c->dialect = DIALECT_NATIVE;
-        int emb = embed_available(), area[4];
+        int emb = embed_available(), area[4], ctl = ccu_free() ? ctl_gate_loaded() : 0;
         app_area(area);
         uint32_t caps = CAP_PIXMAP | CAP_VIDEO | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
-                        (ctl_gate_loaded() && ccu_free() ? CAP_CONTROLLER : 0) |
-                        (ctl_gate_loaded() && ccu_free() && ctl_gate_holds_parts() ? CAP_CONTROLLER_HOLD : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
+                        (ctl ? CAP_CONTROLLER : 0) | (ctl == 2 ? CAP_CONTROLLER_HOLD : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
                         (touch_on ? CAP_FINGERS : 0);
         /* a gate that cannot tell which app is in front would never show the app: no mode, the app keeps its own screens */
         uint32_t modes = gate_applies(c) && gate_unavailable() ? 0 : (1u << (MODE_LAYER - 1)) | (emb ? 1u << (MODE_EMBED - 1) : 0);
@@ -1712,7 +1689,6 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
     signal(SIGTERM, on_sig); signal(SIGINT, on_sig);
-    signal(SIGSEGV, on_fault); signal(SIGBUS, on_fault); signal(SIGABRT, on_fault); signal(SIGFPE, on_fault);
     if (cfg.controller_gate[0] && ctlgate_clear(cfg.controller_gate))
         log_info("controller: emptied the parts a previous run left in %s", cfg.controller_gate);
     if (!getenv("XDG_RUNTIME_DIR")) setenv("XDG_RUNTIME_DIR", "/run/wayland", 1);

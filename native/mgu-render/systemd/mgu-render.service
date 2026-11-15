@@ -13,6 +13,8 @@ ExecStart=/var/opt/mgu-render/current/mgu-render -c /var/opt/mgu-render/current/
 # A killed renderer leaves no touch divert behind (its guard removes it too); only our own table: other renderers'
 # stay theirs.
 ExecStopPost=-/bin/sh -c 'nft delete table ip mgu_render 2>/dev/null; true'
+# nor parts of the controller held in the gate's file (only this renderer writes words there; others only touch it)
+ExecStopPost=-/bin/sh -c 'f=/run/mgu-renderd/inputgate; [ -s $$f ] && rm -f $$f; true'
 Restart=on-failure
 RestartSec=3
 TimeoutStartSec=150
