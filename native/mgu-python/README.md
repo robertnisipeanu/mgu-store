@@ -8,15 +8,17 @@ it. The updater requires it, so it is installed with the updater
 | On the unit | |
 |---|---|
 | `/var/opt/mgu-python/current/bin/python3` | the interpreter, libpython and its libraries built in (it needs the system's glibc 2.17 or newer; the unit has 2.27), its loader set to the unit's `/lib/ld-linux-x86-64.so.2` (the unit has no `/lib64`) |
-| `lib/python312.zip` | the standard library's `.py` files, imported from the zip |
+| `lib/python312.zip` | the standard library's `.py` files and their `.pyc` (beside each `.py`, unchecked hash), imported from the zip without compiling |
 | `lib/python3.12/lib-dynload/` | empty: every extension module is built in |
 | `ssl/cacert.pem` | CA bundle for builds that download (`SSL_CERT_FILE`) |
 | `LICENSES.txt` | the licences of CPython, the libraries built into it, and certifi |
 
-About 32 MB installed, a 14 MB artifact.
+About 36 MB installed, an 18 MB artifact.
 
 `node build.js` (the component's `build`, run by `deploy/hu artifact` and
-`release/release.js`; Node 10 or newer and a `tar` that reads zstd)
+`release/release.js`; Node 10 or newer, a `tar` that reads zstd, and a
+Python 3.12 to compile the `.pyc`: `$PY312`, else `uv python find 3.12`,
+else `python3.12` on `PATH`)
 downloads one pinned
 [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 release (`cpython-3.12.15+20261003-x86_64-unknown-linux-gnu`): the
