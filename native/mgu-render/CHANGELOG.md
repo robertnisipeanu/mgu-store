@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep text visible across multiple large font sets and repeated app launches by reclaiming unused glyph atlas pages.
+
 ## 0.6.21
 
 - Multi-touch: a gesture in a claim keeps every finger until the last one is up; a native app that sends X_FINGERS 1 gets
