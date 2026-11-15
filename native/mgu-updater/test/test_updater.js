@@ -60,6 +60,23 @@ const zlib = require('zlib');
 const cp = require('child_process');
 const { URL } = require('url');
 const catalogLib = require('../js/catalog');
+// Optional notes survive catalog -> state, while malformed or future notes do not.
+{
+    const c = { id: 'example', kind: 'app', version: '1.2.0', artifact: {
+        name: 'example@1.2.0.tgz', sha256: 'a'.repeat(64), size: 10 }, releaseNotes: [
+        { version: '1.2.0', changes: ['修复启动失败。'] },
+        { version: '1.1.0', changes: ['新增中文界面。'] },
+        { version: '2.0.0', changes: ['尚未发布。'] },
+        { version: '1.2.0', changes: ['重复说明。'] },
+        { version: '1.0.0', changes: ['x'.repeat(121)] }] };
+    const entries = catalogLib.parse(JSON.stringify({ schema: 2, components: [c] })).components;
+    const row = catalogLib.plan(entries.map((entry) => ({ source: 'cn', entry })), [{ id: 'example', version: '1.0.0' }])[0];
+    assert.deepStrictEqual(row.releaseNotes, c.releaseNotes.slice(0, 2));
+    assert.strictEqual(row.status, 'update');
+    c.releaseNotes = 'invalid optional metadata';
+    assert.deepStrictEqual(catalogLib.parse(JSON.stringify({ schema: 2, components: [c] })).components[0].releaseNotes, []);
+}
+
 const { UpdaterClient } = require('../js/client');
 
 const ROOT = path.join(__dirname, '..');

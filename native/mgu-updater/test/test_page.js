@@ -26,18 +26,20 @@ Object.defineProperty(els.addChannel, 'value', { get() { return this.children[0]
 const sent = [];
 let answer = null;
 const pending = [];
-global.document = { getElementById: el, createElement: () => ({ value: '', textContent: '', appendChild() {} }) };
+global.document = { getElementById: el, createElement: (tag) => ({ tag, value: '', textContent: '', children: [], appendChild(c) { this.children.push(c); } }) };
 global.location = { hash: '#t=abc', pathname: '/', reload() {} };
 global.history = { replaceState() {} };
 global.sessionStorage = { setItem() {}, getItem: () => 'abc', removeItem() {} };
 global.window = { addEventListener() {} };
 global.confirm = () => true;
-global.setInterval = () => 0;
+let pollPage;
+let pageState = { updater: { version: 'x' }, online: true, sources: [], tokens: [], components: [] };
+global.setInterval = (fn) => { pollPage = fn; return 0; };
 global.fetch = (path, o) => {
     const body = o && o.body ? JSON.parse(o.body) : null;
     if (body) { sent.push(body); }
     const reply = body && body.op === 'source-probe' ? new Promise((r) => pending.push(r)) :
-        Promise.resolve({ updater: { version: 'x' }, online: true, sources: [], tokens: [], components: [] });
+        Promise.resolve(pageState);
     return reply.then((j) => ({ status: 200, ok: true, json: () => Promise.resolve(j || { ok: true }) }));
 };
 new Function(js)();
@@ -46,6 +48,14 @@ const submit = () => els.addForm.onsubmit({ preventDefault() {} });
 const assert = require('assert');
 (async () => {
     await tick();
+    pageState.components = [{ id: 'example', version: '1.1.0', releaseNotes: [{ version: '1.1.0',
+        changes: ['<script>alert(1)</script>'] }] }];
+    pollPage();
+    await tick();
+    const texts = (n) => [n.textContent].concat(...(n.children || []).map(texts));
+    assert(texts(els.components).includes('<script>alert(1)</script>'), 'notes rendered as literal text');
+    assert(texts(els.components).includes("What's new"), 'notes entry is discoverable');
+    pageState.components = [];
     // pasted and Add tapped at once: lists first, adds nothing
     els.addValue.value = 'O/R';
     els.addValue.oninput();

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Read concise release notes and browse version history from app details.
+
 No change on screen: the renderer client it carries has multi-touch
 for apps that ask for it.
 

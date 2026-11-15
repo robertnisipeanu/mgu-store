@@ -195,6 +195,8 @@
     "May cause CarPlay issues": "Dapat menimbulkan masalah CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Di iPhone, nyalakan Maksimalkan Kompatibilitas",
     "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus",
-    "Phone over USB": "Ponsel lewat USB"
+    "Phone over USB": "Ponsel lewat USB",
+    "What's new": "What's new",
+    "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
 }

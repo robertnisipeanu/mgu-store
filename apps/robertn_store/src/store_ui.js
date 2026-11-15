@@ -354,10 +354,15 @@ function settingsView(m) {
 function appView(m, page) {
     const c = rowOf(m, page);
     if (!c) {
-        return { name: { text: tr("Not listed") }, author: { text: '' }, facts: { items: [] }, desc: { text: '' }, icon: { letter: '?' },
+        return { releaseNotes: hidden, name: { text: tr("Not listed") }, author: { text: '' }, facts: { items: [] }, desc: { text: '' }, icon: { letter: '?' },
             instValue: { text: '' }, availLabel: { text: '' }, availValue: { text: '' }, problem: { text: '' }, note1: { text: '' }, note2: { text: '' },
             note3: { text: '' }, progress: hidden, primary: hidden, secondary: hidden };
     }
+    const history = Array.isArray(c.releaseNotes) ? c.releaseNotes : [];
+    const noteIndex = Number.isInteger(page.notes) && page.notes >= 0 && page.notes < history.length ? page.notes : -1;
+    const release = noteIndex >= 0 ? history[noteIndex] : null;
+    const noteText = release ? [tr("What's new") + ' · ' + release.version,
+        ...release.changes.map((line) => '- ' + line)].filter(Boolean).join('\n') : '';
     const busy = busyOf(m);
     const s = tileState(c, busy);
     const mine = busy && busy.id === c.id;
@@ -373,7 +378,7 @@ function appView(m, page) {
             { text: isTool(c) ? tr("Tool") : tr("App"), color: isTool(c) ? TEAL : BLUE }, c.mguHmi && c.mguHmi.length && { text: hmiNames(c.mguHmi) },
             c.provides && { text: c.provides }].filter(Boolean) },
         // a failure in full, above the description
-        desc: { text: c.description || '', lead: c.error && !mine ? tr("Failed: {0}", c.error) : '', leadColor: RED },
+        desc: { text: release ? noteText : c.description || '', lead: c.error && !mine ? tr("Failed: {0}", c.error) : '', leadColor: RED },
         // what an installed tool says is wrong (the updater's problem: mgu-render's page template)
         problem: { text: c.problem || '' },
         instLabel: { text: tr("Installed") },
@@ -429,6 +434,9 @@ function appView(m, page) {
     } else {
         v.primary = hidden;
     }
+    v.releaseNotes = history.length ? button(release ? tr("Next version ({0}/{1})", noteIndex + 1, history.length) : tr("What's new"),
+        { do: release ? 'release-notes' : 'open', page: Object.assign(pageOf(c), { notes: (noteIndex + 1) % history.length }) },
+        { vicon: 'clock', style: 'outline' }) : hidden;
     v.secondary = removable(c, busy) && !retryRemove ? button(tr("Remove"), { do: 'open', page: { name: 'confirm', kind: 'remove', id: c.id } },
         { vicon: 'trash', style: 'outline' }) : hidden;
     return v;

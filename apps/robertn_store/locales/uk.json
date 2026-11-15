@@ -195,6 +195,8 @@
     "May cause CarPlay issues": "Можливі проблеми з CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "На iPhone увімкніть «Максимальна сумісність»",
     "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися",
-    "Phone over USB": "Телефон через USB"
+    "Phone over USB": "Телефон через USB",
+    "What's new": "What's new",
+    "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
 }
