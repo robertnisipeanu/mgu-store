@@ -107,6 +107,11 @@ eq(text(f, 'author'), 'by robertn · from cauliflower/idrive7-apps');
 eq(f.items[1].act, { do: 'open', page: { name: 'confirm', kind: 'remove', id: 'gauges' } });
 ok(/^Speed, revs/.test(text(f, 'desc')), 'the description');
 eq(f.values.facts.items.map((c) => c.text), ['Version 1.2.0', 'Commit a1b2c3d', 'App', 'iDrive 7 and iDrive 8']);
+const localizedPackage = fixture.state();
+localizedPackage.components.find((c) => c.id === 'gauges').language = 'zh-CN';
+const localizedDetails = frame(fixture.model({ stack: [{ name: 'main' }, { name: 'app', id: 'gauges' }] }, localizedPackage),
+    { textScale: 1, focus: 0, scroll: {} });
+ok(localizedDetails.values.facts.items.some((item) => item.text === 'zh-CN'), 'the details show the package language');
 // Undo update: on the page of a component the updater offers it for, then its confirm step
 f = screen('tool-undo');
 eq(own(f), ['Undo update', 'Remove', 'Back'], 'Undo update beside Remove');

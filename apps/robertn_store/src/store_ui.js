@@ -368,6 +368,7 @@ function appView(m, page) {
         name: { text: c.title },
         author: { text: [c.author && tr("by {0}", c.author), c.source && tr("from {0}", src ? sourceLabel(src) : c.source)].filter(Boolean).join(' · ') },
         facts: { items: [{ text: tr("Version {0}", c.version) }, c.revision && { text: tr("Commit {0}", c.revision) }, c.size && { text: size(c.size) },
+            c.language && c.language !== 'en' && { text: c.language },
             // installed under another id than its source's
             c.listedId && !c.blocked && (c.installAs || c.id) !== c.listedId && { text: `Id ${c.installAs || c.id}` },
             { text: isTool(c) ? tr("Tool") : tr("App"), color: isTool(c) ? TEAL : BLUE }, c.mguHmi && c.mguHmi.length && { text: hmiNames(c.mguHmi) },

@@ -737,6 +737,13 @@ function testCatalog() {
         two.components[0].build === 'unit' && two.components[0].requires['mgu-uplink'] === '0.2.0' &&
         two.components[0].uninstallable && !two.components[0].optional && two.components[1].optional && two.components[1].build === null);
     ok('catalog: a signature field is ignored', !!parses((c) => { c.signature = { alg: 'ecdsa-p256-sha256', value: 'not a signature' }; }));
+    const languages = parses((c) => { c.components[0].language = 'zh-CN'; });
+    ok('catalog: package language is declared or defaults to English',
+        languages.components[0].language === 'zh-CN' && languages.components[1].language === 'en');
+    const invalidLanguage = parses((c) => { c.components[0].language = 42; });
+    ok('catalog: malformed language metadata defaults to English', invalidLanguage.components[0].language === 'en');
+    ok('plan: carries a declared package language',
+        catalogLib.plan([{ entry: languages.components[0], source: 's' }], [])[0].language === 'zh-CN');
 
     const r = (c) => ({ entry: catalogLib.checkExtras(Object.assign({}, c)), source: 's' });
     const rows = catalogLib.plan(good.components.map(r), [{ id: 'doom', kind: 'app', version: '1.0.0' }]);

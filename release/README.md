@@ -156,7 +156,14 @@ compress differently, which publishing reports as other content.
 }
 ```
 
-It lists the newest published version of every component. `texts` is
+It lists the newest published version of every component. A catalog entry
+can declare the language of its package with `"language": "zh-CN"`, using
+the same language codes as `texts`. Missing or malformed values default
+to `en`. The Store shows
+non-default language codes in the component details. The field describes
+the package and does not change its component ID.
+
+`texts` is
 each component's title and description in other languages, from
 `release/texts/<code>.json` (`{ "<id>": { "title", "description" } }`,
 one file per language of the Store's `locales/`); the Store shows the head

@@ -11,6 +11,7 @@
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
+const LANGUAGE_CODE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/;
 const KINDS = ['app', 'tool'];
 const HMIS = ['ID7', 'ID8'];
 const PROVIDES = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -95,6 +96,7 @@ function checkExtras(c) {
         uninstallable: !!c.uninstallable,
         title: typeof c.title === 'string' && c.title ? c.title : c.id,
         description: typeof c.description === 'string' ? c.description : '',
+        language: typeof c.language === 'string' && LANGUAGE_CODE.test(c.language) ? c.language : 'en',
         texts: textsOf(c.texts)
     });
 }
@@ -103,7 +105,6 @@ function checkExtras(c) {
  * { "<code>": { "title": "...", "description": "..." } }, codes as the
  * Store's languages (de, pt-BR, zh-TW). Anything else in it is left out;
  * null when nothing is left. */
-const TEXT_CODE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/;
 function textsOf(t) {
     if (!t || typeof t !== 'object' || Array.isArray(t)) {
         return null;
@@ -111,7 +112,7 @@ function textsOf(t) {
     const out = {};
     Object.keys(t).slice(0, 64).forEach((code) => {
         const v = t[code];
-        if (!TEXT_CODE.test(code) || !v || typeof v !== 'object') {
+        if (!LANGUAGE_CODE.test(code) || !v || typeof v !== 'object') {
             return;
         }
         const e = {};
@@ -184,6 +185,7 @@ function plan(entries, installed) {
             optional: c.optional,
             uninstallable: c.uninstallable,
             description: c.description || '',
+            language: c.language || 'en',
             texts: c.texts || null,
             author: c.author || '',
             mguHmi: c.mguHmi,
