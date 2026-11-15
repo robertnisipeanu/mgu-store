@@ -56,5 +56,10 @@ description (`.github/pull_request_template.md` has the fields):
   not tested.
 - **Human review:** whether a person reviewed it before it was opened.
 
-A pull request without AI involvement says `AI: none`. CI fails a pull
-request whose description has no `AI:` or `Tested:` field.
+A pull request without AI involvement says `AI: none`.
+
+Every pull request that changes anything shown on screen (a page, screen,
+dialog, tile, icon or text of the Store or an app) includes screenshots or a
+screen recording of each changed screen, before and after, under
+**Screenshots:**. A change to how something moves or reacts to input needs a
+recording.
