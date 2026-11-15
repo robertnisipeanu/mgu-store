@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-No change on screen: the renderer client it carries has multi-touch
-for apps that ask for it.
+Component details show the package's language code when it is not English.
+
+The bundled renderer client supports multi-touch for apps that request it.
 
 ## 0.9.40
 

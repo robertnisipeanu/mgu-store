@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Catalog entries can declare a package language. Missing or malformed language metadata defaults to `en`.
+
 ## 0.8.45
 
 - An app built by its repository's script has its SDK donor looked up while its files download, and the build uid's processes are killed with the system's `kill` (with Node where there is none, or something of that uid is still running): its build starts and ends sooner.
