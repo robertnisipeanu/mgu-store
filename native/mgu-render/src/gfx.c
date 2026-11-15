@@ -37,7 +37,13 @@ static GLuint atlas_tex, ramp_tex;
 #define ATLAS_H 4096
 #define RAMP_W 256
 #define RAMP_H 256
-static int atlas_shelf_x[2], atlas_shelf_y[2];          /* two 1024-wide columns, filled top-down */
+/* Large CJK sets must not consume a permanent shelf shared by every app.
+ * Atlases share bounded texture pages, reclaimed with their last client. */
+#define GLYPH_TEXTURES 256
+#define GLYPH_BYTES (64u << 20)
+static struct { uint32_t id; int page, x, y, w, h, refs; } glyphs[GLYPH_TEXTURES];
+#define GLYPH_PAGES (GLYPH_BYTES / (ATLAS_W * ATLAS_H))
+static struct { GLuint tex; int entries; } glyph_pages[GLYPH_PAGES];
 static int ramp_rows;
 static char err[256];
 
@@ -163,13 +169,6 @@ int gfx_init(void) {
     u_tex3 = glGetUniformLocation(prog, "u_tex3");
     glGenBuffers(1, &vbo); glGenBuffers(1, &ibo);
 
-    glGenTextures(1, &atlas_tex);
-    glBindTexture(GL_TEXTURE_2D, atlas_tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, ATLAS_W, ATLAS_H, 0, GL_ALPHA, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glGenTextures(1, &ramp_tex);
     glBindTexture(GL_TEXTURE_2D, ramp_tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, RAMP_W, RAMP_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -186,26 +185,66 @@ int gfx_init(void) {
 
 int gfx_atlas(gfx_client *c, uint32_t id, int w, int h, const uint8_t *alpha) {
     for (int i = 0; i < c->natlas; i++) if (c->atlas[i].id == id) return 0;    /* already have it */
-    if (c->natlas >= 64 || w > ATLAS_W / 2) { snprintf(err, sizeof err, "atlas %u: too many or too wide", id); return -1; }
-    /* the shared atlas texture is first come, first served for all clients; an atlas with
-       the same content key (id) from an earlier client is reused */
-    static struct { uint32_t id; int x, y, w, h; } global[128];
-    static int nglobal;
-    for (int i = 0; i < nglobal; i++) if (global[i].id == id && global[i].w == w && global[i].h == h) {
-        c->atlas[c->natlas].id = id; c->atlas[c->natlas].x = global[i].x; c->atlas[c->natlas].y = global[i].y;
-        c->atlas[c->natlas].w = w; c->atlas[c->natlas].h = h; c->natlas++;
-        return 0;
+    if (c->natlas >= 64 || w < 1 || h < 1 || w > ATLAS_W / 2 || h > ATLAS_H || !alpha) {
+        snprintf(err, sizeof err, "atlas %u: invalid size or too many", id); return -1;
     }
-    int col = atlas_shelf_y[0] <= atlas_shelf_y[1] ? 0 : 1;
-    if (atlas_shelf_y[col] + h > ATLAS_H || nglobal >= 128) { snprintf(err, sizeof err, "glyph atlas texture full"); return -1; }
-    int x = col * (ATLAS_W / 2), y = atlas_shelf_y[col];
-    atlas_shelf_y[col] += h + 1;
-    glBindTexture(GL_TEXTURE_2D, atlas_tex);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_ALPHA, GL_UNSIGNED_BYTE, alpha);
-    global[nglobal].id = id; global[nglobal].x = x; global[nglobal].y = y; global[nglobal].w = w; global[nglobal].h = h; nglobal++;
-    c->atlas[c->natlas].id = id; c->atlas[c->natlas].x = x; c->atlas[c->natlas].y = y;
-    c->atlas[c->natlas].w = w; c->atlas[c->natlas].h = h; c->natlas++;
-    (void)atlas_shelf_x;
+    int slot = -1;
+    for (int i = 0; i < GLYPH_TEXTURES; i++) {
+        if (!glyphs[i].refs) { if (slot < 0) slot = i; continue; }
+        if (glyphs[i].id == id && glyphs[i].w == w && glyphs[i].h == h) {
+            slot = i; break;
+        }
+    }
+    if (slot < 0) { snprintf(err, sizeof err, "glyph texture count limit"); return -1; }
+    if (!glyphs[slot].refs) {
+        int page = -1, col = 0, y = 0;
+        for (unsigned p = 0; p < GLYPH_PAGES && page < 0; p++) {
+            int rows[2] = {0, 0};
+            for (int cidx = 0; cidx < 2; cidx++) {
+                int moved;
+                do {
+                    moved = 0;
+                    for (int i = 0; i < GLYPH_TEXTURES; i++) {
+                        if (!glyphs[i].refs || glyphs[i].page != (int)p || glyphs[i].x != cidx * (ATLAS_W / 2)) continue;
+                        if (rows[cidx] < glyphs[i].y + glyphs[i].h + 1 && rows[cidx] + h > glyphs[i].y) {
+                            rows[cidx] = glyphs[i].y + glyphs[i].h + 1;
+                            moved = 1;
+                        }
+                    }
+                } while (moved);
+            }
+            col = rows[0] <= rows[1] ? 0 : 1;
+            y = rows[col];
+            if (y + h <= ATLAS_H) page = (int)p;
+        }
+        if (page < 0) { snprintf(err, sizeof err, "glyph texture memory limit"); return -1; }
+        if (!glyph_pages[page].tex) {
+            uint8_t *blank = calloc(ATLAS_W, ATLAS_H);
+            if (!blank) { snprintf(err, sizeof err, "glyph texture allocation failed"); return -1; }
+            glGenTextures(1, &glyph_pages[page].tex);
+            glBindTexture(GL_TEXTURE_2D, glyph_pages[page].tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, ATLAS_W, ATLAS_H, 0, GL_ALPHA, GL_UNSIGNED_BYTE, blank);
+            free(blank);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        } else glBindTexture(GL_TEXTURE_2D, glyph_pages[page].tex);
+        int x = col * (ATLAS_W / 2);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_ALPHA, GL_UNSIGNED_BYTE, alpha);
+        if (glGetError() != GL_NO_ERROR) {
+            if (!glyph_pages[page].entries) {
+                glDeleteTextures(1, &glyph_pages[page].tex);
+                glyph_pages[page].tex = 0;
+            }
+            snprintf(err, sizeof err, "glyph texture allocation failed"); return -1;
+        }
+        glyphs[slot].id = id; glyphs[slot].page = page;
+        glyphs[slot].x = x; glyphs[slot].y = y; glyphs[slot].w = w; glyphs[slot].h = h;
+        glyph_pages[page].entries++;
+    }
+    glyphs[slot].refs++;
+    c->atlas[c->natlas].id = id; c->atlas[c->natlas].slot = slot; c->natlas++;
     return 0;
 }
 
@@ -563,6 +602,18 @@ void gfx_client_free(gfx_client *c) {
     while (c->layers) gfx_layer_drop(c, c->layers->id);
     while (c->images) gfx_image_drop(c, c->images->id);
     while (c->videos) gfx_video_drop(c, c->videos->id);
+    for (int i = 0; i < c->natlas; i++) {
+        int slot = c->atlas[i].slot;
+        if (--glyphs[slot].refs == 0) {
+            int page = glyphs[slot].page;
+            if (--glyph_pages[page].entries == 0) {
+                if (atlas_tex == glyph_pages[page].tex) atlas_tex = 0;
+                glDeleteTextures(1, &glyph_pages[page].tex);
+                glyph_pages[page].tex = 0;
+            }
+            memset(&glyphs[slot], 0, sizeof glyphs[slot]);
+        }
+    }
     c->natlas = c->nramp = 0;
 }
 
@@ -778,9 +829,9 @@ static void bands(const uint32_t *cmd, int n, float x, float y, float w, float h
     band(x, y, w, h, prev_y, y + h, A, A, rounded, r);                    /* after the last stop */
 }
 
-static int glyph_atlas(gfx_client *c, uint32_t id, int *ax, int *ay) {
-    for (int i = 0; i < c->natlas; i++) if (c->atlas[i].id == id) { *ax = c->atlas[i].x; *ay = c->atlas[i].y; return 1; }
-    return 0;
+static int glyph_atlas(gfx_client *c, uint32_t id) {
+    for (int i = 0; i < c->natlas; i++) if (c->atlas[i].id == id) return c->atlas[i].slot;
+    return -1;
 }
 
 static void run(gfx_client *c, const gfx_xf *xf, const uint32_t *cmd, size_t n, int depth);
@@ -945,14 +996,18 @@ static void run(gfx_client *c, const gfx_xf *xf0, const uint32_t *cmd, size_t n,
             i += 3;
             if (k > 100000) return;
             NEED((size_t)k * 8);
-            int ax, ay;
-            if (!glyph_atlas(c, aid, &ax, &ay)) { i += (size_t)k * 8; break; }
+            int slot = glyph_atlas(c, aid);
+            if (slot < 0) { i += (size_t)k * 8; break; }
+            if (atlas_tex != glyph_pages[glyphs[slot].page].tex) {
+                flush();
+                atlas_tex = glyph_pages[glyphs[slot].page].tex;
+            }
             for (uint32_t g = 0; g < k; g++) {
                 const uint32_t *p = cmd + i + g * 8;
                 float gx = X(*(const float *)&p[0]), gy = Y(*(const float *)&p[1]);
                 float gw = L(*(const float *)&p[2]), gh = L(*(const float *)&p[3]);
-                float u0 = (ax + *(const float *)&p[4]) / ATLAS_W, v0 = (ay + *(const float *)&p[5]) / ATLAS_H;
-                float u1 = (ax + *(const float *)&p[6]) / ATLAS_W, v1 = (ay + *(const float *)&p[7]) / ATLAS_H;
+                float u0 = (glyphs[slot].x + *(const float *)&p[4]) / ATLAS_W, v0 = (glyphs[slot].y + *(const float *)&p[5]) / ATLAS_H;
+                float u1 = (glyphs[slot].x + *(const float *)&p[6]) / ATLAS_W, v1 = (glyphs[slot].y + *(const float *)&p[7]) / ATLAS_H;
                 vert *v = quad(gx, gy, gx + gw, gy + gh, K_GLYPH);
                 v[0].v[12] = u0; v[0].v[13] = v0; v[1].v[12] = u1; v[1].v[13] = v0;
                 v[2].v[12] = u1; v[2].v[13] = v1; v[3].v[12] = u0; v[3].v[13] = v1;

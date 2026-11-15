@@ -8,6 +8,7 @@
   out: all three), `grab(on, 'knob')` or `grab(on, ['knob', 'press'])` in the JS client. Where the HMI's gate reads the
   parts (X_READY caps 128, `info.controllerHold`), the others stay the HMI's: a tilt still leaves an app that holds the
   knob and the press. Every other gate holds all three, as before.
+- Keep text visible across multiple large font sets and repeated app launches by reclaiming unused glyph atlas pages.
 
 ## 0.6.21
 
