@@ -14,8 +14,8 @@ It installs:
 - **Python**, for apps the head unit builds from source;
 - the **internet uplink**, for internet through a USB adapter, an LTE stick, a tethered phone or Wi-Fi.
 
-iDrive 8 is not yet tested on a real car. On iDrive 8,
-installs and removals take effect at the next head-unit restart.
+On iDrive 8, installs and removals take effect at the next head-unit
+restart.
 
 ## Screenshots
 
