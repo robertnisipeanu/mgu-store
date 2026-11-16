@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Text stays drawn when several apps with large fonts (Chinese, Japanese, Korean) are open or opened one after another:
+  an app's glyphs are freed when it closes.
+
 ## 0.6.22
 
 - An app can hold only some parts of the iDrive controller: X_GRAB's second word (1 knob, 2 press, 4 tilt; 0 or left

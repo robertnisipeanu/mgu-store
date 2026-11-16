@@ -80,6 +80,8 @@ in-test: build/$(OUT)/mgu-render
 	build/$(OUT)/test_kit
 	$(CC) $(CFLAGS) -o build/$(OUT)/test_video test/test_video.c src/gfx.c src/log.c -lEGL -lGLESv2 -lm
 	LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless build/$(OUT)/test_video
+	$(CC) $(CFLAGS) -o build/$(OUT)/test_glyphs test/test_glyphs.c src/gfx.c src/log.c -lEGL -lGLESv2 -lm
+	LIBGL_ALWAYS_SOFTWARE=1 EGL_PLATFORM=surfaceless build/$(OUT)/test_glyphs
 	sh test/test_hmi.sh
 	sh test/test_hmi_count.sh
 	wayland-scanner server-header protocol/ivi-controller.xml $(GEN_DIR)/ivi-controller-server-protocol.h
