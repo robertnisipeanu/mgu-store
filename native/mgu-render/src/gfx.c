@@ -37,8 +37,7 @@ static GLuint atlas_tex, ramp_tex;
 #define ATLAS_H 4096
 #define RAMP_W 256
 #define RAMP_H 256
-/* Large CJK sets must not consume a permanent shelf shared by every app.
- * Atlases share bounded texture pages, reclaimed with their last client. */
+/* Glyph atlases share bounded texture pages: an atlas is freed with its last client, a page with its last atlas. */
 #define GLYPH_TEXTURES 256
 #define GLYPH_BYTES (64u << 20)
 static struct { uint32_t id; int page, x, y, w, h, refs; } glyphs[GLYPH_TEXTURES];
@@ -218,6 +217,7 @@ int gfx_atlas(gfx_client *c, uint32_t id, int w, int h, const uint8_t *alpha) {
             if (y + h <= ATLAS_H) page = (int)p;
         }
         if (page < 0) { snprintf(err, sizeof err, "glyph texture memory limit"); return -1; }
+        for (int k = 0; k < 8 && glGetError() != GL_NO_ERROR; k++) {}    /* an older error must not fail this upload */
         if (!glyph_pages[page].tex) {
             uint8_t *blank = calloc(ATLAS_W, ATLAS_H);
             if (!blank) { snprintf(err, sizeof err, "glyph texture allocation failed"); return -1; }
