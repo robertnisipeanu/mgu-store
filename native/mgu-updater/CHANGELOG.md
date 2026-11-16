@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.46
+
 - An app built by its repository's script installs from a stick that holds more than the checkout: when the stick holds more than 200 MB or 20000 files, the build gets the app's folder, its shared files and the script. A folder too big to read says which folder, and whether bytes or files are over the limit.
 
 ## 0.8.45
