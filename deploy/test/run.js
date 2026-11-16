@@ -980,14 +980,15 @@ function testGuardStops() {
         res.status === 0 && !fs.existsSync(r2.entry('fixture_app')) && !('fixture_app' in ((r2.state() || {}).apps || {})) &&
         !fs.existsSync(r2.p('var/opt/mgu-deploy/kept/fixture_app')) && st2.lost_apps.length === 0, `${res.out}\n${JSON.stringify(st2.lost_apps)}`);
 
-    // an uninstall that fails after the home went is rolled back: record, kept package and registry entry stay
+    // an uninstall that fails after the home went is rolled back: the registry entry is back, the record goes with the removal
     const r3 = fakeRoot();
     r3.run(['install', '--artifact', privacyArtifact(), '--yes']);
     r3.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
     const f = r3.run(['uninstall', 'fixture_app', '--yes'], { FAKE_MGR_STAY_DOWN_AT: String(r3.kills().length + 1) });
     const st3 = r3.status();
+    // a removal that went part way (the home gone) stays a removal: no record, so nothing installs it again
     check('uninstall rolled back: the registry entry is back and the app is no lost app',
-        f.status === 1 && fs.existsSync(r3.entry('fixture_app')) && 'fixture_app' in r3.state().apps && st3.lost_apps.length === 0,
+        f.status === 1 && fs.existsSync(r3.entry('fixture_app')) && !('fixture_app' in r3.state().apps) && st3.lost_apps.length === 0,
         `${f.out}\n${JSON.stringify(st3.lost_apps)}`);
 }
 
@@ -1204,7 +1205,8 @@ function testGuardStash() {
     root.run(['install', '--artifact', privacyArtifact(), '--yes']);
     root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
     root.run(['install', '--artifact', appArtifact('fixture_app', '1.1.0', true), '--yes']);
-    fs.writeFileSync(root.p('var/opt/mgu-deploy/kept/fixture_app/fixture_app@1.0.0.tgz'), 'not a package');
+    // a package that reads, and that the install refuses (not for this head unit), after the rollback's removal
+    fs.copyFileSync(appArtifact('fixture_app', '1.0.0', true, { mguHmi: ['ID8'] }), root.p('var/opt/mgu-deploy/kept/fixture_app/fixture_app@1.0.0.tgz'));
     // the manager restarted by that install's bounce has not installed it yet when it dies
     const fb = root.run(['rollback', 'fixture_app', '--yes'],
         Object.assign({ FAKE_MGR_CRASH_AT: String(root.kills().length + 2), FAKE_MGR_NO_START_INSTALL: '1' }, W));
@@ -3149,12 +3151,17 @@ function testAppRollback() {
 
     // the older package does not install: the version that was there comes back
     root.run(['install', '--artifact', appArtifact('fixture_app', '1.3.0', true), '--yes']);
-    fs.writeFileSync(kept('1.1.0'), 'not a package');
+    fs.copyFileSync(appArtifact('fixture_app', '1.1.0', true, { mguHmi: ['ID8'] }), kept('1.1.0'));
     r = root.run(['rollback', 'fixture_app', '--yes']);
     const back = app();
     check('app rollback: an older package that does not install puts the installed version back, exit 1',
         r.status === 1 && back.version === '1.3.0' && r.out.includes('installing fixture_app 1.3.0 again') &&
         fs.readFileSync(path.join(root.home(back.uid), 'data/settings.json'), 'utf8') === '{"theme":"dark"}\n', r.out);
+
+    fs.writeFileSync(kept('1.1.0'), 'not a package');
+    r = root.run(['rollback', 'fixture_app', '--yes']);
+    check('app rollback: an older package that does not read is refused before the removal, exit 2',
+        r.status === 2 && r.out.includes('unreadable tgz') && app().version === '1.3.0' && app().uid === back.uid, r.out);
 
     root.run(['uninstall', 'fixture_app', '--yes']);
     check('app rollback: an uninstall removes its kept packages', !fs.existsSync(root.p('var/opt/mgu-deploy/kept/fixture_app')));
@@ -5418,7 +5425,7 @@ function testSafeModeAfresh() {
         return u;
     };
     root = undo();
-    write(root.p('var/opt/mgu-deploy/kept/fixture_app/fixture_app@1.0.0.tgz'), 'not a package\n');
+    fs.copyFileSync(appArtifact('fixture_app', '1.0.0', true, { mguHmi: ['ID8'] }), root.p('var/opt/mgu-deploy/kept/fixture_app/fixture_app@1.0.0.tgz'));
     r = root.run(['rollback', 'fixture_app', '--yes']);
     check('safe mode: an app rollback that fails, the version before installed again, keeps it',
         r.status === 1 && /installing fixture_app 1\.1\.0 again/.test(r.out) && on_(root) && !lifted(root), r.out);
@@ -9542,6 +9549,142 @@ function testId8Unprovisioned() {
     check('id8 unprovisioned: not with a removal queued', lost() === '[]', lost());
 }
 
+/* An app change never takes another app away, a package MainApp would
+ * reject is refused before anything changes, and the repair of a lost app
+ * stays within what the user and the failsafes decided: a removed app stays
+ * removed, a held one is not installed again, and a repair runs once. */
+function testKeepApps() {
+    // a SOME/IP manifest the unit's interface database cannot serve: refused, nothing changed
+    const MS = 'de.bmw.infotainment.hmi.hmimediastate.HmiMediaState', CERT = 'de.bmw.infotainment.certification.Certification';
+    const STATUS = 'de.bmw.infotainment.telematic.oap.AppStatus';
+    const db = { version: 1, interfaces: {
+        [MS]: { serviceId: 1, fields: { playerMetadata: { getter: { id: 1 }, notifier: { id: 32769 } }, coverArt: { getter: { id: 4 } } },
+            methods: { next: { methodId: 2 } }, events: {} },
+        [CERT]: { serviceId: 2 }, [STATUS]: { serviceId: 3 } },
+    instanceIDs: { [MS]: { HMI_CID: 1, HMI_FoMo_Left: 2 }, [CERT]: { Certification: 1 }, [STATUS]: { 13001: 13001, 13002: 13002 } } };
+    const pkgWith = (name, proxies) => {
+        const file = path.join(fs.mkdtempSync(path.join(T, 'app-')), `${name}@1.0.0.tgz`);
+        fs.writeFileSync(file, tgz([
+            { name: 'javascript/app.js', data: Buffer.from('console.log(1);\n'), mode: 0o644 },
+            { name: 'manifest.json', data: Buffer.from(JSON.stringify({ proxies: Object.assign({ [CERT]: '*' }, proxies),
+                services: { [STATUS]: { instances: ['${userId}'] } } })), mode: 0o644 },
+            { name: 'package.json', data: Buffer.from(JSON.stringify({ name, version: '1.0.0', description: 'deploy test app',
+                mguLocalOnly: true })), mode: 0o644 }], 1700000000));
+        return file;
+    };
+    const bad = [
+        ['an instance the unit does not have', { [MS]: { instances: '1', attributes: { playerMetadata: 'rs' } } }, 'instance "1" is not on this unit'],
+        ['a field it does not have', { [MS]: { instances: 'HMI_CID', attributes: { trackProgress: 'rs' } } }, 'field "trackProgress" is not on this unit'],
+        ['a subscription to a field without a notifier', { [MS]: { instances: 'HMI_CID', attributes: { coverArt: 's' } } },
+            'field "coverArt" cannot be subscribed to'],
+        ['a method it does not have', { [MS]: { instances: ['HMI_CID'], methods: ['play'] } }, 'method "play" is not on this unit']
+    ];
+    bad.forEach(([what, proxies, why]) => {
+        const root = fakeRoot();
+        write(root.p('etc/oap/someip/someip-interfaces.json'), JSON.stringify(db));
+        const before = root.hash();
+        const r = root.run(['install', '--artifact', pkgWith('media_app', proxies), '--yes']);
+        check(`keep apps: a manifest asking for ${what} is refused (exit 2) and nothing changes`,
+            r.status === 2 && r.out.includes(why) && root.hash().hash === before.hash, `${r.out}\n${treeDiff(before, root.hash())}`);
+    });
+    const okRoot = fakeRoot();
+    write(okRoot.p('etc/oap/someip/someip-interfaces.json'), JSON.stringify(db));
+    const ok = okRoot.run(['install', '--artifact', pkgWith('media_app', { [MS]: { instances: ['HMI_CID', 'HMI_FoMo_Left'],
+        attributes: { playerMetadata: 'rs', coverArt: 'r' }, methods: ['next'] } }), '--yes']);
+    check('keep apps: a manifest the unit can serve installs (${userId} instances included)', ok.status === 0, ok.out);
+    // a rollback to a package the unit cannot serve is refused before its removal: the installed version stays
+    const pkgV = (version, proxies) => {
+        const f = pkgWith('media_app', proxies), out = path.join(path.dirname(f), `media_app@${version}.tgz`);
+        const m = untar(f), entries = Object.keys(m).sort().map((name) => ({ name, mode: m[name].mode,
+            data: name === 'package.json' ? Buffer.from(JSON.stringify(Object.assign(JSON.parse(m[name].data), { version }))) : m[name].data }));
+        fs.writeFileSync(out, tgz(entries, 1700000000));
+        return out;
+    };
+    const up = okRoot.run(['install', '--artifact', pkgV('1.1.0', { [MS]: { instances: ['HMI_CID'] } }), '--yes']);
+    const lessDb = JSON.parse(JSON.stringify(db));
+    delete lessDb.interfaces[MS].methods.next;
+    write(okRoot.p('etc/oap/someip/someip-interfaces.json'), JSON.stringify(lessDb));
+    const rb = okRoot.run(['rollback', 'media_app', '--yes']);
+    check('keep apps: a rollback to a package the unit cannot serve is refused before anything changes, the app stays',
+        up.status === 0 && rb.status === 2 && rb.out.includes('method "next" is not on this unit') &&
+        readJson(path.join(okRoot.home(readJson(okRoot.entry('media_app')).userId), 'source', 'package.json')).version === '1.1.0', `${up.out}\n${rb.out}`);
+
+    // the app manager drops another app's entry during an update: it is put back, and the manager restarted to load it
+    const { root, mgr } = inplaceRoot(undefined, undefined, { FAKE_MGR_DROP: 'fixture_app' });
+    root.run(['install', '--artifact', appArtifact('second_app', '1.0.0', true), '--yes']);
+    const fixtureEntry = fs.readFileSync(root.entry('fixture_app'));
+    const kills = root.kills().length;
+    const r = root.run(['install', '--artifact', appArtifact('second_app', '1.1.0', true), '--yes']);
+    check('keep apps: another app\'s registry entry dropped during an update is put back, the manager restarted once',
+        r.status === 0 && root.managerLog().includes('dropped fixture_app') && fs.existsSync(root.entry('fixture_app')) &&
+        fs.readFileSync(root.entry('fixture_app')).equals(fixtureEntry) && fs.existsSync(root.entry('second_app')) &&
+        root.kills().length === kills + 1 && r.out.includes('the app manager dropped fixture_app during the install of second_app'),
+    `${r.out}\n${root.managerLog().join('\n')}`);
+    mgr.kill('SIGKILL');
+
+    // a user's removal: no record from its start, so a removal cut short is not a lost app
+    const rm = fakeRoot();
+    rm.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    const f = rm.run(['uninstall', 'fixture_app', '--yes'], { FAKE_MGR_STAY_DOWN_AT: String(rm.kills().length + 1) });
+    if (fs.existsSync(rm.entry('fixture_app'))) fs.unlinkSync(rm.entry('fixture_app'));
+    const rs = rm.status();
+    check('keep apps: an app the user removed stays removed: a removal cut short leaves no record and no lost app',
+        f.status === 1 && !('fixture_app' in rm.state().apps) && !rs.lost_apps.length && !rs.lost_held.length, `${f.out}\n${JSON.stringify(rs.lost_apps)}`);
+
+    // a lost app: installed again once (--repair), then held; a failing repair is not tried again
+    const lostRoot = () => {
+        const x = fakeRoot();
+        x.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+        fs.unlinkSync(x.entry('fixture_app'));
+        x.copy = path.join(fs.mkdtempSync(path.join(T, 'lost-')), 'fixture_app@1.0.0.tgz');
+        fs.copyFileSync(x.status().lost_apps[0].package, x.copy);
+        return x;
+    };
+    const safe = lostRoot();
+    write(safe.p('var/opt/mgu-deploy/safe-mode'), JSON.stringify({ at: 'now', reason: 'test' }));
+    const ss = safe.status();
+    const sr = safe.run(['install', '--artifact', safe.copy, '--yes', '--repair']);
+    check('keep apps: in safe mode a lost app is held, not repaired',
+        !ss.lost_apps.length && ss.lost_held.length === 1 && ss.lost_held[0].why === 'safe mode is on' && sr.status === 2 &&
+        !fs.existsSync(safe.entry('fixture_app')), `${JSON.stringify(ss.lost_held)}\n${sr.out}`);
+    const fl = lostRoot();
+    const f1 = fl.run(['install', '--artifact', fl.copy, '--yes', '--repair'], { FAKE_MGR_REJECT: 'fixture_app' });
+    const fs1 = fl.status();
+    const f2 = fl.run(['install', '--artifact', fl.copy, '--yes', '--repair']);
+    check('keep apps: a failing repair is recorded, and the app is held: not lost, a second repair refused',
+        f1.status !== 0 && !fs1.lost_apps.length && fs1.lost_held.length === 1 && /installing it again automatically failed/.test(fs1.lost_held[0].why) &&
+        f2.status === 2 && !fs.existsSync(fl.entry('fixture_app')), `${f1.out}\n${JSON.stringify(fs1)}\n${f2.out}`);
+    fl.reboot(Math.floor(Date.now() / 1000) - 100);
+    fl.setManagerStart(Date.now() / 1000 - 90);
+    check('keep apps: the hold outlasts a restart', !fl.status().lost_apps.length && fl.status().lost_held.length === 1);
+    const user = fl.run(['install', '--artifact', fl.copy, '--yes']);
+    check('keep apps: the user\'s own install ends the hold', user.status === 0 && fs.existsSync(fl.entry('fixture_app')) &&
+        !(fl.state().held || {}).fixture_app, user.out);
+    const corrupt = lostRoot();
+    fs.writeFileSync(corrupt.copy, 'not a package');
+    const c1 = corrupt.run(['install', '--artifact', corrupt.copy, '--yes', '--repair']);
+    const cs = corrupt.status();
+    check('keep apps: a repair whose package does not read is held too', c1.status !== 0 && !cs.lost_apps.length &&
+        cs.lost_held.length === 1 && /installing it again automatically failed/.test(cs.lost_held[0].why), `${c1.out}\n${JSON.stringify(cs)}`);
+    const once = lostRoot();
+    const o1 = once.run(['install', '--artifact', once.copy, '--yes', '--repair']);
+    fs.unlinkSync(once.entry('fixture_app'));
+    const os1 = once.status();
+    check('keep apps: a repaired app lost again in the same start is held, not repaired again',
+        o1.status === 0 && !os1.lost_apps.length && os1.lost_held.length === 1, `${o1.out}\n${JSON.stringify(os1)}`);
+    const later = lostRoot();
+    later.run(['install', '--artifact', later.copy, '--yes', '--repair']);
+    later.reboot(Math.floor(Date.now() / 1000) - 100);
+    later.setManagerStart(Date.now() / 1000 - 90);
+    later.status();
+    check('keep apps: a repair whose app is registered at the next start is no longer held', !(later.state().held || {}).fixture_app,
+        JSON.stringify(later.state().held));
+    const notLost = fakeRoot();
+    notLost.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    const nl = notLost.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes', '--repair']);
+    check('keep apps: --repair of an app that is not lost is refused', nl.status === 2 && nl.out.includes('nothing to repair'), nl.out);
+}
+
 /* After a factory reset the app manager's home is gone until its first
  * start creates it: nothing of this tool creates it, no app counts as lost
  * and no app installs meanwhile. A home owned by root is given back to
@@ -10557,7 +10700,8 @@ const SUITES = [
     testReadOnlyOnlyStatus,
     testMguInstallStop,
     testMguInstallClosed,
-    testMguInstallUsbIcons
+    testMguInstallUsbIcons,
+    testKeepApps
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;

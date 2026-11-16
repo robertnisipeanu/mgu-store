@@ -289,7 +289,7 @@ deploy/hu connect --arm-debug --keep-armed --hold 1800   # bootstrap only, see a
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--leave <id>...] [--keep-safe-mode] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--leave <id>...] [--keep-safe-mode] [--repair] [--yes]
 mgu-deploy.sh status [--read-only] [--json]   # --read-only: changes nothing
 mgu-deploy.sh relay [<id>...] [--keep-safe-mode] --yes   # a stale tool's files again, without its install step
 mgu-deploy.sh setup <id> --yes                # a tool laid again, its install step included
@@ -317,6 +317,11 @@ first. `--other-source` (the updater's) installs a tool another source
 installed, deactivating the version it replaces first. Each artifact is its own transaction: when one fails, only its
 changes are undone, and the ones installed before it stay. One changing
 command runs at a time; another waits for it, up to an hour.
+
+`--repair` (the updater's) installs again an app `status` lists under
+`lost_apps`, from its kept package, once: after that, or when it fails,
+the app is listed under `lost_held` with the reason until it is installed
+from the Store.
 
 - **rollback <id>** switches a tool to its other kept version (an update
   keeps the version before), or, on iDrive 7, an app to its kept older

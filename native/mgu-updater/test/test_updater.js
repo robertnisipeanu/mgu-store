@@ -4580,8 +4580,8 @@ function testSelfRepair() {
         .then(() => {
             const i = installs();
             ok('self-repair: after a wipe the Store and our other lost app are installed again from their kept packages, the Store first',
-                i.length === 4 && /verified\/robertn_store@0\.9\.0\.tgz --yes --keep-safe-mode$/.test(i[2]) &&
-                /verified\/cat_app@1\.1\.0\.tgz --yes --keep-safe-mode$/.test(i[3]), i.join('\n'));
+                i.length === 4 && /verified\/robertn_store@0\.9\.0\.tgz --yes --keep-safe-mode --repair$/.test(i[2]) &&
+                /verified\/cat_app@1\.1\.0\.tgz --yes --keep-safe-mode --repair$/.test(i[3]), i.join('\n'));
             ok('self-repair: an app removed on purpose (no kept package) stays removed', !fs.existsSync(reg('gone_app')));
             wipe();
             u.watchLost();
@@ -4647,7 +4647,7 @@ function testSelfRepair() {
         })
         .then(() => {
             ok('factory reset: once the app manager runs on its own home, the lost apps are installed again, the Store first',
-                installs().length === 8 && /robertn_store@0\.9\.0\.tgz --yes --keep-safe-mode$/.test(installs()[6]), installs().join('\n'));
+                installs().length === 8 && /robertn_store@0\.9\.0\.tgz --yes --keep-safe-mode --repair$/.test(installs()[6]), installs().join('\n'));
             ['lost', 'tiles', 'previous'].forEach((x) => fs.unlinkSync(`${deployLog}.${x}`));
         });
 }
