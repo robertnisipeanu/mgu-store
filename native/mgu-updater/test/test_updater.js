@@ -5193,6 +5193,23 @@ function testPythonRepo() {
                 [gated.guardSh, gated.guardUnit, gated.checkUnit, gated.dropin].every((t) => !/^ExecStartPre/m.test(t)) &&
                 /shell_gate: preload must be/.test(src('pyrepo').error || '') && /never_gate: preload must be/.test(src('pyrepo').error || ''),
                 JSON.stringify([titled, src('pyrepo').error]));
+            // the guard's LD_PRELOAD keeps the unit's own preload and another preload tool's env file, without its own
+            const other = (() => {
+                const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'preload-')), bin = path.join(dir, 'bin');
+                fs.mkdirSync(bin);
+                fs.writeFileSync(path.join(dir, 'other.env'), 'LD_PRELOAD="/var/opt/other/other.so /usr/lib/stock.so"\n');
+                fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\ncat <<\'X\'\n' + [
+                    '# /lib/systemd/system/hmi.service', '[Service]', 'Environment="LD_PRELOAD=/usr/lib/stock.so"',
+                    '# /etc/systemd/system/hmi.service.d/zz-other.conf', '[Service]', `EnvironmentFile=-${dir}/other.env`,
+                    `EnvironmentFile=-${dir}/missing.env`,
+                    '# /etc/systemd/system/hmi.service.d/zz-gate.conf', '[Service]', 'EnvironmentFile=-/run/gate.env',
+                    'Environment=LD_PRELOAD=/var/opt/gate/current/gate.so'].join('\n') + '\nX\n', { mode: 0o755 });
+                const fn = /other_preload\(\) \{[\s\S]*?\n\}\n/.exec(sourcesLib.preloadFiles(entryOf('gate')).guardSh)[0];
+                return require('child_process').execFileSync('sh', ['-c', fn + 'other_preload'],
+                    { env: Object.assign({}, process.env, { PATH: bin + ':' + process.env.PATH }) }).toString().trim();
+            })();
+            ok('preload guard: keeps the unit\'s own LD_PRELOAD and the libraries other drop-ins\' env files load, once each, without its own',
+                other === '/usr/lib/stock.so /var/opt/other/other.so', other);
             const unit = sourcesLib.serviceUnit(entryOf('svc'));
             ok('service: its unit runs the program from current/ with the declared user, groups, environment and target', [
                 'DynamicUser=yes', 'SupplementaryGroups=video tm_oap_app', 'Environment=XDG_RUNTIME_DIR=/run/wayland',

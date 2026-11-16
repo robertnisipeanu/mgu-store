@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A preload tool's boot guard keeps the libraries other drop-ins of the same unit load through their env files (another preload tool's `/run/<id>.env`), not only the unit's own `Environment=` lines: two preload tools on one HMI both load instead of the last one read replacing the other.
+
 ## 0.8.46
 
 - An app built by its repository's script installs from a stick that holds more than the checkout: when the stick holds more than 200 MB or 20000 files, the build gets the app's folder, its shared files and the script. A folder too big to read says which folder, and whether bytes or files are over the limit.
