@@ -20,10 +20,8 @@ Each font is google/fonts ofl/<dir>/<ttf> at commit
 weight 500. Needs Pillow. Two atlases, each with ASCII and the Inter
 atlases' symbols: "ui", the characters of the locales' words and catalog
 texts (release/texts) at 40 px (the Store's own text, titles included,
-stays sharp), and "common", the common set with those at the size above
-(small enough that Inter's atlases and two languages' fit the renderer's
-glyph texture, which keeps every atlas until it restarts), for names
-and descriptions from sources. Each atlas is 1024 px wide (mgu-render's
+stays sharp), and "common", the common set with those at the size above,
+for names and descriptions from sources. Each atlas is 1024 px wide (mgu-render's
 limit) and has a key from its contents, so the renderer, which shares
 atlases between apps by id, never mixes them up with another font's.
 """

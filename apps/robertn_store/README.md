@@ -92,10 +92,9 @@ template is loaded) or layer (over the page, on the app area). On iDrive 8
 they are App Manager 2's design (2880 x 960) scaled into the box; on
 iDrive 7 (a box under 700 px high) `src/store_compact.js` lays the same
 screens out for the box itself at full size. Text is
-Inter (SIL OFL, `src/LICENSE-Inter.txt`), baked by `tools/bake_fonts.py`;
-the atlases are at most 1024 px wide and use about a quarter of the
-renderer's glyph texture, which all apps share. Nothing from the HMI is
-drawn: icons are the kit's vector icons or package pictures.
+Inter (SIL OFL, `src/LICENSE-Inter.txt`), baked by `tools/bake_fonts.py`
+into atlases at most 1024 px wide (the renderer's limit). Nothing from the
+HMI is drawn: icons are the kit's vector icons or package pictures.
 
 **The HMI's own widgets** (below) whenever the renderer is not there, not
 yet answering at start (1.5 s), or gone (the Store installs or updates it):
@@ -164,12 +163,6 @@ loaded the first time it is:
 |---|---|---|
 | `latin`, `greek`, `cyrillic`, `vietnamese` | Inter with those letters, regular and semibold | `tools/bake_inter.py` |
 | `chinese`, `chinese-tc`, `japanese`, `korean` | Noto Sans SC, TC, JP, KR (SIL OFL, `src/LICENSE-NotoSans*.txt`): the Store's words at 40 px, and the language's common characters for names and descriptions at 18 or 20 px | `tools/bake_cjk.py` |
-
-The renderer's glyph texture (two columns of 1024 x 4096) is shared by
-every app and keeps every atlas until the renderer restarts. Inter's and
-one language's atlases fit with room to spare. After display-language
-changes the texture can fill up, and the new language's text then shows
-after the head unit's next start.
 
 ## The widget screens
 
