@@ -33,6 +33,8 @@
  * With $FAKE_MGR_REJECT set ("1", or the ids it is for, comma-separated), a
  * fresh install is rejected (a manifest naming an interface the unit does
  * not have) and leaves nothing.
+ * With $FAKE_MGR_DROP set to an app id, every update first deletes that
+ * app's registry entry, as MainApp drops an app whose start fails.
  * With $FAKE_MGR_UID_ONLY set, a fresh install stops after its uids.txt
  * line, with no registry entry.
  * With $FAKE_MGR_NO_KEYCHAIN set, a fresh install writes no keychain. With
@@ -99,6 +101,15 @@ const fallbackActive = () => fs.existsSync(path.join(env.MGU_DEPLOY_VAR_OPT, 'mg
 const customApps = () => (fallbackActive() ? (readJson(path.join(mgr, 'data', 'custom_apps.json')) || {}) : {});
 const sectionsOf = () => (env.FAKE_MGR_SECTIONS && readJson(env.FAKE_MGR_SECTIONS)) || {};
 
+/* What MainApp does to an app whose start fails, done to $FAKE_MGR_DROP's
+ * app during another app's update. */
+function dropOther() {
+    const f = env.FAKE_MGR_DROP ? path.join(appsDir, `${env.FAKE_MGR_DROP}.json`) : null;
+    if (f && fs.existsSync(f)) {
+        fs.unlinkSync(f);
+        log(`dropped ${env.FAKE_MGR_DROP}`);
+    }
+}
 /* A fresh install of id from its preinstalled package, as the lowest free
  * uid; the uid, or null when there is no package (a backend query). The
  * entry's installationSource is source when given (null: the install has
@@ -139,6 +150,7 @@ function install(id, how, source) {
 /* The update of a registered app to a newer preinstalled package, its uid
  * kept; whether it updated. */
 function update(id, how) {
+    dropOther();
     const e = entries().find((x) => x.id === id);
     const pkg = packageOf(id);
     if (!e || !e.entry || !pkg) return false;

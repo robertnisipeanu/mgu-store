@@ -3347,7 +3347,7 @@ class Updater {
                 mkdirp(path.dirname(verified), 0o700);
                 fs.writeFileSync(verified, fs.readFileSync(item.package), { mode: 0o600 });
                 console.log(`${item.id}@${item.version}: install from its kept package`);
-                return this.deploy(verified, false, true).then((code) => {
+                return this.deploy(verified, false, true, true).then((code) => {
                     if (code !== 0 && code !== GUARD_STOPPED) {
                         throw new Error(`${this.deployError || 'install failed'}; ${item.id} stays removed until it is installed again`);
                     }
@@ -3572,8 +3572,9 @@ class Updater {
     /* otherSource: the artifact replaces an installed tool another origin
      * installed. keep: the updater's own repair, which leaves the deploy
      * tool's safe mode on (a deploy tool before it ignores the option). */
-    deploy(file, otherSource, keep) {
-        return this.deployTool(['install', '--artifact', file, '--yes'].concat(otherSource ? ['--other-source'] : [], keep ? ['--keep-safe-mode'] : []))
+    deploy(file, otherSource, keep, repair) {
+        return this.deployTool(['install', '--artifact', file, '--yes'].concat(otherSource ? ['--other-source'] : [], keep ? ['--keep-safe-mode'] : [],
+            repair ? ['--repair'] : []))
             .then((code) => this.checkUids().then(() => code));
     }
 
