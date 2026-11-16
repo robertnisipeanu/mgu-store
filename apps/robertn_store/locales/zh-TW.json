@@ -197,6 +197,8 @@
     "May cause CarPlay issues": "可能導致 CarPlay 出現問題",
     "On the iPhone, turn on Maximize Compatibility": "請在 iPhone 上開啟「最大相容性」",
     "This network is 5 GHz only: CarPlay audio may drop": "此網路僅支援 5 GHz：CarPlay 音訊可能中斷",
-    "Phone over USB": "透過 USB 使用手機"
+    "Phone over USB": "透過 USB 使用手機",
+    "What's new": "更新說明",
+    "Next version ({0}/{1})": "下一版本（{0}/{1}）"
   }
 }

@@ -253,7 +253,7 @@ module.exports = {
      "x": 480,
      "y": 470,
      "w": 1560,
-     "h": 250,
+     "h": 220,
      "opts": {
       "text": "",
       "size": 40,
@@ -436,13 +436,19 @@ module.exports = {
      "onTap": "event:secondary"
     },
     {
+     "name": "releaseNotes", "rtype": "gpu", "gpu": "vbutton",
+     "x": 480, "y": 690, "w": 1560, "h": 66,
+     "opts": { "text": "", "style": "outline", "vicon": "clock", "hidden": true },
+     "onTap": "event:releaseNotes"
+    },
+    {
      "name": "problem",
      "rtype": "gpu",
      "gpu": "text",
      "x": 480,
-     "y": 730,
+     "y": 766,
      "w": 1560,
-     "h": 90,
+     "h": 60,
      "opts": {
       "text": "",
       "size": 36,

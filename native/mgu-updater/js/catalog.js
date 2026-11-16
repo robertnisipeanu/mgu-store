@@ -95,8 +95,26 @@ function checkExtras(c) {
         uninstallable: !!c.uninstallable,
         title: typeof c.title === 'string' && c.title ? c.title : c.id,
         description: typeof c.description === 'string' ? c.description : '',
+        releaseNotes: releaseNotesOf(c.releaseNotes, c.version),
         texts: textsOf(c.texts)
     });
+}
+
+/* Optional release notes never make an otherwise usable catalog unavailable.
+ * Plain text only; a bounded, newest-first history in the distribution language. */
+function releaseNotesOf(value, version) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    return value.slice(0, 16).filter((n) => {
+        if (!n || !SEMVER.test(n.version || '') || compareVersions(n.version, version) > 0 || seen.has(n.version) ||
+            !Array.isArray(n.changes) || !n.changes.length || n.changes.length > 3 ||
+            n.changes.some((line) => typeof line !== 'string' || !line.trim() || line.length > 120 || /[\x00-\x1f\x7f]/.test(line))) return false;
+        seen.add(n.version);
+        return true;
+    }).map((n) => {
+        const note = { version: n.version, changes: n.changes.map((s) => s.trim()) };
+        return note;
+    }).sort((a, b) => compareVersions(b.version, a.version));
 }
 
 /* A component's title and description in other languages (its "texts"):
@@ -184,6 +202,7 @@ function plan(entries, installed) {
             optional: c.optional,
             uninstallable: c.uninstallable,
             description: c.description || '',
+            releaseNotes: c.releaseNotes || [],
             texts: c.texts || null,
             author: c.author || '',
             mguHmi: c.mguHmi,
@@ -194,4 +213,4 @@ function plan(entries, installed) {
     });
 }
 
-module.exports = { parse, plan, checkExtras, textsOf, compareVersions, hmiList, compat, SEMVER, ID, SHA256, HMIS };
+module.exports = { releaseNotesOf, parse, plan, checkExtras, textsOf, compareVersions, hmiList, compat, SEMVER, ID, SHA256, HMIS };

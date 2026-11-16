@@ -199,7 +199,9 @@ module.exports = [
    "May cause CarPlay issues": "قد يسبب مشاكل في CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "على iPhone، شغّل «تعظيم التوافق»",
    "This network is 5 GHz only: CarPlay audio may drop": "هذه الشبكة 5 GHz فقط: قد ينقطع صوت CarPlay",
-   "Phone over USB": "الهاتف عبر USB"
+   "Phone over USB": "الهاتف عبر USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -400,7 +402,9 @@ module.exports = [
    "May cause CarPlay issues": "Může způsobit potíže s CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Na iPhonu zapněte Maximalizovat kompatibilitu",
    "This network is 5 GHz only: CarPlay audio may drop": "Tato síť je jen 5 GHz: zvuk CarPlay může vypadávat",
-   "Phone over USB": "Telefon přes USB"
+   "Phone over USB": "Telefon přes USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -601,7 +605,9 @@ module.exports = [
    "May cause CarPlay issues": "Kan give problemer med CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Slå Maksimer kompatibilitet til på iPhone",
    "This network is 5 GHz only: CarPlay audio may drop": "Dette netværk er kun 5 GHz: CarPlay-lyd kan falde ud",
-   "Phone over USB": "Telefon via USB"
+   "Phone over USB": "Telefon via USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -802,7 +808,9 @@ module.exports = [
    "May cause CarPlay issues": "Kann CarPlay stören",
    "On the iPhone, turn on Maximize Compatibility": "Auf dem iPhone „Kompatibilität maximieren“ einschalten",
    "This network is 5 GHz only: CarPlay audio may drop": "Dieses Netz ist nur 5 GHz: CarPlay-Ton kann aussetzen",
-   "Phone over USB": "Telefon über USB"
+   "Phone over USB": "Telefon über USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -1003,7 +1011,9 @@ module.exports = [
    "May cause CarPlay issues": "Μπορεί να προκαλέσει προβλήματα στο CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Στο iPhone, ενεργοποιήστε τη Μεγιστοποίηση συμβατότητας",
    "This network is 5 GHz only: CarPlay audio may drop": "Δίκτυο μόνο 5 GHz: ο ήχος του CarPlay μπορεί να διακόπτεται",
-   "Phone over USB": "Τηλέφωνο μέσω USB"
+   "Phone over USB": "Τηλέφωνο μέσω USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -1204,7 +1214,9 @@ module.exports = [
    "May cause CarPlay issues": "Puede causar problemas con CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "En el iPhone, activa Maximizar compatibilidad",
    "This network is 5 GHz only: CarPlay audio may drop": "Esta red es solo de 5 GHz: el audio de CarPlay puede cortarse",
-   "Phone over USB": "Teléfono por USB"
+   "Phone over USB": "Teléfono por USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -1405,7 +1417,9 @@ module.exports = [
    "May cause CarPlay issues": "Puede causar problemas con CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "En el iPhone, activa Maximizar compatibilidad",
    "This network is 5 GHz only: CarPlay audio may drop": "Esta red es solo de 5 GHz: el audio de CarPlay puede cortarse",
-   "Phone over USB": "Móvil por USB"
+   "Phone over USB": "Móvil por USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -1606,7 +1620,9 @@ module.exports = [
    "May cause CarPlay issues": "Voi aiheuttaa ongelmia CarPlayssa",
    "On the iPhone, turn on Maximize Compatibility": "Laita iPhonessa päälle Maksimoi yhteensopivuus",
    "This network is 5 GHz only: CarPlay audio may drop": "Tämä verkko on vain 5 GHz: CarPlayn ääni voi katkeilla",
-   "Phone over USB": "Puhelin USB:n kautta"
+   "Phone over USB": "Puhelin USB:n kautta",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -1807,7 +1823,9 @@ module.exports = [
    "May cause CarPlay issues": "Peut perturber CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Sur l'iPhone, activez Optimiser la compatibilité",
    "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper",
-   "Phone over USB": "Cellulaire par USB"
+   "Phone over USB": "Cellulaire par USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -2008,7 +2026,9 @@ module.exports = [
    "May cause CarPlay issues": "Peut perturber CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Sur l'iPhone, activez Optimiser la compatibilité",
    "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper",
-   "Phone over USB": "Téléphone par USB"
+   "Phone over USB": "Téléphone par USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -2209,7 +2229,9 @@ module.exports = [
    "May cause CarPlay issues": "עלול לגרום לבעיות ב-CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "ב-iPhone, הפעל את הגדלת התאימות",
    "This network is 5 GHz only: CarPlay audio may drop": "רשת זו היא 5 GHz בלבד: השמע של CarPlay עלול להיקטע",
-   "Phone over USB": "טלפון דרך USB"
+   "Phone over USB": "טלפון דרך USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -2410,7 +2432,9 @@ module.exports = [
    "May cause CarPlay issues": "CarPlay-problémákat okozhat",
    "On the iPhone, turn on Maximize Compatibility": "Az iPhone-on kapcsolja be: Kompatibilitás maximalizálása",
    "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat",
-   "Phone over USB": "Telefon USB-n keresztül"
+   "Phone over USB": "Telefon USB-n keresztül",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -2611,7 +2635,9 @@ module.exports = [
    "May cause CarPlay issues": "Dapat menimbulkan masalah CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Di iPhone, nyalakan Maksimalkan Kompatibilitas",
    "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus",
-   "Phone over USB": "Ponsel lewat USB"
+   "Phone over USB": "Ponsel lewat USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -2812,7 +2838,9 @@ module.exports = [
    "May cause CarPlay issues": "Può causare problemi con CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Sull'iPhone, attiva Massimizza compatibilità",
    "This network is 5 GHz only: CarPlay audio may drop": "Questa rete è solo a 5 GHz: l'audio di CarPlay può interrompersi",
-   "Phone over USB": "Telefono tramite USB"
+   "Phone over USB": "Telefono tramite USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -3013,7 +3041,9 @@ module.exports = [
    "May cause CarPlay issues": "CarPlayで問題が起きる場合があります",
    "On the iPhone, turn on Maximize Compatibility": "iPhoneで「互換性を優先」をオン",
    "This network is 5 GHz only: CarPlay audio may drop": "5 GHz 専用：CarPlay の音声が途切れる場合があります",
-   "Phone over USB": "USB接続のスマートフォン"
+   "Phone over USB": "USB接続のスマートフォン",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -3214,7 +3244,9 @@ module.exports = [
    "May cause CarPlay issues": "CarPlay에 문제가 생길 수 있습니다",
    "On the iPhone, turn on Maximize Compatibility": "iPhone에서 호환성 최대화를 켜세요",
    "This network is 5 GHz only: CarPlay audio may drop": "이 네트워크는 5 GHz 전용입니다: CarPlay 오디오가 끊길 수 있습니다",
-   "Phone over USB": "USB로 연결한 휴대폰"
+   "Phone over USB": "USB로 연결한 휴대폰",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -3415,7 +3447,9 @@ module.exports = [
    "May cause CarPlay issues": "Kan gi problemer med CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Slå på Maksimer kompatibilitet på iPhone",
    "This network is 5 GHz only: CarPlay audio may drop": "Dette nettverket er bare 5 GHz: CarPlay-lyden kan falle ut",
-   "Phone over USB": "Telefon via USB"
+   "Phone over USB": "Telefon via USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -3618,7 +3652,9 @@ module.exports = [
    "May cause CarPlay issues": "Kan problemen met CarPlay geven",
    "On the iPhone, turn on Maximize Compatibility": "Zet op de iPhone Maximaliseer compatibiliteit aan",
    "This network is 5 GHz only: CarPlay audio may drop": "Dit netwerk is alleen 5 GHz: CarPlay-audio kan wegvallen",
-   "Phone over USB": "Telefoon via USB"
+   "Phone over USB": "Telefoon via USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -3819,7 +3855,9 @@ module.exports = [
    "May cause CarPlay issues": "Może powodować problemy z CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Na iPhonie włącz Maksymalizuj zgodność",
    "This network is 5 GHz only: CarPlay audio may drop": "Ta sieć działa tylko w 5 GHz: dźwięk CarPlay może zanikać",
-   "Phone over USB": "Telefon przez USB"
+   "Phone over USB": "Telefon przez USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -4020,7 +4058,9 @@ module.exports = [
    "May cause CarPlay issues": "Pode causar problemas no CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "No iPhone, ative Maximizar Compatibilidade",
    "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar",
-   "Phone over USB": "Celular via USB"
+   "Phone over USB": "Celular via USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -4221,7 +4261,9 @@ module.exports = [
    "May cause CarPlay issues": "Pode causar problemas no CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "No iPhone, ative Maximizar compatibilidade",
    "This network is 5 GHz only: CarPlay audio may drop": "Esta rede é só de 5 GHz: o áudio do CarPlay pode falhar",
-   "Phone over USB": "Telemóvel por USB"
+   "Phone over USB": "Telemóvel por USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -4422,7 +4464,9 @@ module.exports = [
    "May cause CarPlay issues": "Poate cauza probleme cu CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Pe iPhone, activați Maximizare compatibilitate",
    "This network is 5 GHz only: CarPlay audio may drop": "Această rețea este doar 5 GHz: sunetul CarPlay se poate întrerupe",
-   "Phone over USB": "Telefon prin USB"
+   "Phone over USB": "Telefon prin USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -4623,7 +4667,9 @@ module.exports = [
    "May cause CarPlay issues": "Возможны проблемы с CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "На iPhone включите «Максимальная совместимость»",
    "This network is 5 GHz only: CarPlay audio may drop": "Эта сеть только 5 ГГц: звук CarPlay может прерываться",
-   "Phone over USB": "Телефон через USB"
+   "Phone over USB": "Телефон через USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -4824,7 +4870,9 @@ module.exports = [
    "May cause CarPlay issues": "Môže spôsobiť problémy s CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Na iPhone zapnite Maximalizovať kompatibilitu",
    "This network is 5 GHz only: CarPlay audio may drop": "Táto sieť je len 5 GHz: zvuk CarPlay môže vypadávať",
-   "Phone over USB": "Telefón cez USB"
+   "Phone over USB": "Telefón cez USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -5025,7 +5073,9 @@ module.exports = [
    "May cause CarPlay issues": "Lahko povzroči težave s CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "V iPhonu vklopite Maksimiraj združljivost",
    "This network is 5 GHz only: CarPlay audio may drop": "To omrežje je samo 5 GHz: zvok CarPlay se lahko prekinja",
-   "Phone over USB": "Telefon prek USB"
+   "Phone over USB": "Telefon prek USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -5226,7 +5276,9 @@ module.exports = [
    "May cause CarPlay issues": "Kan orsaka problem med CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Slå på Maximera kompatibilitet på iPhone",
    "This network is 5 GHz only: CarPlay audio may drop": "Nätverket är bara 5 GHz: CarPlay-ljudet kan avbrytas",
-   "Phone over USB": "Telefon via USB"
+   "Phone over USB": "Telefon via USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -5427,7 +5479,9 @@ module.exports = [
    "May cause CarPlay issues": "อาจทำให้ CarPlay มีปัญหา",
    "On the iPhone, turn on Maximize Compatibility": "เปิด เพิ่มความเข้ากันได้สูงสุด บน iPhone",
    "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย",
-   "Phone over USB": "โทรศัพท์ผ่าน USB"
+   "Phone over USB": "โทรศัพท์ผ่าน USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -5628,7 +5682,9 @@ module.exports = [
    "May cause CarPlay issues": "CarPlay'de sorunlara yol açabilir",
    "On the iPhone, turn on Maximize Compatibility": "iPhone'da Uyumluluğu Artır'ı açın",
    "This network is 5 GHz only: CarPlay audio may drop": "Bu ağ yalnızca 5 GHz: CarPlay sesi kesilebilir",
-   "Phone over USB": "USB üzerinden telefon"
+   "Phone over USB": "USB üzerinden telefon",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -5829,7 +5885,9 @@ module.exports = [
    "May cause CarPlay issues": "Можливі проблеми з CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "На iPhone увімкніть «Максимальна сумісність»",
    "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися",
-   "Phone over USB": "Телефон через USB"
+   "Phone over USB": "Телефон через USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -6030,7 +6088,9 @@ module.exports = [
    "May cause CarPlay issues": "Có thể gây lỗi CarPlay",
    "On the iPhone, turn on Maximize Compatibility": "Trên iPhone, bật Tối đa hóa tương thích",
    "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt",
-   "Phone over USB": "Điện thoại qua USB"
+   "Phone over USB": "Điện thoại qua USB",
+   "What's new": "What's new",
+   "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
  },
  {
@@ -6233,7 +6293,9 @@ module.exports = [
    "May cause CarPlay issues": "可能导致 CarPlay 出现问题",
    "On the iPhone, turn on Maximize Compatibility": "请在 iPhone 上打开“最大兼容性”",
    "This network is 5 GHz only: CarPlay audio may drop": "此网络仅支持 5 GHz：CarPlay 音频可能中断",
-   "Phone over USB": "通过 USB 连接手机"
+   "Phone over USB": "通过 USB 连接手机",
+   "What's new": "更新说明",
+   "Next version ({0}/{1})": "下一版本（{0}/{1}）"
   }
  },
  {
@@ -6436,7 +6498,9 @@ module.exports = [
    "May cause CarPlay issues": "可能導致 CarPlay 出現問題",
    "On the iPhone, turn on Maximize Compatibility": "請在 iPhone 上開啟「最大相容性」",
    "This network is 5 GHz only: CarPlay audio may drop": "此網路僅支援 5 GHz：CarPlay 音訊可能中斷",
-   "Phone over USB": "透過 USB 使用手機"
+   "Phone over USB": "透過 USB 使用手機",
+   "What's new": "更新說明",
+   "Next version ({0}/{1})": "下一版本（{0}/{1}）"
   }
  }
 ];

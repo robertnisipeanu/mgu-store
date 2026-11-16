@@ -232,7 +232,18 @@ function components(root = REPO) {
     // under deploy/component.json (deploy/README.md, "The deploy tool as a tool").
     tool('deploy', 'mgu-deploy', ['deploy/unit', 'deploy/component.json', 'tools/oap_link.js', 'tools/oap_pack.js']);
     const texts = catalogTexts(out.map((c) => c.id), root);
+    const notesFile = path.join(root, 'release', 'notes.json');
+    const notes = fs.existsSync(notesFile) ? readJson(notesFile) : {};
+    const normalizeNotes = require(path.join(REPO, 'native/mgu-updater/js/catalog.js')).releaseNotesOf;
     out.forEach((c) => {
+        if (notes[c.id]) {
+            const publishedNotes = notes[c.id].filter((n) => n.version !== NEXT);
+            c.releaseNotes = normalizeNotes(publishedNotes, c.version);
+            if (JSON.stringify(c.releaseNotes) !== JSON.stringify(publishedNotes) || !c.releaseNotes.length ||
+                c.releaseNotes[0].version !== c.version) {
+                throw new Error(`${c.id}: release/notes.json needs concise notes for the current version, newest first`);
+            }
+        }
         if (texts[c.id]) {
             c.texts = texts[c.id];
         }
@@ -503,7 +514,7 @@ function catalogEntry(c, file) {
     if (c.build) {
         entry.build = c.build;
     }
-    ['requires', 'optional', 'uninstallable', 'mguHmi', 'mguProvides', 'texts'].forEach((k) => {
+    ['requires', 'optional', 'uninstallable', 'mguHmi', 'mguProvides', 'texts', 'releaseNotes'].forEach((k) => {
         if (c[k] !== undefined) {
             entry[k] = c[k];
         }
@@ -795,6 +806,18 @@ function plan(all, ids, repo = REPO) {
 
 /* Writes a plan into the tree at root: versions, "requires", CHANGELOGs. */
 function writePlan(root, steps) {
+    const notesFile = path.join(root, 'release', 'notes.json');
+    const notes = fs.existsSync(notesFile) ? readJson(notesFile) : null;
+    if (notes) {
+        steps.forEach((p) => {
+            if (!notes[p.c.id]) return;
+            if (notes[p.c.id][0].version !== NEXT) throw new Error(`${p.c.id}: add release notes with version "next" before release`);
+            notes[p.c.id][0].version = p.version;
+            const normalized = require(path.join(REPO, 'native/mgu-updater/js/catalog.js')).releaseNotesOf(notes[p.c.id], p.version);
+            if (JSON.stringify(normalized) !== JSON.stringify(notes[p.c.id])) throw new Error(`${p.c.id}: invalid release notes`);
+        });
+    }
+
     steps.forEach((p) => {
         const changelog = path.join(root, p.c.changelog);
         if (fs.existsSync(changelog)) {
@@ -814,6 +837,7 @@ function writePlan(root, steps) {
             writeRequires(root, p.c, p.resolved);
         }
     });
+    if (notes) fs.writeFileSync(notesFile, JSON.stringify(notes, null, 2) + '\n');
 }
 
 /* The ids the last stamp chose for publish --stamped (release/out/stamped). */

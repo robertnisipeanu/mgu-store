@@ -773,3 +773,11 @@ f = screen('store', {}, { components: [Object.assign(fixture.state().components[
 eq([f.values.grid.items[0].icon, f.icons], ['key:/run/mgu-updater/icons/doom.png', ['/run/mgu-updater/icons/doom.png']]);
 
 console.log(`screens: ${fixture.screens().length} screens in ${Object.keys(UNITS).length} boxes, ${checks} checks pass`);
+
+// Reading release history keeps update actions intact and never installs a package.
+const notesPage = screen('app-notes');
+ok(text(notesPage, 'desc').includes('0.9.42') && text(notesPage, 'desc').includes('Read release notes'), 'current notes shown');
+eq(notesPage.values.releaseNotes.act.do, 'release-notes', 'history paging only changes the view');
+eq(notesPage.values.releaseNotes.act.page.notes, 1, 'history includes skipped releases');
+ok(text(screen('app-notes-history'), 'desc').includes('safe mode'), 'older notes retained');
+eq(screen('app-update').values.releaseNotes.hidden, true, 'old catalogs hide absent notes');

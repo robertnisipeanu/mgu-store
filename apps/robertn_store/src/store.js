@@ -704,6 +704,10 @@ class Store extends OnlineApp {
         case 'filter': this._drawn.setFilter(act.filter); break;
         case 'back': this._back(); break;
         case 'check': this._send({ op: 'check' }); break;
+        case 'release-notes':
+            this._drawn.stack[this._drawn.stack.length - 1] = act.page;
+            this._render();
+            break;
         case 'open':
             if (act.page.name === 'source') {
                 this._sourceId = act.page.id;

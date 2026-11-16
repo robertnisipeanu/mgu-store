@@ -195,6 +195,8 @@
     "May cause CarPlay issues": "עלול לגרום לבעיות ב-CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "ב-iPhone, הפעל את הגדלת התאימות",
     "This network is 5 GHz only: CarPlay audio may drop": "רשת זו היא 5 GHz בלבד: השמע של CarPlay עלול להיקטע",
-    "Phone over USB": "טלפון דרך USB"
+    "Phone over USB": "טלפון דרך USB",
+    "What's new": "What's new",
+    "Next version ({0}/{1})": "Next version ({0}/{1})"
   }
 }
