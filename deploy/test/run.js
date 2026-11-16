@@ -10038,7 +10038,8 @@ function testAppManager() {
     const realPack = fs.readFileSync(path.join(HERE, '..', '..', 'tools', 'oap_pack.js'), 'utf8');
     {
         const env8 = amRoot();
-        write(env8.p('var/opt/public/oap/oap_13099/rhmiData/application.json'), '{ not json');
+        fs.rmSync(env8.p('usr/lib/hmi8/applet'), { recursive: true });
+        write(env8.p('usr/lib/hmi8/applet'), 'not a folder\n');
         const r = env8.run(['appmanager', 'adopt', '--yes']);
         check('appmanager: an appletId source that cannot be read while his queued install moves: adopt rolled back, his queue kept',
             r.status !== 0 && r.out.includes('rolling back') && !r.out.includes('is dropped') && fs.existsSync(env8.H('pending.json')) &&
@@ -10129,12 +10130,21 @@ function testId8Complete() {
     const nn = install(none, 'nonative');
     check('id8: a unit without the native applets\' folder has no ids there', nn.status === 0 && appletId(queuedIn(none)('nonative')) === 20001, nn.out);
 
-    // what cannot be read refuses the install, nothing queued: an app's application.json that does not parse, an applets
-    // folder that is no folder, a manifest whose appletId is no number
+    // another app's application.json that is empty declares no applet; one that does not parse keeps clear of the
+    // "appletId": <n> in its text
+    const broken = id8Root();
+    write(broken.p('var/opt/public/oap/oap_13008/rhmiData/application.json'), '');
+    const e1 = install(broken, 'e1');
+    write(broken.p('var/opt/public/oap/oap_13009/rhmiData/application.json'), '{ "application": { "appletId": 20002,');
+    const e2 = install(broken, 'e2');
+    check('id8: another app\'s application.json that is empty is passed over, one that does not parse keeps its appletId clear, warning',
+        e1.status === 0 && appletId(queuedIn(broken)('e1')) === 20001 && e1.out.includes('oap_13008/rhmiData/application.json is empty') &&
+        e2.status === 0 && appletId(queuedIn(broken)('e2')) === 20003 && e2.out.includes('appletId 20002 in its text kept clear'),
+        `${e1.out}\n${e2.out}`);
+
+    // what cannot be read refuses the install, nothing queued: an applets folder that is no folder, a manifest whose
+    // appletId is no number, the HMI's data folder missing
     const bad = id8Root();
-    write(bad.p('var/opt/public/oap/oap_13009/rhmiData/application.json'), '{ not json');
-    const b1 = install(bad, 'b1');
-    fs.rmSync(bad.p('var/opt/public/oap/oap_13009'), { recursive: true });
     fs.rmSync(bad.p('usr/lib/hmi8/applet'), { recursive: true });
     write(bad.p('usr/lib/hmi8/applet'), 'not a folder\n');
     const b2 = install(bad, 'b2');
@@ -10144,12 +10154,12 @@ function testId8Complete() {
     fs.rmSync(bad.p('mnt/dataro/data/hmi8/applet/rhmi9'), { recursive: true });
     fs.rmSync(bad.p('mnt/dataro/data/hmi8'), { recursive: true });
     const b4 = install(bad, 'b4');
-    check('id8: an id source that cannot be read fails the install (the unit\'s failure): an app\'s application.json, an applets folder that ' +
-        'is no folder, a manifest id that is no number, the HMI\'s data folder missing', b1.status === 1 &&
-        b1.out.includes('rhmiData/application.json for the appletIds in use') && b2.status === 1 && b2.out.includes('cannot read the HMI\'s applets') &&
+    check('id8: an id source that cannot be read fails the install (the unit\'s failure): an applets folder that ' +
+        'is no folder, a manifest id that is no number, the HMI\'s data folder missing',
+        b2.status === 1 && b2.out.includes('cannot read the HMI\'s applets') &&
         b3.status === 1 && b3.out.includes('appletId twenty is not a number') && b4.status === 1 && b4.out.includes('mnt/dataro/data/hmi8 is missing') &&
-        ['b1', 'b2', 'b3', 'b4'].every((id) => !fs.existsSync(bad.p(`var/opt/mgu-deploy/id8/queue/${id}@1.0.0.tgz`))),
-    `${b1.out}\n${b2.out}\n${b3.out}\n${b4.out}`);
+        ['b2', 'b3', 'b4'].every((id) => !fs.existsSync(bad.p(`var/opt/mgu-deploy/id8/queue/${id}@1.0.0.tgz`))),
+    `${b2.out}\n${b3.out}\n${b4.out}`);
     const noHomes = id8Root();
     fs.rmSync(noHomes.p('var/opt/public/oap'), { recursive: true });
     const nh = install(noHomes, 'nh');

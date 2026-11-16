@@ -5380,7 +5380,9 @@ function ensureBootUnit(state, unit, name) {
  * those given in this run, and Hmi8's built-in applets'. A source that
  * cannot be read fails the install (the unit's failure, not the package's)
  * rather than leave an id out; a package of another app that cannot be read
- * is passed over, warning. */
+ * is passed over, warning, and so is an empty application.json, which
+ * declares no applet. One that does not parse counts each "appletId": <n>
+ * in its text. */
 var HMI_APPLET_IDS = [20000, 29999];
 var id8Assigned = {}; // appletIds given in this run, by app id
 function appletIdOf(appJson) {
@@ -5396,10 +5398,25 @@ function statIfThere(p) {
         throw idReadFailure(p, e);
     }
 }
-/* An application.json's appletId: null without the file or the id. */
-function fileAppletId(f) {
-    if (!statIfThere(f)) return null;
-    try { return appletIdOf(parseJsonText(fs.readFileSync(f, 'utf8'))); } catch (e) { throw idReadFailure(f, e); }
+/* An application.json's appletIds: none without the file, the id, or any
+ * text; of one that does not parse, each "appletId": <n> in its text. */
+function fileAppletIds(f) {
+    if (!statIfThere(f)) return [];
+    var t;
+    try { t = fs.readFileSync(f, 'utf8'); } catch (e) { throw idReadFailure(f, e); }
+    if (!t.replace(/^﻿/, '').trim()) {
+        warn(f + ' is empty: no appletId in it');
+        return [];
+    }
+    try {
+        var v = appletIdOf(parseJsonText(t));
+        return v === null ? [] : [v];
+    } catch (e) {
+        var ids = [], re = /"appletId"\s*:\s*(\d+)/g, m;
+        while ((m = re.exec(t))) ids.push(Number(m[1]));
+        warn(f + ' does not parse (' + e.message + '): ' + (ids.length ? 'appletId ' + ids.join(', ') + ' in its text kept clear' : 'no appletId in its text'));
+        return ids;
+    }
 }
 /* A package's appletId; one that cannot be read is passed over (null). */
 function tgzAppletId(file) {
@@ -5462,12 +5479,13 @@ function id8AppletIds(id) {
         if (v === null) return;
         if (mine) own = v; else others.push(v);
     };
-    add(fileAppletId(path.join(mainappRoot(), 'rhmiData', 'application.json')), false);
+    fileAppletIds(path.join(mainappRoot(), 'rhmiData', 'application.json')).forEach(function (v) { add(v, false); });
     if (!statIfThere(CFG.oap)) throw idReadFailure('the apps\' homes', CFG.oap + ' is missing');
     var homes;
     try { homes = fs.readdirSync(CFG.oap); } catch (e) { throw idReadFailure(CFG.oap, e); }
     homes.forEach(function (n) {
-        if (/^oap_\d+$/.test(n)) add(fileAppletId(path.join(CFG.oap, n, 'rhmiData', 'application.json')), n === ownHome);
+        if (!/^oap_\d+$/.test(n)) return;
+        fileAppletIds(path.join(CFG.oap, n, 'rhmiData', 'application.json')).forEach(function (v) { add(v, n === ownHome); });
     });
     var mine = preinstalledFor(id), pre = [];
     try { pre = statIfThere(preinstalledDir()) ? fs.readdirSync(preinstalledDir()) : []; } catch (e) { throw e.code === 1 ? e : idReadFailure(preinstalledDir(), e); }
