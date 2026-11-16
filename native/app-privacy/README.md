@@ -6,7 +6,7 @@ on the head unit) enumerates every app in its registry in several off-car
 paths; the patch in this directory makes each of them skip local-only
 apps. It also makes MainApp only restart a local-only app that crashed.
 Genuine backend-delivered apps are reported, updated, diagnosed and
-recovered exactly as before. It covers iDrive 7's MainApp 8.3.2,
+recovered as stock. It covers iDrive 7's MainApp 8.3.2,
 8.2.10, 8.1.1, 6.5.5 and 6.4.8 (`/usr/lib/oap-mainapp`) and iDrive 8's MainApp-21 9.3.4 and
 9.2.15 (`/usr/lib/oap-mainapp21`).
 
@@ -26,12 +26,12 @@ install, is decided by its package in MainApp's preinstalled-apps folder
 iDrive 8 `/usr/lib/oap-mainapp21/preinstalled_apps/`), the package
 MainApp installs it from; so a fresh install skips the
 repository version query too. An app without the marker, or whose files
-cannot be read, is reported as before. Nothing is registered at install
+cannot be read, is reported as stock. Nothing is registered at install
 time; renaming an app or adding a new one needs no list change.
 
 `/var/opt/public/oap/oap_12201/data/local-only-apps.json` (a JSON array of
-appIds) is an optional manual override for an app installed from a build
-without the marker. Installers do not maintain it.
+appIds) marks an app installed from a build without the marker; the
+deploy tool adds the apps it lists that run from such a package.
 
 ## What is filtered
 
@@ -131,9 +131,7 @@ which edits they make is set out in "Required and optional edits" below.
 `revert` removes exactly the edits the bundles carry and keeps any other
 change to the files. Bundles that carry an earlier release's edits count as
 unpatched (`patchedBy` names that release): `apply` replaces those edits
-with this release's in the same write, and `revert` removes them. The
-tool keeps every earlier release's edits that differ from its own in
-`EARLIER_PATCH_SETS`. A bundle on the read-only root filesystem is written with `/`
+with this release's in the same write, and `revert` removes them. A bundle on the read-only root filesystem is written with `/`
 remounted read-write for the write only; a file bind-mounted over a bundle
 path is written in place. With `--json`, the last stdout line is
 `{"version","command","state","changed","files":[...],"edits":[...],"skipped":[...],"restartNeeded","unit","mainapp","mainappVersion","fingerprint"}`;

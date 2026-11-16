@@ -28,9 +28,9 @@ the unit), stamps it into the staged tree before packing, and
 }
 ```
 
-An installer refuses an app tgz whose `package.json` lacks
-`"mguLocalOnly": true` (deploy tool: exit 2, refused by preflight). An
-unmarked build would be reported like a genuine app.
+The deploy tool adds the marker to a package built elsewhere that lacks
+it (deploy/README.md, "Packages built elsewhere"). An unmarked app would be
+reported like a genuine app.
 
 ## 2. The patch is in effect before MainApp sees the app
 
@@ -90,8 +90,8 @@ MainApp-21 installs it at the next start of the head unit, after
 `app-privacy.service` has applied the patch (§3); so before queueing an
 app the installer runs `apply --json` as above but does not bounce, and
 refuses the app on any exit other than 0. With no tool at that path the
-app is queued anyway (an older installation without the component), and
-MainApp-21 reports it until the component is installed. The package goes
+app is queued anyway, and MainApp-21 reports it until the component is
+installed. The package goes
 to `/usr/lib/oap-mainapp21/preinstalled_apps/` at that start.
 
 ## 3. The patch stays applied
@@ -154,8 +154,9 @@ until `apply` replaces them). `--version` prints `app-privacy <version>`.
 ## 6. Manual override
 
 `/var/opt/public/oap/oap_12201/data/local-only-apps.json`, a JSON array of
-appIds, marks an app installed from a build without the marker. Installers
-neither read nor write it.
+appIds, marks an app installed from a build without the marker. The deploy
+tool adds every app `custom_apps.json` lists that runs from a package
+without the marker; entries already there stay.
 
 ```json
 {
