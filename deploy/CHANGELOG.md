@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.21
+
 - iDrive 7: an app whose SOME/IP manifest asks for an interface instance, method, broadcast or field the head unit does not have (or a field access it lacks a getter, setter or notifier for) is refused before anything changes, with what is missing named. The app manager would reject it partway through its install or update.
 - iDrive 7: after an app's install, update, rollback or removal, every other app that was registered is checked. One the app manager dropped meanwhile gets its registry entry back and its listing for the fallback, and the app manager restarts once to load it; one whose files changed is left as it is.
 - A removal drops the app's record before anything else, so a removal cut short never counts the app as lost.
