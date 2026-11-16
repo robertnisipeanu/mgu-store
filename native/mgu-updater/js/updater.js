@@ -2877,7 +2877,18 @@ class Updater {
         if (donorLookup) {
             donorLookup.catch(() => { /* the build reports it */ });
         }
-        return files(rt.public ? sourcesLib.partPaths(entry) : null).then((first) => {
+        const firstPaths = rt.public ? sourcesLib.partPaths(entry) : null;
+        // a folder too big to hand a build whole (a stick that holds more than the repo): the app's own
+        // folder, its shared files and the script
+        const read = files(firstPaths).catch((err) => {
+            if (!(err.tooBig && entry.script && !rt.reader.network)) {
+                throw err;
+            }
+            const why = `${err.message}; the build gets ${sourcesLib.buildPaths(own).join(', ')}`;
+            console.log(`${entry.id}: ${why}`);
+            return files(sourcesLib.buildPaths(own)).then((got) => Object.assign(got, { narrowed: why }));
+        });
+        return read.then((first) => {
             const prepare = (got) => {
                 const job = { entry: own, files: entry.script ? got : sourcesLib.subtree(got, entry.path) };
                 return own.id === entry.id ? job : sourcesLib.renameApp(own, job.files, entry.id);
@@ -2904,6 +2915,9 @@ class Updater {
             // a build that fails with only the files it names is run again with the whole repo
             return build(first, () => donorLookup)
                 .catch((err) => {
+                    if (first.narrowed) {
+                        err.message = `${err.message} (${first.narrowed})`;
+                    }
                     if (!first.partial) {
                         throw err;
                     }
