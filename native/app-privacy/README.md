@@ -31,7 +31,8 @@ time; renaming an app or adding a new one needs no list change.
 
 `/var/opt/public/oap/oap_12201/data/local-only-apps.json` (a JSON array of
 appIds) marks an app installed from a build without the marker; the
-deploy tool adds the apps it lists that run from such a package.
+deploy tool adds to it every app `custom_apps.json` lists that runs from
+such a package.
 
 ## What is filtered
 

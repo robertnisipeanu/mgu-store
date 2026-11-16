@@ -199,10 +199,8 @@ iDrive 7 (`LT_Label_4Row_1TextDyn`).
 **Restart head unit** opens a confirm step, *Restart head unit?*, with
 **Cancel** (focused first) and **Restart**. Restart asks the updater to
 restart the head unit through the Node State Manager (its `reboot`
-request). The updater refuses a restart in the first 4 minutes after a
-start, within 10 minutes of the last one and after 3 in an hour; the
-status line, Settings and the app's page then say why and when a restart
-is possible. The row is hidden
+request). A restart that does not happen shows on the status line,
+Settings and the app's page. The row is hidden
 while an install runs or waits, and while the updater is unreachable or
 already restarting the unit.
 

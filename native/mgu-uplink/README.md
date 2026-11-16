@@ -145,11 +145,13 @@ network is joined on either band.
 
 #### During wireless CarPlay and Android Auto
 
-While wireless CarPlay or Android Auto is connected, the supplicant's own
-scans keep off the phone's band (`wifi.paused`: `carplay`,
-`android-auto`), so the projection does not stutter. A `wifi-scan` request
-and a `wifi-connect` still cover every channel, and a joined network stays
-joined.
+While wireless CarPlay or Android Auto is connected, the car's supplicant
+(`wlan0`) scans only off the phone's band. While Wi-Fi is not joined and
+that cannot be done (the band is not known, or the supplicant refuses it),
+and on `wlan1`, the supplicant's own scans stop (`wifi.paused`: `carplay`,
+`android-auto`).
+A `wifi-scan` request and a `wifi-connect` still cover every channel, and
+a joined network stays joined.
 
 ### status.json
 

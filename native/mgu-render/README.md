@@ -8,7 +8,7 @@ either on the app's own layer over the HMI or inside the app's own HMI page.
   apps already use: upstream idrive7-apps' `kit/renderd` (car_vitals, gforce,
   doom, ...) and IterioDev's mgu-renderd (oap-cardash, oap-draggy,
   oap-dtcscan, ...). Their draws come out byte for byte as from each original.
-  display-bridge's apps (mgu-apps DOOM, draw_gallery,
+  display-bridge's apps (DOOM, draw_gallery,
   display_bridge_demo) draw through it too ("display-bridge's apps").
 - **Beside the other renderers.** Its own socket is
   `/run/mgu-render/render.sock` (the Store, `js/mgu_render_client.js`). The
@@ -49,7 +49,7 @@ The sources come from both renderers this replaces:
 |---|---|
 | idrive7-apps `kit/renderd` (MIT, `LICENSE.mgu-renderd`) | `src/gfx.c` (GLES2 executor), the main loop, layer surfaces, `--replay`, the wire protocol |
 | IterioDev's mgu-renderd | touch routing (`src/touch.c`), pictures (IMAGE, DROP_IMAGE, limits), the frame cap (FPS), video (VIDEO, DROP_VIDEO, op 19: frames from a player's file, YUV to RGB in the shader), the client's picture cache (`js/mgu_render_client.js`) |
-| display-bridge (mgu-apps) | the embed placement (`src/embed.c`, `js/hmi_template.js`, `systemd/mgu-render-hmi.sh`), the foreground gate (`src/gate.c`, `js/foreground_gate.js`), yield surfaces |
+| display-bridge | the embed placement (`src/embed.c`, `js/hmi_template.js`, `systemd/mgu-render-hmi.sh`), the foreground gate (`src/gate.c`, `js/foreground_gate.js`), yield surfaces |
 
 The ivi protocol files (`protocol/*.xml`) are COVESA wayland-ivi-extension's,
 MIT (DENSO CORPORATION, BMW Car IT GmbH, notice in each file). Nothing from the
@@ -112,7 +112,7 @@ apps see it in X_READY's caps (32) and STATS' fourth word.
 
 ## display-bridge's apps
 
-mgu-apps' display-bridge draws DOOM, draw_gallery and display_bridge_demo in
+display-bridge draws DOOM, draw_gallery and display_bridge_demo in
 their pages with the same page template and ivi id `0x500` on the HMI's
 compositor. With mgu-render installed, mgu-render is the one embed provider
 and serves those apps, unchanged.
@@ -130,8 +130,7 @@ and serves those apps, unchanged.
   mgu-render removes the drop-ins, and display-bridge runs again from the
   next start.
 - **Protocol.** A connection whose first four bytes are DBR1's magic speaks
-  display-bridge's protocol (`src/dbr.h`, the same as mgu-apps'
-  `native/display-bridge/src/wire.h`, version 2). HELLO's frame (INDEX8 with
+  display-bridge's protocol (`src/dbr.h`, version 2). HELLO's frame (INDEX8 with
   PALETTE, XRGB8888, premultiplied ARGB8888, RGBA8888; up to 1920×720, as
   display-bridge)
   is kept as FRAME and RECTS write it, and shown in the HMI page's box,
@@ -217,8 +216,8 @@ skipped. The unit-specific ones:
 ### On the car
 
 Values marked `on-car` in `mgu-render.conf` (the reversing camera's
-surface in `yield_surfaces`, `touch_saddr`, `touch_area`) are the car's
-own. Set another value in `local_conf` when a unit differs.
+surface in `yield_surfaces`, `touch_saddr`, `touch_area`) are ones only a
+car can confirm. Set another value in `local_conf` when a unit differs.
 
 ## Apps
 

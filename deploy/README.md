@@ -41,7 +41,8 @@ node .\mgu-install.js token --host 192.168.1.50 --identity $HOME\.ssh\mgu_root_k
 node .\mgu-install.js usb-repo E:\ github:robertnisipeanu/mgu-store
 ```
 
-Exit status: 0 done, 1 failed, 2 refused or bad usage.
+Exit status: 0 done, 1 failed, 2 refused or bad usage; `token` and
+`status` return the deploy tool's own exit status.
 
 **Finding the head unit.** `first-install`, `uninstall`, `status` and
 `token` find the head unit by themselves and print which connection they
@@ -96,8 +97,8 @@ Before installing, the car is parked, on stable power (engine running or a
 charger connected), and stays awake until the command finishes.
 
 It installs the newest `catalog` release of `robertnisipeanu/mgu-store`
-(release/README.md): the deploy tool, app-privacy, the updater, the Store,
-the renderer `mgu-render` and the internet uplink `mgu-uplink`
+(release/README.md): the deploy tool, app-privacy, the updater, Python, the
+Store, the renderer `mgu-render` and the internet uplink `mgu-uplink`
 (`--no-renderer` and `--no-uplink` leave those two out). Each file is
 checked against the catalog's size and sha256 before anything is sent; the
 Store is built on the unit. Newer installed tools and apps are kept, so
@@ -108,7 +109,8 @@ below).
 
 It ends with `Setup is done`, or `Restart the head unit to finish setup.`
 and, at a terminal, `Restart the head unit now? [y/N]`; `y` restarts the
-head unit the way the Store's **Restart head unit** does. When the Store's
+head unit the way the Store's **Restart head unit** does. The question is
+not asked under CI or with `--no-restart-prompt`. When the Store's
 tile cannot show, it says `The Store's tile cannot show:` and why.
 
 It stops before any download (exit 2) when the head unit's coding is
@@ -146,6 +148,10 @@ nothing unless given `--yes` (exit 2). It ends with one line:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.sh | sh -s -- uninstall --identity ~/.ssh/mgu_root_key
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/robertnisipeanu/mgu-store/main/deploy/install.ps1))) uninstall --identity $HOME\.ssh\mgu_root_key
 ```
 
 ### status
@@ -290,7 +296,7 @@ deploy/hu status --host 127.0.0.1 --port 2225 \
 
 ```
 mgu-deploy.sh check [--artifact <file>...]
-mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--leave <id>...] [--keep-safe-mode] [--yes]
+mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--leave <id>...] [--keep-safe-mode] [--yes]
 mgu-deploy.sh status [--read-only] [--json]   # --read-only: changes nothing
 mgu-deploy.sh relay [<id>...] [--keep-safe-mode] --yes   # a stale tool's files again, without its install step
 mgu-deploy.sh setup <id> --yes                # a tool laid again, its install step included
@@ -314,7 +320,8 @@ mgu-deploy.sh remove-unused                   # at boot
 
 `install` without `--artifact` takes every `*.tgz` and `*.mgu` in
 `./artifacts` beside the script. Tools install before apps, `app-privacy`
-first. Each artifact is its own transaction: when one fails, only its
+first. `--other-source` (the updater's) installs a tool another source
+installed, deactivating the version it replaces first. Each artifact is its own transaction: when one fails, only its
 changes are undone, and the ones installed before it stay. One changing
 command runs at a time; another waits for it, up to an hour.
 
@@ -324,9 +331,10 @@ command runs at a time; another waits for it, up to an hour.
 - **backups** / **restore [name]**: every change is snapshotted first.
   `stock` is the first snapshot ever taken; the 10 newest others are kept.
   A restore puts back the files the snapshot recorded and keeps the deploy
-  tool and the updater's sources and tokens. A snapshot taken under other
-  firmware restores only files under `/var/opt`: after a firmware update,
-  use `mgu-install.js uninstall` to take the Store setup off.
+  tool and the updater's sources and tokens. It needs `--yes`, or `YES`
+  typed at a terminal. A restore of a snapshot taken under other firmware
+  that would write system files is refused: after a firmware update, use
+  `mgu-install.js uninstall` to take the Store setup off.
 - **remove-all** lists what the Store setup put on the unit; with `--yes`
   it removes all of it, the deploy tool last (`mgu-install.js uninstall`
   runs this).

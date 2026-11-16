@@ -109,7 +109,8 @@ Build as you do, and upload the packages to a GitHub Release.
 
   ```json
   { "apps": { "acme_gauges": { "title": "Gauges", "description": "…", "author": "…",
-                               "icon": "acme_gauges.png", "iconSha256": "<hex>" } } }
+                               "icon": "acme_gauges.png", "iconSha256": "<hex>",
+                               "texts": { "de": { "title": "Anzeigen", "description": "…" } } } } }
   ```
 
   `icon` names a PNG asset of any release (at most 128 KiB; `iconSha256`
@@ -150,6 +151,8 @@ stick holding `catalog.json` at its root, in `mgu-repo/` or
 | `uninstallable` | the Store offers a tool's Remove (every app but the Store has one; never the Store's own tools) |
 | `mguHmi` | the head units it is for |
 | `mguProvides` | a tool's capability (`renderer`); the tool kit's `component.json` names it too |
+| `mguNeeds` | capabilities an installed tool must provide first (`["renderer"]`) |
+| `texts` | `{"<language code>": {"title", "description"}}`, by the Store's language codes (`de`, `pt-BR`, `zh-TW`): shown in the head unit's language |
 
 - An app's artifact is an OAP package (as in the releases layout), or with
   `"build": "unit"` a source package: the app's folder with `mgu-app.json`
@@ -175,8 +178,8 @@ The repository publishes source only, and the head unit builds every app.
   { "id": "acme-renderd", "kind": "tool", "path": "native/renderd" } ] }
 ```
 
-An entry may also carry `title`, `description`, `requires`, `optional`,
-`uninstallable` and `mguHmi`; otherwise they come from the component's own
+An entry may also carry `title`, `description`, `texts`, `requires`,
+`optional`, `uninstallable` and `mguHmi`; otherwise they come from the component's own
 manifest. A component that cannot be used is left out, the source's error
 says why, and the rest are listed.
 
@@ -250,6 +253,12 @@ and installs the package. The same build runs on a desktop with
 - The output: the script leaves **exactly one** `<id>@<version>.tgz` OAP
   package in `MGU_OUT` (an empty folder), or the entry's `"output": "<path
   in the repo>"` names the package the build leaves there.
+- `"shared": ["<path>", ...]` (optional): the repository paths, besides
+  the app's folder and the script, the build reads. With it, an install
+  from a public repository downloads only those files, and on a branch a
+  new commit is an update for the app only when it changes them; without
+  it, the whole repository but the other apps' folders is downloaded and
+  counts.
 - `"network": true`, or the ids of the apps that need it: the build may
   download, through an HTTP proxy the head unit gives it (`http_proxy`,
   `https_proxy`; https by CONNECT to port 443, http to port 80, public
@@ -330,7 +339,7 @@ Packages made for IterioDev's App Manager install as they are:
   - Version 1, `{"packages": [{"url", "sha256"}]}`, has each package
     downloaded and read for what it is.
 
-  A package read for what it is (from a version 1 index or a stick) shows
+  An index lists at most 50 packages, each at most 32 MiB. A package read for what it is (from a version 1 index or a stick) shows
   its `icon.png` beside `package.json` (a PNG of at most 128 KiB), `author`
   (or `author.name`) and `store.description` (else `description`).
 - **Service packages** (`package.json` `{name, version, mguService}` and

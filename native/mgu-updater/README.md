@@ -244,9 +244,10 @@ asks for.
   restarting`).
 - The state's `rebooting` is true from the request until the unit goes
   down. A restart that does not happen sets `rebootError`.
-- A request without the secret is refused before the unit has been up 4
-  minutes, within 10 minutes of the last restart the updater asked for, and
-  after 3 in the last hour.
+- A request without the secret is refused (`forbidden`), except from a
+  Store older than 0.9.16, which sends none; such a request is refused
+  before the unit has been up 4 minutes, within 10 minutes of the last
+  restart the updater asked for, and after 3 in the last hour.
 
 ## Phone page
 
@@ -265,8 +266,7 @@ in the Store*.
 
 ## Configuration
 
-`updater.conf` (in the version folder) holds the defaults with a comment
-on each; `/var/opt/mgu-updater/updater.local.conf` overrides any key and
+`updater.conf` (in the version folder) holds the defaults; `/var/opt/mgu-updater/updater.local.conf` overrides any key and
 survives updates.
 
 **Log.** Every line the daemon logs goes to the journal and, with its UTC

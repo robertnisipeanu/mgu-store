@@ -17,9 +17,8 @@ when nothing listens there, to the community one.
 
 `src/proto.h` has every number below.
 
-A fourth protocol, display-bridge's DBR1 (mgu-apps `native/display-bridge`,
-`src/dbr.h`), has its own framing: a connection whose first four bytes are its
-magic `DBR1` speaks it for good (README.md, "display-bridge's apps"). No
+A fourth protocol, display-bridge's DBR1 (`src/dbr.h`), has its own
+framing: a connection whose first four bytes are its magic `DBR1` speaks it for good (README.md, "display-bridge's apps"). No
 message of the three dialects begins that way: their first message is HELLO,
 type 1.
 
