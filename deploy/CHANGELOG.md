@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.20
+
 - iDrive 8: when an install collects the appletIds in use, an installed app whose `rhmiData/application.json` is empty is passed over with a warning naming the file (it declares no appletId), and one that does not parse is kept clear of each `"appletId": <n>` in its text, warning. Neither fails the install with "cannot read … for the appletIds in use".
 
 ## 0.8.19
