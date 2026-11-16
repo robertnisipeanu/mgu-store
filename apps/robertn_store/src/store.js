@@ -877,7 +877,7 @@ class Store extends OnlineApp {
     }
 
     /* The confirm step's Restart; the updater refuses it while an install
-     * runs and within its restart limits, and says why in rebootError. */
+     * runs, and says why in rebootError. */
     _restart() {
         this._closePage('restart', isConfirm('restart'));
         logger.info('restart head unit');

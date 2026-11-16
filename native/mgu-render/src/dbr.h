@@ -1,5 +1,5 @@
 /*
- * display-bridge's protocol, DBR1 (mgu-apps native/display-bridge src/wire.h), which DOOM, draw_gallery and
+ * display-bridge's protocol, DBR1, which DOOM, draw_gallery and
  * display_bridge_demo speak through their js/display_bridge_client.js. mgu-render serves it on display-bridge's
  * socket path (README.md, "display-bridge's apps"): a connection whose first four bytes are the magic is a DBR1
  * session. No GL, no display: host-testable.

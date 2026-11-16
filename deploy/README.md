@@ -285,13 +285,6 @@ deploy/hu status --hu-ip 169.254.125.24
 deploy/hu connect --arm-debug --keep-armed --hold 1800   # bootstrap only, see above
 ```
 
-A unit on a local SSH port:
-
-```sh
-deploy/hu status --host 127.0.0.1 --port 2225 \
-    --ssh-opt StrictHostKeyChecking=no --ssh-opt UserKnownHostsFile=/dev/null
-```
-
 ## On the unit
 
 ```

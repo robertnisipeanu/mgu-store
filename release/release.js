@@ -171,7 +171,7 @@ function components(root = REPO) {
         if (!SEMVER.test(version || '') || pkg.name !== id) {
             throw new Error(`apps/${id}: ${tree}/package.json is ${pkg.name}@${pkg.version}, not ${id}@<x.y.z>`);
         }
-        // installers refuse an unmarked app (native/app-privacy/INTEGRATION.md)
+        // every published app is marked local-only (native/app-privacy/INTEGRATION.md)
         if (pkg.mguLocalOnly !== true) {
             throw new Error(`apps/${id}: ${tree}/package.json lacks "mguLocalOnly": true`);
         }
