@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- iDrive 8: the controller gate is found in Hmi8 too (it loads into iDrive 8's HMI there, not HmiMain3D), so apps are
+  offered the controller (`info.controller`, and `controllerHold` with a parts-aware gate) on iDrive 8 as on iDrive 7.
 - Comments in the configuration and source only; no change on the unit.
 
 ## 0.6.23

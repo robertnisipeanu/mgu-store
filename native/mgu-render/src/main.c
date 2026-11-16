@@ -751,8 +751,8 @@ void embed_frame_done(void) {
 
 void embed_changed(void) { update_all(); }
 
-/* the HMI's process id, or -1 */
-static int hmi_pid(void) {
+/* the HMI's process id (cfg.hmi_process; with idrive8, also Hmi8, iDrive 8's HMI), or -1 */
+static int hmi_pid_of(int idrive8) {
     DIR *d = opendir("/proc");
     if (!d) return -1;
     struct dirent *e;
@@ -765,11 +765,12 @@ static int hmi_pid(void) {
         if (!f) continue;
         if (fgets(name, sizeof name, f)) name[strcspn(name, "\n")] = 0;
         fclose(f);
-        if (!strcmp(name, cfg.hmi_process)) pid = atoi(e->d_name);
+        if (!strcmp(name, cfg.hmi_process) || (idrive8 && !strcmp(name, "Hmi8"))) pid = atoi(e->d_name);
     }
     closedir(d);
     return pid;
 }
+static int hmi_pid(void) { return hmi_pid_of(0); }
 
 /* the HMI started after mgu-render-hmi.sh mounted the template (its marker) */
 static int template_loaded(void) {
@@ -890,7 +891,7 @@ static int grabbing(const client *c, uint64_t t) { return c->grab_t && t - c->gr
  * marker "mgu-inputgate-hold:"; a gate without it holds all three whatever the file says) */
 static int ctl_gate_loaded(void) {
     static const char marker[] = "mgu-inputgate-hold:";
-    int pid = cfg.controller_lib[0] ? hmi_pid() : -1;
+    int pid = cfg.controller_lib[0] ? hmi_pid_of(1) : -1;    /* the gate loads into Hmi8 on iDrive 8 */
     if (pid < 0) return 0;
     char p[64], line[512];
     snprintf(p, sizeof p, "/proc/%d/maps", pid);
