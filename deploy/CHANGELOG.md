@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- iDrive 8: when an install collects the appletIds in use, an installed app whose `rhmiData/application.json` is empty is passed over with a warning naming the file (it declares no appletId), and one that does not parse is kept clear of each `"appletId": <n>` in its text, warning. Neither fails the install with "cannot read … for the appletIds in use".
+
 ## 0.8.19
 
 - iDrive 7 with MainApp 6.4.8: the provisioning fallback copy carries the in-place install hook, at its start-up's `Promise.all([mainApp.init(),bookmarkController.init()])`, so an app install or update restarts only that app instead of the app manager.

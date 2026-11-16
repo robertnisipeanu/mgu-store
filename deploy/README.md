@@ -673,7 +673,9 @@ whose das edits and removal steps it follows:
   ids its apps and the HMI already use: an update keeps the one the app
   has, a package's own is kept when it is free, otherwise the tool picks a
   free one and says so. When the tool cannot read the ids in use, it
-  stops the install rather than guess.
+  stops the install rather than guess. Another app's empty
+  `rhmiData/application.json` holds no id; of one that does not parse,
+  the tool keeps clear of each `"appletId": <n>` in its text. Both warn.
   With app-privacy installed, its `apply` runs first and the app is
   refused when it fails; MainApp-21 is not restarted for it, and the patch
   is in effect from the start that installs the app. `fallback migrate`
