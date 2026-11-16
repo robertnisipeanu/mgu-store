@@ -745,9 +745,10 @@ function packService(entry, byPath) {
 /* A preload tool's kit, after the controller gate's installer in
  * idrive7-apps (deploy/mgu-app-install.sh, inputgate): the library and a
  * guard script in its version folder; <id>-guard.service before the unit,
- * which writes /run/<id>.env with LD_PRELOAD (the unit's other preloads,
- * then the library) unless the process failed to come up healthy with it
- * `strikes` starts in a row; <id>-check.service after the unit, which
+ * which writes /run/<id>.env with LD_PRELOAD (the unit's other preloads:
+ * its own and those its other drop-ins' env files name; then the library)
+ * unless the process failed to come up healthy with it `strikes` starts in
+ * a row; <id>-check.service after the unit, which
  * resets the count once the process has run with the library for
  * `healthySeconds`, `checkAfterSeconds` after the start, and never exits;
  * and the unit's drop-in zz-<id>.conf that pulls both in and reads the env
@@ -768,16 +769,24 @@ n=$(cat "$N" 2>/dev/null); case "$n" in ''|*[!0-9]*) n=0;; esac
 # a version installed since the count was kept starts it again
 v=$(readlink "$D/current" 2>/dev/null)
 if [ "$(cat "$D/strikes.version" 2>/dev/null)" != "$v" ]; then n=0; echo 0 > "$N"; echo "$v" > "$D/strikes.version"; fi
-other_preload() {   # the unit's LD_PRELOAD without ours; the last assignment wins, as in systemd
+other_preload() {   # the unit's LD_PRELOAD libraries without ours: its Environment= lines and the files its
+                    # other drop-ins read (EnvironmentFile=, another preload tool's /run/<id>.env), so all of them load
     systemctl cat ${pl.unit} --no-pager 2>/dev/null | awk '
         /^# \\// { ours = index($0, "${id}") > 0; next }
         ours { next }
         /^[ \\t]*Environment=/ && index($0, "LD_PRELOAD=") {
             v = substr($0, index($0, "LD_PRELOAD=") + 11)
             q = index(v, "\\""); if (q) v = substr(v, 1, q - 1)
-            last = v
+            print "lib " v
         }
-        END { print last }' | tr ':' ' ' | tr ' ' '\\n' | grep -v '^$' | grep -v '${id}' | tr '\\n' ' ' | sed 's/ $//'
+        /^[ \\t]*EnvironmentFile=/ { f = substr($0, index($0, "=") + 1); sub(/^-/, "", f); print "file " f }' |
+    while read -r kind v; do
+        if [ "$kind" = file ]; then
+            [ -f "$v" ] && sed -n 's/^[ \\t]*LD_PRELOAD=//p' "$v" | tr -d '"'
+        else
+            echo "$v"
+        fi
+    done | tr ':' ' ' | tr ' ' '\\n' | grep -v '^$' | grep -v '${id}' | awk '!seen[$0]++' | tr '\\n' ' ' | sed 's/ $//'
 }
 case "\${1:-}" in
 boot)
