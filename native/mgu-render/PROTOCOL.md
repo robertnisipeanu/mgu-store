@@ -17,9 +17,8 @@ when nothing listens there, to the community one.
 
 `src/proto.h` has every number below.
 
-A fourth protocol, display-bridge's DBR1 (mgu-apps `native/display-bridge`,
-`src/dbr.h`), has its own framing: a connection whose first four bytes are its
-magic `DBR1` speaks it for good (README.md, "display-bridge's apps"). No
+A fourth protocol, display-bridge's DBR1 (`src/dbr.h`), has its own
+framing: a connection whose first four bytes are its magic `DBR1` speaks it for good (README.md, "display-bridge's apps"). No
 message of the three dialects begins that way: their first message is HELLO,
 type 1.
 
@@ -81,9 +80,7 @@ treats 9, 10, 11, the events and op 18 that way:
 
 - **9** is upstream's IMAGE when words 1 and 2 are a size of 1..4096 and the
   payload holds at least 12 + w×h×4 bytes; otherwise IterioDev's CLAIM (word 0
-  at most 16, then that many rects). An upstream image's w and h, read as a
-  claim's first x and y, are float bit patterns below 1e-38, which no claim
-  has, so the image reading wins.
+  at most 16, then that many rects).
 - **10** of 4 bytes is upstream's GRAB; 12 + w×h×4 bytes is IterioDev's IMAGE.
 - **11** is IterioDev's.
 - Anything else in 9-11 fits neither and ends the connection.
@@ -95,10 +92,6 @@ Until then nothing tells them apart, and nothing needs to: messages 1-8 are the
 same, the daemon sends 105 and 106 only to an app that claimed or grabbed, and
 op 18 draws nothing without an uploaded image. An app that never sends 9-11
 stays undecided and is served exactly as either original would serve it.
-
-`test/test_dialect.c` checks the rules; `make test` replays sessions recorded
-from both kits through the original daemons and through mgu-render and
-compares every frame byte for byte.
 
 ## Native dialect, mgu-render/1
 
@@ -113,8 +106,7 @@ An older renderer takes the app id up to the NUL and answers with READY
 alone, so the client knows to fall back. mgu-render
 answers with X_READY first, then READY. Native clients use IterioDev's numbers
 for 9-14, 105, 106 and ops 18 and 19, and the extensions below, whose types start
-with "MR" (0x4d52…) so they never meet a number another dialect uses. A
-dialect added later takes its own HELLO field and its own type prefix.
+with "MR" (0x4d52…) so they never meet a number another dialect uses.
 
 Client to daemon:
 
@@ -147,8 +139,8 @@ IterioDev's protocol 4, the same in the iterio and native dialects. Another
 program (a player) writes decoded frames to a file in `/dev/shm`; the app
 names the file (VIDEO) and draws op 19 where the picture goes. The renderer
 reads the file's newest frame each time it draws the app, and draws the app's
-last frame again by itself when a newer one is there (it looks every 5 ms
-while a shown app has a video), so the app sends frames for its own changes.
+last frame again by itself when a newer one is there, so the app sends frames
+for its own changes.
 New video frames are not the app talking: a shown app still sends at least
 one message a second (its frame again will do), or after 3 s of silence it is
 taken for hung and hidden until it talks again, as IterioDev's kit does.
