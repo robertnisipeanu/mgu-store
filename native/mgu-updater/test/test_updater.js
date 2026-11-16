@@ -3210,7 +3210,35 @@ function testSources(certs) {
             ok('usb: with the stick out, a component it installed follows the stored source again',
                 comp('base_tool').source === 'mgu-store' && comp('base_tool').installed === '1.1.0' && comp('base_tool').status === 'newer',
                 JSON.stringify(comp('base_tool')));
-            return fs.existsSync(path.join(ROOT, 'js', 'web.js')) ? null : priv({ op: 'web', enable: true });
+            // a checkout at the root of a stick that holds more than build_max_bytes besides it
+            const big = path.join(media, 'BIG');
+            mkdirp(path.join(big, 'apps', 'b_stick'));
+            mkdirp(path.join(big, 'apps', 'b_huge'));
+            mkdirp(path.join(big, 'tools'));
+            fs.writeFileSync(path.join(big, 'mgu-repo.json'), JSON.stringify({ schema: 1, components: [
+                { id: 'b_stick', kind: 'app', path: 'apps/b_stick', build: { node: 'tools/build.js', args: ['ok', 'b_stick'] } },
+                { id: 'b_huge', kind: 'app', path: 'apps/b_huge', build: { node: 'tools/build.js', args: ['ok', 'b_huge'] } }] }));
+            fs.writeFileSync(path.join(big, 'apps', 'b_stick', 'app.json'), JSON.stringify({ id: 'b_stick', version: '1.0.0' }));
+            fs.writeFileSync(path.join(big, 'apps', 'b_huge', 'app.json'), JSON.stringify({ id: 'b_huge', version: '1.0.0' }));
+            fs.writeFileSync(path.join(big, 'tools', 'build.js'), buildJs);
+            fs.writeFileSync(path.join(big, 'video.bin'), Buffer.alloc(9 << 20));
+            fs.writeFileSync(path.join(big, 'apps', 'b_huge', 'data.bin'), Buffer.alloc(9 << 20));
+            fs.writeFileSync(mounts, `proc /proc proc rw 0 0\n/dev/sde1 ${big} exfat rw 0 0\n`);
+            u.scanUsb();
+            return until(st, () => src('usb:BIG').status === 'ok', 20000, 'the big stick read')
+                .then(() => ask(sock, { op: 'install', id: 'b_stick' }))
+                .then(() => until(st, () => !st().busy && (comp('b_stick').status === 'installed' || comp('b_stick').error), 60000, 'b_stick built'))
+                .then(() => ask(sock, { op: 'install', id: 'b_huge' }))
+                .then(() => until(st, () => !st().busy && (comp('b_huge').status === 'installed' || comp('b_huge').error), 60000, 'b_huge read'))
+                .then(() => {
+                    ok('usb: a build from a stick too big to read whole gets its own folder and script; one whose own folder is too big says which',
+                        comp('b_stick').status === 'installed' &&
+                        /the folder apps\/b_huge holds more than 8388608 bytes/.test(comp('b_huge').error || ''),
+                        JSON.stringify([comp('b_stick').error, comp('b_huge').error]));
+                    fs.writeFileSync(mounts, 'proc /proc proc rw 0 0\n');
+                    u.scanUsb();
+                    return fs.existsSync(path.join(ROOT, 'js', 'web.js')) ? null : priv({ op: 'web', enable: true });
+                });
         })
         .then((err) => {
             if (!fs.existsSync(path.join(ROOT, 'js', 'web.js'))) {

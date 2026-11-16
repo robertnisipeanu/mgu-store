@@ -230,7 +230,9 @@ commit). Without one: `releases` when the repo has a release, else
   While queued installs run, the tree, the files (by git id, up to 64 MB)
   and the last tarball are kept for the next ones, so an Update all reads
   each once; they are dropped when the queue is empty. A folder is read in
-  place.
+  place; when it holds more than `build_max_bytes` or 20000 files (a stick with more on it
+  than the checkout), a build gets the app's folder, its `build.shared`
+  paths and the script.
 - On a branch, a commit of the same version is an update too when it
   changes the component: a row's `revision` is the short commit it would
   install, and `state/origins.json` records the commit installed and the

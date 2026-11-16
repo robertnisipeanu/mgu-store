@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- An app built by its repository's script installs from a stick that holds more than the checkout: when the stick holds more than 200 MB or 20000 files, the build gets the app's folder, its shared files and the script. A folder too big to read says which folder, and whether bytes or files are over the limit.
+
 ## 0.8.45
 
 - An app built by its repository's script has its SDK donor looked up while its files download, and the build uid's processes are killed with the system's `kill` (with Node where there is none, or something of that uid is still running): its build starts and ends sooner.

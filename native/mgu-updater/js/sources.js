@@ -193,8 +193,10 @@ function isFileInside(root, rel) {
 
 const SKIP = (name) => name === '.git' || name === '.DS_Store' || name.indexOf('._') === 0;
 
+const WALK_FILES = 20000;
+
 /* The regular files under root/rel, { name (relative to rel), data, mode };
- * links are left out, at most maxBytes in all. */
+ * links are left out, at most maxBytes and WALK_FILES files in all. */
 function walkInside(root, rel, maxBytes) {
     const out = [];
     let total = 0;
@@ -213,8 +215,10 @@ function walkInside(root, rel, maxBytes) {
                 walk(path.join(dir, name), relName);
             } else if (st.isFile()) {
                 total += st.size;
-                if (total > maxBytes || out.length >= 20000) {
-                    throw new Error(`${rel}: more than ${maxBytes} bytes`);
+                if (total > maxBytes || out.length >= WALK_FILES) {
+                    const files = total <= maxBytes;
+                    const what = files ? `${WALK_FILES} files` : `${maxBytes} bytes`;
+                    throw Object.assign(new Error(`${rel ? `the folder ${rel}` : 'the source folder'} holds more than ${what}`), { tooBig: true, files });
                 }
                 out.push({ name: relName, data: readInside(root, path.posix.join(rel, relName), st.size), mode: st.mode & 0o777 });
             }
@@ -1023,7 +1027,8 @@ function missing(err) {
  * repo's files ({ name relative to the repo root, data, mode }) for a
  * repo-tree entry, those under the folder `under` when it is given; paths
  * (partPaths), when given, lets a reader read only the files under them
- * (marked `partial`). */
+ * (a GitHub reader marks them `partial`: a build that fails with only
+ * those runs again with the whole repo). */
 
 /* The paths a repo-tree entry is made from, for a reader to read only
  * those: a component's folder (a service or preload tool: the one file of
@@ -1043,6 +1048,15 @@ function partPaths(entry) {
     }
     const spec = contentSpec({ kind: 'app', path: entry.path, build: entry.buildSpec }, entry.script);
     return spec.paths[0] === '' ? null : spec.paths;
+}
+
+/* The paths an app a build script makes is built from when its repo is
+ * too big to hand the build whole: its folder, the files its build.shared
+ * names and the script. */
+function buildPaths(entry) {
+    const b = entry.buildSpec || {};
+    return [entry.path].concat(Array.isArray(b.shared) ? b.shared : [], [b.python, b.node])
+        .filter((p) => typeof p === 'string' && safeRel(p));
 }
 
 /* What the installs of one run of the updater's queue keep for each other
@@ -1116,8 +1130,37 @@ function folderReader(root, ctx) {
             }
             return Promise.resolve().then(() => readInside(root, url.replace(/^\.\//, ''), entry.artifact.size));
         },
-        files: (commit, onProgress, under) => Promise.resolve().then(() => walkInside(root, under || '', ctx.maxBuildBytes)
-            .map((f) => (under ? Object.assign(f, { name: `${under}/${f.name}` }) : f))),
+        // with paths, the files under each (one not there left out, but the first), at most maxBuildBytes in all
+        files: (commit, onProgress, under, paths) => Promise.resolve().then(() => {
+            if (!paths) {
+                return walkInside(root, under || '', ctx.maxBuildBytes).map((f) => (under ? Object.assign(f, { name: `${under}/${f.name}` }) : f));
+            }
+            const max = ctx.maxBuildBytes;
+            const seen = new Set();
+            let total = 0;
+            return paths.reduce((out, p, i) => {
+                let st;
+                try {
+                    st = fs.lstatSync(safePath(root, p));
+                } catch (e) {
+                    if (i && e.code === 'ENOENT') {
+                        return out;
+                    }
+                    throw e;
+                }
+                let got;
+                try {
+                    got = (st.isDirectory() ? walkInside(root, p, max - total).map((f) => Object.assign(f, { name: `${p}/${f.name}` }))
+                        : st.isFile() ? [{ name: p, data: readInside(root, p, max - total), mode: st.mode & 0o777 }] : [])
+                        .filter((f) => !seen.has(f.name) && seen.add(f.name));
+                } catch (e) {
+                    // past the first path, the limit is what is left of it
+                    throw i && e.tooBig && !e.files ? Object.assign(new Error(`${paths.join(', ')} hold more than ${max} bytes`), { tooBig: true }) : e;
+                }
+                total += got.reduce((n, f) => n + f.data.length, 0);
+                return out.concat(got);
+            }, []);
+        }),
         icon: (entry) => (/^https:\/\//.test(entry.icon.ref) ? ctx.net.get(entry.icon.ref, ua(ctx.version), 'icon.png', ICON_BYTES)
             : iconOf(entry, (rel, max) => Promise.resolve().then(() => {
                 if (!safeRel(rel)) {
@@ -2155,7 +2198,7 @@ function label(s) {
 
 module.exports = {
     load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
-    repoCatalog, contentSpec, contentOf, partPaths, batchCache, contentThen, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
+    repoCatalog, contentSpec, contentOf, partPaths, buildPaths, batchCache, contentThen, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
     renameable, renameApp, packageId, uuid5, orderBranches, entryIcons, isIcon, safePath, parseRefs, REPO, CHANNEL, PACKAGE, ICON_BYTES,
     RATE_LIMIT
 };
