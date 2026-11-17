@@ -330,6 +330,9 @@ const OPS = {
         }
         return null;
     },
+    'source-backup': (b) => (str(b.id, 256) && (b.backup === null || (b.backup && str(b.backup.url, 2048) &&
+        typeof b.backup.fallback === 'boolean')) ? { id: b.id, backup: b.backup === null ? null :
+            { url: b.backup.url, fallback: b.backup.fallback } } : null),
     'source-probe': (b) => (str(b.repo, 256) ? { repo: b.repo } : null),
     'source-remove': (b) => (str(b.id, 256) ? { id: b.id } : null),
     'login-start': () => ({}),
@@ -754,12 +757,39 @@ function renderSources(sources) {
     if (s.auth) { meta.push(s.auth.login || s.auth.token); }
     if (s.components !== undefined && s.components !== null) { meta.push(s.components + ' components'); }
     main.appendChild(el('div', 'mut', meta.join(' · ')));
+    if (s.backup && s.backupVerifiedAt) {
+      main.appendChild(el('div', 'mut', 'GitHub verified ' + new Date(s.backupVerifiedAt).toLocaleString()));
+    }
     if (s.error) { main.appendChild(el('div', 'bad', s.error)); }
     row.appendChild(main);
     if (!s.builtin && !s.usb) {
       row.appendChild(button('Remove', function () { confirmRemove(s); }));
     }
     box.appendChild(row);
+    if (s.backupSupported) {
+      var form = el('form', 'backup');
+      var url = el('input');
+      url.type = 'url'; url.placeholder = 'https://host/catalog.json';
+      url.setAttribute('aria-label', 'Backup source');
+      url.value = s.backup ? s.backup.url : '';
+      var fallback = el('input'); fallback.type = 'checkbox';
+      fallback.checked = !!(s.backup && s.backup.fallback);
+      var label = el('label', null, 'Fall back to GitHub');
+      label.insertBefore(fallback, label.firstChild);
+      form.appendChild(el('span', null, 'Backup source'));
+      form.appendChild(url); form.appendChild(label);
+      var save = el('button', 'pri', 'Save'); save.type = 'submit';
+      form.appendChild(save);
+      if (s.backup) {
+        form.appendChild(button('Turn off', function () { op({ op: 'source-backup', id: s.id, backup: null }); }));
+      }
+      form.onsubmit = function (ev) {
+        ev.preventDefault();
+        op({ op: 'source-backup', id: s.id, backup: url.value.trim() ? { url: url.value.trim(), fallback: fallback.checked } : null });
+      };
+      box.appendChild(form);
+      box.appendChild(el('div', 'mut', 'Packages must match GitHub. Verification expires after 24 hours.'));
+    }
   });
 }
 function renderTokens(tokens, sources) {
@@ -1022,6 +1052,9 @@ button,input,select{font:inherit;padding:8px 12px;border-radius:8px;border:1px s
 button{cursor:pointer}
 button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
 input{flex:1 1 160px;min-width:0}
+.backup>span{flex-basis:100%;font-size:13px;color:var(--mut)}
+.backup label{display:flex;align-items:center;gap:4px;font-size:13px}
+.backup input[type=checkbox]{flex:none;min-width:16px}
 form{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
 .code{font:600 30px/1.2 ui-monospace,Menlo,monospace;letter-spacing:3px;margin:6px 0}
 .card{background:var(--card);border-radius:12px;padding:12px;margin:12px 0}

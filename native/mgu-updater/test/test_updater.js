@@ -2544,12 +2544,33 @@ function testSources(certs) {
             ok('secret: written again, the same', fs.readFileSync(file, 'utf8') === secret && !u.storeSecretGone());
             return Promise.all([ask(sock, { op: 'source-add', type: 'github', repo: 'a/b' }),
                 ask(sock, { op: 'source-remove', id: 'second', secret: 'f'.repeat(64) }),
+                ask(sock, { op: 'source-backup', id: 'mgu-store', backup: null }),
                 ask(sock, { op: 'token-add', token: 'tok-all', secret: secret.slice(1) })]);
         })
         .then((errs) => {
             ok('privileged: without the secret, or with a wrong one, a request is forbidden',
                 errs.every((e) => e === 'forbidden') && u.stored.length === 6 && u.tokens.all().length === 0, JSON.stringify(errs));
             return u.check();
+        })
+        .then(() => priv({ op: 'source-backup', id: 'mgu-store', backup: {
+            url: `${GH_WEB}/robertnisipeanu/mgu-store/releases/download/catalog/catalog.json`, fallback: false } }))
+        .then((err) => {
+            ok('backup: built-in source can configure a transport through the authenticated socket', err === null, err);
+            return settled();
+        })
+        .then(() => {
+            const rt = u.src.get('mgu-store');
+            const own = rt.components.find((e) => e.id === 'dup_app');
+            return rt.reader.artifact(own).then((b) => {
+                ok('backup: real HTTPS fetch and redirects deliver only the GitHub digest', sha256(b) === own.artifact.sha256);
+                ok('backup: source identity and metadata stay on GitHub', src('mgu-store').label === 'robertnisipeanu/mgu-store' &&
+                    src('mgu-store').builtin && src('mgu-store').backup.fallback === false && comp('dup_app').source === 'mgu-store');
+            });
+        })
+        .then(() => priv({ op: 'source-backup', id: 'mgu-store', backup: null }))
+        .then((err) => {
+            ok('backup: disabling restores the original source', err === null && src('mgu-store').backup === null, err);
+            return settled();
         })
         .then(() => {
             const s = st();

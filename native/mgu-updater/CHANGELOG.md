@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Configure a backup source for GitHub release catalogs on the phone page, with packages verified against GitHub metadata and optional fallback to GitHub.
+
 ## 0.8.47
 
 - An app installed again from its kept package goes to the deploy tool with `--repair`: the deploy tool then installs it again once, and holds it after a failure or a second loss until it is installed from the Store.

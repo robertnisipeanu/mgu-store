@@ -36,6 +36,7 @@ const crypto = require('crypto');
 const { URL } = require('url');
 const catalogLib = require('./catalog');
 const tar = require('./tar');
+const backup = require('./backup');
 
 const ID = catalogLib.ID;
 const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
@@ -113,6 +114,8 @@ function checkStored(s) {
             out[k] = s[k];
         }
     });
+    const transport = backup.check(s);
+    if (transport) { out.backup = transport; }
     if (s.builtin) {
         out.builtin = true;
     }
@@ -2181,7 +2184,8 @@ function looseReader(root, ctx) {
  * maxBuildBytes (a repo's files) }. */
 function reader(s, ctx) {
     if (s.type === 'github') {
-        return githubReader(s, ctx);
+        const official = githubReader(s, ctx);
+        return s.backup ? backup.wrap(s, ctx, official, { mkdirPrivate, writePrivate }) : official;
     }
     if (s.type === 'https') {
         return httpsReader(s, ctx);

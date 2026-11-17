@@ -916,7 +916,7 @@ function under(entry, id) {
 }
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
-const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
+const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'source-backup', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
     'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
@@ -1074,6 +1074,7 @@ class Updater {
             maxBuildBytes: Number(conf.build_max_bytes) || 200 << 20,
             // an index source's packages, kept by their sha256
             cacheDir: path.join(conf.state_dir, 'index'),
+            backupDir: path.join(conf.state_dir, 'verified-catalogs'),
             // what the installs of one run of the queue keep for each other (next() clears it)
             batch: sourcesLib.batchCache()
         };
@@ -1606,6 +1607,10 @@ class Updater {
             type: def.type,
             label: sourcesLib.label(def),
             builtin: !!def.builtin,
+            backup: def.backup || null,
+            backupVerifiedAt: def.backup ? rt.verifiedAt || null : null,
+            backupSupported: def.type === 'github' && (!def.channel || def.channel === 'releases') &&
+                (!rt.mode || rt.mode === 'catalog') && (!rt.channel || rt.channel === 'releases'),
             usb: def.type === 'usb',
             channel: def.type === 'github' ? rt.channel || def.channel || null : null,
             status: rt.status,
@@ -1827,7 +1832,7 @@ class Updater {
             .then(() => this.readSource(rt))
             .then((cat) => {
                 Object.assign(rt, { components: cat.components, mode: cat.mode, channel: cat.channel || rt.channel, commit: cat.commit || null,
-                    copyOf: typeof cat.copyOf === 'string' ? cat.copyOf : null,
+                    copyOf: typeof cat.copyOf === 'string' ? cat.copyOf : null, verifiedAt: cat.verifiedAt || null,
                     memo: cat.memoKey ? { key: cat.memoKey, cat: JSON.parse(JSON.stringify(cat)) } : null,
                     status: 'ok', error: cat.skipped && cat.skipped.length ? `left out: ${cat.skipped.join('; ')}` : null,
                     checkedAt: Date.now(), answered: true });
@@ -3861,6 +3866,29 @@ class Updater {
         return undefined;
     }
 
+    /* A transport change keeps the source's identity, channel and origins.
+     * The queue holds readers and plans, so edits wait until it is idle. */
+    sourceBackup(req) {
+        if (req.backup === undefined) { return 'backup must be an object or null'; }
+        const def = this.stored.find((s) => s.id === req.id);
+        if (!def) { return `no source ${req.id}`; }
+        const rt = this.src.get(def.id);
+        if (this.busy || this.queue.length || (rt && rt.checking)) {
+            return 'wait for the current check or install before editing a backup source';
+        }
+        let next;
+        try {
+            next = sourcesLib.checkStored(Object.assign({}, def, { backup: req.backup }));
+        } catch (e) { return e.message; }
+        this.saveSources(this.stored.map((s) => s.id === def.id ? next : s));
+        rt.def = next;
+        rt.reader = sourcesLib.reader(next, this.ctx);
+        rt.memo = null;
+        this.changed();
+        this.checkSource(def.id);
+        return null;
+    }
+
     sourceRemove(id) {
         const def = this.stored.find((s) => s.id === id);
         if (!def) {
@@ -4154,6 +4182,7 @@ class Updater {
         case 'source-add': return this.sourceAdd(req);
         case 'source-probe': return this.sourceProbe(req, reply);
         case 'source-remove': return this.sourceRemove(req.id);
+        case 'source-backup': return this.sourceBackup(req);
         case 'login-start': return this.login.start();
         case 'login-cancel': this.login.cancel(); return null;
         case 'token-add': return this.tokenAdd(req, reply);
