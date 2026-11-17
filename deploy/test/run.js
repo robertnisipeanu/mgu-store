@@ -9647,6 +9647,26 @@ function testKeepApps() {
     check('keep apps: in safe mode a lost app is held, not repaired',
         !ss.lost_apps.length && ss.lost_held.length === 1 && ss.lost_held[0].why === 'safe mode is on' && sr.status === 2 &&
         !fs.existsSync(safe.entry('fixture_app')), `${JSON.stringify(ss.lost_held)}\n${sr.out}`);
+    // the Store, where safe mode is left: repaired once in safe mode, which stays on; the other app stays held
+    const safeStore = lostRoot();
+    safeStore.run(['install', '--artifact', appArtifact('robertn_store', '1.0.0', true), '--yes']);
+    fs.unlinkSync(safeStore.entry('robertn_store'));
+    const storeCopy = path.join(path.dirname(safeStore.copy), 'robertn_store@1.0.0.tgz');
+    fs.copyFileSync(safeStore.status().lost_apps.find((a) => a.id === 'robertn_store').package, storeCopy);
+    write(safeStore.p('var/opt/mgu-deploy/safe-mode'), JSON.stringify({ at: 'now', reason: 'test' }));
+    const st0 = safeStore.status();
+    // an updater that repairs with --repair --keep-safe-mode
+    write(safeStore.p('var/opt/mgu-updater/current/component.json'), JSON.stringify({ id: 'mgu-updater', version: '0.8.47' }));
+    const st1 = safeStore.status();
+    const str = safeStore.run(['install', '--artifact', storeCopy, '--yes', '--repair', '--keep-safe-mode']);
+    const st2 = safeStore.status();
+    fs.unlinkSync(safeStore.entry('robertn_store'));
+    const st3 = safeStore.status();
+    check('keep apps: in safe mode a lost Store is repaired once and safe mode stays on (held under an older updater); another lost app stays held',
+        !st0.lost_apps.length && st0.lost_held.length === 2 && st1.lost_apps.map((a) => a.id).join() === 'robertn_store' && st1.lost_held.map((a) => a.why).join() === 'safe mode is on' &&
+        str.status === 0 && st2.safe_mode && !st2.lost_apps.length && st2.lost_held.map((a) => a.id).join() === 'fixture_app' &&
+        !st3.lost_apps.length && st3.lost_held.length === 2 && /installed again automatically once/.test(st3.lost_held.find((a) => a.id === 'robertn_store').why),
+        `${str.out}\n${JSON.stringify([st0, st1, st2, st3].map((s) => [s.lost_apps, s.lost_held]))}`);
     const fl = lostRoot();
     const f1 = fl.run(['install', '--artifact', fl.copy, '--yes', '--repair'], { FAKE_MGR_REJECT: 'fixture_app' });
     const fs1 = fl.status();
