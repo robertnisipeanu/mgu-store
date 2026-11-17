@@ -55,7 +55,7 @@ var os = require('os');
 process.umask(0o022);
 
 /* deploy/component.json's version; the release sets both. */
-var VERSION = '0.8.21';
+var VERSION = '0.8.22';
 var HERE = __dirname;
 var MGR_UID = Number(process.env.MGU_DEPLOY_MAINAPP_UID || 12201);
 
@@ -8480,10 +8480,19 @@ function toolPrevious(t) {
  * removing one), and none while the app manager has not created its data
  * folder (after a factory reset). */
 function lostApps(state) { return lostReport(state).lost; }
+var STORE_APP = 'robertn_store';
+/* Whether the installed updater repairs with install --repair
+ * --keep-safe-mode (0.8.47 and later): one before it would leave safe mode. */
+function repairKeepsSafeMode() {
+    var u = readJsonOrNull(path.join(CFG.varOpt, 'mgu-updater', 'current', 'component.json'));
+    var cmp = u && semverCmp(u.version, '0.8.47');
+    return cmp === 0 || cmp === 1;
+}
 /* { lost, held }: lost apps are installed again by the updater; held ones
  * are not, each with why: one the repair installed once already (or
  * failed), one whose rollback did not install (state.json held, until the
- * user installs it, or the app manager has it registered at a later start), and every one while safe mode is on. While the MainApp
+ * user installs it, or the app manager has it registered at a later start), and every one while safe mode is on, but
+ * the Store (where safe mode is left) under an updater whose repair keeps safe mode on. While the MainApp
  * guard is off the updater installs none (mainapp_guard).
  * An app the user removes has no record from the start of its removal. */
 function lostReport(state) {
@@ -8493,9 +8502,9 @@ function lostReport(state) {
         var v = state.apps[id] && state.apps[id].version;
         return !lstatOrNull(appEntryFile(id)) && v && fs.existsSync(keptFile(id, v)) ? { id: id, version: v, package: keptFile(id, v) } : null;
     }).filter(Boolean);
-    var safe = readSafeMode(), held = state.held || {};
+    var safe = readSafeMode(), held = state.held || {}, storeRepair = safe && repairKeepsSafeMode();
     all.forEach(function (a) {
-        var why = safe ? 'safe mode is on' : held[a.id] ? held[a.id].why : null;
+        var why = safe && !(a.id === STORE_APP && storeRepair) ? 'safe mode is on' : held[a.id] ? held[a.id].why : null;
         if (why) out.held.push(Object.assign({}, a, { why: why })); else out.lost.push(a);
     });
     return out;
