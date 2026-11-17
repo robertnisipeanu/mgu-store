@@ -26,18 +26,21 @@ Object.defineProperty(els.addChannel, 'value', { get() { return this.children[0]
 const sent = [];
 let answer = null;
 const pending = [];
-global.document = { getElementById: el, createElement: () => ({ value: '', textContent: '', appendChild() {} }) };
+global.document = { getElementById: el, createElement: () => ({ value: '', textContent: '', children: [],
+    appendChild(c) { this.children.push(c); }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} }) };
+Object.defineProperty(els.sources, 'textContent', { set() { this.children = []; }, get() { return ''; } });
 global.location = { hash: '#t=abc', pathname: '/', reload() {} };
 global.history = { replaceState() {} };
 global.sessionStorage = { setItem() {}, getItem: () => 'abc', removeItem() {} };
 global.window = { addEventListener() {} };
 global.confirm = () => true;
-global.setInterval = () => 0;
+let pollNow;
+global.setInterval = (fn) => { pollNow = fn; return 0; };
 global.fetch = (path, o) => {
     const body = o && o.body ? JSON.parse(o.body) : null;
     if (body) { sent.push(body); }
     const reply = body && body.op === 'source-probe' ? new Promise((r) => pending.push(r)) :
-        Promise.resolve({ updater: { version: 'x' }, online: true, sources: [], tokens: [], components: [] });
+        Promise.resolve(answer || { updater: { version: 'x' }, online: true, sources: [], tokens: [], components: [] });
     return reply.then((j) => ({ status: 200, ok: true, json: () => Promise.resolve(j || { ok: true }) }));
 };
 new Function(js)();
@@ -106,5 +109,22 @@ const assert = require('assert');
     submit();
     await tick();
     assert.deepStrictEqual(sent, [{ op: 'source-add', type: 'https', url: 'https://example.org/catalog.json' }]);
+    answer = { updater: { version: 'x' }, sources: [{ id: 'official', type: 'github', builtin: true,
+        label: 'owner/repo', status: 'ok', backupSupported: true, backup: null }], tokens: [], components: [] };
+    await pollNow(); await tick();
+    let form = els.sources.children[1];
+    assert.strictEqual(form.children[1].value, '');
+    form.children[1].value = 'https://backup.test/catalog.json';
+    form.children[2].children[0].checked = true;
+    form.onsubmit({ preventDefault() {} }); await tick();
+    assert.deepStrictEqual(sent[sent.length - 1], { op: 'source-backup', id: 'official',
+        backup: { url: 'https://backup.test/catalog.json', fallback: true } });
+    answer.sources[0].backup = { url: 'https://backup.test/catalog.json', fallback: false };
+    await pollNow(); await tick();
+    form = els.sources.children[1];
+    assert.strictEqual(form.children[1].value, answer.sources[0].backup.url);
+    assert.strictEqual(form.children[2].children[0].checked, false);
+    form.children[4].onclick(); await tick();
+    assert.deepStrictEqual(sent[sent.length - 1], { op: 'source-backup', id: 'official', backup: null });
     console.log("page: all pass");
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -460,3 +460,52 @@ MGU_TEST_NODE_VERSION=8.9.4 sh test/run.sh
 
 They run offline, against a local HTTPS server standing in for GitHub and
 a stand-in deploy tool.
+
+### Backup sources for GitHub catalogs
+
+The phone page opened from the Store has a **Backup source** field on GitHub
+release sources, including the Store's own source. Enter an HTTPS `catalog.json`
+URL, choose **Fall back to GitHub**, and save. **Turn off** restores direct
+GitHub downloads. No backup is bundled or enabled by default. This setting
+keeps the source id, repository, channel, installed origins and dependencies.
+It is available with existing Store versions; only the updater needs updating.
+
+The backup is a transport for the original publisher's packages. GitHub supplies
+the catalog shown in the Store, including titles, icons, versions, dependencies,
+compatibility and build instructions. Before downloading, the updater requires
+the backup's entry to have the same id, kind, version, package name, byte count
+and SHA-256 as GitHub. It verifies the downloaded bytes against **GitHub's**
+size and digest before passing them to the deploy tool. A backup's own digest
+alone is never trusted. Modified or localized packages belong in their own
+source; they cannot be substituted through a backup source.
+
+Each Check attempts to refresh the GitHub catalog. A root-only snapshot from
+GitHub can be used for up to 24 hours if GitHub cannot be reached. The snapshot
+is bound to the repository and releases channel, survives updater restarts,
+and is separate from the ordinary UI listing cache. Using it does not renew
+its timestamp. Missing, expired or future-dated verification requires a new
+GitHub read; if that fails, installation stops even if the backup is reachable.
+A first use therefore requires reaching GitHub. This is bounded freshness,
+not a claim that an offline snapshot is the latest upstream release.
+
+Package downloads try the backup first. A missing, malformed or mismatched
+entry, a network failure, or incorrect package bytes fail the attempt. When
+**Fall back to GitHub** is enabled, the updater then downloads the exact
+verified official package and checks its bytes too; otherwise it stops with
+an error. The fallback switch controls package transport, not the mandatory
+GitHub verification. Dependencies use their own sources and backup settings;
+the existing dependency planner still installs them first.
+
+The backup catalog may use relative or absolute HTTPS package URLs. HTTP,
+credentials in URLs, and fragments are refused. Downloads retain the fetcher's
+TLS, size limits and HTTPS-only redirect checks. No GitHub token is sent to
+a backup; the fetcher also removes authorization on redirects. Icons use the
+original source. Backups require a published GitHub catalog with sizes and
+SHA-256 digests; branch, tag and digest-less release listings are unsupported.
+Turn off a backup before changing its source to a branch or tags. Edits wait
+until checks and the install queue are idle. An updater that predates this
+feature ignores the extra setting and uses the original GitHub source.
+
+The stored source's optional `backup` value is
+`{"url":"https://example.org/catalog.json","fallback":false}`. It does not
+replace `type`, `repo`, `channel` or `builtin` in `sources.json`.
