@@ -194,7 +194,8 @@ only while the socket is its own; bound by upstream's renderer, our apps go
 without the gate: X_READY offers `controller` only while the socket is ours
 or free, so they read FrontCCU themselves. A stale file releases the
 controller after 0.7 s by the gate's own rule, so a killed renderer holds
-nothing.
+nothing. The gate is looked for in `hmi_process` (iDrive 7's HmiMain3D) and in
+Hmi8, the HMI it loads into on iDrive 8.
 
 ## Settings
 
