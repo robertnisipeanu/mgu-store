@@ -1423,7 +1423,10 @@ function recmgrNamesOf(c) {
  * installed: its crashNames (a tool whose component.json has none: the
  * names CRASH_NAMES_BUILTIN gives its id), and every ELF file it ships
  * executable unless the firmware has that name (in [ForceRestartList], or
- * a program of its own: stockProgram). A script runs as its interpreter,
+ * a program of its own: stockProgram), each also as "<name> (deleted)":
+ * the name of a process whose executable an update replaced while it ran.
+ * The crash handler keeps a line whole (spaces inside it too) once it has
+ * cut a "#" comment and trimmed it. A script runs as its interpreter,
  * whose name is not the tool's to add. Only names this tool added
  * (CRASH_OWNED) are ever removed, and other lines and sections round-trip
  * unchanged. A unit without the
@@ -1498,7 +1501,9 @@ function crashListPlan(tools) {
     var text = fs.readFileSync(CFG.crashList, 'utf8'), want = [], owned = crashOwned();
     var sections = recmgrSections(text), force = sections.ForceRestartList || [];
     tools.forEach(function (t) {
-        crashNamesOf(t, force).forEach(function (n) { if (want.indexOf(n) < 0) want.push(n); });
+        crashNamesOf(t, force).forEach(function (n) {
+            [n, n + ' (deleted)'].forEach(function (m) { if (want.indexOf(m) < 0) want.push(m); });
+        });
     });
     var have = sections.Whitelist || [];
     var add = want.filter(function (n) { return have.indexOf(n) < 0; });

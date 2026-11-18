@@ -522,8 +522,10 @@ goes into the list by its file name; `crashNames` adds others:
 ```
 
 A name the car's own programs use (`sh`, `wpa_supplicant`, `dbus-send`)
-does not belong there: give the program a name of its own instead. The
-list takes effect from the next boot.
+does not belong there: give the program a name of its own instead. Each
+name goes in also as `<name> (deleted)`, the name of a process whose
+executable an update replaced while it ran. The list takes effect from
+the next boot.
 
 Every service a tool installs runs with `LimitCORE=1`, so a crash of it or
 of a program it starts restarts that service, not the head unit, and with

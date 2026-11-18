@@ -6238,12 +6238,13 @@ function testCrashList() {
     fs.chmodSync(list, 0o640);
     const uplink = namedTool('mgu-uplink', '0.8.0', (c) => { c.crashNames = ['mgu-uplink', 'mgu-wpa', 'node']; });
     let r = root.run(['install', '--artifact', uplink, '--yes']);
-    const after = CRASH_LIST.replace('socat\n', 'socat\nmgu-uplink\nmgu-wpa\n');
+    const after = CRASH_LIST.replace('socat\n', 'socat\nmgu-uplink\nmgu-uplink (deleted)\nmgu-wpa\nmgu-wpa (deleted)\nnode (deleted)\n');
     check('crash list: install adds the names after [Whitelist]\'s last entry, the rest byte for byte',
         r.status === 0 && fs.readFileSync(list, 'utf8') === after && mode(list) === 0o640 &&
-        r.out.includes('crash handler whitelist: added mgu-uplink, mgu-wpa'), r.out + fs.readFileSync(list, 'utf8'));
+        r.out.includes('crash handler whitelist: added mgu-uplink, mgu-uplink (deleted), mgu-wpa, mgu-wpa (deleted), node (deleted)'),
+        r.out + fs.readFileSync(list, 'utf8'));
     check('crash list: only the names it added are recorded as its own (node is stock)',
-        JSON.stringify(readJson(owned).names) === JSON.stringify(['mgu-uplink', 'mgu-wpa']));
+        JSON.stringify(readJson(owned).names) === JSON.stringify(['mgu-uplink', 'mgu-uplink (deleted)', 'mgu-wpa', 'mgu-wpa (deleted)', 'node (deleted)']));
     const backups = fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).filter((b) => b !== 'stock').sort();
     const manifest = readJson(root.p(`var/opt/mgu-deploy/backups/${backups[backups.length - 1]}/manifest.json`));
     check('crash list: the install\'s snapshot holds the list as it was',
@@ -6253,12 +6254,12 @@ function testCrashList() {
         !r.out.includes('crash handler whitelist'), r.out);
     r = root.run(['install', '--artifact', namedTool('mgu-render', '0.4.0'), '--yes']);
     check('crash list: a tool without crashNames gets its built-in names',
-        r.status === 0 && fs.readFileSync(list, 'utf8') === after.replace('mgu-wpa\n', 'mgu-wpa\nmgu-render\n'), r.out);
+        r.status === 0 && fs.readFileSync(list, 'utf8') === after.replace('node (deleted)\n', 'node (deleted)\nmgu-render\nmgu-render (deleted)\n'), r.out);
     r = root.run(['uninstall', 'mgu-uplink', '--yes']);
     check('crash list: uninstalling removes its names, the stock one stays',
-        r.status === 0 && fs.readFileSync(list, 'utf8') === CRASH_LIST.replace('socat\n', 'socat\nmgu-render\n') &&
-        JSON.stringify(readJson(owned).names) === JSON.stringify(['mgu-render']) &&
-        r.out.includes('crash handler whitelist: removed mgu-uplink, mgu-wpa'), r.out);
+        r.status === 0 && fs.readFileSync(list, 'utf8') === CRASH_LIST.replace('socat\n', 'socat\nmgu-render\nmgu-render (deleted)\n') &&
+        JSON.stringify(readJson(owned).names) === JSON.stringify(['mgu-render', 'mgu-render (deleted)']) &&
+        r.out.includes('crash handler whitelist: removed mgu-uplink, mgu-uplink (deleted), mgu-wpa, mgu-wpa (deleted), node (deleted)'), r.out);
     r = root.run(['uninstall', 'mgu-render', '--yes']);
     check('crash list: with none of ours left the file is as it was', r.status === 0 && fs.readFileSync(list, 'utf8') === CRASH_LIST, r.out);
     r = root.run(['install', '--artifact', namedTool('mgu-uplink', '0.8.1', (c) => { c.crashNames = ['mgu uplink']; }), '--yes']);
@@ -6272,13 +6273,23 @@ function testCrashList() {
     const r1 = root.run(['status', '--json']), text1 = fs.readFileSync(list, 'utf8');
     const r2 = root.run(['status', '--json']);
     check('crash list: a long file name is listed; bad names in an installed manifest are skipped, status settles',
-        r.status === 0 && r1.status === 0 && r2.status === 0 && text1 === CRASH_LIST.replace('socat\n', 'socat\nrobertn-logger-enet\n') &&
+        r.status === 0 && r1.status === 0 && r2.status === 0 && text1 === CRASH_LIST.replace('socat\n', 'socat\nrobertn-logger-enet\nrobertn-logger-enet (deleted)\n') &&
         fs.readFileSync(list, 'utf8') === text1, r.out + r1.out + r2.out + text1);
     root.run(['uninstall', 'long-names', '--yes']);
     r = root.run(['install', '--artifact', namedTool('constructor', '0.1.0'), '--yes']);
     check('crash list: a tool whose id is an Object property name has no built-in names',
         r.status === 0 && fs.readFileSync(list, 'utf8') === CRASH_LIST, r.out);
     root.run(['uninstall', 'constructor', '--yes']);
+    // a process whose executable an update replaced while it ran crashes as "<name> (deleted)":
+    // a list that holds only the plain name gets that form at the next status
+    root.run(['install', '--artifact', namedTool('aa-tool', '0.1.0', (c) => { c.crashNames = ['aapd']; }), '--yes']);
+    write(list, CRASH_LIST.replace('socat\n', 'socat\naapd\n'));
+    write(owned, JSON.stringify({ names: ['aapd'] }));
+    r = root.run(['status', '--json']);
+    check('crash list: status adds "<name> (deleted)" beside a name the list holds without it',
+        r.status === 0 && fs.readFileSync(list, 'utf8') === CRASH_LIST.replace('socat\n', 'socat\naapd\naapd (deleted)\n') &&
+        JSON.stringify(readJson(owned).names) === JSON.stringify(['aapd', 'aapd (deleted)']), r.out + fs.readFileSync(list, 'utf8'));
+    root.run(['uninstall', 'aa-tool', '--yes']);
 
     // a tool installed while the list was absent: nothing written; status catches up once it is there
     const bare = fakeRoot();
@@ -6342,10 +6353,10 @@ function testCrashList() {
     r = bare.run(['status', '--json']);
     check('crash list: once the boot is done, status adds the built-in names (in the file\'s line ending), snapshotted, one line, reported',
         r.status === 0 && crashState(r) && crashState(r).state === 'changed' &&
-        crashState(r).reason === 'added mgu-uplink; / remounted read-write for it and back to read-only' &&
-        fs.readFileSync(bareList, 'utf8') === bareStock.replace('node\r\n', 'node\r\nmgu-uplink\r\n') &&
+        crashState(r).reason === 'added mgu-uplink, mgu-uplink (deleted); / remounted read-write for it and back to read-only' &&
+        fs.readFileSync(bareList, 'utf8') === bareStock.replace('node\r\n', 'node\r\nmgu-uplink\r\nmgu-uplink (deleted)\r\n') &&
         fs.readdirSync(bare.p('var/opt/mgu-deploy/backups')).length === before + 1 &&
-        r.stderr === 'crash handler whitelist: added mgu-uplink; / remounted read-write for it and back to read-only\n' &&
+        r.stderr === 'crash handler whitelist: added mgu-uplink, mgu-uplink (deleted); / remounted read-write for it and back to read-only\n' &&
         !fs.existsSync(bare.p('var/opt/mgu-deploy/lock')), r.out);
     r = bare.run(['status', '--json']);
     check('crash list: status again changes nothing and says ok',
@@ -6441,7 +6452,7 @@ function testBootLists() {
     let autoText = fs.readFileSync(autoRec, 'utf8');
     check('boot lists: a tool without recmgr names gets its units\' name in both recmgr sections, its ELF program in the crash list',
         r.status === 0 && listed(autoText, 'Whitelist', 'fixture-tool') && listed(autoText, 'WhitelistExitSuccess', 'fixture-tool') &&
-        fs.readFileSync(autoCrash, 'utf8') === CRASH_LIST.replace('socat\n', 'socat\nfixture-tool\n'), r.out + autoText);
+        fs.readFileSync(autoCrash, 'utf8') === CRASH_LIST.replace('socat\n', 'socat\nfixture-tool\nfixture-tool (deleted)\n'), r.out + autoText);
     r = auto.run(['uninstall', 'fixture-tool', '--yes']);
     check('boot lists: its uninstall takes both out, the lists as they were',
         r.status === 0 && fs.readFileSync(autoRec, 'utf8') === recStock && fs.readFileSync(autoCrash, 'utf8') === CRASH_LIST, r.out);
@@ -6458,8 +6469,8 @@ function testBootLists() {
     check('boot lists: status adds an installed tool\'s missing names to both lists, one line each',
         r.status === 0 && listed(autoText, 'Whitelist', 'fixture-tool') && listed(autoText, 'WhitelistExitSuccess', 'fixture-tool') &&
         /\[ForceRestartList\]\ndbus\n/.test(autoText) &&
-        fs.readFileSync(autoCrash, 'utf8') === CRASH_LIST.replace('socat\n', 'socat\nfixture-tool\n') &&
-        r.stderr === 'crash handler whitelist: added fixture-tool; / remounted read-write for it and back to read-only\nrecmgr list: added fixture-tool\n' &&
+        fs.readFileSync(autoCrash, 'utf8') === CRASH_LIST.replace('socat\n', 'socat\nfixture-tool\nfixture-tool (deleted)\n') &&
+        r.stderr === 'crash handler whitelist: added fixture-tool, fixture-tool (deleted); / remounted read-write for it and back to read-only\nrecmgr list: added fixture-tool\n' &&
         JSON.parse(r.stdout).crash_list.state === 'changed', r.out + autoText);
     r = auto.run(['status', '--json']);
     check('boot lists: status again changes nothing', r.status === 0 && !r.stderr && JSON.parse(r.stdout).crash_list.state === 'ok', r.out);
@@ -6469,7 +6480,7 @@ function testBootLists() {
     write(crashList, '\n[Whitelist]\n\n');
     r = crash.run(['install', '--artifact', namedTool('mgu-uplink', '0.8.0'), '--yes']);
     check('boot lists: a crash handler list of an empty [Whitelist] alone is edited',
-        r.status === 0 && fs.readFileSync(crashList, 'utf8') === '\n[Whitelist]\nmgu-uplink\n\n', r.out);
+        r.status === 0 && fs.readFileSync(crashList, 'utf8') === '\n[Whitelist]\nmgu-uplink\nmgu-uplink (deleted)\n\n', r.out);
     const noWhite = fakeRoot();
     write(noWhite.p('etc/crashhandler-restartlist.conf'), '[ForceRestartList]\ndbus-daemon\n');
     r = noWhite.run(['install', '--artifact', namedTool('mgu-uplink', '0.8.0'), '--yes']);
@@ -6580,7 +6591,8 @@ function testListSafety() {
         const crlf = /\r\n/.test(recText);
         check(`list safety (${what}): an install adds only our lines, once per section, in the file's line ending`,
             r.status === 0 && ours(rec1, ['fixture-tool']) === recText && count(rec1, 'fixture-tool') === 2 &&
-            ours(crash1, ['fixture-tool']) === crashText && count(crash1, 'fixture-tool') === 1 &&
+            ours(crash1, ['fixture-tool', 'fixture-tool (deleted)']) === crashText && count(crash1, 'fixture-tool') === 1 &&
+            count(crash1, 'fixture-tool (deleted)') === 1 &&
             (!crlf || rec1.split('\n').slice(0, -1).every((l) => /\r$/.test(l))),
         `${r.out}\n${JSON.stringify(rec1).slice(0, 600)}\n${JSON.stringify(crash1).slice(0, 400)}`);
         r = root.run(['install', '--artifact', art, '--yes']);
