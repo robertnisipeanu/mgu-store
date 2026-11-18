@@ -140,7 +140,7 @@ The Store comes with these sources: this repository,
 [idrive7-apps](https://github.com/cauliflowermossgrape/idrive7-apps),
 [idrive-apps](https://github.com/robertnisipeanu/idrive-apps) (with the
 renderer that draws on the instrument cluster and the HUD, and the CarPlay
-map on the instrument cluster) and
+map on the instrument cluster),
 [car-apps](https://github.com/IterioDev/car-apps) (IterioDev's apps and
 tools, most of them for iDrive 8 only, at its newest x.y.z tag) and
 [idrive7-system-monitor](https://github.com/hexlay/idrive7-system-monitor)

@@ -104,8 +104,8 @@ checked against the catalog's size and sha256 before anything is sent; the
 Store is built on the unit. Newer installed tools and apps are kept, so
 running it again is safe. It seeds the updater's default sources
 (mgu-store, idrive7-apps, idrive-apps, car-apps and idrive7-system-monitor;
-kept when the unit has its own). With `--token` a GitHub token is added afterwards (`token`,
-below).
+kept when the unit has its own). With `--token` a GitHub token is added
+afterwards (`token`, below).
 
 It ends with `Setup is done`, or `Restart the head unit to finish setup.`
 and, at a terminal, `Restart the head unit now? [y/N]`; `y` restarts the
