@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Default source: hexlay/idrive7-system-monitor (System Monitor, iDrive 7 only) on its default branch, added once at the first start of this version (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. On iDrive 8 its app is not offered. Like any source it can be removed; once removed it is not added again.
+
 ## 0.8.47
 
 - An app installed again from its kept package goes to the deploy tool with `--repair`: the deploy tool then installs it again once, and holds it after a failure or a second loss until it is installed from the Store.

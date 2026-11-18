@@ -9,7 +9,7 @@ snapshots every change first, and restores a snapshot on request.
 | `deploy/mgu-install.js` | the owner's computer (Node 18+; Windows, macOS, Linux) | the first install over SSH from the published release, the updater's tokens, USB sticks as local repos |
 | `deploy/install.sh`, `deploy/install.ps1`, `deploy/installer/` | the owner's computer, without Node | run `mgu-install.js` as a standalone executable from the `installer` release |
 | `deploy/hu` | the Mac (system Node) | packs tool artifacts, installs components built from this checkout over SSH (development) |
-| `deploy/sources.json` | | the updater's sources the installers seed: the Store's own, idrive7-apps, idrive-apps and car-apps |
+| `deploy/sources.json` | | the updater's sources the installers seed: the Store's own, idrive7-apps, idrive-apps, car-apps and idrive7-system-monitor |
 | `deploy/transport/` | the Mac (system `python3`) | finds the unit's sshd over ENET or the hotspot, relays ENET, and the `--arm-debug` bootstrap |
 | `deploy/unit/mgu-deploy.sh` → `mgu-deploy.js` | the unit, as root, under its Node 8 | the installer itself |
 | `tools/oap_link.js`, `tools/oap_pack.js` | the unit (and the build machine) | build source packages and prepare packages built elsewhere |
@@ -103,9 +103,9 @@ Store, the renderer `mgu-render` and the internet uplink `mgu-uplink`
 checked against the catalog's size and sha256 before anything is sent; the
 Store is built on the unit. Newer installed tools and apps are kept, so
 running it again is safe. It seeds the updater's default sources
-(mgu-store, idrive7-apps, idrive-apps and car-apps; kept when the unit has
-its own). With `--token` a GitHub token is added afterwards (`token`,
-below).
+(mgu-store, idrive7-apps, idrive-apps, car-apps and idrive7-system-monitor;
+kept when the unit has its own). With `--token` a GitHub token is added
+afterwards (`token`, below).
 
 It ends with `Setup is done`, or `Restart the head unit to finish setup.`
 and, at a terminal, `Restart the head unit now? [y/N]`; `y` restarts the
