@@ -37,8 +37,8 @@ Store and the phone page add and remove them:
   Manager index. `file`: a local folder.
 - `builtin`: the Store's own source (`builtin_repo`, id `mgu-store`),
   always there.
-- **Default sources** (`default_sources`): idrive7-apps, idrive-apps and
-  car-apps, each added once, at the first start of an updater that names
+- **Default sources** (`default_sources`): idrive7-apps, idrive-apps,
+  car-apps and idrive7-system-monitor, each added once, at the first start of an updater that names
   it, unless a source of that repo is there already. The installers seed
   the same list (`deploy/sources.json`) and never replace a `sources.json`
   that is there.

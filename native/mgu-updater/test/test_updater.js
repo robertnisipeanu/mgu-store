@@ -6714,7 +6714,7 @@ function testCarApps(certs) {
     gh.repos['IterioDev/car-apps'].branches = { main: ghCommit('IterioDev/car-apps', tree('1.0.2')) };
     gh.repos['IterioDev/car-apps'].tags = [{ name: '1.1.0', sha: ghCommit('IterioDev/car-apps', tree('1.0.0')) },
         { name: '1.1.1', sha: ghCommit('IterioDev/car-apps', tree('1.0.1')) }];
-    ['cauliflowermossgrape/idrive7-apps', 'robertnisipeanu/idrive-apps'].forEach((r) => {
+    ['cauliflowermossgrape/idrive7-apps', 'robertnisipeanu/idrive-apps', 'hexlay/idrive7-system-monitor'].forEach((r) => {
         if (!gh.repos[r]) {
             ghRepo(r, { catalog: Buffer.from(JSON.stringify({ schema: 2, commit: 'test', components: [] })) });
         }
