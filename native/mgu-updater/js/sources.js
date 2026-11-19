@@ -1068,44 +1068,46 @@ function buildPaths(entry) {
  * dir, the repo files also stay there by their git id for the next runs (a
  * repo's shared build files are not read again for each app installed on
  * its own), at most maxDisk bytes: before a file is written, the least
- * recently used ones this run has not used go first, and a file that still
- * does not fit is kept for this run only. drop() empties dir. */
+ * recently used ones the current install does not use go first, and a file
+ * that still does not fit is kept for this run only. drop() empties dir. */
 function batchCache(dir, maxDisk) {
     const cap = maxDisk || DISK_BLOB_BYTES;
     const file = (id) => (dir && GIT_ID.test(id) ? path.join(dir, id) : null);
-    // dir as this run sees it: name -> { size, t } (last used)
+    // dir as this run sees it: name -> { size, t } (last used), and their bytes
     let disk = null;
+    let diskBytes = 0;
     const onDisk = () => {
         if (!disk) {
             disk = new Map();
+            diskBytes = 0;
             try {
                 fs.readdirSync(dir).forEach((n) => {
                     const st = fs.statSync(path.join(dir, n));
                     disk.set(n, { size: st.size, t: st.mtime.getTime() });
+                    diskBytes += st.size;
                 });
             } catch (e) { /* none kept */ }
         }
         return disk;
     };
-    // makes room for n more bytes, sparing the files in used; whether they fit
-    const room = (n, used) => {
+    const forget = (n) => {
+        rmQuiet(path.join(dir, n));
+        diskBytes -= disk.get(n).size;
+        disk.delete(n);
+    };
+    // makes room for n more bytes, sparing the files in inUse; whether they fit
+    const room = (n, inUse) => {
         const kept = onDisk();
-        const sum = (list) => list.reduce((b, x) => b + x[1].size, 0);
-        const all = Array.from(kept.entries());
-        const spared = all.filter((x) => used.has(x[0]) && GIT_ID.test(x[0]));
-        if (sum(spared) + n > cap) {
+        if (diskBytes + n <= cap) {
+            return true;
+        }
+        const spare = Array.from(kept.keys()).filter((k) => !inUse.has(k)).sort((a, b) => kept.get(a).t - kept.get(b).t);
+        if (diskBytes - spare.reduce((b, k) => b + kept.get(k).size, 0) + n > cap) {
             return false;
         }
-        let total = sum(all);
-        all.filter((x) => spared.indexOf(x) < 0)
-            .sort((a, b) => (GIT_ID.test(a[0]) - GIT_ID.test(b[0])) || (a[1].t - b[1].t))
-            .forEach((x) => {
-                if (total + n > cap || !GIT_ID.test(x[0])) {
-                    rmQuiet(path.join(dir, x[0]));
-                    kept.delete(x[0]);
-                    total -= x[1].size;
-                }
-            });
+        while (diskBytes + n > cap) {
+            forget(spare.shift());
+        }
         return true;
     };
     return {
@@ -1113,22 +1115,19 @@ function batchCache(dir, maxDisk) {
         blobs: new Map(),
         bytes: 0,
         whole: null,
-        used: new Set(),
-        keep(id, data) {
+        // inUse: the git ids of the files the current install reads
+        keep(id, data, inUse) {
             if (!this.blobs.has(id) && this.bytes + data.length <= BATCH_BYTES) {
                 this.blobs.set(id, data);
                 this.bytes += data.length;
             }
             const f = file(id);
-            if (!f) {
-                return;
-            }
-            this.used.add(id);
-            if (!onDisk().has(id) && room(data.length, this.used)) {
+            if (f && !onDisk().has(id) && room(data.length, inUse)) {
                 try {
                     mkdirPrivate(dir);
                     writePrivate(f, data);
                     disk.set(id, { size: data.length, t: Date.now() });
+                    diskBytes += data.length;
                 } catch (e) { /* kept for this run only */ }
             }
         },
@@ -1145,18 +1144,21 @@ function batchCache(dir, maxDisk) {
             if (!data) {
                 return null;
             }
+            const kept = onDisk().get(id);
             if (gitBlobId(data) !== id) {
-                rmQuiet(f);
-                onDisk().delete(id);
+                if (kept) {
+                    forget(id);
+                } else {
+                    rmQuiet(f);
+                }
                 return null;
             }
             const now = new Date();
             try {
                 fs.utimesSync(f, now, now);
             } catch (e) { /* its age stays */ }
-            this.used.add(id);
-            if (onDisk().has(id)) {
-                disk.get(id).t = now.getTime();
+            if (kept) {
+                kept.t = now.getTime();
             }
             return data;
         },
@@ -1165,10 +1167,6 @@ function batchCache(dir, maxDisk) {
             this.blobs.clear();
             this.bytes = 0;
             this.whole = null;
-            this.used.clear();
-            if (dir) {
-                room(0, this.used);
-            }
             disk = null;
         },
         drop() {
@@ -1973,9 +1971,10 @@ function githubReader(s, ctx) {
                     });
             };
             const missing = want.filter((e) => !got.has(e)).sort((a, b) => sizeOf(b) - sizeOf(a));
+            const inUse = new Set(want.map((e) => e.sha));
             return (missing.length ? read(missing, false) : Promise.resolve()).then(() => want.map((e) => {
                 if (batch) {
-                    batch.keep(e.sha, got.get(e));
+                    batch.keep(e.sha, got.get(e), inUse);
                 }
                 return { name: e.path, data: got.get(e), mode: e.mode === '100755' ? 0o755 : 0o644 };
             }));

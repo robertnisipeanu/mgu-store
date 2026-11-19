@@ -6866,8 +6866,8 @@ function testContent() {
 }
 
 /* The repo files kept on disk stay under their cap before each write: the
- * least recently used go first, never one this run used; a file that cannot
- * fit is kept for the run only. */
+ * least recently used go first, never one the current install uses; a file
+ * that cannot fit is kept for the run only. */
 function testBlobCap() {
     const sourcesLib = require('../js/sources');
     const dir = path.join(T, 'blobcap');
@@ -6875,19 +6875,20 @@ function testBlobCap() {
     const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((x) => Buffer.from(x.repeat(40)));
     const kept = () => fs.readdirSync(dir).sort().join();
     const names = (...l) => l.map(id).sort().join();
+    const uses = (...l) => new Set(l.map(id));
     const old = sourcesLib.batchCache(dir, 100);
-    old.keep(id(a), a);
-    old.keep(id(b), b);
-    old.clear();
+    old.keep(id(a), a, uses(a));
+    old.keep(id(b), b, uses(b));
     fs.utimesSync(path.join(dir, id(a)), new Date(1000), new Date(1000));
+    fs.utimesSync(path.join(dir, id(b)), new Date(2000), new Date(2000));
     const batch = sourcesLib.batchCache(dir, 100);
-    batch.keep(id(c), c);
+    batch.keep(id(c), c, uses(c));
     ok('blob cap: a write past the cap evicts the least recently used first', kept() === names(b, c), kept());
-    batch.keep(id(d), d);
-    ok('blob cap: a file this run used is not evicted', kept() === names(c, d) && batch.blob(id(b)) === null);
-    batch.keep(id(a), a);
-    ok('blob cap: a file that cannot fit with this run\'s files is kept for the run only',
-        kept() === names(c, d) && batch.blob(id(a)).equals(a));
+    batch.keep(id(d), d, uses(b, d));
+    ok('blob cap: a file the current install uses is not evicted, older or not', kept() === names(b, d), kept());
+    batch.keep(id(a), a, uses(a, b, d));
+    ok('blob cap: a file that cannot fit beside the current install\'s is kept for the run only',
+        kept() === names(b, d) && batch.blob(id(a)).equals(a), kept());
     batch.drop();
     ok('blob cap: drop empties the folder', kept() === '');
 }
