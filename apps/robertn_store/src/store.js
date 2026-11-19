@@ -72,7 +72,7 @@ const i18n = require('./i18n.js');
 const { qrPng } = require('./qr.js');
 const { spell } = require('./speller.js');
 const { Drawn, DEPTHS } = require('./store_drawn.js');
-const { typeKey, wifiOf, proxyOf } = require('./store_ui.js');
+const { typeKey, wifiOf, proxyOf, restartShown, canRestart } = require('./store_ui.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
     loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, neededBy, sourcesMessage, tokenMessage,
@@ -698,6 +698,9 @@ class Store extends OnlineApp {
 
     /* A press on the drawn screens (src/store_ui.js acts). */
     _act(act) {
+        if (!act) {
+            return;
+        }
         logger.info(`press ${act.do}${act.id ? ` ${act.id}` : ''}`);
         switch (act.do) {
         case 'tab': this._drawn.setTab(act.tab); break;
@@ -876,9 +879,13 @@ class Store extends OnlineApp {
             .catch((err) => logger.warn(`closeState ${name} failed: ${err && err.message}`));
     }
 
-    /* The confirm step's Restart; the updater refuses it while an install
-     * runs, and says why in rebootError. */
+    /* The confirm step's Restart, greyed out while an install runs or waits;
+     * the updater refuses it then too, and says why in rebootError. */
     _restart() {
+        const m = { connected: this._connected, st: this._st };
+        if (restartShown(m) && !canRestart(m)) {
+            return;
+        }
         this._closePage('restart', isConfirm('restart'));
         logger.info('restart head unit');
         this._privileged({ op: 'reboot' });
@@ -1511,6 +1518,17 @@ class Store extends OnlineApp {
             .catch((err) => logger.warn(`visibility ${name} failed: ${err && err.message}`));
     }
 
+    _enable(name, on) {
+        const comp = this._components[name];
+        const key = `${name}.enabled`;
+        if (!comp || this._written[key] === on) {
+            return;
+        }
+        this._written[key] = on;
+        Promise.resolve(comp.setProperty('Enabled', on ? 1 : 0, 'UInt'))
+            .catch((err) => logger.warn(`enabled ${name} failed: ${err && err.message}`));
+    }
+
     /* A label: shown with its text, hidden when there is none. */
     _text(name, text) {
         if (text) {
@@ -1543,8 +1561,11 @@ class Store extends OnlineApp {
             this._set(C.progress, 'Progress', done, 'Float');
         }
         this._show(C.progress, !!busyRow);
-        // an updater without the reboot request (before 0.1.4) reports no rebooting
-        this._show(C.restart, connected && !busy && st.rebooting === false);
+        // Restart head unit and its confirm step's Restart: greyed out while an install runs or waits
+        const restart = { connected: this._connected, st };
+        this._show(C.restart, restartShown(restart));
+        this._enable(C.restart, canRestart(restart));
+        this._enable(C.restartConfirm, canRestart(restart));
 
         KINDS.forEach((kind) => {
             const rows = connected ? withSources(st.components.filter(listed), st.sources).filter((c) => c.kind === kind) : [];

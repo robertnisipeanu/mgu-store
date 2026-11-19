@@ -15,7 +15,7 @@
  *
  * layout: placement()'s; the iDrive 8 design when null.
  *
- * items: { x, y, w, h, r, label, act, reveal?, box? }; an item of a grid or
+ * items: { x, y, w, h, r, label, act (null: a greyed-out button that keeps its place), reveal?, box? }; an item of a grid or
  * list carries box: its grid's or list's box, which bounds where it takes a
  * touch, and while not wholly in view reveal { key, top }: the scroll that
  * shows it.
@@ -89,9 +89,11 @@ function itemsOf(st, page) {
             const ih = b.h / Math.max(1, list.length);
             list.forEach((it, i) => items.push({ x: b.x + 8, y: b.y + i * ih + 8, w: b.w - 24, h: ih - 16, r: 16, label: it.label, act: it.act }));
         } else if (c.gpu === 'vbutton') {
-            if (o.act && !o.disabled) {
+            // a greyed-out button is not pressed; one with keepPlace keeps its place in the focus order (act null)
+            if (o.act && (!o.disabled || o.keepPlace)) {
                 const round = o.style === 'round';
-                items.push({ x: b.x, y: b.y, w: b.w, h: b.h, r: round ? b.w / 2 : Math.min(18, b.h / 2), label: o.text || 'Back', act: o.act });
+                items.push(Object.assign({ x: b.x, y: b.y, w: b.w, h: b.h, r: round ? b.w / 2 : Math.min(18, b.h / 2), label: o.text || 'Back',
+                    act: o.act }, o.disabled ? { act: null, keepPlace: true } : {}));
             }
         } else if (c.gpu === 'tabs') {
             const t = tabCells(b, o);
@@ -137,7 +139,7 @@ function itemsOf(st, page) {
             });
         }
     });
-    return { items: items.filter((it) => it.act), regions };
+    return { items: items.filter((it) => it.act || it.keepPlace), regions };
 }
 
 /* A layout's options with its words in the display language. */

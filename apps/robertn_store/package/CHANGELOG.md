@@ -6,6 +6,10 @@ No change on screen: the renderer client it carries has multi-touch
 for apps that ask for it, can hold only some parts of the
 controller, and tells whether the renderer reads NV12 video frames.
 
+Restart now, Restart head unit and the confirm step's Restart are greyed
+out while an install, update or removal runs or waits, and can be pressed
+again once nothing is left.
+
 ## 0.9.40
 
 On the drawn screens, Store has Leave safe mode in the deploy tool's
