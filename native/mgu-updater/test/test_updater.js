@@ -3105,6 +3105,7 @@ function testSources(certs) {
         .then((errs) => {
             ok('source-remove: the built-in source stays; another goes', /cannot be removed/.test(errs[0]) && errs[1] === null &&
                 !st().sources.some((x) => x.id === 'second') && comp('dup_app').source === 'mgu-store');
+            ok('source-remove: the kept repo files go', fs.readdirSync(path.join(state, 'blobs')).length === 0);
             // USB media
             const stick = path.join(media, 'STICK');
             mkdirp(path.join(stick, 'usbtool'));
@@ -6864,6 +6865,33 @@ function testContent() {
     });
 }
 
+/* The repo files kept on disk stay under their cap before each write: the
+ * least recently used go first, never one this run used; a file that cannot
+ * fit is kept for the run only. */
+function testBlobCap() {
+    const sourcesLib = require('../js/sources');
+    const dir = path.join(T, 'blobcap');
+    const id = (text) => crypto.createHash('sha1').update(`blob ${text.length}\0`).update(text).digest('hex');
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((x) => Buffer.from(x.repeat(40)));
+    const kept = () => fs.readdirSync(dir).sort().join();
+    const names = (...l) => l.map(id).sort().join();
+    const old = sourcesLib.batchCache(dir, 100);
+    old.keep(id(a), a);
+    old.keep(id(b), b);
+    old.clear();
+    fs.utimesSync(path.join(dir, id(a)), new Date(1000), new Date(1000));
+    const batch = sourcesLib.batchCache(dir, 100);
+    batch.keep(id(c), c);
+    ok('blob cap: a write past the cap evicts the least recently used first', kept() === names(b, c), kept());
+    batch.keep(id(d), d);
+    ok('blob cap: a file this run used is not evicted', kept() === names(c, d) && batch.blob(id(b)) === null);
+    batch.keep(id(a), a);
+    ok('blob cap: a file that cannot fit with this run\'s files is kept for the run only',
+        kept() === names(c, d) && batch.blob(id(a)).equals(a));
+    batch.drop();
+    ok('blob cap: drop empties the folder', kept() === '');
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -6872,6 +6900,7 @@ function main() {
     testCatalog();
     testCollect();
     testFileLog();
+    testBlobCap();
     return testRequiredAlone()
         .then(() => testContent())
         .then(() => testTar())

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- A public repository's files read for an install stay on the unit by their git id (`state/blobs`, at most 160 MB, the least recently used going first, each checked again when used): an app built from a branch that is installed on its own no longer downloads the repo's shared build files again (for cauliflowermossgrape/idrive7-apps, about 33 MB per app).
+- Files downloaded for building apps from public repositories are kept on the unit and reused by later installs and updates, within a fixed size limit. Removing a source clears them.
 
 ## 0.8.48
 

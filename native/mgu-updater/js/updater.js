@@ -3873,6 +3873,8 @@ class Updater {
         this.src.delete(id);
         rmIfThere(this.cacheFile(id));
         cp.execFileSync('rm', ['-rf', path.join(this.ctx.cacheDir, id)]);
+        // repo files are kept by git id, shared by every source
+        this.ctx.batch.drop();
         // what it installed keeps it as its origin: no other source updates that
         Object.keys(this.origins).forEach((c) => {
             if (this.origins[c].source === id && !this.installedOf(c)) {
