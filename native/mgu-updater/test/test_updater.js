@@ -4649,6 +4649,29 @@ function testSelfRepair() {
             ok('factory reset: once the app manager runs on its own home, the lost apps are installed again, the Store first',
                 installs().length === 8 && /robertn_store@0\.9\.0\.tgz --yes --keep-safe-mode --repair$/.test(installs()[6]), installs().join('\n'));
             ['lost', 'tiles', 'previous'].forEach((x) => fs.unlinkSync(`${deployLog}.${x}`));
+            // a firmware update leaves the Store not working, the unit offline (no lease) and its package kept
+            fs.writeFileSync(`${deployLog}.stale`, JSON.stringify({ robertn_store: { why: 'the app manager starts it only once it is updated',
+                kept: false, package: keptStore } }));
+            return u.check();
+        })
+        .then(() => idle('the stale Store installed from its kept package'))
+        .then(() => {
+            const i = installs();
+            ok('stale offline: an app a firmware update left not working is installed again from its kept package',
+                i.length === 9 && /verified\/robertn_store@0\.9\.0\.tgz --yes --keep-safe-mode$/.test(i[8]) &&
+                !comp('robertn_store').error && !fs.existsSync(path.join(conf.state_dir, 'verified', 'robertn_store@0.9.0.tgz')), i.join('\n'));
+            return u.check().then(() => idle('checked again'));
+        })
+        .then(() => {
+            ok('stale offline: once repaired, a later check installs nothing', installs().length === 9, installs().join('\n'));
+            // still stale after that install, the same reason: not asked for again
+            fs.writeFileSync(`${deployLog}.stale`, JSON.stringify({ robertn_store: { why: 'the app manager starts it only once it is updated',
+                kept: false, package: keptStore } }));
+            return u.check().then(() => idle('checked with the same reason'));
+        })
+        .then(() => {
+            ok('stale offline: a kept-package install that did not help is not asked for again', installs().length === 9, installs().join('\n'));
+            fs.unlinkSync(`${deployLog}.stale`);
         });
 }
 

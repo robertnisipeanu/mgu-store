@@ -34,8 +34,9 @@
  * older package, status --json's previous, which its rollback installs (a
  * tool's previous is its other version kept); $FAKE_LAST_VERIFY is the
  * JSON status --json gives as last_verify.
- * $FAKE_DEPLOY_LOG.stale holds { <id>: { why, kept } }: status --json's
- * stale and kept of that component, until an install of it.
+ * $FAKE_DEPLOY_LOG.stale holds { <id>: { why, kept, package } }: status
+ * --json's stale and kept of that component (an app's kept_package from
+ * package), until an install of it.
  * status --json says the head unit is $FAKE_UNIT_HMI (ID7 without it) and
  * lists every installed tool with what it provides (component.json
  * mguProvides) and every app MainApp's registry names. A root-service package (package.json with mguService) is
@@ -227,7 +228,8 @@ const STALE_FILE = `${process.env.FAKE_DEPLOY_LOG}.stale`;
 const readStale = () => (fs.existsSync(STALE_FILE) ? JSON.parse(fs.readFileSync(STALE_FILE, 'utf8')) : {});
 const withStale = (c) => {
     const s = readStale()[c.id];
-    const out = s ? Object.assign(c, { stale: s.why, kept: !!s.kept }) : Object.assign(c, { stale: null });
+    const out = s ? Object.assign(c, { stale: s.why, kept: !!s.kept }, c.kind === 'app' ? { kept_package: s.package || null } : {})
+        : Object.assign(c, { stale: null });
     return c.kind === 'tool' ? Object.assign(out, { needs_setup: readSetup()[c.id] || null }) : out;
 };
 const unstale = (id) => {

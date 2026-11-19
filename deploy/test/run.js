@@ -5493,6 +5493,9 @@ function testSetUpElsewhere() {
     check('forced update: status says the app does not work and why', app(root).stale === WHY &&
         root.run(['status']).out.includes(`app robertn_demo 1.2.3 uid=${app(root).uid}`) &&
         root.run(['status']).out.includes(`(not working: ${WHY})`), JSON.stringify(app(root)));
+    check('forced update: status --json gives the installed version\'s kept package, for an install without internet',
+        typeof app(root).kept_package === 'string' && app(root).kept_package.endsWith('/var/opt/mgu-deploy/kept/robertn_demo/robertn_demo@1.2.3.tgz') &&
+        fs.existsSync(app(root).kept_package), JSON.stringify(app(root)));
     fs.unlinkSync(root.preinstalled('donor_app', '1.0.0'));
     donor.tgz(root.preinstalled('donor_app', '1.1.0'));
     write(cacheOf(root), 'cache of the build for the firmware before');
@@ -5506,7 +5509,8 @@ function testSetUpElsewhere() {
         untarBuf(fs.readFileSync(root.preinstalled('robertn_demo', '1.2.3')))['javascript/build.json'].includes('donor_app@1.1.0.tgz'), r.out);
     check('forced update: the fresh install keeps its package and leaves no copy behind',
         fs.existsSync(root.p('var/opt/mgu-deploy/kept/robertn_demo/robertn_demo@1.2.3.tgz')) &&
-        !fs.readdirSync(root.p('var/opt/mgu-deploy')).some((n) => /\.afresh\./.test(n)));
+        !fs.readdirSync(root.p('var/opt/mgu-deploy')).some((n) => /\.afresh\./.test(n)) && app(root).kept_package === null,
+        JSON.stringify(app(root)));
     r = root.run(['install', '--artifact', file, '--yes']);
     check('forced update: the next install changes nothing', r.status === 0 && r.out.includes('already installed; nothing to change') &&
         !r.out.includes('afresh'), r.out);

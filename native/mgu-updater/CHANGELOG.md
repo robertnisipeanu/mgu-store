@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- An app a firmware update left not working (the app manager starts it only once it is updated) is installed again from the package the deploy tool keeps for it (`kept_package`) when the unit has no internet or no source lists it, so the Store opens again without internet; once per reason, the source's install following once online if that did not help. With a deploy tool that gives no `kept_package`, as before (its source only).
+
 ## 0.8.48
 
 - Default source: hexlay/idrive7-system-monitor (System Monitor, iDrive 7 only) on its default branch, added once at the first start of this version (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. On iDrive 8 its app is not offered. Like any source it can be removed; once removed it is not added again.

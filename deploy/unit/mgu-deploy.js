@@ -5555,6 +5555,29 @@ function tgzAppletId(file) {
     }
     return appletIdOf(j);
 }
+/* The stock package a built package took its oap-sdk from (its
+ * javascript/build.json sdkModulesFrom, "<name>@<version>.tgz:..."), when
+ * this unit no longer has it: a firmware update brought another version,
+ * which the app built with the old one does not start against. null when
+ * the donor is here, or the package names none by its package file. */
+var DONOR_FILES;
+function keptSdkGone(file) {
+    var from = null;
+    try {
+        linker().untar(fs.readFileSync(file)).forEach(function (m) {
+            if (/^(\.\/)?(package\/)?javascript\/build\.json$/.test(m.name)) {
+                from = ((parseJsonText(m.data.toString('utf8')) || {}).bundle || {}).sdkModulesFrom || null;
+            }
+        });
+    } catch (e) { return null; }
+    var name = typeof from === 'string' && /^([^:\/]+\.tgz):/.exec(from);
+    if (!name) return null;
+    if (DONOR_FILES === undefined) {
+        try { DONOR_FILES = unitDonors().map(function (f) { return path.basename(f); }); }
+        catch (e) { DONOR_FILES = null; }
+    }
+    return DONOR_FILES && DONOR_FILES.indexOf(name[1]) < 0 ? name[1] : null;
+}
 /* The files below dir, symlinks followed (depth-bounded against loops). */
 function filesBelow(dir, depth) {
     var out = [];
@@ -7159,11 +7182,15 @@ function collectStatusNow(state) {
             previous: toolPrevious(t), stale: stale, kept: !!keptToolArtifact(t), needs_setup: needsSetup(state, t.id) });
     });
     installedApps().forEach(function (app) {
-        var tile = tileState(app, fb);
+        var tile = tileState(app, fb), stale = appStale(app);
+        /* a stale app's installed version's package, when kept and built with an oap-sdk this unit still has:
+         * installing it afresh needs no internet */
+        var kept = stale && !isId8() && fs.existsSync(keptFile(app.id, app.version)) &&
+            !keptSdkGone(keptFile(app.id, app.version)) ? keptFile(app.id, app.version) : null;
         components.push({ id: app.id, kind: 'app', version: app.version, uid: app.uid,
             installationSource: app.installationSource, running: appRunning(app.uid),
             tile_provisioned: tile.provisioned, tile_fallback: tile.fallback, tile_visible: tile.visible, tile_withheld: tile.withheld,
-            previous: isId8() ? null : (keptPrevious(app.id, app.version) || {}).version || null, stale: appStale(app) });
+            previous: isId8() ? null : (keptPrevious(app.id, app.version) || {}).version || null, stale: stale, kept_package: kept });
     });
     var backupCount = 0, lost = lostReport(state);
     if (fs.existsSync(BACKUPS_DIR)) backupCount = fs.readdirSync(BACKUPS_DIR).length;
