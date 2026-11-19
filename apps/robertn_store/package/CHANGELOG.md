@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+On a screen smaller than the app area the HMI names (an MGU with an NBT Evo display), the Store's page is
+held inside the screen instead of running off its edge.
+
 No change on screen: the renderer client it carries has multi-touch
 for apps that ask for it, and can hold only some parts of the
 controller.
