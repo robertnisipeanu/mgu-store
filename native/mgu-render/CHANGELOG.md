@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- An app that says it is busy (X_BUSY, 0x4d520040; the Store while it installs) keeps touch and the controller when
+  its picture is slow to change, for at most 3 minutes after it last said so.
 - Comments in the configuration and source only; no change on the unit.
 
 ## 0.6.23

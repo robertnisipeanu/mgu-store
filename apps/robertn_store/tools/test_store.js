@@ -145,6 +145,7 @@ const WIFI = { enabled: true, link: 'idle', saved: [], scanning: false, error: n
 /* mgu-render's client: what the Store asks of it. */
 const gpuLog = [];
 let fpsAsked = null;
+let busyAsked = null;
 const frames = [];
 const dropped = [];                     // layers the Store dropped
 class RenderClient extends EventEmitter {
@@ -163,6 +164,7 @@ class RenderClient extends EventEmitter {
     show(on) { this.visible = on; gpuLog.push(`show ${on}`); }
     claim(r) { this.claims = r; }
     fps(n) { fpsAsked = n; }
+    busy(on) { busyAsked = on; }
     grab(on) { this.grabbing = on; }
     frame(rec) { frames.push(rec); return true; }
     dropLayer(id) { dropped.push(id); }
@@ -1022,9 +1024,11 @@ function runDrawn() {
     // an install of id running, then ending with its row changed by o
     const ends = (id, o) => {
         app._client.emit('state', Object.assign({}, st, { busy: { id, op: 'install', phase: 'install' } }));
+        eq([fpsAsked, busyAsked], [15, true], 'installing: 15 frames a second, the renderer told it is busy');
         const done = Object.assign({}, st, { components: st.components.map((c) => (c.id === id ? Object.assign({}, c, o) : c)) });
         app._client.emit('state', done);
         app._client.emit('state', done);
+        eq([fpsAsked, busyAsked], [60, false], 'the install ended: 60 frames a second, not busy');
     };
     app._entryUuid = 'entry';
     reset();

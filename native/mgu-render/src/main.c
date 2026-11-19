@@ -81,10 +81,12 @@
 /* An app whose picture stays as it was through DEAF_INPUTS touches or controller turns in a row (in DEAF_WINDOW_US)
  * is not acting on them: touch and the controller go to the HMI for DEAF_US. Controller events count once per
  * CCU_INPUT_US. Its picture changed: a frame of other words, or any message but a frame or GRAB (pictures, pixmaps,
- * layers, claims); an app with a video changes it without a message, so it is never counted. */
+ * layers, claims); an app with a video changes it without a message, so it is never counted, nor one busy (X_BUSY,
+ * at most BUSY_MAX_US). */
 #define DEAF_INPUTS 4
 #define DEAF_WINDOW_US 10000000ull
 #define DEAF_US 10000000ull
+#define BUSY_MAX_US 180000000ull
 #define CCU_INPUT_US 300000ull
 #define OAP_DIR "/var/opt/public/oap"
 #ifndef GL_BGRA_EXT
@@ -160,6 +162,7 @@ typedef struct client {
     /* inputs it got that left its picture as it was: how many, since when, the frame's hash then; until when it
        takes no input (DEAF_US); its last controller input */
     uint32_t unanswered; uint64_t unanswered_t, unanswered_hash, deaf_until, ccu_t;
+    uint64_t busy_until;    /* X_BUSY: until when inputs are not counted */
     /* native: the last X_STATE sent */
     int st_mode, st_on, st_front, st_sent;
     int on_screen;          /* shown at the last update: the watchdog counts silence from the moment it shows */
@@ -388,7 +391,7 @@ static uint64_t frame_hash(const client *c) {
 
 /* the app got a touch or a controller input */
 static void note_input(client *c, uint64_t t) {
-    if (!c->uid || c->g.videos) return;
+    if (!c->uid || c->g.videos || t < c->busy_until) return;
     if (!c->unanswered || t - c->unanswered_t > DEAF_WINDOW_US) {
         c->unanswered = 0; c->unanswered_t = t; c->unanswered_hash = frame_hash(c);
     }
@@ -1221,6 +1224,12 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
     case X_FINGERS:
         if (nw < 1) return -1;
         c->fingers = w[0] != 0;
+        return 0;
+    case X_BUSY:
+        if (nw < 1) return -1;
+        c->busy_until = w[0] ? now_us() + BUSY_MAX_US : 0;
+        c->unanswered = 0;
+        log_info("%s: %s", c->app, w[0] ? "busy: inputs not counted" : "not busy");
         return 0;
     case X_PIXMAP:
         if (nw < 5) return -1;
