@@ -303,6 +303,33 @@ function run() {
         app._restart();
         eq(sent.map(secretless), [{ op: 'reboot' }]);
         eq(sent[0].secret, 'deadbeef');
+        // while an install runs or waits: Restart head unit and its confirm step's Restart greyed out, and a press sends nothing
+        app._client.emit('state', ST);
+        return tick();
+    }).then(() => {
+        app._client.emit('state', Object.assign({}, ST, { busy: { id: 'doom', op: 'install', phase: 'download', progress: 0, total: 10 } }));
+        return tick();
+    }).then(() => {
+        // as last written: [Restart head unit shown, it can be pressed, its confirm step's Restart can be pressed]
+        const restartWidgets = () => ['storeRestart.visible', 'storeRestart.enabled', 'storeRestartConfirm.enabled'].map((k) => app._written[k]);
+        eq(restartWidgets(), [true, false, false], 'greyed out while an install runs');
+        reset();
+        app._restart();
+        eq(sent, [], 'no restart asked for while an install runs');
+        app._client.emit('state', Object.assign({}, ST, { components: [comp({ queued: true })] }));
+        return tick().then(() => {
+            eq(restartWidgets(), [true, false, false], 'and while one waits');
+            app._client.emit('state', ST);
+            return tick();
+        }).then(() => {
+            eq(restartWidgets(), [true, true, true], 'pressable again after');
+            app._client.emit('state', Object.assign({}, ST, { rebooting: true }));
+            return tick();
+        }).then(() => eq(restartWidgets()[0], false, 'hidden while the unit restarts'));
+    }).then(() => {
+        app._client.emit('state', ST);
+        return tick();
+    }).then(() => {
         // safe mode: the status line says so, Leave safe mode is shown, and it sends safe-mode-off with the secret
         app._client.emit('state', Object.assign({}, ST, { safeMode: { at: '2026-11-09T10:00:00Z', reason: 'test' } }));
         return tick();
