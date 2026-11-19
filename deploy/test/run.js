@@ -683,6 +683,48 @@ function testApps() {
     check('status: the uninstalled app is gone', !st.components.some((c) => c.id === 'fixture_app'));
 }
 
+/* A fresh install with every uid of MainApp's range held: the homes our
+ * apps left behind (no registry entry) go, so the manager has uids to give;
+ * a home of another app, a recent one and one an unreadable entry may own
+ * stay. */
+function testAppUids() {
+    const root = fakeRoot();
+    const leftover = (uid, name, marked, ageS) => {
+        const h = root.home(uid);
+        write(path.join(h, 'source/package.json'), JSON.stringify(Object.assign({ name, version: '1.0.0' },
+            marked ? { mguLocalOnly: true } : {})) + '\n');
+        write(path.join(h, 'data/app.log'), 'x\n');
+        const t = Date.now() / 1000 - ageS;
+        [h, path.join(h, 'data'), path.join(h, 'source')].forEach((d) => fs.utimesSync(d, t, t));
+    };
+    for (let uid = 13001; uid <= 13006; uid++) leftover(uid, 'gone_app', true, 7200);
+    leftover(13007, 'stock_app', false, 7200);
+    leftover(13008, 'gone_app', true, 60);
+    leftover(13009, 'half_app', true, 7200);
+    write(root.entry('half_app'), '');
+    leftover(13010, 'gone_app', true, 7200);
+    const env = { MGU_DEPLOY_REPQUOTA: path.join(HERE, 'fake_repquota.sh'), FAKE_MGR_HOMES_HELD: '1' };
+    let st = JSON.parse(root.run(['status', '--json'], env).stdout).app_uids;
+    check('app uids: status counts the range, no free uid, the held ones and whose',
+        st && st.min === 13000 && st.max === 13010 && st.free === 0 && st.held.length === 10 &&
+        st.held.filter((h) => h.reclaimable).length === 7 && st.held.find((h) => h.uid === 13007).ours === false, JSON.stringify(st));
+    const r = root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes'], env);
+    const entry = readJsonOrNull(root.entry('fixture_app')) || {};
+    check('app uids: the install frees our leftover homes and the app gets the lowest uid',
+        r.status === 0 && entry.userId === 13001 && r.out.includes('removed 7 homes our apps left behind'), r.out);
+    check('app uids: our leftover homes are gone',
+        [13002, 13003, 13004, 13005, 13006, 13010].every((u) => !fs.existsSync(root.home(u))), r.out);
+    check("app uids: another app's home, a recent one and one an unreadable entry may own stay",
+        [13007, 13008, 13009].every((u) => fs.existsSync(path.join(root.home(u), 'data/app.log'))));
+    check('app uids: the registered stock app is untouched', readJson(root.entry('stock_app')).userId === 13000 &&
+        fs.existsSync(path.join(root.home(13000), 'source/package.json')));
+    const r2 = root.run(['install', '--artifact', appArtifact('second_app', '1.0.0', true), '--yes'], env);
+    check('app uids: a free uid left: nothing goes', r2.status === 0 && readJson(root.entry('second_app')).userId === 13002 &&
+        !r2.out.includes('left behind') && fs.existsSync(root.home(13008)), r2.out);
+    st = JSON.parse(root.run(['status', '--json']).stdout);
+    check('app uids: status without repquota reports none', st.app_uids === null, JSON.stringify(st.app_uids));
+}
+
 /* Every bounce waits until the running manager has been up the minimum
  * and the last bounce (state.json) is that long ago. */
 function testBounceGuard() {
@@ -10611,6 +10653,7 @@ const SUITES = [
     testToolInstall,
     testPendingReboot,
     testApps,
+    testAppUids,
     testBounceGuard,
     testIdleWait,
     testMainAppGuard,
