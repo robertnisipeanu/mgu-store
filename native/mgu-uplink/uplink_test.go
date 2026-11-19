@@ -256,3 +256,20 @@ func TestAppStateIgnoresPlantedLinks(t *testing.T) {
 		t.Errorf("uplink.json left after going offline: %v", err)
 	}
 }
+
+func TestSameLeaseIgnoresOnlyRenewTime(t *testing.T) {
+	l := Lease{Interface: Ifname, IP: "192.168.8.100", Prefix: 24, Router: "192.168.8.1", DNS: []string{"192.168.8.1"}, LeaseSec: 3600, Updated: "2026-11-19T10:00:00Z"}
+	renewed := l
+	renewed.Updated = "2026-11-19T10:30:00Z"
+	if !sameLease(marshalJSON(l), marshalJSON(renewed)) {
+		t.Error("a renewal that changes only its time rewrites the apps' files")
+	}
+	moved := renewed
+	moved.DNS = []string{"8.8.8.8"}
+	if sameLease(marshalJSON(l), marshalJSON(moved)) {
+		t.Error("new dns servers do not reach the apps")
+	}
+	if sameLease(nil, marshalJSON(l)) {
+		t.Error("an app without the file does not get it")
+	}
+}

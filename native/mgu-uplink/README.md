@@ -13,7 +13,7 @@ the configured uids through it:
 | Routes | table 110: the lease's subnet and a default via its router; `unreachable default` while offline |
 | Rules | pref 1100 `uidrange U lookup main suppress_prefixlength 0` (car networks), 1101 `uidrange U lookup 110`, 1102 `from <lease address> lookup 110` |
 | Firewall | `table inet mgu_uplink`: only the allowed uids leave through `vethuplink` (and the Wi-Fi interface while Wi-Fi is on), nothing connects in, nothing is forwarded; plus one `oifname "<interface>" accept comment "mgu-uplink"` per interface at the top of the unit's `ip filter output` chain |
-| Lease for apps | `/var/opt/public/oap/oap_<uid>/data/uplink.json` per allowed app, `/run/mgu-uplink/lease.json` for everyone: `{interface, ip, prefix, router, dns[], leaseSeconds, updated}`, present only while online |
+| Lease for apps | `/var/opt/public/oap/oap_<uid>/data/uplink.json` per allowed app, `/run/mgu-uplink/lease.json` for everyone: `{interface, ip, prefix, router, dns[], leaseSeconds, updated}`, present only while online; an app's file is rewritten when the lease changes, so its `updated` is when it last changed |
 | Device state | `/run/mgu-uplink/status.json`, below |
 
 The unit's default route, main table and resolver are not touched. The unit's
