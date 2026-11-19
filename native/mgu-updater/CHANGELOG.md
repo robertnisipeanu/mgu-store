@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.49
+
 - Files downloaded from public repositories for installs are kept on the unit and reused by later installs and updates, within a fixed size limit. Removing a source clears them.
 
 ## 0.8.48
