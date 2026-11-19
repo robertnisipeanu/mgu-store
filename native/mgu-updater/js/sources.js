@@ -69,6 +69,11 @@ function readJsonFile(file) {
 
 /* Writes a root-only file by rename: no reader sees it half written. */
 function writePrivate(file, text) {
+    try {
+        if (fs.readFileSync(file).equals(Buffer.isBuffer(text) ? text : Buffer.from(text))) {
+            return;
+        }
+    } catch (e) { /* not there yet */ }
     const tmp = `${file}.tmp`;
     try {
         fs.unlinkSync(tmp);
