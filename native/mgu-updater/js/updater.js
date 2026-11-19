@@ -1074,8 +1074,8 @@ class Updater {
             maxBuildBytes: Number(conf.build_max_bytes) || 200 << 20,
             // an index source's packages, kept by their sha256
             cacheDir: path.join(conf.state_dir, 'index'),
-            // what the installs of one run of the queue keep for each other (next() clears it)
-            batch: sourcesLib.batchCache()
+            // what the installs of one run of the queue keep for each other (next() clears it), repo files also on disk
+            batch: sourcesLib.batchCache(path.join(conf.state_dir, 'blobs'))
         };
         this.stored = [];
         this.usb = [];
@@ -3873,6 +3873,8 @@ class Updater {
         this.src.delete(id);
         rmIfThere(this.cacheFile(id));
         cp.execFileSync('rm', ['-rf', path.join(this.ctx.cacheDir, id)]);
+        // repo files are kept by git id, shared by every source
+        this.ctx.batch.drop();
         // what it installed keeps it as its origin: no other source updates that
         Object.keys(this.origins).forEach((c) => {
             if (this.origins[c].source === id && !this.installedOf(c)) {

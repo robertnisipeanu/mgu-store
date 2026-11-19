@@ -49,6 +49,8 @@ const PART_PARALLEL = 6;
 // what one queue's installs keep (batchCache): repo files by git id, and the last whole repo read
 const BATCH_BYTES = 64 << 20;
 const WHOLE_BYTES = 96 << 20;
+const DISK_BLOB_BYTES = 160 << 20;
+const GIT_ID = /^[0-9a-f]{40}$/;
 // a root-service package's mguService: the capability the tool made of it provides
 const SERVICE_KINDS = ['renderer', 'tether'];
 // Packed components carry one fixed mtime: the same tree gives the same bytes.
@@ -1062,26 +1064,124 @@ function buildPaths(entry) {
 /* What the installs of one run of the updater's queue keep for each other
  * (Updater.next clears it when the queue is empty): commits' trees (by
  * repo and commit), repo files by their git id, at most BATCH_BYTES, and
- * the last whole repo read, when it unpacked to at most WHOLE_BYTES. */
-function batchCache() {
+ * the last whole repo read, when it unpacked to at most WHOLE_BYTES. With
+ * dir, the repo files also stay there by their git id for the next runs (a
+ * repo's shared build files are not read again for each app installed on
+ * its own), at most maxDisk bytes: before a file is written, the least
+ * recently used ones the current install does not use go first, and a file
+ * that still does not fit is kept for this run only. drop() empties dir. */
+function batchCache(dir, maxDisk) {
+    const cap = maxDisk || DISK_BLOB_BYTES;
+    const file = (id) => (dir && GIT_ID.test(id) ? path.join(dir, id) : null);
+    // dir as this run sees it: name -> { size, t } (last used), and their bytes
+    let disk = null;
+    let diskBytes = 0;
+    const onDisk = () => {
+        if (!disk) {
+            disk = new Map();
+            diskBytes = 0;
+            try {
+                fs.readdirSync(dir).forEach((n) => {
+                    const st = fs.statSync(path.join(dir, n));
+                    disk.set(n, { size: st.size, t: st.mtime.getTime() });
+                    diskBytes += st.size;
+                });
+            } catch (e) { /* none kept */ }
+        }
+        return disk;
+    };
+    const forget = (n) => {
+        rmQuiet(path.join(dir, n));
+        diskBytes -= disk.get(n).size;
+        disk.delete(n);
+    };
+    // makes room for n more bytes, sparing the files in inUse; whether they fit
+    const room = (n, inUse) => {
+        const kept = onDisk();
+        if (diskBytes + n <= cap) {
+            return true;
+        }
+        const spare = Array.from(kept.keys()).filter((k) => !inUse.has(k)).sort((a, b) => kept.get(a).t - kept.get(b).t);
+        if (diskBytes - spare.reduce((b, k) => b + kept.get(k).size, 0) + n > cap) {
+            return false;
+        }
+        while (diskBytes + n > cap) {
+            forget(spare.shift());
+        }
+        return true;
+    };
     return {
         trees: new Map(),
         blobs: new Map(),
         bytes: 0,
         whole: null,
-        keep(id, data) {
+        // inUse: the git ids of the files the current install reads
+        keep(id, data, inUse) {
             if (!this.blobs.has(id) && this.bytes + data.length <= BATCH_BYTES) {
                 this.blobs.set(id, data);
                 this.bytes += data.length;
             }
+            const f = file(id);
+            if (f && !onDisk().has(id) && room(data.length, inUse)) {
+                try {
+                    mkdirPrivate(dir);
+                    writePrivate(f, data);
+                    disk.set(id, { size: data.length, t: Date.now() });
+                    diskBytes += data.length;
+                } catch (e) { /* kept for this run only */ }
+            }
+        },
+        // a file by its git id: this run's, else the one kept in dir when it still is that file
+        blob(id) {
+            if (this.blobs.has(id)) {
+                return this.blobs.get(id);
+            }
+            const f = file(id);
+            let data = null;
+            try {
+                data = f ? fs.readFileSync(f) : null;
+            } catch (e) { /* not kept */ }
+            if (!data) {
+                return null;
+            }
+            const kept = onDisk().get(id);
+            if (gitBlobId(data) !== id) {
+                if (kept) {
+                    forget(id);
+                } else {
+                    rmQuiet(f);
+                }
+                return null;
+            }
+            const now = new Date();
+            try {
+                fs.utimesSync(f, now, now);
+            } catch (e) { /* its age stays */ }
+            if (kept) {
+                kept.t = now.getTime();
+            }
+            return data;
         },
         clear() {
             this.trees.clear();
             this.blobs.clear();
             this.bytes = 0;
             this.whole = null;
+            disk = null;
+        },
+        drop() {
+            try {
+                fs.readdirSync(dir).forEach((n) => rmQuiet(path.join(dir, n)));
+            } catch (e) { /* none kept */ }
+            disk = null;
         }
     };
+}
+
+function rmQuiet(file) {
+    try {
+        fs.unlinkSync(file);
+    } catch (e) { /* gone */ }
 }
 
 /* A file's git id (a tree entry's sha). */
@@ -1829,7 +1929,7 @@ function githubReader(s, ctx) {
                 throw new Error(`${want.length} files`);
             }
             const total = want.reduce((n, e) => n + sizeOf(e), 0);
-            const got = new Map(want.filter((e) => batch && batch.blobs.has(e.sha)).map((e) => [e, batch.blobs.get(e.sha)]));
+            const got = new Map(want.map((e) => [e, batch ? batch.blob(e.sha) : null]).filter((x) => x[1]));
             const share = new Map(Array.from(got.keys()).map((e) => [e, sizeOf(e)]));
             const show = () => {
                 if (onProgress) {
@@ -1871,9 +1971,10 @@ function githubReader(s, ctx) {
                     });
             };
             const missing = want.filter((e) => !got.has(e)).sort((a, b) => sizeOf(b) - sizeOf(a));
+            const inUse = new Set(want.map((e) => e.sha));
             return (missing.length ? read(missing, false) : Promise.resolve()).then(() => want.map((e) => {
                 if (batch) {
-                    batch.keep(e.sha, got.get(e));
+                    batch.keep(e.sha, got.get(e), inUse);
                 }
                 return { name: e.path, data: got.get(e), mode: e.mode === '100755' ? 0o755 : 0o644 };
             }));

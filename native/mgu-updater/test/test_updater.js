@@ -2445,6 +2445,7 @@ function testSources(certs) {
             { id: 'bad_tool', kind: 'tool', path: 'native/bad_tool' },
             { id: 'b_sh', kind: 'app', path: 'apps/b_sh', build: { node: 'tools/build.js', args: ['shared', 'b_sh'], shared: ['lib'] } },
             { id: 'b_sh2', kind: 'app', path: 'apps/b_sh2', build: { node: 'tools/build.js', args: ['shared', 'b_sh2'], shared: ['lib'] } },
+            { id: 'b_sh3', kind: 'app', path: 'apps/b_sh3', build: { node: 'tools/build.js', args: ['shared', 'b_sh3'], shared: ['lib'] } },
             { id: 'b_all', kind: 'app', path: 'apps/b_all', build: { node: 'tools/build.js', args: ['needsall', 'b_all'], shared: ['lib'] } }
         ] }),
         'apps/p_app/mgu-app.json': JSON.stringify({ schema: 1, id: 'p_app', version: pVersion, title: 'Package app', tree: `p_app@${pVersion}`, modules: ['src/p.js'], sdk: [] }),
@@ -2462,6 +2463,7 @@ function testSources(certs) {
         'apps/b_detach/app.json': JSON.stringify({ id: 'b_detach', version: '1.0.0' }),
         'apps/b_sh/app.json': JSON.stringify({ id: 'b_sh', version: '1.0.0' }),
         'apps/b_sh2/app.json': JSON.stringify({ id: 'b_sh2', version: '1.0.0' }),
+        'apps/b_sh3/app.json': JSON.stringify({ id: 'b_sh3', version: '1.0.0' }),
         'apps/b_all/app.json': JSON.stringify({ id: 'b_all', version: '1.0.0' }),
         'lib/x.txt': 'shared lib\n',
         'extra/data.txt': 'only in the whole repo\n',
@@ -2518,6 +2520,7 @@ function testSources(certs) {
     let pMark = 0;
     let tMark = 0;
     let shMark = 0;
+    let sh3Mark = 0;
     let allMark = 0;
     const authLeaks = () => seen.filter((x) => x.auth && !/^api\.github\.com/.test(x.host) && !/^updates\.test/.test(x.host));
 
@@ -3004,6 +3007,18 @@ function testSources(certs) {
                 got.filter((x) => /\/tools\/build\.js$/.test(x.url)).length === 1 && !got.some((x) => /^codeload/.test(x.host)),
                 JSON.stringify(got.map((x) => x.url)));
             ok('batch: kept only while the queue runs', u.ctx.batch.trees.size === 0 && u.ctx.batch.blobs.size === 0 && u.ctx.batch.whole === null);
+            // the next app on its own, in a run of its own: the shared files come from the disk, a kept one that is not the file is read again
+            const blobId = (text) => crypto.createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0`).update(text).digest('hex');
+            fs.writeFileSync(path.join(state, 'blobs', blobId('shared lib\n')), 'not the file');
+            sh3Mark = seen.length;
+            return ask(sock, { op: 'install', id: 'b_sh3' }).then(() => until(st, () => !st().busy && (comp('b_sh3').status === 'installed' || comp('b_sh3').error), 60000, 'b_sh3'));
+        })
+        .then(() => {
+            const got = seen.slice(sh3Mark);
+            ok('blobs: an app installed on its own later reads the shared files kept on disk, one that is not the file again',
+                comp('b_sh3').status === 'installed' && got.filter((x) => /\/lib\/x\.txt$/.test(x.url)).length === 1 &&
+                !got.some((x) => /\/tools\/build\.js$/.test(x.url)) && !got.some((x) => /^codeload/.test(x.host)),
+                JSON.stringify([comp('b_sh3').error, got.map((x) => x.url)]));
             allMark = seen.length;
             return ask(sock, { op: 'install', id: 'b_all' }).then(() => until(st, () => !st().busy && (comp('b_all').status === 'installed' || comp('b_all').error), 60000, 'b_all'));
         })
@@ -3090,6 +3105,7 @@ function testSources(certs) {
         .then((errs) => {
             ok('source-remove: the built-in source stays; another goes', /cannot be removed/.test(errs[0]) && errs[1] === null &&
                 !st().sources.some((x) => x.id === 'second') && comp('dup_app').source === 'mgu-store');
+            ok('source-remove: the kept repo files go', fs.readdirSync(path.join(state, 'blobs')).length === 0);
             // USB media
             const stick = path.join(media, 'STICK');
             mkdirp(path.join(stick, 'usbtool'));
@@ -6849,6 +6865,34 @@ function testContent() {
     });
 }
 
+/* The repo files kept on disk stay under their cap before each write: the
+ * least recently used go first, never one the current install uses; a file
+ * that cannot fit is kept for the run only. */
+function testBlobCap() {
+    const sourcesLib = require('../js/sources');
+    const dir = path.join(T, 'blobcap');
+    const id = (text) => crypto.createHash('sha1').update(`blob ${text.length}\0`).update(text).digest('hex');
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((x) => Buffer.from(x.repeat(40)));
+    const kept = () => fs.readdirSync(dir).sort().join();
+    const names = (...l) => l.map(id).sort().join();
+    const uses = (...l) => new Set(l.map(id));
+    const old = sourcesLib.batchCache(dir, 100);
+    old.keep(id(a), a, uses(a));
+    old.keep(id(b), b, uses(b));
+    fs.utimesSync(path.join(dir, id(a)), new Date(1000), new Date(1000));
+    fs.utimesSync(path.join(dir, id(b)), new Date(2000), new Date(2000));
+    const batch = sourcesLib.batchCache(dir, 100);
+    batch.keep(id(c), c, uses(c));
+    ok('blob cap: a write past the cap evicts the least recently used first', kept() === names(b, c), kept());
+    batch.keep(id(d), d, uses(b, d));
+    ok('blob cap: a file the current install uses is not evicted, older or not', kept() === names(b, d), kept());
+    batch.keep(id(a), a, uses(a, b, d));
+    ok('blob cap: a file that cannot fit beside the current install\'s is kept for the run only',
+        kept() === names(b, d) && batch.blob(id(a)).equals(a), kept());
+    batch.drop();
+    ok('blob cap: drop empties the folder', kept() === '');
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -6857,6 +6901,7 @@ function main() {
     testCatalog();
     testCollect();
     testFileLog();
+    testBlobCap();
     return testRequiredAlone()
         .then(() => testContent())
         .then(() => testTar())
