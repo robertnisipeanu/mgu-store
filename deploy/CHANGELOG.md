@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Safe mode counts every start as failed from its first moments until it stays up 5 minutes or shuts down in order, so starts that end in a power cut, a reset or a hang count too, and so does a crash restart up to 5 minutes into a start (the crash handler restarts the head unit about a minute and a half after a crash). Three failed starts in a row turn it on, and the start that follows already runs without our tools: their units start after the guard's first step. A `systemctl reboot` or `poweroff` counts as an orderly shutdown.
+- An install cut short between moving a tool's version folder aside and putting the new one in its place gets the folder back at the deploy tool's next install or other change.
+
 ## 0.8.25
 
 - `uninstall` refuses to remove a component that an installed app or tool still depends on (its requirements, or a capability only that component provides), and names those components. Remove them first, or use `remove-all`, which removes them in order.

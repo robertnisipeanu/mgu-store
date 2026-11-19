@@ -1209,9 +1209,10 @@ function recmgrWith(text, addNames, removeNames) {
  * StartLimitIntervalSec=0. Units of other components, stock ones included,
  * never get one; a drop-in of this name for a unit no installed tool lists
  * goes, with its folder when nothing else is in it. The same drop-in keeps
- * a tool's units off in safe mode (SAFE_MODE_CONDITIONS): every service,
- * socket, timer and path unit, except one whose units[] entry says
- * "runsInSafeMode": true (runsInSafeMode). */
+ * a tool's units off in safe mode (SAFE_MODE_CONDITIONS), and starts them
+ * after the guard's start step, which turns safe mode on before them
+ * (SAFE_MODE_AFTER): every service, socket, timer and path unit, except one
+ * whose units[] entry says "runsInSafeMode": true (runsInSafeMode). */
 var LIMITS_NAME = 'zz-mgu-deploy-limits.conf';
 var LIMITS_INTERVAL_S = 600, LIMITS_BURST = 20;
 var LIMITS_TEXT = ['# Written by mgu-deploy for every service a tool installs: a crash leaves no core dump for the',
@@ -1225,13 +1226,13 @@ function limitsText(c, u) {
     if (service && !off) return LIMITS_TEXT;
     if (!service) {
         return off && /\.(socket|timer|path)$/.test(u.name) ? ['# Written by mgu-deploy for every unit a tool installs: ' +
-            'it does not start in safe mode.', '[Unit]'].concat(SAFE_MODE_CONDITIONS, ['']).join('\n') : null;
+            'it does not start in safe mode.', '[Unit]'].concat(SAFE_MODE_CONDITIONS, [SAFE_MODE_AFTER, '']).join('\n') : null;
     }
     return ['# Written by mgu-deploy for every service a tool installs: a crash leaves no core dump for the',
         '# crash handler, which would restart the head unit, a service that keeps failing stops, and',
         '# it does not start in safe mode.',
         '[Unit]', 'StartLimitIntervalSec=' + LIMITS_INTERVAL_S, 'StartLimitBurst=' + LIMITS_BURST].concat(SAFE_MODE_CONDITIONS,
-        ['', '[Service]', 'LimitCORE=1', '']).join('\n');
+        [SAFE_MODE_AFTER, '', '[Service]', 'LimitCORE=1', '']).join('\n');
 }
 function unitNames(c) { return (c.units || []).map(function (u) { return u.name; }); }
 /* The units with this tool's drop-in now. */
@@ -1274,14 +1275,13 @@ function limitsPlan(tools, only) {
 
 /* ---- safe mode ------------------------------------------------------------- */
 /* After repeated failed starts of the head unit, our tools' units stay off
- * (deploy/README.md, "Safe mode"): safe_mode.sh, run by a drop-in of
- * var-opt-ro.service at each shutdown, counts the starts and writes
- * SAFE_MODE_FILE, and mgu-deploy-safe-mode.service (ordered with none of
- * our units) gives it its baseline at each start and clears the count after
- * 5 minutes up; the limits drop-in keeps a unit off while the file exists. The next install that
- * goes through, or `safe-mode off` (the Store's button, through the
- * updater), removes it; the tools start at the next start of the head
- * unit. */
+ * (deploy/README.md, "Safe mode"): safe_mode.sh counts the starts and
+ * writes SAFE_MODE_FILE, run by mgu-deploy-safe-mode.service at each start
+ * (before our units, which the limits drop-in orders after it and keeps off
+ * while the file exists), at an orderly stop of the system, and by a drop-in
+ * of var-opt-ro.service at each shutdown. The next install that goes
+ * through, or `safe-mode off` (the Store's button, through the updater),
+ * removes it; the tools start at the next start of the head unit. */
 var SAFE_MODE_FILE = path.join(DEPLOY_DIR, 'safe-mode');
 /* in RAM: a power cut or restart mid-install leaves safe mode on */
 var SAFE_MODE_LIFTED = path.join(CFG.run, 'safe-mode-lifted');
@@ -1294,6 +1294,9 @@ var SAFE_MODE_MARK = { unit: 'var-opt-ro.service', name: '40-mgu-deploy-safe-mod
  * the flag (triggering conditions: any one) */
 var SAFE_MODE_CONDITIONS = ['ConditionPathExists=|!/var/opt/mgu-deploy/safe-mode', 'ConditionPathExists=|/run/mgu-deploy/safe-mode-lifted',
     'ConditionPathExists=|!/var/opt/mgu-deploy/current/safe_mode.sh'];
+/* after the guard's start step, which writes the flag when the starts before
+ * this one failed in a row (a unit without the guard: no order) */
+var SAFE_MODE_AFTER = 'After=' + SAFE_MODE_UNIT;
 /* what the guard keeps: the count and the records it is made from */
 var SAFE_MODE_STATE = ['safe-mode-count', 'safe-mode-crashes', 'last-shutdown'].map(function (n) { return path.join(DEPLOY_DIR, n); });
 var SAFE_MODE_LEFT = 'our tools start at the next start';
@@ -2032,7 +2035,16 @@ function cleanStale() {
         if (!fs.existsSync(d)) return;
         fs.readdirSync(d).forEach(function (n) {
             var m = RUN_TEMP.exec(n), pid = m && Number(m[1] || m[2] || m[3]);
-            if (pid && !pidAlive(pid)) rmrf(path.join(d, n));
+            if (!pid || pidAlive(pid)) return;
+            /* a version folder a killed install moved aside (placeVersion)
+             * and did not replace: back in place, where current may point */
+            var aside = /^(.+)\.old-\d+$/.exec(n);
+            if (aside && path.basename(d) === 'versions' && !lstatOrNull(path.join(d, aside[1]))) {
+                fs.renameSync(path.join(d, n), path.join(d, aside[1]));
+                say(path.join(d, aside[1]) + ': the version folder a stopped install moved aside is back');
+                return;
+            }
+            rmrf(path.join(d, n));
         });
     });
     fs.readdirSync(CFG.varOpt).forEach(function (n) {

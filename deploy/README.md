@@ -576,12 +576,16 @@ services it installed stay.
 
 ### Safe mode
 
-When the head unit restarts four times in a row within 2 minutes of
-starting, by a crash or recovery restart none of our tools asked for, our
-tools' units stay off from the next start: **safe mode**. BMW's units are
-never touched. Units marked `"runsInSafeMode": true` in their tool's
-`component.json` still run; give it to units that recover the head unit or
-leave safe mode:
+When three starts of the head unit end within 5 minutes, by a crash or
+recovery restart none of our tools asked for or with no orderly shutdown
+at all (a power cut, a reset), and no start between them stays up 5
+minutes, our tools' units stay off from the next start: **safe mode**. The
+guard runs first at each start and our tools' units start after it, so the
+start that follows the third failed one already runs without them. A
+shutdown in order (switching the car off, the Store's or the HMI's
+restart) never counts. BMW's units are never touched. Units marked
+`"runsInSafeMode": true` in their tool's `component.json` still run; give
+it to units that recover the head unit or leave safe mode:
 
 ```json
 "units": [{ "name": "acme-recovery.service", "from": "systemd/acme-recovery.service", "runsInSafeMode": true }]
