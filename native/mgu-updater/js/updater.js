@@ -1074,8 +1074,8 @@ class Updater {
             maxBuildBytes: Number(conf.build_max_bytes) || 200 << 20,
             // an index source's packages, kept by their sha256
             cacheDir: path.join(conf.state_dir, 'index'),
-            // what the installs of one run of the queue keep for each other (next() clears it)
-            batch: sourcesLib.batchCache()
+            // what the installs of one run of the queue keep for each other (next() clears it), repo files also on disk
+            batch: sourcesLib.batchCache(path.join(conf.state_dir, 'blobs'))
         };
         this.stored = [];
         this.usb = [];

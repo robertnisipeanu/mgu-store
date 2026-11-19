@@ -2445,6 +2445,7 @@ function testSources(certs) {
             { id: 'bad_tool', kind: 'tool', path: 'native/bad_tool' },
             { id: 'b_sh', kind: 'app', path: 'apps/b_sh', build: { node: 'tools/build.js', args: ['shared', 'b_sh'], shared: ['lib'] } },
             { id: 'b_sh2', kind: 'app', path: 'apps/b_sh2', build: { node: 'tools/build.js', args: ['shared', 'b_sh2'], shared: ['lib'] } },
+            { id: 'b_sh3', kind: 'app', path: 'apps/b_sh3', build: { node: 'tools/build.js', args: ['shared', 'b_sh3'], shared: ['lib'] } },
             { id: 'b_all', kind: 'app', path: 'apps/b_all', build: { node: 'tools/build.js', args: ['needsall', 'b_all'], shared: ['lib'] } }
         ] }),
         'apps/p_app/mgu-app.json': JSON.stringify({ schema: 1, id: 'p_app', version: pVersion, title: 'Package app', tree: `p_app@${pVersion}`, modules: ['src/p.js'], sdk: [] }),
@@ -2462,6 +2463,7 @@ function testSources(certs) {
         'apps/b_detach/app.json': JSON.stringify({ id: 'b_detach', version: '1.0.0' }),
         'apps/b_sh/app.json': JSON.stringify({ id: 'b_sh', version: '1.0.0' }),
         'apps/b_sh2/app.json': JSON.stringify({ id: 'b_sh2', version: '1.0.0' }),
+        'apps/b_sh3/app.json': JSON.stringify({ id: 'b_sh3', version: '1.0.0' }),
         'apps/b_all/app.json': JSON.stringify({ id: 'b_all', version: '1.0.0' }),
         'lib/x.txt': 'shared lib\n',
         'extra/data.txt': 'only in the whole repo\n',
@@ -2518,6 +2520,7 @@ function testSources(certs) {
     let pMark = 0;
     let tMark = 0;
     let shMark = 0;
+    let sh3Mark = 0;
     let allMark = 0;
     const authLeaks = () => seen.filter((x) => x.auth && !/^api\.github\.com/.test(x.host) && !/^updates\.test/.test(x.host));
 
@@ -3004,6 +3007,18 @@ function testSources(certs) {
                 got.filter((x) => /\/tools\/build\.js$/.test(x.url)).length === 1 && !got.some((x) => /^codeload/.test(x.host)),
                 JSON.stringify(got.map((x) => x.url)));
             ok('batch: kept only while the queue runs', u.ctx.batch.trees.size === 0 && u.ctx.batch.blobs.size === 0 && u.ctx.batch.whole === null);
+            // the next app on its own, in a run of its own: the shared files come from the disk, a kept one that is not the file is read again
+            const blobId = (text) => crypto.createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0`).update(text).digest('hex');
+            fs.writeFileSync(path.join(state, 'blobs', blobId('shared lib\n')), 'not the file');
+            sh3Mark = seen.length;
+            return ask(sock, { op: 'install', id: 'b_sh3' }).then(() => until(st, () => !st().busy && (comp('b_sh3').status === 'installed' || comp('b_sh3').error), 60000, 'b_sh3'));
+        })
+        .then(() => {
+            const got = seen.slice(sh3Mark);
+            ok('blobs: an app installed on its own later reads the shared files kept on disk, one that is not the file again',
+                comp('b_sh3').status === 'installed' && got.filter((x) => /\/lib\/x\.txt$/.test(x.url)).length === 1 &&
+                !got.some((x) => /\/tools\/build\.js$/.test(x.url)) && !got.some((x) => /^codeload/.test(x.host)),
+                JSON.stringify([comp('b_sh3').error, got.map((x) => x.url)]));
             allMark = seen.length;
             return ask(sock, { op: 'install', id: 'b_all' }).then(() => until(st, () => !st().busy && (comp('b_all').status === 'installed' || comp('b_all').error), 60000, 'b_all'));
         })

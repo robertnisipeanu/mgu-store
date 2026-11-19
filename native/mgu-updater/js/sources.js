@@ -49,6 +49,7 @@ const PART_PARALLEL = 6;
 // what one queue's installs keep (batchCache): repo files by git id, and the last whole repo read
 const BATCH_BYTES = 64 << 20;
 const WHOLE_BYTES = 96 << 20;
+const DISK_BLOB_BYTES = 160 << 20;
 // a root-service package's mguService: the capability the tool made of it provides
 const SERVICE_KINDS = ['renderer', 'tether'];
 // Packed components carry one fixed mtime: the same tree gives the same bytes.
@@ -1062,8 +1063,12 @@ function buildPaths(entry) {
 /* What the installs of one run of the updater's queue keep for each other
  * (Updater.next clears it when the queue is empty): commits' trees (by
  * repo and commit), repo files by their git id, at most BATCH_BYTES, and
- * the last whole repo read, when it unpacked to at most WHOLE_BYTES. */
-function batchCache() {
+ * the last whole repo read, when it unpacked to at most WHOLE_BYTES. With
+ * dir, the repo files also stay there by their git id for the next runs (a
+ * repo's shared build files are not read again for each app installed on
+ * its own), at most DISK_BLOB_BYTES, the least recently used going first. */
+function batchCache(dir) {
+    const file = (id) => (dir && /^[0-9a-f]{40}$/.test(id) ? path.join(dir, id) : null);
     return {
         trees: new Map(),
         blobs: new Map(),
@@ -1074,14 +1079,68 @@ function batchCache() {
                 this.blobs.set(id, data);
                 this.bytes += data.length;
             }
+            const f = file(id);
+            if (f && !fs.existsSync(f)) {
+                try {
+                    mkdirPrivate(dir);
+                    writePrivate(f, data);
+                } catch (e) { /* kept for this run only */ }
+            }
+        },
+        // a file by its git id: this run's, else the one kept in dir when it still is that file
+        blob(id) {
+            if (this.blobs.has(id)) {
+                return this.blobs.get(id);
+            }
+            const f = file(id);
+            let data = null;
+            try {
+                data = f ? fs.readFileSync(f) : null;
+            } catch (e) { /* not kept */ }
+            if (!data) {
+                return null;
+            }
+            if (gitBlobId(data) !== id) {
+                rmQuiet(f);
+                return null;
+            }
+            const now = new Date();
+            try {
+                fs.utimesSync(f, now, now);
+            } catch (e) { /* its age stays */ }
+            return data;
         },
         clear() {
             this.trees.clear();
             this.blobs.clear();
             this.bytes = 0;
             this.whole = null;
+            if (!dir) {
+                return;
+            }
+            let list = [];
+            try {
+                list = fs.readdirSync(dir).map((n) => {
+                    const p = path.join(dir, n);
+                    const st = fs.statSync(p);
+                    return { p, size: st.size, t: st.mtimeMs };
+                }).sort((a, b) => b.t - a.t);
+            } catch (e) { /* none kept */ }
+            let kept = 0;
+            list.forEach((x) => {
+                kept += x.size;
+                if (kept > DISK_BLOB_BYTES || !/^[0-9a-f]{40}$/.test(path.basename(x.p))) {
+                    rmQuiet(x.p);
+                }
+            });
         }
     };
+}
+
+function rmQuiet(file) {
+    try {
+        fs.unlinkSync(file);
+    } catch (e) { /* gone */ }
 }
 
 /* A file's git id (a tree entry's sha). */
@@ -1829,7 +1888,7 @@ function githubReader(s, ctx) {
                 throw new Error(`${want.length} files`);
             }
             const total = want.reduce((n, e) => n + sizeOf(e), 0);
-            const got = new Map(want.filter((e) => batch && batch.blobs.has(e.sha)).map((e) => [e, batch.blobs.get(e.sha)]));
+            const got = new Map(want.map((e) => [e, batch ? batch.blob(e.sha) : null]).filter((x) => x[1]));
             const share = new Map(Array.from(got.keys()).map((e) => [e, sizeOf(e)]));
             const show = () => {
                 if (onProgress) {

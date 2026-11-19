@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A public repository's files read for an install stay on the unit by their git id (`state/blobs`, at most 160 MB, the least recently used going first, each checked again when used): an app built from a branch that is installed on its own no longer downloads the repo's shared build files again (for cauliflowermossgrape/idrive7-apps, about 33 MB per app).
+
 ## 0.8.48
 
 - Default source: hexlay/idrive7-system-monitor (System Monitor, iDrive 7 only) on its default branch, added once at the first start of this version (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. On iDrive 8 its app is not offered. Like any source it can be removed; once removed it is not added again.
