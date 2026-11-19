@@ -8208,7 +8208,7 @@ function cmdUninstall(args) {
  *              running MainApp-21 does not uninstall in place go at the
  *              next start, from the queue;
  *   tools      every installed tool but app-privacy, a tool another one
- *              requires after it;
+ *              depends on (dependentsOf) after it;
  *   fallback   the provisioning fallback: unit, copy, binds, app list;
  *   privacy    app-privacy, its patch reverted;
  *   the rest   this tool's boot units and their recmgr entries, any limits
