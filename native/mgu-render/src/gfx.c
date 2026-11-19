@@ -127,10 +127,11 @@ static const char *FS =
     "    if (ic <= 0.0) discard;\n"
     "    gl_FragColor = texture2D(u_tex, v_c.xy) * ic; return;\n"
     "  }\n"
-    "  else {\n"                                                /* video, I420 planes Y U V: as a picture; b.y 1 = BT.709, b.z 1 = full range */
+    "  else {\n"                                                /* video, planes Y U V (I420) or Y, U V (NV12, b.w 1): as a picture; b.y 1 = BT.709, b.z 1 = full range */
     "    float ic = clamp(0.5 - rrdist(p, v_a, v_b.x), 0.0, 1.0) * v_col.a;\n"
     "    if (ic <= 0.0) discard;\n"
-    "    float cy = texture2D(u_tex, v_c.xy).r, cu = texture2D(u_tex2, v_c.xy).r - 0.501961, cv = texture2D(u_tex3, v_c.xy).r - 0.501961;\n"
+    "    vec4 c2 = texture2D(u_tex2, v_c.xy);\n"
+    "    float cy = texture2D(u_tex, v_c.xy).r, cu = c2.r - 0.501961, cv = (v_b.w > 0.5 ? c2.a : texture2D(u_tex3, v_c.xy).r) - 0.501961;\n"
     "    if (v_b.z < 0.5) { cy = (cy - 0.062745) * 1.164384; cu *= 1.138393; cv *= 1.138393; }\n"
     "    vec3 rgb = v_b.y > 0.5 ? vec3(cy + 1.5748 * cv, cy - 0.187324 * cu - 0.468124 * cv, cy + 1.8556 * cu)\n"
     "                           : vec3(cy + 1.402 * cv, cy - 0.344136 * cu - 0.714136 * cv, cy + 1.772 * cu);\n"
@@ -579,10 +580,14 @@ static void video_update(gfx_client *c, gfx_video *v) {
     /* short: the file is shorter than its header says (written in that order, or cut); not pending until seq moves on */
     if (pread(v->fd, v->buf, fsz, (off_t)sizeof h + (off_t)h.slot * (off_t)fsz) != (ssize_t)fsz) { v->bad_seq = h.seq; return; }
     int resize = (int)h.w != v->w || (int)h.h != v->h;
+    int nv12 = h.format == MGU_VIDEO_NV12;
+    if (nv12 != v->nv12) resize = 1;                       /* plane 1's texture format changes */
     v->seq = v->bad_seq = h.seq; v->w = (int)h.w; v->h = (int)h.h; v->matrix = h.matrix == 1; v->full = h.full == 1;
+    v->nv12 = nv12;
     const uint8_t *pl[3] = { v->buf, v->buf + ysz, v->buf + ysz + csz };
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < 3 - nv12; k++) {
         int pw = k ? v->w / 2 : v->w, ph = k ? v->h / 2 : v->h;
+        GLenum fmt = nv12 && k ? GL_LUMINANCE_ALPHA : GL_LUMINANCE;     /* NV12's U V pairs: U in .r, V in .a */
         if (!v->tex[k]) {
             glGenTextures(1, &v->tex[k]);
             glBindTexture(GL_TEXTURE_2D, v->tex[k]);
@@ -593,8 +598,8 @@ static void video_update(gfx_client *c, gfx_video *v) {
             resize = 1;
         }
         glBindTexture(GL_TEXTURE_2D, v->tex[k]);
-        if (resize) glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, pw, ph, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, pl[k]);
-        else glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pw, ph, GL_LUMINANCE, GL_UNSIGNED_BYTE, pl[k]);
+        if (resize) glTexImage2D(GL_TEXTURE_2D, 0, fmt, pw, ph, 0, fmt, GL_UNSIGNED_BYTE, pl[k]);
+        else glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pw, ph, fmt, GL_UNSIGNED_BYTE, pl[k]);
     }
 }
 
@@ -884,7 +889,7 @@ static void draw_video(gfx_video *m, float x, float y, float w, float h, float r
     float x0 = floorf(x) - 1, y0 = floorf(y) - 1, x1 = ceilf(x + w) + 1, y1 = ceilf(y + h) + 1;
     vert *v = quad(x0, y0, x1, y1, K_YUV);
     set4(v, 4, x + w / 2, y + h / 2, w / 2, h / 2);
-    set4(v, 8, r, (float)m->matrix, (float)m->full, 0);
+    set4(v, 8, r, (float)m->matrix, (float)m->full, (float)m->nv12);
     float u0 = (x0 - x) / w, u1 = (x1 - x) / w, v0 = (y0 - y) / h, v1 = (y1 - y) / h;
     v[0].v[12] = u0; v[0].v[13] = v0; v[1].v[12] = u1; v[1].v[13] = v0;
     v[2].v[12] = u1; v[2].v[13] = v1; v[3].v[12] = u0; v[3].v[13] = v1;

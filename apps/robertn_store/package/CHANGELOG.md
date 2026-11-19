@@ -3,8 +3,8 @@
 ## Unreleased
 
 No change on screen: the renderer client it carries has multi-touch
-for apps that ask for it, and can hold only some parts of the
-controller.
+for apps that ask for it, can hold only some parts of the
+controller, and tells whether the renderer reads NV12 video frames.
 
 ## 0.9.40
 
