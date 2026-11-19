@@ -10,6 +10,8 @@
  * saddr may be empty. area x,y,w,h (screen px) apps may claim, w 0 = all. Forks the guard: call
  * before the compositor connection. -1 = off. */
 int touch_init(const char *iface, const char *saddr, const int area[4]);
+void touch_auto_area(int w, int h, int area[4]); /* touch_area = auto on a w x h screen: iDrive 7 the whole
+                                                   screen, iDrive 8 0,76,2880,764, any other size all (w 0) */
 int touch_fd(void);                  /* the diverted PDUs (poll it), -1 when off */
 void touch_read(void);               /* route what came in */
 void touch_tick(int claimed);        /* every loop turn: claimed = a visible app has claims (2: an overlay) -> rule in or out;
