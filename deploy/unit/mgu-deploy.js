@@ -92,6 +92,7 @@ var CFG = {
     tar: env('MGU_DEPLOY_TAR', 'tar'),
     df: env('MGU_DEPLOY_DF', 'df'),
     setquota: env('MGU_DEPLOY_SETQUOTA', 'setquota'),
+    repquota: env('MGU_DEPLOY_REPQUOTA', 'repquota'),
     getfacl: env('MGU_DEPLOY_GETFACL', 'getfacl'),
     setfacl: env('MGU_DEPLOY_SETFACL', 'setfacl'),
     // where the firmware's own units and programs are
@@ -117,7 +118,8 @@ var CFG = {
     idleQuietS: Number(env('MGU_DEPLOY_IDLE_QUIET_S', '5')),
     idleMaxS: Number(env('MGU_DEPLOY_IDLE_MAX_S', '180')),
     lockWaitMs: Number(env('MGU_DEPLOY_LOCK_WAIT_MS', '3600000')),
-    migrateSettleMs: Number(env('MGU_DEPLOY_MIGRATE_SETTLE_MS', '45000'))
+    migrateSettleMs: Number(env('MGU_DEPLOY_MIGRATE_SETTLE_MS', '45000')),
+    leftoverAgeS: Number(env('MGU_DEPLOY_LEFTOVER_AGE_S', '600'))
 };
 var FAKE = process.env.MGU_DEPLOY_FAKE_ROOT === '1';
 /* the owner a folder made by root has (the fake root's tests name their own uid) */
@@ -484,7 +486,7 @@ function unitStates(units, verb) {
     });
     return out;
 }
-/* Within a status, one ps for every question about processes. */
+/* Within a status or a freeing of app uids, one ps for every question about processes. */
 var psSnapshot = null;
 /* Full command lines: busybox's "ps w" cuts them at 131 columns, before
  * the app manager's main.js path. */
@@ -4218,6 +4220,82 @@ function filesOwnedBy(uid) {
     var first = (r.stdout || '').split('\n').filter(function (l) { return l; })[0];
     return first || null;
 }
+/* ---- app uids ---------------------------------------------------------------- */
+/* MainApp gives a new app the lowest uid of its range (base.json
+ * usableUidsAndGids) that no registry entry holds and that repquota on
+ * /var/opt does not list, that is, that owns no file there. When MainApp
+ * installs an app again under a new uid (its registry entry dropped at a
+ * start), the old home stays with the old uid's files, and that uid is
+ * never handed out again. Once every uid of the range is held, no app
+ * installs ("No free user Ids left"). */
+function appUidRange() {
+    var r = (readJsonOrNull(path.join(mainappRoot(), 'config', 'base.json')) || {}).usableUidsAndGids;
+    var min = r ? Number(r.min) : NaN, max = r ? Number(r.max) : NaN;
+    return min > 0 && max >= min ? { min: min, max: max } : null;
+}
+/* The uids repquota lists on /var/opt, as MainApp reads it ({uid: true}), or null. */
+function quotaListed() {
+    var r = run(CFG.repquota, [CFG.varOpt], { allowFail: true });
+    if (r.status !== 0) return null;
+    var out = {};
+    r.stdout.split(/\s+/).forEach(function (t) {
+        var m = /^#(\d+)$/.exec(t);
+        if (m) out[m[1]] = true;
+    });
+    return out;
+}
+/* { min, max, free, held }: held lists the range's uids repquota lists
+ * that no registry entry holds, with the app whose home holds each. Only a
+ * home of ours is reclaimable, and not one whose app has an unreadable
+ * registry entry (MainApp may still own it), one changed within
+ * leftoverAgeS (an install under way) or one a process runs from. null
+ * when the range or repquota cannot be read. */
+function appUids() {
+    var range = appUidRange(), listed = range && quotaListed();
+    if (!listed) return null;
+    var registered = {}, unreadable = {};
+    registryEntries().forEach(function (r) {
+        if (r.unreadable) unreadable[r.id] = true;
+        else if (r.entry.userId) registered[r.entry.userId] = true;
+    });
+    var out = { min: range.min, max: range.max, free: 0, held: [] }, now = Date.now();
+    for (var uid = range.min; uid <= range.max; uid++) {
+        if (registered[uid]) continue;
+        if (!listed[uid]) { out.free++; continue; }
+        var home = appHome(uid), pkg = readJsonOrNull(path.join(home, 'source', 'package.json'));
+        var id = pkg && typeof pkg.name === 'string' ? pkg.name : null, ours = !!pkg && pkg.mguLocalOnly === true;
+        var hs = lstatOrNull(home), recent = [hs, lstatOrNull(path.join(home, 'data')), lstatOrNull(path.join(home, 'source'))]
+            .some(function (st) { return st && now - st.mtime.getTime() < CFG.leftoverAgeS * 1000; });
+        out.held.push({ uid: uid, id: id, ours: ours,
+            reclaimable: ours && !!hs && hs.isDirectory() && !unreadable[id] && !recent && !appRunning(uid) });
+    }
+    return out;
+}
+/* Before an app's first install, when MainApp has no uid left to give it:
+ * the homes of our apps no registry entry holds go, with their uids'
+ * quota, so MainApp can hand those uids out again. */
+function freeAppUids() {
+    psSnapshot = psLines();
+    try { freeAppUidsNow(); } finally { psSnapshot = null; }
+}
+function freeAppUidsNow() {
+    var u = appUids();
+    if (!u || u.free) return;
+    var gone = 0;
+    u.held.forEach(function (h) {
+        if (!h.reclaimable) return;
+        try { rmrf(appHome(h.uid)); } catch (e) { warn(appHome(h.uid) + ' stays: ' + e.message); return; }
+        if (!FAKE) run(CFG.setquota, ['-u', String(h.uid), '0', '0', '0', '0', CFG.varOpt], { allowFail: true });
+        gone++;
+    });
+    if (gone) say('removed ' + gone + ' homes our apps left behind in ' + CFG.oap + ' (no app runs from them), freeing their uids');
+    var after = gone ? appUids() : u;
+    if (after && !after.free && after.held.length) {
+        warn('the app manager has no free app uid (' + u.min + '-' + u.max + '): ' + after.held.length + ' are held by no app (' +
+            after.held.slice(0, 5).map(function (h) { return h.uid + (h.id ? ' ' + h.id : ''); }).join(', ') +
+            (after.held.length > 5 ? ', ...' : '') + ')');
+    }
+}
 /* <id>@<version>.tgz and <id>-<version>.tgz: every package of this app. */
 function isPackageOf(id, name) {
     return name.indexOf(id) === 0 && /^[@-]\d+\.\d+\.\d+.*\.tgz$/.test(name.slice(id.length));
@@ -4901,6 +4979,7 @@ function installApp(a, state, decision) {
     entry = existing ? readJsonOrNull(appEntryFile(a.id)) : null;
     var kc = existing ? lstatOrNull(keychainFile(existing.uid)) : null;
     a.noKeychain = existing && !(kc && kc.size > 0) ? existing.uid : null;
+    if (!existing) freeAppUids();
     placePreinstalled(a);
     listApp(a, entry);
     var r = installInPlace(a, existing), uid = r.uid;
@@ -7184,6 +7263,7 @@ function collectStatusNow(state) {
         lost_apps: lost.lost,
         lost_held: lost.held,
         hmi_parts: id7PartsReport(),
+        app_uids: appUids(),
         stock_backup: fs.existsSync(path.join(BACKUPS_DIR, 'stock')) };
 }
 function cmdStatus(args, crashList, live, limits, listing) {
@@ -7242,6 +7322,11 @@ function cmdStatus(args, crashList, live, limits, listing) {
     if (s.safe_mode) say('safe mode: on' + (s.safe_mode.at ? ' since ' + s.safe_mode.at : '') + "; our tools' units do not start");
     s.lost_apps.forEach(function (a) { say('not registered: ' + a.id + ' ' + a.version + ' (its package is at ' + a.package + ')'); });
     s.lost_held.forEach(function (a) { say('not registered, not installed again automatically: ' + a.id + ' ' + a.version + ' (' + a.why + ')'); });
+    if (s.app_uids) {
+        var ourHeld = s.app_uids.held.filter(function (h) { return h.ours; }).length;
+        say('app uids ' + s.app_uids.min + '-' + s.app_uids.max + ': ' + s.app_uids.free + ' free' +
+            (s.app_uids.held.length ? ', ' + s.app_uids.held.length + ' held by no app (' + ourHeld + ' by homes of ours)' : ''));
+    }
     s.hmi_parts.forEach(function (a) { say('iDrive 7 HMI files not in place: ' + a.id + ' ' + a.version + ' (' + a.files.join(', ') + ')'); });
     s.pending_reboot.forEach(function (p) { say('pending reboot: ' + p.id + ' - ' + p.reason); });
     if (s.last_apply) {

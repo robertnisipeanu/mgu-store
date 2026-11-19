@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- iDrive 7: when the app manager has no app uid left to give a new app ("No free user Ids left"), the app's install first removes the homes of our apps in `/var/opt/public/oap` that no registry entry uses, which frees their uids. The app manager leaves such a home behind each time it installs an app again under a new uid, and holds its uid for good. Homes of other apps, homes changed in the last 10 minutes and homes a process runs from stay.
+- `status` reports the app manager's app uid range, how many are free, and those held by no app (`app_uids`).
+
 ## 0.8.23
 
 - Every name a tool puts on the crash handler's list goes in a second time as `<name> (deleted)`: the name a process carries once an update replaced its executable while it ran (Maps on cluster rewriting `aapd`, for example). A crash of such a process does not restart the head unit. `status` adds these names on a head unit that has the tools installed already; they count from the next start of the head unit.
