@@ -48,9 +48,10 @@ every release has to be safe whichever component is updated first:
 A pull request opened, or mostly written, by an AI agent says in its
 description (`.github/pull_request_template.md` has the fields):
 
-- **AI:** the tool and model, for example "Claude Code, Claude Opus 5.5" or
-  "Codex, GPT-6.1". When several models worked on it, list each, with what
-  it did if that helps.
+- **AI:** the product **and** the exact model name and version, for example
+  "Claude Code, Claude Opus 5.5" or "Codex, GPT-6.1". "An AI agent", "an AI
+  coding agent" or "AI-assisted" alone is not enough: name both. When several
+  models worked on it, list each, with what it did if that helps.
 - **Tested:** exactly how: which test suites ran and passed; whether it ran
   on a real car (which iDrive and firmware) or on a test unit; and what was
   not tested.

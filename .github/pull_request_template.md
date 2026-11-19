@@ -1,6 +1,6 @@
 <!-- What this pull request changes and why. -->
 
-**AI:** <!-- tool and model, e.g. "Claude Code, Claude Opus 5.5"; "none" without AI -->
+**AI:** <!-- product and exact model, e.g. "Claude Code, Claude Opus 5.5" or "Codex, GPT-6.1" (not just "an AI agent"); "none" without AI -->
 
 **Tested:** <!-- test suites run and passed; real car (iDrive, firmware) or a test unit; what was not tested -->
 
