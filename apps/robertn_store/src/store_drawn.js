@@ -238,7 +238,14 @@ class Drawn extends EventEmitter {
             }
         }
         if (mode) {
-            const box = mode === 'embed' ? info.embedBox : info.appArea;
+            let box = mode === 'embed' ? info.embedBox : info.appArea;
+            // a screen smaller than the area the HMI names (an MGU retrofitted to an NBT Evo display): the page inside it
+            const scr = this.gpu.screen || {};
+            if (scr.w > 0 && scr.h > 0 && (box.x + box.w > scr.w || box.y + box.h > scr.h)) {
+                const x = Math.min(Math.max(0, box.x), scr.w - 1), y = Math.min(Math.max(0, box.y), scr.h - 1);
+                box = { x, y, w: Math.min(box.w, scr.w - x), h: Math.min(box.h, scr.h - y) };
+                this.log.info(`renderer: the app area held inside the ${scr.w}x${scr.h} screen`);
+            }
             const p = placement(box.w, box.h);
             this.scale = p.scale;
             this.layout = p.layout;
