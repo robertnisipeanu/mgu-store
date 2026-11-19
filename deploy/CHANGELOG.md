@@ -4,6 +4,9 @@
 
 - Safe mode counts every start as failed from its first moments until it stays up 5 minutes or shuts down in order, so starts that end in a power cut, a reset or a hang count too, and so does a crash restart up to 5 minutes into a start (the crash handler restarts the head unit about a minute and a half after a crash). Three failed starts in a row turn it on, and the start that follows already runs without our tools: their units start after the guard's first step. A `systemctl reboot` or `poweroff` counts as an orderly shutdown.
 - An install cut short between moving a tool's version folder aside and putting the new one in its place gets the folder back at the deploy tool's next install or other change.
+- `mgu-install.js` over ENET on Windows: ssh connects to the head unit without binding to the adapter's address, so the SSH client that comes with Windows can connect.
+- `mgu-install.js` over ENET: only a link-local host address is tried as the head unit's (not the computer's own address). When the head unit's SSH does not answer, the message names the addresses tried and says that `--host <address>` can be given.
+- `mgu-install.js`: when an `--identity` or `--from` path with a space is not in quotes, the error says to put it in quotes and shows the whole path.
 
 ## 0.8.25
 

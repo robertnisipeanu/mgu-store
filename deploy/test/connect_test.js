@@ -9,6 +9,7 @@
  * Prints one "ok <name>" / "not ok <name>" line per check; deploy/test/run.js collects them.
  */
 const net = require('net');
+const cp = require('child_process');
 const dgram = require('dgram');
 const path = require('path');
 const mi = require(path.join(__dirname, '..', 'mgu-install.js'));
@@ -131,8 +132,9 @@ async function testOrder() {
             e = x;
         });
         const at = net.closed ? '172.16.222.97' : '169.254.1.2';
-        check(`reach: found at ${at} with SSH closed says so, not the no-car text`, e &&
-            e.message === `found the head unit at ${at}, but its SSH is closed: enable root SSH first, then run this again`, e && e.message);
+        check(`reach: found at ${at} with SSH closed says so, not the no-car text${net.closed ? '' : ', with the ENET addresses tried and --host'}`, e &&
+            e.message === `found the head unit at ${at}, but its SSH is closed: enable root SSH first, then run this again` +
+            (net.closed ? '' : `\nTried over ENET: ${at}. Another address can be given with --host <address>.`), e && e.message);
     }
 
     d = fakeNet({});
@@ -183,6 +185,53 @@ async function testOrder() {
     check('reach: --ssh-opt still finds the unit, and over ENET ssh binds to the interface\'s address (-b), with the option, to the unit\'s :22',
         d.log.length > 1 && a.slice(0, 6).join(' ') === `-p 22 -b ${EN.address} -o StrictHostKeyChecking=accept-new` &&
         a[a.length - 2] === 'root@169.254.1.2', a.join(' '));
+
+    d = fakeNet({ platform: 'win32', answering: ['169.254.50.0'], ifaces: [EN], gateways: { [EN.address]: '169.254.0.8' },
+        dids: { [EN.address]: '169.254.50.0' } });
+    const w = mi.parse(['first-install', '--identity', 'k']);
+    await mi.reach(w, d);
+    const wa = mi.sshArgs(w, 'true');
+    check('reach: on Windows ssh gets no -b (its OpenSSH fails a bound connect), and a head unit at x.x.x.0 is used',
+        !wa.includes('-b') && wa[wa.length - 2] === 'root@169.254.50.0' && d.log.includes(`banner 169.254.50.0:22 from ${EN.address}`), wa.join(' '));
+
+    d = fakeNet({ answering: ['169.254.9.9'], ifaces: [EN], gateways: { [EN.address]: '169.254.0.8' }, dids: { [EN.address]: '0.0.0.0' },
+        last: '169.254.9.9' });
+    u = await mi.findUnit(d);
+    check('find: a reported address that cannot be the head unit is not asked; the last one is',
+        u && u.host === '169.254.9.9' && !d.log.some((l) => l.startsWith('banner 0.0.0.0')), `${JSON.stringify(u)} ${d.log}`);
+
+    d = fakeNet({ ifaces: [EN], gateways: { [EN.address]: '169.254.0.8' }, dids: { [EN.address]: EN.address }, last: '169.254.9.9' });
+    err = null;
+    await mi.reach(mi.parse(['first-install']), d).catch((e) => {
+        err = e;
+    });
+    check('reach: nothing answered names the ENET addresses tried and --host <address>; never the computer\'s own address',
+        err && /Tried over ENET: 169\.254\.9\.9\./.test(err.message) && /--host <address>/.test(err.message) &&
+        !d.log.some((l) => l.startsWith(`banner ${EN.address}`)), err && err.message);
+}
+
+function testLinkLocalHost() {
+    const ok = ['169.254.50.0', '169.254.1.0', '169.254.254.255', '169.254.90.8', '169.254.200.255'];
+    const bad = ['169.254.0.8', '169.254.255.1', '0.0.0.0', '255.255.255.255', '172.16.222.97', '160.48.199.99', '169.254.10.20',
+        '169.254.256.1', '169.254.1.300', '', null];
+    check('link-local host: 169.254.1.0 to 169.254.254.255, any last byte',
+        ok.every((ip) => mi.linkLocalHost(ip, EN.address)), ok.filter((ip) => !mi.linkLocalHost(ip, EN.address)));
+    check('link-local host: not 169.254.0.x / 169.254.255.x, another network, the computer\'s own address or a malformed one',
+        bad.every((ip) => !mi.linkLocalHost(ip, EN.address)), bad.filter((ip) => mi.linkLocalHost(ip, EN.address)));
+}
+
+/* A path with a space not in quotes: the shell splits it, and the rest is an extra argument. */
+function testSplitPath() {
+    const run = (args) => cp.spawnSync(process.execPath, [path.join(__dirname, '..', 'mgu-install.js')].concat(args), { encoding: 'utf8' });
+    const r = run(['first-install', '--identity', 'C:\\Users\\BMW\\Downloads\\MGU-SSH', 'older\\data\\id_rsa.pkcs1.pem']);
+    check('args: a --identity path split at a space says to put it in quotes, the whole path given back',
+        r.status === 2 && r.stderr.includes('first-install takes no older\\data\\id_rsa.pkcs1.pem; the --identity path has a space: put it in quotes, ' +
+            '--identity "C:\\Users\\BMW\\Downloads\\MGU-SSH older\\data\\id_rsa.pkcs1.pem"'), r.stderr);
+    const f = run(['uninstall', '--from', 'D:\\my', 'store', 'stick\\']);
+    check('args: so does a --from path of three words, given back without a trailing backslash (\\" would quote the quote)',
+        f.status === 2 && f.stderr.includes('--from "D:\\my store stick"\n'), f.stderr);
+    const x = run(['status', 'extra', '--identity', 'k']);
+    check('args: another stray argument gets no path hint', x.status === 2 && /status takes no extra\n/.test(x.stderr), x.stderr);
 }
 
 function testInterfaces() {
@@ -211,6 +260,9 @@ function testFraming() {
     check('hsfz: the payload is the UDS without the address bytes', whole.frames.length === 3 && whole.rest.length === 0 &&
         whole.frames[2].payload.equals(did('169.254.1.2')));
     check('did: 62 17 2A 00 A9 FE 01 02 is 169.254.1.2', mi.didAddress(did('169.254.1.2')) === '169.254.1.2');
+    check('did: the full answer (address, subnet mask, gateway) gives the address, x.x.x.0 included',
+        mi.didAddress(Buffer.from('62172a00a9fe3200ffff000000000000', 'hex')) === '169.254.50.0' &&
+        mi.didAddress(Buffer.from('62172a00a9fe5a08ffff0000a9fe0001', 'hex')) === '169.254.90.8');
     check('did: a negative or short answer is none', mi.didAddress(Buffer.from('7f2231', 'hex')) === null &&
         mi.didAddress(Buffer.from('62172a00a9fe', 'hex')) === null && mi.didAddress(Buffer.from('62f190', 'hex')) === null);
 }
@@ -294,6 +346,8 @@ async function testHsfzNetwork() {
 (async () => {
     testInterfaces();
     testFraming();
+    testLinkLocalHost();
+    testSplitPath();
     await testOrder();
     await testBanner();
     await testHsfzNetwork();
