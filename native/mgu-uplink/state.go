@@ -185,6 +185,21 @@ func readAppState(dir int) []byte {
 	return b
 }
 
+// sameLease reports whether two leases' JSON differ at most in when they
+// were renewed: a renewal that changes nothing else leaves an app's file as
+// it is.
+func sameLease(a, b []byte) bool {
+	if bytes.Equal(a, b) {
+		return true
+	}
+	var la, lb Lease
+	if a == nil || json.Unmarshal(a, &la) != nil || json.Unmarshal(b, &lb) != nil {
+		return false
+	}
+	la.Updated, lb.Updated = "", ""
+	return bytes.Equal(marshalJSON(la), marshalJSON(lb))
+}
+
 // writeAppState makes the app's uplink.json hold b, as root:<uid> 0640.
 func writeAppState(c config, uid int, b []byte) error {
 	dir, err := openAppData(c, uid)
@@ -192,7 +207,7 @@ func writeAppState(c config, uid int, b []byte) error {
 		return fmt.Errorf("lease for uid %d: data dir: %w", uid, err)
 	}
 	defer unix.Close(dir)
-	if bytes.Equal(readAppState(dir), b) {
+	if sameLease(readAppState(dir), b) {
 		return nil
 	}
 	tmp := appStateName + ".tmp"
