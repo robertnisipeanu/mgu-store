@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Installs write less to the head unit's storage: packages are unpacked, prepared and checked in RAM when there is room (on storage otherwise), a package is written to the system partition once, straight from its file, and a backup links a file that an earlier backup or kept package already holds instead of storing it again.
+- The provisioning fallback copy of MainApp's `main.js` is built in RAM, at each start and at each install, and written to storage only when it changes. The deploy tool's state files are written only when they change.
+
 ## 0.8.26
 
 - Safe mode counts every start as failed from its first moments until it stays up 5 minutes or shuts down in order, so starts that end in a power cut, a reset or a hang count too, and so does a crash restart up to 5 minutes into a start (the crash handler restarts the head unit about a minute and a half after a crash). Three failed starts in a row turn it on, and the start that follows already runs without our tools: their units start after the guard's first step. A `systemctl reboot` or `poweroff` counts as an orderly shutdown.

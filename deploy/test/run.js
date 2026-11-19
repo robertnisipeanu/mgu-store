@@ -286,6 +286,9 @@ function fakeRoot(opts) {
     write(p('proc/stat'), `cpu 0 0 0 0\nbtime ${btime}\n`);
     write(p('proc/mounts'), 'rootfs / ext4 ro,relatime 0 0\n');
     write(p('proc/boot_id'), 'boot-1\n');
+    write(p('proc/meminfo'), 'MemTotal:        6053276 kB\nMemAvailable:    3163008 kB\n');
+    // the unit's /run (RAM): the deploy tool's scratch
+    fs.mkdirSync(p('run/mgu-deploy'), { recursive: true });
     write(p('usr/lib/oap-mainapp/src/main.js'), opts.main || stockMain());
     write(p('usr/lib/oap-mainapp/config/base.json'), JSON.stringify({
         usableUidsAndGids: { min: 13000, max: 13010 },
@@ -584,6 +587,32 @@ function testPendingReboot() {
         !st.pending_reboot.some((p) => p.id === 'fixture-tool'), `${r4.out}\n${JSON.stringify(st.pending_reboot)}`);
     check('pending: and the tool first listed this boot waits for the next one',
         st.pending_reboot.some((p) => p.id === 'app-privacy' && p.reason === PENDING), JSON.stringify(st.pending_reboot));
+}
+
+/* ---- scratch in RAM, linked backups --------------------------------------------------------- */
+
+function testScratch() {
+    const root = fakeRoot();
+    const left = () => ['run/mgu-deploy', 'var/opt/mgu-deploy'].map((d) => root.p(d))
+        .filter((d) => fs.existsSync(d)).reduce((all, d) => all.concat(fs.readdirSync(d).filter((n) => /^stage-/.test(n))), []);
+    const r = root.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes'], { MGU_DEPLOY_RAM_STAGE_MAX: '1' });
+    check('scratch: a package with no room in RAM unpacks on storage, installs, and leaves no stage folder',
+        r.status === 0 && fs.readlinkSync(path.join(root.tool('fixture-tool'), 'current')) === 'versions/0.2.0' && !left().length,
+        `${left()} ${r.out}`);
+
+    const v1 = appArtifact('fixture_app', '1.0.0', true);
+    const one = root.run(['install', '--artifact', v1, '--yes']);
+    const two = root.run(['install', '--artifact', appArtifact('fixture_app', '1.1.0', true), '--yes']);
+    const snap = fs.readdirSync(root.p('var/opt/mgu-deploy/backups')).filter((d) => /-install$/.test(d)).sort().pop();
+    const dir = root.p(`var/opt/mgu-deploy/backups/${snap}`);
+    const e = readJson(path.join(dir, 'manifest.json')).entries.find((x) => x.path === root.preinstalled('fixture_app', '1.0.0'));
+    const stored = e && e.stored ? path.join(dir, e.stored) : null;
+    check('backups: the update\'s backup links the package kept for 1.0.0 instead of storing it again',
+        one.status === 0 && two.status === 0 && !!stored && fs.statSync(stored).nlink > 1, `${JSON.stringify(e)} ${one.out} ${two.out}`);
+    const three = root.run(['install', '--artifact', appArtifact('fixture_app', '1.2.0', true), '--yes']);
+    check('backups: a linked backup keeps its bytes once the kept package it links goes',
+        three.status === 0 && !fs.existsSync(root.p('var/opt/mgu-deploy/kept/fixture_app/fixture_app@1.0.0.tgz')) &&
+        !!stored && sha256(fs.readFileSync(stored)) === sha256(fs.readFileSync(v1)), three.out);
 }
 
 /* ---- apps ---------------------------------------------------------------------------------- */
@@ -10729,6 +10758,7 @@ const SUITES = [
     testToolInstall,
     testPendingReboot,
     testApps,
+    testScratch,
     testAppUids,
     testBounceGuard,
     testIdleWait,
