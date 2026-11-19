@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.25
+
 - `uninstall` refuses to remove a component that an installed app or tool still depends on (its requirements, or a capability only that component provides), and names those components. Remove them first, or use `remove-all`, which removes them in order.
 
 ## 0.8.24
