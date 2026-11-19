@@ -254,7 +254,8 @@ Pixel apps: `gpu.pixmap(1, 320, 200, 'index8', 'nearest')`, `gpu.palette(1,
 rgb768)`, `gpu.pixels(1, rects, indices)` for what changed, and
 `imageOp(1, x, y, w, h)` in each frame (`test/pixel_client.js`).
 
-Video (`info.video`): a player process writes decoded frames (I420) to
+Video (`info.video`): a player process writes decoded frames (I420, or NV12
+where `info.videoNv12` is set: the header's format word 1) to
 `/dev/shm/mgu-video-<name>` (PROTOCOL.md, "Video"); the app names the file
 with `gpu.video(1, '/dev/shm/mgu-video-<name>')` and puts
 `videoOp(1, x, y, w, h, r)` in its frames. Each new video frame draws the

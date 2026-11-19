@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Comments in the configuration and source only; no change on the unit.
+- Video frame files can be NV12, the layout hardware decoders write (the header's format word 1), so a player hands
+  over decoded frames without converting them to I420 on the CPU. X_READY caps 256 (`info.videoNv12` in the JS client)
+  tells a player the renderer reads NV12; I420 files stay as they are.
 
 ## 0.6.23
 

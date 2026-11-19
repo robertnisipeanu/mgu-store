@@ -1007,7 +1007,7 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         c->dialect = DIALECT_NATIVE;
         int emb = embed_available(), area[4], ctl = ccu_free() ? ctl_gate_loaded() : 0;
         app_area(area);
-        uint32_t caps = CAP_PIXMAP | CAP_VIDEO | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
+        uint32_t caps = CAP_PIXMAP | CAP_VIDEO | CAP_VIDEO_NV12 | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
                         (ctl ? CAP_CONTROLLER : 0) | (ctl == 2 ? CAP_CONTROLLER_HOLD : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
                         (touch_on ? CAP_FINGERS : 0);
         /* a gate that cannot tell which app is in front would never show the app: no mode, the app keeps its own screens */
