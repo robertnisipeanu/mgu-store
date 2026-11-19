@@ -240,9 +240,20 @@ function sha256File(p) {
     return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 }
 function sha256Buf(b) { return crypto.createHash('sha256').update(b).digest('hex'); }
-/* file replaced by rename, the new file and its folder on disk before it returns */
+/* file replaced by rename, the new file and its folder on disk before it
+ * returns; a regular file that holds data already is only synced (and its
+ * mode set) */
 function writeAtomic(file, data, mode) {
     mkdirp(path.dirname(file));
+    var was = lstatOrNull(file);
+    if (was && was.isFile() && bytesEqualFile(Buffer.isBuffer(data) ? data : Buffer.from(String(data)), file)) {
+        var cur = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+        try {
+            if (mode !== undefined && (fs.fstatSync(cur).mode & 0o7777) !== mode) fs.fchmodSync(cur, mode);
+            fs.fsyncSync(cur);
+        } finally { fs.closeSync(cur); }
+        return;
+    }
     var tmp = file + '.tmp-' + process.pid, fd = fs.openSync(tmp, 'w');
     try {
         fs.writeFileSync(fd, data);
@@ -1761,7 +1772,30 @@ function snapshotEntry(p) {
     }
     return { path: p, kind: 'other', mode: st.mode & 0o7777, uid: st.uid, gid: st.gid };
 }
-/* Stored copies and manifests are root's alone. */
+/* A stored file with sha256 sha that the new snapshot can link to: one of
+ * an earlier snapshot, or the kept package of the same name. Stored copies
+ * and kept packages are never written in place (a new one replaces one by
+ * rename), so a link holds the same bytes for as long as it is kept. */
+function storedLike(sha, p) {
+    var found = null;
+    try {
+        fs.readdirSync(BACKUPS_DIR).some(function (n) {
+            var data = readJsonOrNull(path.join(BACKUPS_DIR, n, 'manifest.json'));
+            return (data && data.entries || []).some(function (e) {
+                if (e.kind !== 'file' || e.sha256 !== sha || !e.stored) return false;
+                var f = path.join(BACKUPS_DIR, n, e.stored);
+                try { if (sha256File(f) !== sha) return false; } catch (err) { return false; }
+                found = f;
+                return true;
+            });
+        });
+    } catch (e) { /* no snapshots yet */ }
+    if (found) return found;
+    var m = /^(.+)@(\d+\.\d+\.\d+)\.tgz$/.exec(path.basename(p)), kept = m && keptFile(m[1], m[2]);
+    try { return kept && sha256File(kept) === sha ? kept : null; } catch (e) { return null; }
+}
+/* Stored copies and manifests are root's alone. A file an earlier snapshot
+ * or kept package holds already is linked to it, not written again. */
 function writeSnapshot(dir, command, paths) {
     var filesDir = path.join(dir, 'files'), manifest = [], n = 0;
     mkdirp(filesDir, 0o700);
@@ -1772,8 +1806,12 @@ function writeSnapshot(dir, command, paths) {
         var e = snapshotEntry(p);
         if (e.kind === 'file') {
             e.stored = 'files/' + n;
-            fs.writeFileSync(path.join(dir, e.stored), fs.readFileSync(p), { mode: 0o600 });
-            fs.chmodSync(path.join(dir, e.stored), 0o600);
+            var to = path.join(dir, e.stored), like = storedLike(e.sha256, p), linked = false;
+            if (like) { try { fs.linkSync(like, to); linked = true; } catch (err) { /* written below */ } }
+            if (!linked) {
+                fs.writeFileSync(to, fs.readFileSync(p), { mode: 0o600 });
+                fs.chmodSync(to, 0o600);
+            }
             n++;
         }
         manifest.push(e);
@@ -2025,7 +2063,7 @@ function pidAlive(pid) {
     try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 function cleanStale() {
-    var dirs = [CFG.varOpt, DEPLOY_DIR, INPLACE_DIR, updaterDir(), credentialsDir(), path.dirname(customAppsFile())];
+    var dirs = [CFG.varOpt, DEPLOY_DIR, INPLACE_DIR, updaterDir(), credentialsDir(), path.dirname(customAppsFile()), CFG.run];
     rmrf(INPLACE_REQUEST);
     settleSafeMode(false);
     fs.readdirSync(CFG.varOpt).forEach(function (n) {
@@ -2079,15 +2117,15 @@ function releaseLock() {
 
 function syncDisks() { runOk(CFG.sync, []); }
 
-/* An op with `data` instead of `src` is staged under DEPLOY_DIR for the
+/* An op with `data` instead of `src` is staged in RAM (CFG.run) for the
  * window and removed after it. */
 function rootfsWindow(ops) {
     var staged = [];
     if (ops.some(function (op) { return op.path === CFG.recmgr; })) noteRecmgrAtBoot();
     ops.forEach(function (op, i) {
         if (op.data === undefined) return;
-        mkdirp(DEPLOY_DIR);
-        op.src = path.join(DEPLOY_DIR, 'write-' + process.pid + '-' + i);
+        mkdirp(CFG.run);
+        op.src = path.join(CFG.run, 'write-' + process.pid + '-' + i);
         fs.writeFileSync(op.src, op.data);
         staged.push(op.src);
     });
@@ -2138,8 +2176,8 @@ function rootfsWindowRun(ops) {
         }
     });
     lines.push(shQuote(CFG.sync));
-    var stage = path.join(DEPLOY_DIR, 'window-' + process.pid + '.sh');
-    mkdirp(DEPLOY_DIR);
+    var stage = path.join(CFG.run, 'window-' + process.pid + '.sh');
+    mkdirp(CFG.run);
     fs.writeFileSync(stage, lines.join('\n') + '\n');
     try { runOk(CFG.sh, [stage]); }
     finally { try { fs.unlinkSync(stage); } catch (e) { /* staged script */ } }
@@ -2150,10 +2188,51 @@ function rootfsWindowRun(ops) {
 
 /* ---- artifacts ------------------------------------------------------------ */
 
+/* A run's scratch folder is in RAM (CFG.run), so unpacking, preparing and
+ * checking a package writes nothing to the eMMC; an artifact without room
+ * there unpacks into its twin under DEPLOY_DIR (diskStage). removeStage
+ * removes both. */
+var RAM_STAGE_MAX = Number(env('MGU_DEPLOY_RAM_STAGE_MAX', String(128 << 20)));
+var RAM_RESERVE = 64 << 20;
+var ramStaged = 0;
 function stageDir() {
+    var d = path.join(CFG.run, 'stage-' + process.pid);
+    try { rmrf(d); mkdirp(d); return d; }
+    catch (e) { return diskStage(); }
+}
+function diskStage() {
     var d = path.join(DEPLOY_DIR, 'stage-' + process.pid);
-    rmrf(d); mkdirp(d);
+    if (!fs.existsSync(d)) mkdirp(d);
     return d;
+}
+function removeStage(stage) {
+    rmrf(stage);
+    ramStaged = 0;
+    rmrf(path.join(DEPLOY_DIR, 'stage-' + process.pid));
+}
+/* Bytes free on the file system holding dir (df), or 0 when df cannot tell. */
+function freeBytes(dir) {
+    var r = run(CFG.df, ['-Pk', dir], { allowFail: true });
+    var f = (r.stdout || '').trim().split('\n').pop().split(/\s+/);
+    return r.status === 0 && Number(f[3]) >= 0 ? Number(f[3]) * 1024 : 0;
+}
+function memAvailable() {
+    try { return Number(/^MemAvailable:\s+(\d+) kB/m.exec(fs.readFileSync(path.join(CFG.proc, 'meminfo'), 'utf8'))[1]) * 1024; }
+    catch (e) { return 0; }
+}
+/* Whether bytes more fit in the RAM stage: within RAM_STAGE_MAX for the
+ * run, a quarter of the memory available, and leaving RAM_RESERVE of the
+ * file system free. */
+function ramRoom(bytes) {
+    var total = ramStaged + bytes;
+    return total <= RAM_STAGE_MAX && total <= memAvailable() / 4 && bytes <= freeBytes(CFG.run) - RAM_RESERVE;
+}
+/* The bytes a tgz unpacks to (its tar stream, headers included, counted as
+ * it is decompressed); null when they cannot be counted. */
+function unpackedSize(file) {
+    var r = run('/bin/sh', ['-c', 'gzip -dc "$1" | wc -c', 'sh', file], { allowFail: true });
+    var n = r.status === 0 && /^\s*\d+\s*$/.test(r.stdout || '') ? Number(r.stdout.trim()) : 0;
+    return n > 0 ? n : null;
 }
 function safeRel(p) {
     return typeof p === 'string' && p && p[0] !== '/' && p !== '.' &&
@@ -2169,9 +2248,18 @@ function validateArtifact(file, stage) {
         // "./": the archive's own root, as tar -C <dir> . packs it
         if (n && n !== './' && !safeRel(n.replace(/\/$/, ''))) throw refuse('unsafe path in ' + file + ': ' + n);
     });
-    var dir = path.join(stage, 'a' + Math.floor(Math.random() * 1e9));
+    /* in RAM with room for it unpacked, prepared and unpacked again; else on disk */
+    var inRam = path.dirname(stage) === CFG.run, size = inRam ? unpackedSize(file) : null;
+    var need = size === null ? 0 : 2 * (size + fs.statSync(file).size), ram = size !== null && ramRoom(need);
+    var name = 'a' + Math.floor(Math.random() * 1e9), dir = path.join(inRam && !ram ? diskStage() : stage, name);
     mkdirp(dir);
     var x = run(CFG.tar, ['-xzf', file, '-C', dir], { allowFail: true });
+    if (x.status !== 0 && ram) {
+        rmrf(dir);
+        dir = path.join(diskStage(), name);
+        mkdirp(dir);
+        x = run(CFG.tar, ['-xzf', file, '-C', dir], { allowFail: true });
+    } else if (ram) ramStaged += need;
     // its listing read the whole archive: this is the unit's failure (space, I/O)
     if (x.status !== 0) throw fail('cannot extract ' + file + ': ' + (x.stderr || '').trim());
     walk(dir, '', []).forEach(function (e) {
@@ -2549,7 +2637,7 @@ function syncId7Parts() {
                 addPending(s, app.id, PENDING_HMI_PARTS);
             });
             if (off.length) { rmrf(stage); fs.mkdirSync(stage); id7PartsOff(s, stage); }
-        } finally { rmrf(stage); }
+        } finally { removeStage(stage); }
         if (off.length || JSON.stringify(s.hmi_parts) !== was) saveState(s);
     });
 }
@@ -2852,9 +2940,9 @@ var ENV_ERRORS = ['ENOSPC', 'EDQUOT', 'EIO', 'EROFS', 'EMFILE', 'ENFILE', 'ENOME
 function unknownSaid(u) {
     return u ? ', ' + u.dropped.join(', ') + ' (not on this unit) taken out of ' + u.manifest : '';
 }
-function prepareApp(a, stage) {
+function prepareApp(a) {
     if (!a.prepare) return a;
-    var out = path.join(stage, 'built-' + a.id + '@' + a.version + '.tgz'), r, link = linker();
+    var stage = path.dirname(a.dir), out = path.join(stage, 'built-' + a.id + '@' + a.version + '.tgz'), r, link = linker();
     try {
         editId7Parts(a, a.prepare === 'build' ? a.tree : a.pkgDir);
         if (a.prepare === 'build') {
@@ -4448,7 +4536,7 @@ function placePreinstalled(a) {
     preinstalledFor(a.id).forEach(function (p) {
         if (p !== dest) ops.push({ type: 'delete', path: p });
     });
-    ops.push({ type: 'copy', data: fs.readFileSync(a.file), path: dest, mode: 0o644, uid: 0, gid: 0 });
+    ops.push({ type: 'copy', src: a.file, path: dest, mode: 0o644, uid: 0, gid: 0 });
     rootfsWindow(ops);
     if (sha256File(dest) !== sha) throw fail('preinstalled package checksum mismatch at ' + dest);
 }
@@ -5068,7 +5156,7 @@ function appStale(app) {
  * app manager waits for its update, else null. */
 function setUpElsewhere(a, existing, stage) {
     var why = appStale(existing);
-    return why ? { why: why, artifact: a.prepare ? prepareApp(a, stage) : a } : null;
+    return why ? { why: why, artifact: a.prepare ? prepareApp(a) : a } : null;
 }
 /* Moves the data folder set aside at stash into app id's home as installed
  * now, what was oldUid's (and oldGid's) becoming the new uid's (and the
@@ -5224,13 +5312,17 @@ function reinstallApp(app, file, again, version) {
  * SOME/IP manifest checked), in a folder of its own; refused before
  * anything changes when it would not install. */
 function preflightApp(file) {
-    var dir = path.join(DEPLOY_DIR, 'preflight-' + process.pid);
+    var dir = path.join(CFG.run, 'preflight-' + process.pid), twin = path.join(DEPLOY_DIR, 'stage-' + process.pid);
+    var twinThere = fs.existsSync(twin);
     rmrf(dir);
     mkdirp(dir);
     try {
         var a = validateArtifact(file, dir);
-        if (a.kind === 'app' && !isId8()) checkSomeip(prepareApp(a, dir));
-    } finally { rmrf(dir); }
+        if (a.kind === 'app' && !isId8()) checkSomeip(prepareApp(a));
+    } finally {
+        rmrf(dir);
+        if (!twinThere) rmrf(twin);
+    }
 }
 
 /* ---- uninstall -------------------------------------------------------------- */
@@ -5746,9 +5838,9 @@ function id8Complete(a) {
 /* The package MainApp-21 installs, in npm format (files under package/):
  * one published so, as it is unless id8Complete adds to it; a source
  * package built here; any other one (flat, .mgu) repacked. */
-function id8Package(a, stage) {
-    if (a.prepare === 'build') a = prepareApp(a, stage);
-    var npm = a.pkgDir === path.join(a.dir, 'package'), added = id8Complete(a);
+function id8Package(a) {
+    if (a.prepare === 'build') a = prepareApp(a);
+    var stage = path.dirname(a.dir), npm = a.pkgDir === path.join(a.dir, 'package'), added = id8Complete(a);
     if (npm && !added.length) return a;
     var out = path.join(stage, 'id8-' + a.id + '@' + a.version + '.tgz');
     var entries = walk(a.pkgDir, '', []).filter(function (e) { return e.stat.isFile(); }).map(function (e) {
@@ -6469,7 +6561,7 @@ function amMoveQueue(state, stage) {
             var a = null, why = 'its staged package is not that app';
             try {
                 a = validateArtifact(staged, stage);
-                a = a.kind === 'app' && a.id === c.appId && a.version === c.version ? id8Package(a, stage) : null;
+                a = a.kind === 'app' && a.id === c.appId && a.version === c.version ? id8Package(a) : null;
             } catch (e) {
                 if (!isRefusal(e)) throw e;
                 a = null; why = e.message;
@@ -6596,7 +6688,7 @@ function amCommand(command, fn) {
             pruneCreatedDirs(state);
         } catch (e2) { process.stderr.write('rollback failed: ' + e2.message + '\n'); }
         throw e;
-    } finally { rmrf(stage); }
+    } finally { removeStage(stage); }
     return 0;
 }
 function cmdAppManager(args) {
@@ -6657,8 +6749,8 @@ function fallbackTouched() {
  * refuses or the copy does not parse: MainApp would crash on it at every
  * start. */
 function buildPatchedCopy(input) {
-    var tmp = path.join(DEPLOY_DIR, 'main.fallback-' + process.pid + '.js');
-    mkdirp(DEPLOY_DIR);
+    var tmp = path.join(CFG.run, 'main.fallback-' + process.pid + '.js');
+    mkdirp(CFG.run);
     try {
         buildFallbackCopy(tmp, input);
         if (fs.existsSync(privacyTool())) {
@@ -7443,13 +7535,13 @@ function cmdCheck(args) {
                 try {
                     var v = validateArtifact(path.resolve(f), stage), why = incompatible(v);
                     if (why) throw refuse(why);
-                    var a = v.kind !== 'app' ? v : isId8() ? id8Package(v, stage) : prepareApp(v, stage);
+                    var a = v.kind !== 'app' ? v : isId8() ? id8Package(v) : prepareApp(v);
                     say('artifact ' + f + ': ' + (a.service ? 'service ' : '') + a.kind + ' ' + a.id + ' ' + a.version + ' ok' +
                         (a.hmi ? ' (for ' + a.hmi.map(hmiName).join(' and ') + ')' : ''));
                     artifactTouched(a).forEach(function (p) { say('  would touch ' + p); });
                 } catch (e) { line(false, 'artifact ' + f + ' valid: ' + e.message, true); }
             });
-        } finally { rmrf(stage); }
+        } finally { removeStage(stage); }
     }
     return hard.length ? 2 : 0;
 }
@@ -7807,7 +7899,7 @@ function installRun(args, afresh) {
         }
         var work = validated.filter(function (a) {
             return a.kind !== 'app' || ['current', 'older'].indexOf(decisions[a.id].action) < 0;
-        }).map(function (a) { return a.kind !== 'app' ? a : id8 ? id8Package(a, stage) : checkSomeip(prepareApp(a, stage)); });
+        }).map(function (a) { return a.kind !== 'app' ? a : id8 ? id8Package(a) : checkSomeip(prepareApp(a)); });
         validated.forEach(function (a) {
             if (a.kind === 'app' && decisions[a.id].action === 'older') {
                 say(a.id + ' ' + a.version + ' skipped; ' + decisions[a.id].existing.version + ' is installed');
@@ -7947,8 +8039,10 @@ function installRun(args, afresh) {
         settlePrivacyBounce();
         /* out of the staging folder, which goes before they install */
         Object.keys(elsewhere).forEach(function (id) {
-            var file = path.join(DEPLOY_DIR, id + '.afresh.tmp-' + process.pid);
-            copyFileMode(elsewhere[id].artifact.file, file, 0o600);
+            var src = elsewhere[id].artifact.file, size = fs.statSync(src).size;
+            var file = path.join(ramRoom(size) ? CFG.run : DEPLOY_DIR, id + '.afresh.tmp-' + process.pid);
+            ramStaged += size;
+            copyFileMode(src, file, 0o600);
             afresh.push({ id: id, why: elsewhere[id].why, file: file });
         });
     } finally {
@@ -7959,7 +8053,7 @@ function installRun(args, afresh) {
              * deploy tool's own install fails; that failure still fails the run */
             try { if (done.length) { selfInstall(); laySafeModeGuard(state); } }
             finally { if (attempted) saveState(state); }
-        } finally { rmrf(stage); }
+        } finally { removeStage(stage); }
     }
     return 0;
 }
@@ -8701,7 +8795,9 @@ function keepInstalledPackage(id) {
 function keepPackage(a) {
     try {
         mkdirp(keptDir(a.id), 0o700);
-        copyFileMode(a.file, keptFile(a.id, a.version), 0o600);
+        if (!fs.existsSync(keptFile(a.id, a.version)) || sha256File(keptFile(a.id, a.version)) !== sha256File(a.file)) {
+            copyFileMode(a.file, keptFile(a.id, a.version), 0o600);
+        }
         var prev = keptPrevious(a.id, a.version);
         keptVersions(a.id).forEach(function (v) {
             if (v !== a.version && !(prev && v === prev.version)) rmrf(keptFile(a.id, v));
