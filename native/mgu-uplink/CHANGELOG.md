@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.13
+
 - An app's lease file is rewritten only when the lease changes, not at each renewal of the same lease.
 
 ## 0.7.12

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.27
+
 - Installs write less to the head unit's storage: packages are unpacked, prepared and checked in RAM when there is room (on storage otherwise), a package is written to the system partition once, straight from its file, and a backup links a file that an earlier backup or kept package already holds instead of storing it again.
 - The provisioning fallback copy of MainApp's `main.js` is built in RAM, at each start and at each install, and written to storage only when it changes. The deploy tool's state files are written only when they change.
 
