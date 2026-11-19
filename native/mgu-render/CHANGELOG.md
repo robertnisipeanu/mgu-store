@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- iDrive 7: `touch_area = auto` is the whole screen, 0,0,1920,720. Apps may claim any part of the screen, the back column included; a tap no app claims goes to the HMI. `touch_area` in the configuration sets any other area.
+
 ## 0.6.24
 
 - Comments in the configuration and source only; no change on the unit.

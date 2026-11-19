@@ -207,7 +207,7 @@ skipped. The unit-specific ones:
 |---|---|---|
 | screen, app area | read from Winston's output: 1920×720, area 108,82,1790,638 | 2880×960, area 0,76,2880,764 |
 | `touch_iface`, `touch_saddr` | `vlan73`, `160.48.199.115` (`auto`: `lo` when there is no vlan73) | same |
-| `touch_area` | 84,0,1836,720 (`auto` by screen size) | 0,76,2880,764 |
+| `touch_area` | 0,0,1920,720 (`auto` by screen size) | 0,76,2880,764 |
 | `embed`, `embed_area` | 1, 104,88,1796,632 | never offered: no HmiMain3D, so no template is loaded |
 | `embed_zero_copy`, `tick_early`, `readback_pbo`, `embed_finish` | 1, 1, 1, 0 (embed: "Embed buffers") | same |
 | `fps`, `fps.<app>` | 0: an app that asks for a rate (the Store: 60) gets it; N: N frames a second in its place, for every such app or one (`fps.robertn_store = 30`) | same |
