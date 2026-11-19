@@ -293,7 +293,7 @@ mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--
 mgu-deploy.sh status [--read-only] [--json]   # --read-only: changes nothing
 mgu-deploy.sh relay [<id>...] [--keep-safe-mode] --yes   # a stale tool's files again, without its install step
 mgu-deploy.sh setup <id> --yes                # a tool laid again, its install step included
-mgu-deploy.sh uninstall <id> [--yes]
+mgu-deploy.sh uninstall <id> [--yes]          # refused while an installed component requires it
 mgu-deploy.sh remove-all [--json] | remove-all --yes
 mgu-deploy.sh rollback <id> [--keep-safe-mode] [--yes]
 mgu-deploy.sh restore [name] [--yes]

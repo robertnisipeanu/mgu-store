@@ -3163,6 +3163,24 @@ function testCheck() {
     check('check: a rollback drops the note for the next start', !fs.existsSync(root.p('var/opt/mgu-deploy/verify.json')));
 }
 
+/* A tool an installed app requires (the updater's record of its install)
+ * stays while the app is installed. */
+function testUninstallRequired() {
+    const root = fakeRoot();
+    root.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    root.run(['install', '--artifact', appArtifact('fixture_app', '1.0.0', true), '--yes']);
+    fs.mkdirSync(root.p('var/opt/mgu-updater/state'), { recursive: true });
+    fs.writeFileSync(root.p('var/opt/mgu-updater/state/origins.json'),
+        JSON.stringify({ fixture_app: { source: 'mgu-store', commit: null, requires: { 'fixture-tool': '0.1.0' } } }));
+    const tool = () => fs.existsSync(root.p('var/opt/fixture-tool/current/component.json'));
+    let r = root.run(['uninstall', 'fixture-tool', '--yes']);
+    check('uninstall: a tool an installed app requires is refused, naming the app', r.status === 2 &&
+        r.out.includes('fixture-tool is required by fixture_app') && tool(), r.out);
+    r = root.run(['uninstall', 'fixture_app', '--yes']);
+    r = r.status === 0 ? root.run(['uninstall', 'fixture-tool', '--yes']) : r;
+    check('uninstall: the tool goes once the app is removed', r.status === 0 && !tool(), r.out);
+}
+
 function testAppRollback() {
     const root = fakeRoot();
     const kept = (v) => root.p(`var/opt/mgu-deploy/kept/fixture_app/fixture_app@${v}.tgz`);
@@ -10687,6 +10705,7 @@ const SUITES = [
     testLocalOnlyListed,
     testHealth,
     testCheck,
+    testUninstallRequired,
     testAppRollback,
     testRollback,
     testPrivacyTool,
