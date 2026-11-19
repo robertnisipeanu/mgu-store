@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The Store gets fresh state within a few seconds when components are installed or removed outside the updater, and after the updater refuses an install, update or removal.
+
 ## 0.8.49
 
 - Files downloaded from public repositories for installs are kept on the unit and reused by later installs and updates, within a fixed size limit. Removing a source clears them.

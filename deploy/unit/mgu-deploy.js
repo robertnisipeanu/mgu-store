@@ -8106,6 +8106,33 @@ function ourApps() {
         return !pkg || pkg.mguLocalOnly === true;
     }).map(function (r) { return r.id; });
 }
+/* What installed component cid requires: its component.json's requires
+ * (own) with those the updater recorded at its install (origins.json). */
+function requiresOf(cid, own, origins) {
+    var rec = Object.prototype.hasOwnProperty.call(origins, cid) ? origins[cid] : null, out = {};
+    [rec && rec.requires, own].forEach(function (r) {
+        if (r && typeof r === 'object') Object.keys(r).forEach(function (k) { out[k] = r[k]; });
+    });
+    return out;
+}
+function updaterOrigins() {
+    var o = readJsonOrNull(path.join(updaterDir(), 'state', 'origins.json'));
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+}
+/* The installed components that keep id: those that require it, and the
+ * tools that need a capability (mguNeeds) only id provides; not an app
+ * whose removal is queued for the next start (iDrive 8). */
+function dependentsOf(id) {
+    var origins = updaterOrigins(), tools = installedTools();
+    var cap = (tools.filter(function (t) { return t.id === id; })[0] || { component: {} }).component.mguProvides;
+    var only = !!cap && !tools.some(function (t) { return t.id !== id && t.component.mguProvides === cap; });
+    function requires(cid, own) { return Object.prototype.hasOwnProperty.call(requiresOf(cid, own, origins), id); }
+    return tools.filter(function (t) {
+        return t.id !== id && (requires(t.id, t.component.requires) ||
+            only && Array.isArray(t.component.mguNeeds) && t.component.mguNeeds.indexOf(cap) >= 0);
+    }).concat(installedApps().filter(function (a) { return a.id !== id && !queuedRemoval(a.id) && requires(a.id, null); }))
+        .map(function (c) { return c.id; });
+}
 function cmdUninstall(args) {
     var id = args.positional[0];
     if (!id) throw refuse('uninstall needs a component id');
@@ -8120,6 +8147,9 @@ function cmdUninstall(args) {
     if (id === 'app-privacy') guardRefuse('the removal of app-privacy');
     var state = loadState();
     var isTool = installedTools().some(function (t) { return t.id === id; });
+    /* a reinstall (keepPackages) puts it back */
+    var needed = args.keepPackages ? [] : dependentsOf(id);
+    if (needed.length) throw refuse(id + ' is required by ' + needed.join(', ') + '; uninstall ' + (needed.length > 1 ? 'them' : 'it') + ' first');
     if (!isTool && isId8()) return uninstallQueuedId8(id, state);
     if (!isTool && !readJsonOrNull(appEntryFile(id))) throw refuse(id + ': not installed');
     if (!isTool) guardRefuse('an app removal');
@@ -8227,13 +8257,13 @@ function removalTools() {
     var keepRenderer = amAdopted().renderer;
     return installedTools().filter(function (t) { return t.id !== 'mgu-deploy' && !(keepRenderer && t.id === 'mgu-renderd'); });
 }
-/* A tool another remaining tool requires goes after it; else by id. */
+/* A tool another remaining tool keeps (dependentsOf) goes after it; else by id. */
 function removalOrder(tools) {
-    var left = tools.slice(), out = [];
+    var left = tools.slice(), out = [], kept = {};
+    tools.forEach(function (t) { kept[t.id] = dependentsOf(t.id); });
     while (left.length) {
         var next = left.filter(function (t) {
-            return !left.some(function (o) { return o !== t && o.component.requires && typeof o.component.requires === 'object' &&
-                Object.prototype.hasOwnProperty.call(o.component.requires, t.id); });
+            return !left.some(function (o) { return o !== t && kept[t.id].indexOf(o.id) >= 0; });
         })[0] || left[0];
         out.push(next);
         left.splice(left.indexOf(next), 1);

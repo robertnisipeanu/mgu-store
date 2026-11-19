@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `uninstall` refuses to remove a component that an installed app or tool still depends on (its requirements, or a capability only that component provides), and names those components. Remove them first, or use `remove-all`, which removes them in order.
+
 ## 0.8.24
 
 - iDrive 7: when the app manager has no app uid left to give a new app ("No free user Ids left"), the app's install first removes the homes of our apps in `/var/opt/public/oap` that no registry entry uses, which frees their uids. The app manager leaves such a home behind each time it installs an app again under a new uid, and holds its uid for good. Homes of other apps, homes changed in the last 10 minutes and homes a process runs from stay.

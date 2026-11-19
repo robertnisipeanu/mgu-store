@@ -918,6 +918,8 @@ function under(entry, id) {
 // the phone page offers no restart (web.js).
 const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
     'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
+// requests that change what is installed
+const CHANGES = ['install', 'uninstall', 'rollback', 'setup'];
 
 /* The uplink's requests (native/mgu-uplink ctl.sock) the Store makes through
  * the updater (README.md, "The uplink"): each one's ctl.sock request, built
@@ -1568,6 +1570,43 @@ class Updater {
             this.placedSeen = now;
             this.changed();
         }
+    }
+
+    /* The installed tools and apps, ids and versions as one line, read
+     * from their files (tools' current/component.json, MainApp's registry
+     * and each app's package.json). */
+    installedNow() {
+        const names = (dir) => {
+            try {
+                return fs.readdirSync(dir).sort();
+            } catch (e) {
+                return [];
+            }
+        };
+        const tools = names(this.conf.tool_root).map((id) => installedTool(this.conf, id));
+        const apps = names(path.join(this.conf.oap_root, `oap_${this.conf.mainapp_uid}`, 'data', 'apps'))
+            .filter((f) => /\.json$/.test(f)).map((f) => installedApp(this.conf, f.slice(0, -5)));
+        return tools.concat(apps).filter(Boolean).map((c) => `${c.kind}:${c.id}@${c.version}`).join();
+    }
+
+    /* A change to what is installed made outside the updater (the deploy
+     * tool run by hand): the deploy tool asked again and the state sent.
+     * Changes while the updater works go out with its own state. */
+    watchInstalled() {
+        if (this.watchingInstalled) {
+            return;
+        }
+        const now = this.installedNow();
+        const seen = this.installedSeen;
+        this.installedSeen = now;
+        if (seen === undefined || now === seen || this.busy) {
+            return;
+        }
+        this.watchingInstalled = true;
+        this.refresh().then(() => {
+            this.watchingInstalled = false;
+            this.changed();
+        });
     }
 
     /* Puts aside the last start's failed apply of id, also across restarts. */
@@ -4286,6 +4325,10 @@ class Updater {
                 if (error !== undefined) {
                     reply(error ? { type: 'error', op: req.op, error } : this.state());
                 }
+                // a change refused: the client's view may be out of date
+                if (error && CHANGES.indexOf(req.op) >= 0) {
+                    this.changed();
+                }
             }
         });
     }
@@ -4399,6 +4442,7 @@ class Updater {
                 this.scanUsb();
                 this.scanTokens();
                 this.watchPlaced();
+                this.watchInstalled();
                 if (this.uidsPending) {
                     this.checkUids();
                 }

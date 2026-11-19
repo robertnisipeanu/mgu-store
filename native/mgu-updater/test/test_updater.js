@@ -4426,6 +4426,7 @@ function testAppRemove() {
     };
     tool('mgu-deploy', '0.6.0');
     tool('mgu-updater', '0.8.0');
+    tool('gate-tool', '1.0.0');
     const installed = (id, version, uid) => {
         mkdirp(path.join(oap, 'oap_12201', 'data', 'apps'));
         mkdirp(path.join(oap, `oap_${uid}`, 'source'));
@@ -4437,7 +4438,7 @@ function testAppRemove() {
     // listed without uninstallable, as the built-in catalog lists them
     publish(cat, [entry(appTgz(cat, 'robertn_store', '0.9.0'), 'app', 'Store'), entry(appTgz(cat, 'cat_app', '1.0.0'), 'app', 'Cat'),
         entry(appTgz(cat, 'next_app', '1.0.0'), 'app', 'Next'), entry(toolKit(cat, 'mgu-deploy', '0.6.0', {}), 'tool', 'Deploy tool'),
-        entry(toolKit(cat, 'mgu-updater', '0.8.0', {}), 'tool', 'Updater')].map((e) => Object.assign(e, { mguHmi: ['ID7', 'ID8'] })), { schema: 2 });
+        entry(toolKit(cat, 'mgu-updater', '0.8.0', {}), 'tool', 'Updater'), entry(toolKit(cat, 'gate-tool', '1.0.0', {}), 'tool', 'Gate')].map((e) => Object.assign(e, { mguHmi: ['ID7', 'ID8'] })), { schema: 2 });
     const sources = path.join(M, 'sources.json');
     fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: cat, builtin: true }] }));
     const conf = {
@@ -4454,6 +4455,8 @@ function testAppRemove() {
     const u = new Updater(conf);
     const comp = (id) => u.state().components.find((c) => c.id === id) || {};
     const remove = (id) => ask(conf.socket, { op: 'uninstall', id, secret: u.secret });
+    const pushed = [];
+    let listener = null;
     const done = () => {
         delete process.env.FAKE_UNIT_HMI;
         delete process.env.FAKE_PENDING;
@@ -4482,8 +4485,44 @@ function testAppRemove() {
         .then((err) => {
             ok('iDrive 8: the app\'s Remove runs the deploy tool\'s uninstall', err === null &&
                 /^uninstall cat_app --yes$/m.test(fs.readFileSync(deployLog, 'utf8')) && !comp('cat_app').installed, `${err} ${JSON.stringify(comp('cat_app'))}`);
+            // a client that stays connected and asks nothing gets the state the updater sends
+            listener = net.connect(conf.socket);
+            let buf = '';
+            listener.setEncoding('utf8');
+            listener.on('data', (d) => {
+                buf += d;
+                let nl;
+                while ((nl = buf.indexOf('\n')) >= 0) {
+                    pushed.push(JSON.parse(buf.slice(0, nl)));
+                    buf = buf.slice(nl + 1);
+                }
+            });
+            // past the state the removal sent
+            return until(() => pushed.length, (n) => n > 0, 5000, 'the state on connecting').then(() => sleep(1000));
+        })
+        .then(() => {
+            u.watchInstalled();
+            const before = pushed.length;
+            // removed outside the updater
+            fs.unlinkSync(path.join(opt, 'gate-tool', 'current'));
+            u.watchInstalled();
+            return until(() => pushed.slice(before), (l) => l.some((st) => st.type === 'state' && !row(st, 'gate-tool').installed), 10000,
+                'the state without gate-tool').then(() => sleep(1000));
+        })
+        .then(() => {
+            ok('a tool removed outside the updater: the state goes out to connected clients', row(pushed[0], 'gate-tool').installed === '1.0.0',
+                JSON.stringify(row(pushed[0], 'gate-tool')));
+            const before = pushed.length;
+            return remove('gate-tool').then((err) => until(() => pushed.length, (n) => n > before, 5000, 'the state after a refused Remove').then(() => err));
+        })
+        .then((err) => {
+            ok('a refused Remove sends the state again', !!err, String(err));
+            listener.end();
             done();
         }, (e) => {
+            if (listener) {
+                listener.end();
+            }
             done();
             throw e;
         });
