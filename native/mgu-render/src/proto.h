@@ -85,6 +85,9 @@ enum {
                                packed (w * bytes per pixel per row), the whole padded to 4 */
     X_PALETTE = 0x4d520005, /* u32 id, 256 * 3 bytes RGB: an INDEX8 pixmap's colours, for the whole picture */
     X_FINGERS = 0x4d520006, /* u32 on: every finger of a gesture in a claim comes as X_FINGER, instead of TOUCH */
+    X_BUSY = 0x4d520040,    /* u32 on: 1 the app is slow on purpose (the Store installing): inputs that leave its
+                               picture as it is don't hand touch and the controller to the HMI, for at most BUSY_MAX_US
+                               after the last 1; 0 counts them again */
 };
 
 /* pixmap formats */

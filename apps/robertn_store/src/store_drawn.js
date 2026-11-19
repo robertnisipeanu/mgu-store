@@ -41,6 +41,7 @@ const DEPTHS = 3;
 const ICON_BYTES = 128 * 1024;          // a package picture: at most this big
 const ICONS_KEPT = 48;                  // decoded pictures kept, the most recently shown
 const FPS = 60;                         // frames a second at most (mgu-render's fps setting can give another)
+const BUSY_FPS = 15;                    // while an install runs: the CPU is the install's
 const KEEPALIVE_MS = 1000;              // the renderer hides an app silent for 3 s
 const CLOSED_RESHOW_MS = 700;           // a touch outside that left the page where it was
 const DRAG_PX = 14;
@@ -357,6 +358,14 @@ class Drawn extends EventEmitter {
         this.filter = filter;
         this._page();
         this.render();
+    }
+
+    /* An install runs (on, again on each of its states): fewer frames, and the renderer does not take touch and the
+     * controller away for a picture that is slow to change. */
+    busy(on) {
+        if (!!on !== !!this._busy) this.gpu.fps(on ? BUSY_FPS : FPS);
+        this._busy = !!on;
+        this.gpu.busy(on);
     }
 
     suspend(on) {

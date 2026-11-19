@@ -118,6 +118,7 @@ Client to daemon:
 | 0x4d520004 | X_PIXELS | u32 id, n (1..64), n × u32 x, y, w, h, then each rect's pixels in turn, rows top-down, packed (w × 1 or 4 bytes a row) |
 | 0x4d520005 | X_PALETTE | u32 id, 768 bytes RGB: an INDEX8 pixmap's colours, for the whole picture from now on |
 | 0x4d520006 | X_FINGERS | u32 on: every finger of a gesture in the app's claims comes as X_FINGER, with its id; TOUCH no longer comes. Off by default |
+| 0x4d520040 | X_BUSY | u32 on: 1 the app is slow on purpose (the Store installing): inputs that leave its picture as it is don't hand touch and the controller to the HMI, for at most 3 min after the last 1 (send it again to keep it); 0 counts them again. A renderer without it ignores it |
 
 Daemon to client:
 

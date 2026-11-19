@@ -279,6 +279,7 @@ class Store extends OnlineApp {
             this._connected = true;
             this._stRaw = st;
             this._st = localized(st);
+            this._drawn.busy(!!st.busy);
             this._tokenAdded(st);
             this._reprobe();
             this._render();

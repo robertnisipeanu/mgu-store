@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+While an install runs the Store draws 15 frames a second (the CPU is the install's) and tells the
+renderer it is busy, so a picture slow to change does not hand touch and the controller to the HMI.
+
 No change on screen: the renderer client it carries has multi-touch
 for apps that ask for it, and can hold only some parts of the
 controller.

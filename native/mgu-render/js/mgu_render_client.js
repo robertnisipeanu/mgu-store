@@ -46,7 +46,7 @@ const SOCKETS = process.env.MGU_RENDERD_SOCKET ? [process.env.MGU_RENDERD_SOCKET
 const M = { HELLO: 1, PLACE: 2, SHOW: 3, ATLAS: 4, RAMP: 5, LAYER: 6, FRAME: 7, DROP_LAYER: 8, CLAIM: 9, IMAGE: 10, DROP_IMAGE: 11, FPS: 12,
     VIDEO: 13, DROP_VIDEO: 14 };
 const X = { MODE: 0x4d520001, GRAB: 0x4d520002, PIXMAP: 0x4d520003, PIXELS: 0x4d520004, PALETTE: 0x4d520005, FINGERS: 0x4d520006,
-    READY: 0x4d520101, STATE: 0x4d520102, CCU: 0x4d520103, FINGER: 0x4d520104 };
+    BUSY: 0x4d520040, READY: 0x4d520101, STATE: 0x4d520102, CCU: 0x4d520103, FINGER: 0x4d520104 };
 const E = { READY: 101, TICK: 102, ERROR: 103, STATS: 104, TOUCH: 105, CLOSED: 106 };
 const MODES = { layer: 1, embed: 2 };
 const MODE_NAMES = [null, 'layer', 'embed'];
@@ -111,6 +111,7 @@ class RenderClient extends EventEmitter {
         this.grabbing = false;
         this.wantFingers = false;     // every finger as `finger` events (X_FINGERS)
         this.maxFps = null;           // fps(): the frame cap, sent again after a reconnect
+        this.busyOn = false;          // busy(): sent again after a reconnect
         this.inbuf = Buffer.alloc(0);
         this.sent = { atlas: new Set(), ramp: new Set(), layer: new Set(), image: new Map() };
         this.imageBytes = 0;
@@ -217,6 +218,7 @@ class RenderClient extends EventEmitter {
                 if (this.grabbing) this._write(this._grabMsg(1));
                 if (this.wantFingers) this._write(u32msg(X.FINGERS, [1]));
                 if (this.maxFps !== null) this._write(u32msg(M.FPS, [this.maxFps]));
+                if (this.busyOn) this._write(u32msg(X.BUSY, [1]));
             }
             this.emit('ready', this.screen, this.info);
         } else if (type === E.TOUCH) {
@@ -279,6 +281,15 @@ class RenderClient extends EventEmitter {
     fps(n) {
         this.maxFps = Math.max(0, Math.min(1000, n | 0));
         if (this.ready && this.native) this._write(u32msg(M.FPS, [this.maxFps]));
+    }
+    /** Slow on purpose (true; the Store installing): inputs that leave the picture as it is don't hand touch and the
+     *  controller to the HMI, for 3 min after the last busy(true), which each call renews. A renderer without
+     *  X_BUSY ignores it. */
+    busy(on) {
+        on = !!on;
+        if (on === this.busyOn && !on) return;
+        this.busyOn = on;
+        if (this.ready && this.native) this._write(u32msg(X.BUSY, [on ? 1 : 0]));
     }
     /** Touch areas, logical px ([] = none): while shown, touch there is this app's. */
     claim(rects) {
