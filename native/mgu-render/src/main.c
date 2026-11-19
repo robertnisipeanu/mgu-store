@@ -880,7 +880,10 @@ static void touch_defaults(int area[4]) {
     if (cfg.touch_area[2]) { memcpy(area, cfg.touch_area, 4 * sizeof *area); return; }
     area[0] = area[1] = area[2] = area[3] = 0;
     if (screen_w == 2880 && screen_h == 960) { area[1] = 76; area[2] = 2880; area[3] = 764; }   /* iDrive 8: title strip, climate bar */
-    else if (screen_w == 1920 && screen_h == 720) { area[0] = 84; area[2] = 1836; area[3] = 720; }   /* iDrive 7: back column (the kit claims tabs in the title strip; status icons are never claimed) */
+    /* iDrive 7: the whole screen. A tap nobody claims still goes to the HMI, and the kit's layouts claim right of the
+     * back column only, so its arrow keeps working; an app drawn over the column (a fill layout) may claim it too, so a
+     * tap there no longer goes to the HMI underneath, which would close the app. Status icons are never claimed. */
+    else if (screen_w == 1920 && screen_h == 720) { area[2] = 1920; area[3] = 720; }
 }
 
 /* ---------------- controller gate (upstream inputgate) ---------------- */

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- iDrive 7: `touch_area = auto` is the whole screen, 0,0,1920,720 (it was 84,0,1836,720). The area only limits what apps may claim; a tap nobody claims goes to the HMI as before, and no current layout claims the back column, so nothing changes for them. An app drawn over the column (a fill layout, e.g. RideTube) can now claim it: before, a tap there went to the HMI's hidden back arrow, which closed the app. `touch_area` in the conf still sets any other area.
+
 ## 0.6.24
 
 - Comments in the configuration and source only; no change on the unit.
