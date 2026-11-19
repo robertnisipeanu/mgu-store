@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `status --json` gives an app a firmware update left not working its installed version's kept package (`kept_package`, else null), for the updater to install it again without internet; none when the package was built with an oap-sdk donor this unit no longer has (a firmware update brought another version of it), as the app built with the old one does not start.
+
 ## 0.8.23
 
 - Every name a tool puts on the crash handler's list goes in a second time as `<name> (deleted)`: the name a process carries once an update replaced its executable while it ran (Maps on cluster rewriting `aapd`, for example). A crash of such a process does not restart the head unit. `status` adds these names on a head unit that has the tools installed already; they count from the next start of the head unit.

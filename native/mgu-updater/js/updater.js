@@ -455,12 +455,18 @@ function pendingReboot(conf) {
 }
 
 /* The components the deploy tool says are not working (status --json's
- * stale), by id: { why, kept: whether it sets them up again itself, kind }. */
+ * stale), by id: { why, kept: whether it sets them up again itself, kind },
+ * an app's with its installed version and that version's kept package
+ * (kept_package) when the deploy tool keeps one. */
 function staleOf(st) {
     const out = {};
     ((st && st.components) || []).forEach((c) => {
         if (c && typeof c.id === 'string' && typeof c.stale === 'string' && c.stale) {
             out[c.id] = { why: c.stale.slice(0, 200), kept: c.kept === true, kind: c.kind };
+            if (c.kind === 'app' && typeof c.kept_package === 'string' && path.isAbsolute(c.kept_package) &&
+                catalogLib.SEMVER.test(c.version)) {
+                Object.assign(out[c.id], { version: c.version, package: c.kept_package });
+            }
         }
     });
     return out;
@@ -3326,8 +3332,9 @@ class Updater {
         }
     }
 
-    /* Installs a lost app again from the package the deploy tool keeps for
-     * it, when it is still lost and the app manager runs on its own home. */
+    /* Installs a lost app, or a stale one (item.stale), again from the
+     * package the deploy tool keeps for it, when it is still lost or stale
+     * with that package and the app manager runs on its own home. */
     restore(item) {
         this.busy = { id: item.id, op: 'install', phase: 'install', progress: 0, total: null };
         this.changed();
@@ -3335,13 +3342,19 @@ class Updater {
         const bounceBefore = this.lastBounceAt;
         return this.refresh()
             .then(() => {
-                if (this.guard || !this.lost.some((l) => l.id === item.id && l.version === item.version)) {
+                const s = this.stale[item.id];
+                const still = item.stale ? !!s && s.package === item.package && s.version === item.version
+                    : this.lost.some((l) => l.id === item.id && l.version === item.version);
+                if (this.guard || !still) {
                     return 0;
                 }
                 if (!mainappReady(this.conf)) {
-                    // looked at again once the app manager runs (watchLost)
+                    // looked at again once the app manager runs (watchLost, repairStale)
                     this.boot.restored = this.boot.restored.filter((id) => id !== item.id);
                     this.saveBoot();
+                    if (item.stale) {
+                        delete this.repairs[item.id];
+                    }
                     return 0;
                 }
                 mkdirp(path.dirname(verified), 0o700);
@@ -3349,7 +3362,7 @@ class Updater {
                 console.log(`${item.id}@${item.version}: install from its kept package`);
                 return this.deploy(verified, false, true, true).then((code) => {
                     if (code !== 0 && code !== GUARD_STOPPED) {
-                        throw new Error(`${this.deployError || 'install failed'}; ${item.id} stays removed until it is installed again`);
+                        throw new Error(`${this.deployError || 'install failed'}; ${item.id} stays ${item.stale ? 'not working' : 'removed'} until it is installed again`);
                     }
                     console.log(code === GUARD_STOPPED ? `${item.id}@${item.version}: the deploy tool's MainApp guard stopped it; ` +
                         'what it did stays until the next start' : `installed ${item.id}@${item.version} again`);
@@ -3443,6 +3456,16 @@ class Updater {
                 this.enqueue({ op: 'relay', id });
                 if (!this.busy) {
                     this.next();
+                }
+            } else if (s.kind === 'app' && s.package && (!online || !r)) {
+                // no internet, or no source lists it: its kept package; its source, once online, if that fails
+                if (this.repairs[id] !== `kept:${s.why}`) {
+                    console.log(`${id}: not working (${s.why}): installed again from its kept package (${s.version})`);
+                    this.repairs[id] = `kept:${s.why}`;
+                    this.enqueue({ op: 'restore', id, version: s.version, package: s.package, stale: true });
+                    if (!this.busy) {
+                        this.next();
+                    }
                 }
             } else if (r && this.request(id, true) === null) {
                 console.log(`${id}: not working (${s.why}): installed again from its source`);
