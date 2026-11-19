@@ -2419,7 +2419,8 @@ function testSources(certs) {
         "if (mode === 'escape') { fs.writeFileSync(where, 'x'); }",
         "if (mode === 'detach') { cp.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'inherit' }).unref(); }",
         "if (mode === 'needsall' && !fs.existsSync('extra/data.txt')) { console.log('no extra/data.txt'); process.exit(4); }",
-        "if (mode === 'ok' || mode === 'detach' || mode === 'shared' || mode === 'needsall') {",
+        "if (mode === 'big') { fs.writeFileSync(path.join(process.env.TMPDIR, 'big'), Buffer.alloc(4 << 20)); cp.execFileSync('sleep', ['2']); }",
+        "if (mode === 'ok' || mode === 'big' || mode === 'detach' || mode === 'shared' || mode === 'needsall') {",
         "  const app = JSON.parse(fs.readFileSync(path.join('apps', id, 'app.json'), 'utf8'));",
         "  const dir = path.join(process.env.TMPDIR, 'pkg'); fs.mkdirSync(dir);",
         "  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: id, version: app.version,",
@@ -2439,6 +2440,7 @@ function testSources(certs) {
             { id: 't_tool', kind: 'tool', path: 'native/t_tool' },
             { id: 'b_ok', kind: 'app', path: 'apps/b_ok', build: { node: 'tools/build.js', args: ['ok', 'b_ok'] } },
             { id: 'b_fail', kind: 'app', path: 'apps/b_fail', build: { node: 'tools/build.js', args: ['fail', 'b_fail'] } },
+            { id: 'b_big', kind: 'app', path: 'apps/b_big', build: { node: 'tools/build.js', args: ['big', 'b_big'] } },
             { id: 'b_slow', kind: 'app', path: 'apps/b_slow', build: { node: 'tools/build.js', args: ['slow', 'b_slow'] } },
             { id: 'b_escape', kind: 'app', path: 'apps/b_escape', build: { node: 'tools/build.js', args: ['escape', 'b_escape', path.join(M, 'outside', 'x')] } },
             { id: 'b_detach', kind: 'app', path: 'apps/b_detach', build: { node: 'tools/build.js', args: ['detach', 'b_detach'] } },
@@ -2458,6 +2460,7 @@ function testSources(certs) {
         'native/bad_tool/component.json': JSON.stringify({ id: 'bad_tool', kind: 'tool', version: '1.0.0', build: ['make'], files: [] }),
         'apps/b_ok/app.json': JSON.stringify({ id: 'b_ok', version: '1.0.0', title: 'Built here' }),
         'apps/b_fail/app.json': JSON.stringify({ id: 'b_fail', version: '1.0.0' }),
+        'apps/b_big/app.json': JSON.stringify({ id: 'b_big', version: '1.0.0' }),
         'apps/b_slow/package.json': JSON.stringify({ name: 'b_slow', version: '1.0.0' }),
         'apps/b_escape/app.json': JSON.stringify({ id: 'b_escape', version: '1.0.0' }),
         'apps/b_detach/app.json': JSON.stringify({ id: 'b_detach', version: '1.0.0' }),
@@ -2499,7 +2502,8 @@ function testSources(certs) {
     ] }));
     fs.writeFileSync(path.join(pub, 'catalog.json'), JSON.stringify({ schema: 1, components: [] }));
     const conf = {
-        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, scratch_dir: path.join(M, 'scratch'), tool_root: opt, oap_root: oap,
+        mainapp_uid: '12201',
         store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
         github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD, github_client_id: 'Iv1.test', github_app_url: 'https://github.com/apps/mgu-store/', builtin_repo: 'robertnisipeanu/mgu-store',
         fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
@@ -2960,7 +2964,15 @@ function testSources(certs) {
             const pkg = JSON.parse(fs.readFileSync(path.join(oap, `oap_${reg.userId}`, 'source', 'package.json')));
             ok('build: the repo\'s script runs as the build uid in a copy of the repo, with the donor, and its package installs',
                 comp('b_ok').status === 'installed' && pkg.uid === 12995 && pkg.donor === '// the SDK donor bundle\n' &&
-                /\/state\/build-[0-9a-f]+\/repo$/.test(pkg.cwd), JSON.stringify([comp('b_ok').error, pkg]));
+                /\/scratch\/build-[0-9a-f]+\/repo$/.test(pkg.cwd), JSON.stringify([comp('b_ok').error, pkg]));
+            return ask(sock, { op: 'install', id: 'b_big' });
+        })
+        .then(() => until(st, () => !st().busy && (comp('b_big').status === 'installed' || comp('b_big').error), 60000, 'b_big built'))
+        .then(() => {
+            const reg = JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', 'b_big.json')));
+            const pkg = JSON.parse(fs.readFileSync(path.join(oap, `oap_${reg.userId}`, 'source', 'package.json')));
+            ok('build: a build that outgrows its room in RAM runs again in state_dir and installs', comp('b_big').status === 'installed' &&
+                /\/state\/build-[0-9a-f]+\/repo$/.test(pkg.cwd), JSON.stringify([comp('b_big').error, pkg.cwd]));
             return ask(sock, { op: 'install', id: 'b_fail' });
         })
         .then(() => until(st, () => !st().busy && comp('b_fail').error, 30000, 'b_fail'))
@@ -2981,8 +2993,8 @@ function testSources(certs) {
         .then(() => {
             ok('build: a script cannot write outside its folder', !fs.existsSync(path.join(M, 'outside', 'x')) && /the build failed/.test(comp('b_escape').error),
                 comp('b_escape').error);
-            ok('build: build folders are removed afterwards', fs.readdirSync(state).filter((n) => /^build-/.test(n)).length === 0,
-                fs.readdirSync(state).join(' '));
+            const left = fs.readdirSync(state).concat(fs.readdirSync(path.join(M, 'scratch'))).filter((n) => /^(build|dl)-/.test(n));
+            ok('build: build and download folders are removed afterwards', left.length === 0, left.join(' '));
             return ask(sock, { op: 'install', id: 'b_detach' }).then(() => installed('b_detach'));
         })
         .then(() => stillRunning(() => uidPids(12995)))

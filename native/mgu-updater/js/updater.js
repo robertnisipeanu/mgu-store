@@ -291,7 +291,13 @@ function rmIfThere(file) {
     } catch (e) { /* not there */ }
 }
 
+/* file replaced by rename; one that holds text already is left as it is */
 function writeAtomic(file, text) {
+    try {
+        if (fs.readFileSync(file).equals(Buffer.from(text))) {
+            return;
+        }
+    } catch (e) { /* not there yet */ }
     fs.writeFileSync(`${file}.tmp`, text);
     fs.renameSync(`${file}.tmp`, file);
 }
@@ -643,15 +649,118 @@ function readLease(conf) {
 const CACHE_BYTES = 2 << 20;
 const CACHE_ONE = 256 << 10;
 
+// what the RAM scratch leaves free on its file system; amounts up to SCRATCH_SMALL need no df
+const SCRATCH_RESERVE = 64 << 20;
+const SCRATCH_SMALL = 1 << 20;
+
+function memAvailable() {
+    try {
+        return Number(/^MemAvailable:\s+(\d+) kB/m.exec(fs.readFileSync('/proc/meminfo', 'utf8'))[1]) * 1024;
+    } catch (e) {
+        return 0;
+    }
+}
+
+/* Bytes free on the file system holding dir, or 0 when df cannot tell. */
+function freeBytes(dir) {
+    try {
+        const f = cp.execFileSync('df', ['-Pk', dir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim().split('\n').pop().split(/\s+/);
+        return Number(f[3]) * 1024 || 0;
+    } catch (e) {
+        return 0;
+    }
+}
+
+/* Room in RAM (conf scratch_dir) for what the updater writes only to read
+ * it back and remove it: downloads, the checked package it hands the
+ * deploy tool, builds. As root the folder is a tmpfs of its own, of
+ * scratch_max_bytes, so nothing written there can fill /run. take(bytes)
+ * gives { dir, ram, release() }: the scratch folder while bytes fit (at most
+ * scratch_max_bytes taken at once, a quarter of the memory available, and
+ * free on its file system, SCRATCH_RESERVE more when that is /run's), else
+ * state_dir; release() gives the room back. */
+class Scratch {
+    constructor(conf) {
+        this.conf = conf;
+        this.used = 0;
+        this.own = null;
+    }
+
+    get dir() {
+        return this.conf.scratch_dir || '/run/mgu-updater/scratch';
+    }
+
+    get max() {
+        return Number(this.conf.scratch_max_bytes) || 128 << 20;
+    }
+
+    /* The folder, mounted as its own tmpfs when root can; whether it is one. */
+    ready() {
+        mkdirp(this.dir, 0o755);
+        if (this.own === null) {
+            const mounted = () => {
+                try {
+                    return fs.readFileSync(this.conf.mounts || '/proc/mounts', 'utf8').split('\n')
+                        .some((l) => l.split(' ')[1] === this.dir && l.split(' ')[2] === 'tmpfs');
+                } catch (e) {
+                    return false;
+                }
+            };
+            if (process.getuid() === 0 && !mounted()) {
+                try {
+                    cp.execFileSync('mount', ['-t', 'tmpfs', '-o', `size=${this.max},mode=0755`, 'mgu-scratch', this.dir], { stdio: 'ignore' });
+                } catch (e) {
+                    console.log(`${this.dir}: not a tmpfs of its own (${e.message.split('\n')[0]}); RAM is used while /run has room`);
+                }
+            }
+            this.own = mounted();
+        }
+        return this.own;
+    }
+
+    fits(bytes) {
+        const total = this.used + bytes;
+        if (!(bytes > 0) || total > this.max) {
+            return false;
+        }
+        let own;
+        try {
+            own = this.ready();
+        } catch (e) {
+            return false;
+        }
+        if (bytes <= SCRATCH_SMALL) {
+            return true;
+        }
+        return total <= memAvailable() / 4 && bytes <= freeBytes(own ? this.dir : path.dirname(this.dir)) - (own ? 0 : SCRATCH_RESERVE);
+    }
+
+    take(bytes) {
+        if (this.fits(bytes)) {
+            this.used += bytes;
+            let held = true;
+            return { dir: this.dir, ram: true, release: () => {
+                if (held) {
+                    held = false;
+                    this.used -= bytes;
+                }
+            } };
+        }
+        mkdirp(this.conf.state_dir, 0o755);
+        return { dir: this.conf.state_dir, ram: false, release: () => {} };
+    }
+}
+
 /* Downloads run in a child as the fetch uid, each into a folder of its own
  * that root makes in state_dir and hands to that uid. Root reads the result
  * only through a descriptor opened without following links and checked to
  * be a regular file of bounded size, and removes the folder's contents as
  * the fetch uid, so nothing that uid plants there leads root anywhere. */
 class Fetcher {
-    constructor(conf) {
+    constructor(conf, scratch) {
         this.conf = conf;
         this.state = conf.state_dir;
+        this.scratch = scratch || new Scratch(conf);
         this.ca = conf.ca_file ? fs.readFileSync(conf.ca_file, 'utf8') : null;
         // url -> { etag, body }: the answers cached() asks for again, oldest first
         this.etags = new Map();
@@ -690,20 +799,27 @@ class Fetcher {
         return process.getuid() === 0 ? Object.assign(opts, { uid: this.uid, gid: this.gid }) : opts;
     }
 
-    retire(dir) {
+    /* Removes a download folder as the fetch uid; done() once it is gone, or failed to go. */
+    retire(dir, done) {
+        const end = done || (() => {});
         cp.spawn('rm', ['-rf', dir], this.asFetchUid({ stdio: 'ignore' }))
-            .on('error', () => { /* no process: the next start retries */ })
+            .on('error', () => end())
             .on('close', () => {
                 try {
                     fs.rmdirSync(dir);
                 } catch (e) { /* gone, or refilled since: the next start retries */ }
+                end();
             });
     }
 
     /* Download folders an earlier run left. */
     clean() {
         mkdirp(this.state, 0o755);
-        fs.readdirSync(this.state).filter((n) => /^dl-/.test(n)).forEach((n) => this.retire(path.join(this.state, n)));
+        [this.state, this.scratch.dir].forEach((d) => {
+            try {
+                fs.readdirSync(d).filter((n) => /^dl-/.test(n)).forEach((n) => this.retire(path.join(d, n)));
+            } catch (e) { /* no scratch folder yet */ }
+        });
     }
 
     /* The downloaded file's bytes: a regular file of at most maxBytes. */
@@ -805,9 +921,16 @@ class Fetcher {
         if (!lease.online) {
             return Promise.reject(new Error('no internet (the uplink is down)'));
         }
-        mkdirp(this.state, 0o755);
-        const dir = path.join(this.state, `dl-${crypto.randomBytes(6).toString('hex')}`);
-        fs.mkdirSync(dir, 0o700);
+        // in RAM when the most it may be fits there
+        const most = job.files ? job.files.reduce((n, f) => n + (Number(f.maxBytes) || Infinity), 0) : Number(maxBytes) || Infinity;
+        const room = this.scratch.take(most);
+        const dir = path.join(room.dir, `dl-${crypto.randomBytes(6).toString('hex')}`);
+        try {
+            fs.mkdirSync(dir, 0o700);
+        } catch (e) {
+            room.release();
+            return Promise.reject(e);
+        }
         if (process.getuid() === 0) {
             fs.chownSync(dir, this.uid, this.gid);
         }
@@ -887,10 +1010,10 @@ class Fetcher {
                 immutable: !!job.immutable, fresh: !!(job.fresh || this.fresh),
                 files: files ? files.map((f) => ({ url: f.url, dest: f.dest, maxBytes: f.maxBytes })) : undefined, parallel: job.parallel }));
         }).then((bytes) => {
-            this.retire(dir);
+            this.retire(dir, room.release);
             return bytes;
         }, (err) => {
-            this.retire(dir);
+            this.retire(dir, room.release);
             throw err;
         });
     }
@@ -1049,7 +1172,8 @@ class Updater {
         this.version = selfVersion();
         this.uids = new ServiceUids(conf, (l) => console.log(l));
         const picked = this.uids.ensure();
-        this.fetcher = new Fetcher(conf);
+        this.scratch = new Scratch(conf);
+        this.fetcher = new Fetcher(conf, this.scratch);
         this.fetcher.onProxy = () => this.changed();
         if (conf.proxy) {
             const p = proxyState(conf.proxy);
@@ -1287,6 +1411,11 @@ class Updater {
         }
     }
 
+    /* When the source was last read, beside its listing. */
+    checkedFile(id) {
+        return path.join(this.conf.state_dir, 'sources', `${id}.checked`);
+    }
+
     cacheFile(id) {
         return path.join(this.conf.state_dir, 'sources', `${id}.json`);
     }
@@ -1303,8 +1432,12 @@ class Updater {
         if (def.type !== 'usb') {
             try {
                 const c = readJson(this.cacheFile(def.id));
-                Object.assign(rt, { mode: c.mode, channel: c.channel || rt.channel, commit: c.commit, components: c.components, checkedAt: c.checkedAt,
-                    tokenId: c.token || null, public: c.public === true });
+                let checked = 0;
+                try {
+                    checked = Number(fs.readFileSync(this.checkedFile(def.id), 'utf8')) || 0;
+                } catch (e) { /* none yet */ }
+                Object.assign(rt, { mode: c.mode, channel: c.channel || rt.channel, commit: c.commit, components: c.components,
+                    checkedAt: Math.max(c.checkedAt || 0, checked) || null, tokenId: c.token || null, public: c.public === true });
                 if (c.memo && typeof c.memo.key === 'string' && c.memo.version === this.version) {
                     rt.memo = { key: c.memo.key, cat: { mode: c.mode, commit: c.commit, components: c.components, skipped: c.memo.skipped || [], memoKey: c.memo.key } };
                 }
@@ -1871,10 +2004,19 @@ class Updater {
                     status: 'ok', error: cat.skipped && cat.skipped.length ? `left out: ${cat.skipped.join('; ')}` : null,
                     checkedAt: Date.now(), answered: true });
                 if (rt.def.type !== 'usb') {
+                    // the listing is written when what it lists changed; the time of each check, small, beside it
+                    const listing = (at) => JSON.stringify({ mode: rt.mode, channel: rt.channel, commit: rt.commit,
+                        components: rt.components, checkedAt: at, token: rt.tokenId, public: rt.public,
+                        memo: rt.memo && { key: rt.memo.key, skipped: cat.skipped || [], version: this.version } });
+                    let was = null;
+                    try {
+                        was = JSON.parse(fs.readFileSync(this.cacheFile(id), 'utf8')).checkedAt;
+                    } catch (e) { /* not written yet */ }
                     mkdirp(path.dirname(this.cacheFile(id)), 0o700);
-                    writeAtomic(this.cacheFile(id), JSON.stringify({ mode: rt.mode, channel: rt.channel, commit: rt.commit,
-                        components: rt.components, checkedAt: rt.checkedAt, token: rt.tokenId, public: rt.public,
-                        memo: rt.memo && { key: rt.memo.key, skipped: cat.skipped || [], version: this.version } }));
+                    if (!was || fs.readFileSync(this.cacheFile(id), 'utf8') !== listing(was)) {
+                        writeAtomic(this.cacheFile(id), listing(rt.checkedAt));
+                    }
+                    writeAtomic(this.checkedFile(id), `${rt.checkedAt}\n`);
                 }
                 console.log(`source ${id}${rt.channel ? ` (${rt.channel})` : ''}${rt.tokenId ? ` with token ${rt.tokenId}` : ''}: ` +
                     `${rt.mode}${rt.commit ? ` ${rt.commit.slice(0, 7)}` : ''}, ` +
@@ -2949,8 +3091,7 @@ class Updater {
                     // a network build's proxy runs as the fetch uid: once the uplink lets it out
                     .then((donor) => new Promise((resolve) => setTimeout(resolve, Math.max(0, (this.fetcher.notBefore || 0) - Date.now())))
                         .then(() => donor))
-                    .then((donor) => runBuild({ conf: this.conf, entry: made.entry, files: made.files, donor: donor.path, sdk: donor.module,
-                        lease: readLease(this.conf), log: (l) => console.log(l) })));
+                    .then((donor) => this.buildIn(made, donor)));
             // a build that fails with only the files it names is run again with the whole repo
             return build(first, () => donorLookup)
                 .catch((err) => {
@@ -2992,6 +3133,28 @@ class Updater {
         });
     }
 
+    /* A build of made ({ entry, files }) with donor: in RAM with three times
+     * its repo's size as its room when that fits, run again in state_dir
+     * when it needs more. */
+    buildIn(made, donor) {
+        const repo = made.files.reduce((n, f) => n + f.data.length, 0);
+        const need = Math.min(3 * repo, Number(this.conf.build_max_bytes) || Infinity);
+        const room = this.scratch.take(need);
+        const run = (r) => runBuild({ conf: this.conf, entry: made.entry, files: made.files, donor: donor.path, sdk: donor.module,
+            lease: readLease(this.conf), log: (l) => console.log(l), base: r.dir, maxBytes: r.ram ? need : 0 });
+        return run(room).then((bytes) => {
+            room.release();
+            return bytes;
+        }, (err) => {
+            room.release();
+            if (!err.overRoom) {
+                throw err;
+            }
+            console.log(`build ${made.entry.id}: ${err.message} in RAM; again in ${this.conf.state_dir}`);
+            return run({ dir: this.conf.state_dir, ram: false });
+        });
+    }
+
     /* Downloads (or builds), verifies and installs one component. Resolves
      * true when the updater installed a new version of itself. */
     install(item) {
@@ -3013,8 +3176,9 @@ class Updater {
         this.changed();
         console.log(`${id}@${entry.version}: download from ${item.source}${entry.revision ? ` at ${entry.revision}` : ''}` +
             `${entry.artifact.size ? ` (${entry.artifact.size} bytes)` : ''}`);
-        const verifiedDir = path.join(this.conf.state_dir, 'verified');
-        const verified = path.join(verifiedDir, entry.artifact.name);
+        // the checked bytes, root's alone, are what the deploy tool reads: in RAM when they fit
+        let room = null;
+        let verified = null;
         const trial = path.join(this.conf.tool_root, SELF, 'trial');
         const self = id === SELF;
         const toolDir = path.join(this.conf.tool_root, id);
@@ -3063,8 +3227,9 @@ class Updater {
                 if (!matches(bytes)) {
                     throw new Error('download does not match the catalog (size or sha256)');
                 }
-                // the checked bytes, root's alone, are what the deploy tool reads
-                mkdirp(verifiedDir, 0o700);
+                room = this.scratch.take(bytes.length);
+                verified = path.join(room.dir, 'verified', entry.artifact.name);
+                mkdirp(path.dirname(verified), 0o700);
                 fs.writeFileSync(verified, bytes, { mode: 0o600 });
                 if (!fs.existsSync(this.conf.deploy)) {
                     throw new Error(`deploy tool missing (${this.conf.deploy})`);
@@ -3138,8 +3303,11 @@ class Updater {
                 return false;
             })
             .then((handover) => {
-                if (fs.existsSync(verified)) {
+                if (verified && fs.existsSync(verified)) {
                     fs.unlinkSync(verified);
+                }
+                if (room) {
+                    room.release();
                 }
                 if (this.relayOnFail[id] && this.errors[key]) {
                     this.queue.push({ op: 'relay', id });
@@ -3370,7 +3538,8 @@ class Updater {
     restore(item) {
         this.busy = { id: item.id, op: 'install', phase: 'install', progress: 0, total: null };
         this.changed();
-        const verified = path.join(this.conf.state_dir, 'verified', path.basename(item.package));
+        let room = null;
+        let verified = null;
         const bounceBefore = this.lastBounceAt;
         return this.refresh()
             .then(() => {
@@ -3383,8 +3552,11 @@ class Updater {
                     this.saveBoot();
                     return 0;
                 }
+                const bytes = fs.readFileSync(item.package);
+                room = this.scratch.take(bytes.length);
+                verified = path.join(room.dir, 'verified', path.basename(item.package));
                 mkdirp(path.dirname(verified), 0o700);
-                fs.writeFileSync(verified, fs.readFileSync(item.package), { mode: 0o600 });
+                fs.writeFileSync(verified, bytes, { mode: 0o600 });
                 console.log(`${item.id}@${item.version}: install from its kept package`);
                 return this.deploy(verified, false, true, true).then((code) => {
                     if (code !== 0 && code !== GUARD_STOPPED) {
@@ -3399,7 +3571,12 @@ class Updater {
                 this.errors[item.id] = err.message;
             })
             .then(() => {
-                rmIfThere(verified);
+                if (verified) {
+                    rmIfThere(verified);
+                }
+                if (room) {
+                    room.release();
+                }
                 return this.refresh();
             })
             .then(() => {
@@ -3911,6 +4088,7 @@ class Updater {
         this.saveSources(this.stored.filter((s) => s.id !== id));
         this.src.delete(id);
         rmIfThere(this.cacheFile(id));
+        rmIfThere(this.checkedFile(id));
         cp.execFileSync('rm', ['-rf', path.join(this.ctx.cacheDir, id)]);
         // repo files are kept by git id, shared by every source
         this.ctx.batch.drop();
@@ -4393,11 +4571,11 @@ class Updater {
             // folders earlier uids of theirs left, then their own
             this.retireUids().then(() => {
                 this.fetcher.clean();
-                cleanBuilds(this.conf);
+                cleanBuilds(this.conf, [this.scratch.dir]);
             });
             // what an install cut short handed the deploy tool: no install resumes from it
             try {
-                cp.execFileSync('rm', ['-rf', path.join(this.conf.state_dir, 'verified')], { stdio: 'ignore' });
+                cp.execFileSync('rm', ['-rf', path.join(this.conf.state_dir, 'verified'), path.join(this.scratch.dir, 'verified')], { stdio: 'ignore' });
             } catch (e) {
                 console.log(`state/verified not removed: ${e.message}; the next start retries`);
             }

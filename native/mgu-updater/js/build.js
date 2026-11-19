@@ -4,8 +4,8 @@
  * "python": "<script>", "args": [...]}`; README.md, "Building on the unit").
  * Node 8.
  *
- * The repo's files are written to a folder of their own in state_dir and
- * handed to the build uid (uids.js: no account, not in the uplink's
+ * The repo's files are written to a folder of their own (in opts.base,
+ * else state_dir) and handed to the build uid (uids.js: no account, not in the uplink's
  * lists, so no network); the script runs there as that uid, under this Node
  * or conf `python` (the mgu-python tool), cwd = the repo copy, with
  *   MGU_SDK_DONOR  the SDK donor bundle the deploy tool names (read-only)
@@ -18,7 +18,10 @@
  * folder of the repo copy. A build with `network` gets the internet through
  * an HTTP proxy the fetch uid runs for it alone (proxy.js; http_proxy and
  * https_proxy), and fails without the uplink. It is stopped past
- * build_timeout_s, or once its folder holds more than build_max_bytes.
+ * build_timeout_s, or once its folder holds more than build_max_bytes
+ * (opts.maxBytes when given: a build stopped for that, or failing with
+ * its file system full, fails with err.overRoom, for the caller to run it
+ * again with more room).
  * Every process of the build uid is killed before a build starts (and
  * before root hands it the repo copy) and after it ends, so nothing a
  * script left running, in its process group or not, reaches the next
@@ -88,6 +91,16 @@ function usage(dir) {
         return Number(cp.execFileSync('du', ['-sk', dir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\s/)[0]) * 1024;
     } catch (e) {
         return 0;
+    }
+}
+
+/* Bytes free on the file system holding dir (df), or Infinity when df cannot tell. */
+function freeBytes(dir) {
+    try {
+        const f = cp.execFileSync('df', ['-Pk', dir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim().split('\n').pop().split(/\s+/);
+        return Number(f[3]) >= 0 ? Number(f[3]) * 1024 : Infinity;
+    } catch (e) {
+        return Infinity;
     }
 }
 
@@ -209,7 +222,8 @@ function removeBuild(dir) {
 /* opts: { conf, entry, files: [{ name, data, mode }] (the repo, relative to
  * its root), donor, sdk (the folder holding the generated oap-sdk module,
  * for a build with `sdk`), lease ({ online, dns }, for a network build),
- * log }. Resolves with the package's bytes. */
+ * log, base (the folder to build in), maxBytes }. Resolves with the
+ * package's bytes. */
 function runBuild(opts) {
     const { conf, entry, files, donor, sdk, log } = opts;
     const python = !!entry.script.python;
@@ -217,14 +231,16 @@ function runBuild(opts) {
     let proxy = null;
     const uid = Number(conf.build_uid);
     const gid = Number(conf.build_gid);
-    const maxBytes = Number(conf.build_max_bytes);
+    const room = Number(opts.maxBytes) || 0;
+    const maxBytes = room || Number(conf.build_max_bytes);
     const timeoutMs = Number(conf.build_timeout_s) * 1000;
     const asRoot = process.getuid() === 0;
     // every process of the build uid is killed: it must be the builds' alone
     if (!(uid >= 1000) || [conf.fetch_uid, conf.web_uid].map(Number).indexOf(uid) >= 0) {
         return Promise.reject(new Error(`build_uid ${conf.build_uid} is not a uid of the builds' own`));
     }
-    const dir = path.join(conf.state_dir, `build-${crypto.randomBytes(6).toString('hex')}`);
+    const base = opts.base || conf.state_dir;
+    const dir = path.join(base, `build-${crypto.randomBytes(6).toString('hex')}`);
     const repo = path.join(dir, 'repo');
     const out = path.join(dir, 'out');
     const tmp = path.join(dir, 'tmp');
@@ -238,6 +254,7 @@ function runBuild(opts) {
     let lines = 0;
     let bytes = 0;
     let cut = false;
+    let over = false;
     const say = (l) => {
         lines += 1;
         bytes += Buffer.byteLength(l);
@@ -258,13 +275,13 @@ function runBuild(opts) {
                 throw new Error(`needs Python (${interpreter}): install mgu-python`);
             }
             let total = 0;
-            mkdirp(conf.state_dir, 0o755);
+            mkdirp(base, 0o755);
             fs.mkdirSync(dir, 0o755);
             [repo, out, tmp].forEach((d) => fs.mkdirSync(d, 0o700));
             files.forEach((f) => {
                 total += f.data.length;
                 if (total > maxBytes) {
-                    throw new Error(`the repo is more than ${maxBytes} bytes`);
+                    throw Object.assign(new Error(`the repo is more than ${maxBytes} bytes`), { overRoom: !!room });
                 }
                 const to = path.join(repo, f.name);
                 mkdirp(path.dirname(to), 0o755);
@@ -324,9 +341,10 @@ function runBuild(opts) {
                 const timer = setTimeout(() => stop(`took longer than ${conf.build_timeout_s} s`), timeoutMs);
                 const watch = setInterval(() => {
                     if (usage(dir) > maxBytes) {
+                        over = !!room;
                         stop(`wrote more than ${maxBytes} bytes`);
                     }
-                }, 2000);
+                }, room ? 500 : 2000);
                 child.on('error', (err) => {
                     clearTimeout(timer);
                     clearInterval(watch);
@@ -342,10 +360,13 @@ function runBuild(opts) {
                         process.kill(-child.pid, 'SIGKILL');
                     } catch (e) { /* gone */ }
                     killAll(uid, gid).then(() => {
+                        if (room && (stopped || code !== 0) && freeBytes(dir) < 1 << 20) {
+                            over = true;
+                        }
                         if (stopped) {
-                            reject(new Error(`the build ${stopped}`));
+                            reject(Object.assign(new Error(`the build ${stopped}`), { overRoom: over }));
                         } else if (code !== 0) {
-                            reject(new Error(`the build failed (${signal || `exit ${code}`})`));
+                            reject(Object.assign(new Error(`the build failed (${signal || `exit ${code}`})`), { overRoom: over }));
                         } else {
                             resolve();
                         }
@@ -407,13 +428,15 @@ function runBuild(opts) {
         }));
 }
 
-/* Build folders an earlier run left. */
-function cleanBuilds(conf) {
-    let names = [];
-    try {
-        names = fs.readdirSync(conf.state_dir).filter((n) => /^build-/.test(n));
-    } catch (e) { /* no state_dir yet */ }
-    return Promise.all(names.map((n) => removeBuild(path.join(conf.state_dir, n))));
+/* Build folders an earlier run left, in state_dir and the dirs given. */
+function cleanBuilds(conf, dirs) {
+    const found = [];
+    [conf.state_dir].concat(dirs || []).forEach((d) => {
+        try {
+            fs.readdirSync(d).filter((n) => /^build-/.test(n)).forEach((n) => found.push(path.join(d, n)));
+        } catch (e) { /* no such folder yet */ }
+    });
+    return Promise.all(found.map(removeBuild));
 }
 
 module.exports = { runBuild, cleanBuilds, startProxy };
