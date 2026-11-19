@@ -496,6 +496,9 @@ eq([shown(screen('installed')), shown(screen('store'))], [true, true], 'kept whi
 f = screen('store');
 eq([f.values.restartNow.disabled, f.labels[4], f.items[4].act, f.items[4].keepPlace], [true, 'Restart now', null, true],
     'Store: Restart now greyed out while an install runs, in its place');
+const storeRestartNow = (st) => { const g = screen('store-restart', {}, st); return [g.values.restartNow.disabled, g.items[4].label, g.items[4].act]; };
+eq([storeRestartNow(queuedOnly), storeRestartNow(idle)], [[true, 'Restart now', null], [false, 'Restart now', restartAct]],
+    'Store: greyed out and inert while one waits, pressable again once nothing is left');
 eq([screen('installed').values.restartNow.disabled, screen('installed-restart', {}, queuedOnly).values.restartNow.disabled,
     screen('installed-restart', {}, idle).values.restartNow.disabled], [true, true, false], 'Installed: greyed out while an install runs or waits');
 const confirmRestart = (st) => frame(fixture.model({ stack: [{ name: 'main' }, { name: 'confirm', kind: 'restart' }] }, st),
