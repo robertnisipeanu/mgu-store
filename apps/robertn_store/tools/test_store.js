@@ -316,6 +316,9 @@ function run() {
         reset();
         app._restart();
         eq(sent, [], 'no restart asked for while an install runs');
+        // a press on a greyed-out Restart now (its item has no act) does nothing
+        app._act(null);
+        eq([sent, app._drawn.stack.length], [[], 1], 'a greyed-out Restart now: nothing sent, no page opened');
         app._client.emit('state', Object.assign({}, ST, { components: [comp({ queued: true })] }));
         return tick().then(() => {
             eq(restartWidgets(), [true, false, false], 'and while one waits');
