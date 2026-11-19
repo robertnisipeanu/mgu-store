@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.41
+
 No change on screen: the renderer client it carries is updated.
 
 Restart now, Restart head unit and the confirm step's Restart are greyed
