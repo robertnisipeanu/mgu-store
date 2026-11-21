@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- iDrive 7: MainApp 8.2.0 is patched too: our apps are left out of its backend app inventory and updates, app-repository queries and downloads, corrupt-app reports and DiagOap readout, and a crashed one is only restarted. The tool's JSON names it `8.2.0` in `mainapp`. The other MainApp releases are patched exactly as before.
+- iDrive 7: MainApp 8.2.0 is patched too, with the same effect as on the other iDrive 7 releases: our apps are left out of its backend app inventory and updates, app-repository queries and downloads, corrupt-app reports and diagnostic readout, and a crashed one is only restarted.
 
 ## 1.7.2
 
