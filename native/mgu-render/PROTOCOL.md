@@ -123,7 +123,7 @@ Daemon to client:
 
 | Type | Name | Payload |
 |---|---|---|
-| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy, 64 X_FINGERS, 128 the loaded gate holds only the parts X_GRAB's hold names), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
+| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy, 64 X_FINGERS, 128 the loaded gate holds only the parts X_GRAB's hold names, 256 NV12 video frames), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
 | 0x4d520102 | X_STATE | u32 mode, on screen, in front (the HMI shows the app's screen); sent whenever one changes |
 | 0x4d520103 | X_CCU | as upstream's CCU |
 | 0x4d520104 | X_FINGER | u32 phase (1 down, 2 move, 3 up, 4 cancel), u32 finger id (0..15, the display's), f32 x, y logical px: one finger of a gesture that began in a claim (after X_FINGERS 1). Cancel: the finger's lift was never seen and it is gone (x, y where it was last): drop it without acting on it, never as a tap or a release there |
@@ -152,8 +152,13 @@ taken for hung and hidden until it talks again, as IterioDev's kit does.
   mgu-ytplay gives its file to `nobody` and writes as `nobody`). Anything else
   gets an ERROR and the app stays connected; the op then draws nothing. At
   most 4 videos per app.
-- **File**: a 64-byte header, then `nslot` frames of w×h×3/2 bytes, I420 (the
-  Y plane, then U, then V, rows without padding):
+- **File**: a 64-byte header, then `nslot` frames of w×h×3/2 bytes, rows
+  without padding, in one of two layouts:
+  - **I420** (format 0): the Y plane (w×h), then U, then V (w/2×h/2 each).
+  - **NV12** (format 1): the Y plane (w×h), then one plane of U, V byte pairs
+    (w/2 pairs a row, h/2 rows), as hardware decoders write it. Only where
+    X_READY caps has 256; an older renderer reads every frame as I420, so a
+    player writes I420 there.
 
   | Word | Field |
   |---|---|
@@ -165,7 +170,8 @@ taken for hung and hidden until it talks again, as IterioDev's kit does.
   | 6 | nslot: 1..4 |
   | 7 | matrix: 0 BT.601, 1 BT.709 |
   | 8 | range: 0 limited (16-235), 1 full |
-  | 9-15 | zero |
+  | 9 | format: 0 I420, 1 NV12 |
+  | 10-15 | zero |
 
   The writer fills slot (slot + 1) % nslot, then sets slot, then seq + 1; the
   renderer reads the header, then that slot. With 3 slots the writer is two

@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## 0.8.27
+
+- Installs write less to the head unit's storage: packages are unpacked, prepared and checked in RAM when there is room (on storage otherwise), a package is written to the system partition once, straight from its file, and a backup links a file that an earlier backup or kept package already holds instead of storing it again.
+- The provisioning fallback copy of MainApp's `main.js` is built in RAM, at each start and at each install, and written to storage only when it changes. The deploy tool's state files are written only when they change.
+
+## 0.8.26
+
+- Safe mode counts every start as failed from its first moments until it stays up 5 minutes or shuts down in order, so starts that end in a power cut, a reset or a hang count too, and so does a crash restart up to 5 minutes into a start (the crash handler restarts the head unit about a minute and a half after a crash). Three failed starts in a row turn it on, and the start that follows already runs without our tools: their units start after the guard's first step. A `systemctl reboot` or `poweroff` counts as an orderly shutdown.
+- An install cut short between moving a tool's version folder aside and putting the new one in its place gets the folder back at the deploy tool's next install or other change.
+- `mgu-install.js` over ENET on Windows: ssh connects to the head unit without binding to the adapter's address, so the SSH client that comes with Windows can connect.
+- `mgu-install.js` over ENET: only a link-local host address is tried as the head unit's (not the computer's own address). When the head unit's SSH does not answer, the message names the addresses tried and says that `--host <address>` can be given.
+- `mgu-install.js`: when an `--identity` or `--from` path with a space is not in quotes, the error says to put it in quotes and shows the whole path.
+
+## 0.8.25
+
+- `uninstall` refuses to remove a component that an installed app or tool still depends on (its requirements, or a capability only that component provides), and names those components. Remove them first, or use `remove-all`, which removes them in order.
+
+## 0.8.24
+
+- iDrive 7: when the app manager has no app uid left to give a new app ("No free user Ids left"), the app's install first removes the homes of our apps in `/var/opt/public/oap` that no registry entry uses, which frees their uids. The app manager leaves such a home behind each time it installs an app again under a new uid, and holds its uid for good. Homes of other apps, homes changed in the last 10 minutes and homes a process runs from stay.
+- `status` reports the app manager's app uid range, how many are free, and those held by no app (`app_uids`).
+
+## 0.8.23
+
+- Every name a tool puts on the crash handler's list goes in a second time as `<name> (deleted)`: the name a process carries once an update replaced its executable while it ran (Maps on cluster rewriting `aapd`, for example). A crash of such a process does not restart the head unit. `status` adds these names on a head unit that has the tools installed already; they count from the next start of the head unit.
+
 ## 0.8.22
 
 - While safe mode is on, a lost Store is still installed again once (`install --repair`), and safe mode stays on: the Store has the Leave safe mode button. Every other lost app stays held, and so does the Store under an updater before 0.8.47, whose repair would leave safe mode.

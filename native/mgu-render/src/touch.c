@@ -174,6 +174,16 @@ static int touch_rules(const char *iface, const char *saddr)
     return 0;
 }
 
+void touch_auto_area(int w, int h, int area[4])
+{
+    area[0] = area[1] = area[2] = area[3] = 0;
+    if (w == 2880 && h == 960) { area[1] = 76; area[2] = 2880; area[3] = 764; }   /* iDrive 8: title strip, climate bar */
+    /* iDrive 7: the whole screen. A tap nobody claims goes to the HMI, so the back arrow works wherever an app does
+     * not claim the back column; an app drawn over the column (a fill layout) may claim it. Status icons are never
+     * claimed. */
+    else if (w == 1920 && h == 720) { area[2] = 1920; area[3] = 720; }
+}
+
 int touch_init(const char *iface, const char *saddr, const int area[4])
 {
     if (touch_rules(iface, saddr) < 0) return -1;

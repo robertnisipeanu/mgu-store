@@ -10,7 +10,8 @@
  * - provisioning, with the fallback active (its copy and unit present):
  *   every app in custom_apps.json without a registry entry gets a fresh
  *   install from its preinstalled package, as the lowest uid in base.json's
- *   range with no registry entry (getFreeUserId): source, acl.json,
+ *   range with no registry entry (getFreeUserId; with $FAKE_MGR_HOMES_HELD
+ *   set, none with a home either, as repquota lists it): source, acl.json,
  *   keychain, a uids.txt line, then the entry; an app listed without a
  *   package is asked of the backend;
  * - update: an entry whose installationSource is null takes a newer
@@ -123,7 +124,12 @@ function install(id, how, source) {
     const range = readJson(path.join(mainapp, 'config', 'base.json')).usableUidsAndGids;
     const used = new Set(entries().map((e) => e.entry && e.entry.userId));
     let uid = range.min;
-    while (used.has(uid)) uid += 1;
+    // $FAKE_MGR_HOMES_HELD: a uid whose home is there is held (repquota lists it)
+    while (used.has(uid) || (env.FAKE_MGR_HOMES_HELD && fs.existsSync(home(uid)))) uid += 1;
+    if (uid > range.max) {
+        log(`no free uid for ${id}`);
+        return null;
+    }
     const h = home(uid);
     if (env.FAKE_MGR_REJECT && (env.FAKE_MGR_REJECT === '1' || env.FAKE_MGR_REJECT.split(',').indexOf(id) >= 0)) {
         log(`rejected install ${id} ${pkg.version}`);

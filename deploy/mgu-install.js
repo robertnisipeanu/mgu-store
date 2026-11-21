@@ -62,7 +62,8 @@
  * interface with a 169.254.x.x address) the address the vehicle gateway
  * reports for the head unit (DID 22 17 2A, read without changing any
  * session), or the last ENET address that answered. ssh then binds to
- * that interface's address (ssh -b). --ssh-opt options apply either way.
+ * that interface's address (ssh -b), except on Windows. --ssh-opt options
+ * apply either way.
  * A head unit found whose SSH does not answer is named as such.
  *
  * A step that takes over 30 s prints a line about every 30 s; Ctrl+C
@@ -107,7 +108,8 @@ const FROM_STDIN = __filename === '[stdin]';
 const SOURCES = { schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: STORE_REPO, builtin: true },
     { id: 'idrive7-apps', type: 'github', repo: 'cauliflowermossgrape/idrive7-apps', channel: 'branch' },
     { id: 'idrive-apps', type: 'github', repo: 'robertnisipeanu/idrive-apps', channel: 'releases' },
-    { id: 'car-apps', type: 'github', repo: 'IterioDev/car-apps', channel: 'tags' }] };
+    { id: 'car-apps', type: 'github', repo: 'IterioDev/car-apps', channel: 'tags' },
+    { id: 'idrive7-system-monitor', type: 'github', repo: 'hexlay/idrive7-system-monitor', channel: 'branch' }] };
 /* the installed deploy tool */
 const DEPLOY = '/var/opt/mgu-deploy/mgu-deploy.sh';
 const UPDATER_JS = '/var/opt/mgu-updater/current/updater.js';
@@ -654,10 +656,17 @@ function hsfzFrames(buf) {
     return { frames, rest: buf.slice(off) };
 }
 
-/* The head unit's address in a response to 22 17 2A (62 17 2A 00 AA BB CC
- * DD), else null. */
+/* The head unit's address in a response to 22 17 2A (62 17 2A 00, then its
+ * address, subnet mask and gateway, 4 bytes each), else null. */
 function didAddress(uds) {
     return uds.length >= 8 && uds[0] === 0x62 && uds[1] === 0x17 && uds[2] === 0x2a ? Array.from(uds.slice(4, 8)).join('.') : null;
+}
+
+/* Whether ip can be a link-local host other than local: 169.254.1.0 to
+ * 169.254.254.255 (RFC 3927; any last byte, .0 and .255 included). */
+function linkLocalHost(ip, local) {
+    const m = /^169\.254\.(\d{1,3})\.(\d{1,3})$/.exec(ip || '');
+    return Boolean(m) && Number(m[1]) >= 1 && Number(m[1]) <= 254 && Number(m[2]) <= 255 && ip !== local;
 }
 
 /* The ENET gateway's address: HSFZ identification (00 00 00 00 00 11)
@@ -765,8 +774,8 @@ const NET = { banner: sshBanner, interfaces: () => enetInterfaces(), gateway: (l
  * answered. { host, port, bind, via }; else { closed: <address> } when a
  * head unit was found without SSH (the hotspot's address answered
  * without it, or the gateway reported an address whose SSH does not
- * answer); else null. */
-async function findUnit(d = NET) {
+ * answer); else null. tried collects the ENET addresses asked. */
+async function findUnit(d = NET, tried = []) {
     const [hhost, hport] = HOTSPOT.split(':');
     const hotspot = await d.banner(hhost, hport || '22', null);
     if (hotspot) {
@@ -777,8 +786,12 @@ async function findUnit(d = NET) {
     // one interface at a time: an answer on the gateway's port names the interface asked
     for (const i of d.interfaces()) {
         const gw = await d.gateway(i.address);
-        const ip = gw ? await d.huAddress(gw, i.address) : null;
-        for (const c of [ip, last].filter((x, k, a) => x && a.indexOf(x) === k)) {
+        const reported = gw ? await d.huAddress(gw, i.address) : null;
+        const ip = linkLocalHost(reported, i.address) ? reported : null;
+        for (const c of [ip, last].filter((x, k, a) => linkLocalHost(x, i.address) && a.indexOf(x) === k)) {
+            if (!tried.includes(c)) {
+                tried.push(c);
+            }
             if (await d.banner(c, '22', i.address)) {
                 d.save(c);
                 return { host: c, port: '22', bind: i.address, via: `ENET on ${i.name} (head unit ${c}${c === ip ? '' : ', the last that answered'})` };
@@ -789,10 +802,13 @@ async function findUnit(d = NET) {
     return closed ? { closed } : null;
 }
 
-/* What to check when no head unit answered. */
-function notFound(d) {
+/* What to check when no head unit answered (tried: the ENET addresses asked). */
+function notFound(d, tried = []) {
     const lines = ['no head unit answered SSH. Join the car\'s Wi-Fi hotspot or connect the ENET cable, with the car awake, ' +
-        'and run it again;', 'for another route, give --host (and --port).'];
+        'and run it again;', 'for another route, give --host <address> (and --port).'];
+    if (tried.length) {
+        lines.push(`Tried over ENET: ${tried.join(', ')}.`);
+    }
     const ifs = d.interfaces();
     if (d.platform === 'linux' && !ifs.length) {
         lines.push('On Linux the ENET adapter needs a link-local address: nmcli con mod <its connection> ipv4.method link-local, then reconnect it.');
@@ -810,14 +826,18 @@ async function reach(o, d = NET) {
         process.stderr.write(`connecting to ${o.host}:${o.port} as given\n`);
         return;
     }
-    const u = await waiting('still looking for the head unit', () => findUnit(d));
+    const tried = [];
+    const u = await waiting('still looking for the head unit', () => findUnit(d, tried));
     if (!u) {
-        throw new Error(notFound(d));
+        throw new Error(notFound(d, tried));
     }
     if (u.closed) {
-        throw new Error(`found the head unit at ${u.closed}, but its SSH is closed: enable root SSH first, then run this again`);
+        throw new Error(`found the head unit at ${u.closed}, but its SSH is closed: enable root SSH first, then run this again` +
+            (tried.length ? `\nTried over ENET: ${tried.join(', ')}. Another address can be given with --host <address>.` : ''));
     }
-    Object.assign(o, { host: u.host, port: u.port, bind: u.bind });
+    // Windows' own OpenSSH (before 9.x) fails every connection made with -b
+    // ("Invalid argument"); there the link-local route picks the adapter.
+    Object.assign(o, { host: u.host, port: u.port, bind: d.platform === 'win32' ? null : u.bind });
     process.stderr.write(`connecting over ${u.via}\n`);
 }
 
@@ -1683,31 +1703,42 @@ const USAGE = SOURCE === null ? 'usage: deploy/README.md, "mgu-install"' : SOURC
 
 function parse(argv) {
     const o = { command: argv[0], host: null, port: '22', bind: null, given: false, user: 'root', identity: null, sshOpts: [],
-        noRenderer: false, noUplink: false, token: false, noRestartPrompt: false, yes: false, list: false, json: false, remove: null, from: null, rest: [] };
+        noRenderer: false, noUplink: false, token: false, noRestartPrompt: false, yes: false, list: false, json: false, remove: null, from: null, rest: [], split: null };
     const value = (i, flag) => {
         if (i >= argv.length) {
             throw new Usage(`${flag} needs a value`);
         }
         return argv[i];
     };
+    // a path flag whose value the argument before this one was (or continued)
+    let pathOf = null;
     for (let i = 1; i < argv.length; i += 1) {
         const a = argv[i];
+        const after = pathOf;
+        pathOf = null;
         if (a === '--host') o.host = value(++i, a);
         else if (a === '--port') o.port = value(++i, a);
         else if (a === '--user') o.user = value(++i, a);
-        else if (a === '--identity') o.identity = value(++i, a);
+        else if (a === '--identity') pathOf = { flag: a, words: [o.identity = value(++i, a)] };
         else if (a === '--ssh-opt') o.sshOpts.push(value(++i, a));
         else if (a === '--no-renderer' && o.command === 'first-install') o.noRenderer = true;
         else if (a === '--no-uplink' && o.command === 'first-install') o.noUplink = true;
         else if (a === '--token' && o.command === 'first-install') o.token = true;
         else if (a === '--no-restart-prompt' && ['first-install', 'uninstall'].includes(o.command)) o.noRestartPrompt = true;
-        else if (a === '--from' && ['first-install', 'uninstall'].includes(o.command)) o.from = value(++i, a);
+        else if (a === '--from' && ['first-install', 'uninstall'].includes(o.command)) pathOf = { flag: a, words: [o.from = value(++i, a)] };
         else if (a === '--yes' && o.command === 'uninstall') o.yes = true;
         else if (a === '--list' && o.command === 'token') o.list = true;
         else if (a === '--json' && o.command === 'token') o.json = true;
         else if (a === '--remove' && o.command === 'token') o.remove = value(++i, a);
         else if (a.startsWith('--')) throw new Usage(`unknown option ${a} for ${o.command}\n${USAGE}`);
-        else o.rest.push(a);
+        else {
+            o.rest.push(a);
+            if (after) {
+                after.words.push(a);
+                pathOf = after;
+                o.split = o.split || after;
+            }
+        }
     }
     // a target named: no detection
     o.given = argv.slice(1).some((a) => ['--host', '--port'].includes(a));
@@ -1753,7 +1784,8 @@ async function main(argv) {
     }
     if (['first-install', 'token', 'uninstall', 'status'].includes(o.command)) {
         if (o.rest.length) {
-            throw new Usage(`${o.command} takes no ${o.rest[0]}`);
+            throw new Usage(`${o.command} takes no ${o.rest[0]}` + (o.split && o.split.words[1] === o.rest[0] ?
+                `; the ${o.split.flag} path has a space: put it in quotes, ${o.split.flag} "${o.split.words.join(' ').replace(/\\+$/, '')}"` : ''));
         }
         return { 'first-install': firstInstall, token: tokenCommand, uninstall, status: statusCommand }[o.command](o);
     }
@@ -1776,4 +1808,4 @@ if (require.main === module || FROM_STDIN) {
 }
 
 module.exports = { tgz, untgz, sshArgs, folderName, plainName, parse, SOURCES, sshBanner, enetInterfaces, hsfzFrame, hsfzFrames,
-    didAddress, hsfzGateway, hsfzHuAddress, findUnit, reach, tilesShow, STATUS_HAS };
+    didAddress, linkLocalHost, hsfzGateway, hsfzHuAddress, findUnit, reach, tilesShow, STATUS_HAS };

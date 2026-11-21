@@ -2419,7 +2419,8 @@ function testSources(certs) {
         "if (mode === 'escape') { fs.writeFileSync(where, 'x'); }",
         "if (mode === 'detach') { cp.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'inherit' }).unref(); }",
         "if (mode === 'needsall' && !fs.existsSync('extra/data.txt')) { console.log('no extra/data.txt'); process.exit(4); }",
-        "if (mode === 'ok' || mode === 'detach' || mode === 'shared' || mode === 'needsall') {",
+        "if (mode === 'big') { fs.writeFileSync(path.join(process.env.TMPDIR, 'big'), Buffer.alloc(4 << 20)); cp.execFileSync('sleep', ['2']); }",
+        "if (mode === 'ok' || mode === 'big' || mode === 'detach' || mode === 'shared' || mode === 'needsall') {",
         "  const app = JSON.parse(fs.readFileSync(path.join('apps', id, 'app.json'), 'utf8'));",
         "  const dir = path.join(process.env.TMPDIR, 'pkg'); fs.mkdirSync(dir);",
         "  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: id, version: app.version,",
@@ -2439,12 +2440,14 @@ function testSources(certs) {
             { id: 't_tool', kind: 'tool', path: 'native/t_tool' },
             { id: 'b_ok', kind: 'app', path: 'apps/b_ok', build: { node: 'tools/build.js', args: ['ok', 'b_ok'] } },
             { id: 'b_fail', kind: 'app', path: 'apps/b_fail', build: { node: 'tools/build.js', args: ['fail', 'b_fail'] } },
+            { id: 'b_big', kind: 'app', path: 'apps/b_big', build: { node: 'tools/build.js', args: ['big', 'b_big'] } },
             { id: 'b_slow', kind: 'app', path: 'apps/b_slow', build: { node: 'tools/build.js', args: ['slow', 'b_slow'] } },
             { id: 'b_escape', kind: 'app', path: 'apps/b_escape', build: { node: 'tools/build.js', args: ['escape', 'b_escape', path.join(M, 'outside', 'x')] } },
             { id: 'b_detach', kind: 'app', path: 'apps/b_detach', build: { node: 'tools/build.js', args: ['detach', 'b_detach'] } },
             { id: 'bad_tool', kind: 'tool', path: 'native/bad_tool' },
             { id: 'b_sh', kind: 'app', path: 'apps/b_sh', build: { node: 'tools/build.js', args: ['shared', 'b_sh'], shared: ['lib'] } },
             { id: 'b_sh2', kind: 'app', path: 'apps/b_sh2', build: { node: 'tools/build.js', args: ['shared', 'b_sh2'], shared: ['lib'] } },
+            { id: 'b_sh3', kind: 'app', path: 'apps/b_sh3', build: { node: 'tools/build.js', args: ['shared', 'b_sh3'], shared: ['lib'] } },
             { id: 'b_all', kind: 'app', path: 'apps/b_all', build: { node: 'tools/build.js', args: ['needsall', 'b_all'], shared: ['lib'] } }
         ] }),
         'apps/p_app/mgu-app.json': JSON.stringify({ schema: 1, id: 'p_app', version: pVersion, title: 'Package app', tree: `p_app@${pVersion}`, modules: ['src/p.js'], sdk: [] }),
@@ -2457,11 +2460,13 @@ function testSources(certs) {
         'native/bad_tool/component.json': JSON.stringify({ id: 'bad_tool', kind: 'tool', version: '1.0.0', build: ['make'], files: [] }),
         'apps/b_ok/app.json': JSON.stringify({ id: 'b_ok', version: '1.0.0', title: 'Built here' }),
         'apps/b_fail/app.json': JSON.stringify({ id: 'b_fail', version: '1.0.0' }),
+        'apps/b_big/app.json': JSON.stringify({ id: 'b_big', version: '1.0.0' }),
         'apps/b_slow/package.json': JSON.stringify({ name: 'b_slow', version: '1.0.0' }),
         'apps/b_escape/app.json': JSON.stringify({ id: 'b_escape', version: '1.0.0' }),
         'apps/b_detach/app.json': JSON.stringify({ id: 'b_detach', version: '1.0.0' }),
         'apps/b_sh/app.json': JSON.stringify({ id: 'b_sh', version: '1.0.0' }),
         'apps/b_sh2/app.json': JSON.stringify({ id: 'b_sh2', version: '1.0.0' }),
+        'apps/b_sh3/app.json': JSON.stringify({ id: 'b_sh3', version: '1.0.0' }),
         'apps/b_all/app.json': JSON.stringify({ id: 'b_all', version: '1.0.0' }),
         'lib/x.txt': 'shared lib\n',
         'extra/data.txt': 'only in the whole repo\n',
@@ -2497,7 +2502,8 @@ function testSources(certs) {
     ] }));
     fs.writeFileSync(path.join(pub, 'catalog.json'), JSON.stringify({ schema: 1, components: [] }));
     const conf = {
-        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: state, scratch_dir: path.join(M, 'scratch'), tool_root: opt, oap_root: oap,
+        mainapp_uid: '12201',
         store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
         github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD, github_client_id: 'Iv1.test', github_app_url: 'https://github.com/apps/mgu-store/', builtin_repo: 'robertnisipeanu/mgu-store',
         fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
@@ -2518,6 +2524,7 @@ function testSources(certs) {
     let pMark = 0;
     let tMark = 0;
     let shMark = 0;
+    let sh3Mark = 0;
     let allMark = 0;
     const authLeaks = () => seen.filter((x) => x.auth && !/^api\.github\.com/.test(x.host) && !/^updates\.test/.test(x.host));
 
@@ -2957,7 +2964,15 @@ function testSources(certs) {
             const pkg = JSON.parse(fs.readFileSync(path.join(oap, `oap_${reg.userId}`, 'source', 'package.json')));
             ok('build: the repo\'s script runs as the build uid in a copy of the repo, with the donor, and its package installs',
                 comp('b_ok').status === 'installed' && pkg.uid === 12995 && pkg.donor === '// the SDK donor bundle\n' &&
-                /\/state\/build-[0-9a-f]+\/repo$/.test(pkg.cwd), JSON.stringify([comp('b_ok').error, pkg]));
+                /\/scratch\/build-[0-9a-f]+\/repo$/.test(pkg.cwd), JSON.stringify([comp('b_ok').error, pkg]));
+            return ask(sock, { op: 'install', id: 'b_big' });
+        })
+        .then(() => until(st, () => !st().busy && (comp('b_big').status === 'installed' || comp('b_big').error), 60000, 'b_big built'))
+        .then(() => {
+            const reg = JSON.parse(fs.readFileSync(path.join(oap, 'oap_12201', 'data', 'apps', 'b_big.json')));
+            const pkg = JSON.parse(fs.readFileSync(path.join(oap, `oap_${reg.userId}`, 'source', 'package.json')));
+            ok('build: a build that outgrows its room in RAM runs again in state_dir and installs', comp('b_big').status === 'installed' &&
+                /\/state\/build-[0-9a-f]+\/repo$/.test(pkg.cwd), JSON.stringify([comp('b_big').error, pkg.cwd]));
             return ask(sock, { op: 'install', id: 'b_fail' });
         })
         .then(() => until(st, () => !st().busy && comp('b_fail').error, 30000, 'b_fail'))
@@ -2978,8 +2993,8 @@ function testSources(certs) {
         .then(() => {
             ok('build: a script cannot write outside its folder', !fs.existsSync(path.join(M, 'outside', 'x')) && /the build failed/.test(comp('b_escape').error),
                 comp('b_escape').error);
-            ok('build: build folders are removed afterwards', fs.readdirSync(state).filter((n) => /^build-/.test(n)).length === 0,
-                fs.readdirSync(state).join(' '));
+            const left = fs.readdirSync(state).concat(fs.readdirSync(path.join(M, 'scratch'))).filter((n) => /^(build|dl)-/.test(n));
+            ok('build: build and download folders are removed afterwards', left.length === 0, left.join(' '));
             return ask(sock, { op: 'install', id: 'b_detach' }).then(() => installed('b_detach'));
         })
         .then(() => stillRunning(() => uidPids(12995)))
@@ -3004,6 +3019,18 @@ function testSources(certs) {
                 got.filter((x) => /\/tools\/build\.js$/.test(x.url)).length === 1 && !got.some((x) => /^codeload/.test(x.host)),
                 JSON.stringify(got.map((x) => x.url)));
             ok('batch: kept only while the queue runs', u.ctx.batch.trees.size === 0 && u.ctx.batch.blobs.size === 0 && u.ctx.batch.whole === null);
+            // the next app on its own, in a run of its own: the shared files come from the disk, a kept one that is not the file is read again
+            const blobId = (text) => crypto.createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0`).update(text).digest('hex');
+            fs.writeFileSync(path.join(state, 'blobs', blobId('shared lib\n')), 'not the file');
+            sh3Mark = seen.length;
+            return ask(sock, { op: 'install', id: 'b_sh3' }).then(() => until(st, () => !st().busy && (comp('b_sh3').status === 'installed' || comp('b_sh3').error), 60000, 'b_sh3'));
+        })
+        .then(() => {
+            const got = seen.slice(sh3Mark);
+            ok('blobs: an app installed on its own later reads the shared files kept on disk, one that is not the file again',
+                comp('b_sh3').status === 'installed' && got.filter((x) => /\/lib\/x\.txt$/.test(x.url)).length === 1 &&
+                !got.some((x) => /\/tools\/build\.js$/.test(x.url)) && !got.some((x) => /^codeload/.test(x.host)),
+                JSON.stringify([comp('b_sh3').error, got.map((x) => x.url)]));
             allMark = seen.length;
             return ask(sock, { op: 'install', id: 'b_all' }).then(() => until(st, () => !st().busy && (comp('b_all').status === 'installed' || comp('b_all').error), 60000, 'b_all'));
         })
@@ -3090,6 +3117,7 @@ function testSources(certs) {
         .then((errs) => {
             ok('source-remove: the built-in source stays; another goes', /cannot be removed/.test(errs[0]) && errs[1] === null &&
                 !st().sources.some((x) => x.id === 'second') && comp('dup_app').source === 'mgu-store');
+            ok('source-remove: the kept repo files go', fs.readdirSync(path.join(state, 'blobs')).length === 0);
             // USB media
             const stick = path.join(media, 'STICK');
             mkdirp(path.join(stick, 'usbtool'));
@@ -4410,6 +4438,7 @@ function testAppRemove() {
     };
     tool('mgu-deploy', '0.6.0');
     tool('mgu-updater', '0.8.0');
+    tool('gate-tool', '1.0.0');
     const installed = (id, version, uid) => {
         mkdirp(path.join(oap, 'oap_12201', 'data', 'apps'));
         mkdirp(path.join(oap, `oap_${uid}`, 'source'));
@@ -4421,7 +4450,7 @@ function testAppRemove() {
     // listed without uninstallable, as the built-in catalog lists them
     publish(cat, [entry(appTgz(cat, 'robertn_store', '0.9.0'), 'app', 'Store'), entry(appTgz(cat, 'cat_app', '1.0.0'), 'app', 'Cat'),
         entry(appTgz(cat, 'next_app', '1.0.0'), 'app', 'Next'), entry(toolKit(cat, 'mgu-deploy', '0.6.0', {}), 'tool', 'Deploy tool'),
-        entry(toolKit(cat, 'mgu-updater', '0.8.0', {}), 'tool', 'Updater')].map((e) => Object.assign(e, { mguHmi: ['ID7', 'ID8'] })), { schema: 2 });
+        entry(toolKit(cat, 'mgu-updater', '0.8.0', {}), 'tool', 'Updater'), entry(toolKit(cat, 'gate-tool', '1.0.0', {}), 'tool', 'Gate')].map((e) => Object.assign(e, { mguHmi: ['ID7', 'ID8'] })), { schema: 2 });
     const sources = path.join(M, 'sources.json');
     fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: cat, builtin: true }] }));
     const conf = {
@@ -4438,6 +4467,8 @@ function testAppRemove() {
     const u = new Updater(conf);
     const comp = (id) => u.state().components.find((c) => c.id === id) || {};
     const remove = (id) => ask(conf.socket, { op: 'uninstall', id, secret: u.secret });
+    const pushed = [];
+    let listener = null;
     const done = () => {
         delete process.env.FAKE_UNIT_HMI;
         delete process.env.FAKE_PENDING;
@@ -4466,8 +4497,44 @@ function testAppRemove() {
         .then((err) => {
             ok('iDrive 8: the app\'s Remove runs the deploy tool\'s uninstall', err === null &&
                 /^uninstall cat_app --yes$/m.test(fs.readFileSync(deployLog, 'utf8')) && !comp('cat_app').installed, `${err} ${JSON.stringify(comp('cat_app'))}`);
+            // a client that stays connected and asks nothing gets the state the updater sends
+            listener = net.connect(conf.socket);
+            let buf = '';
+            listener.setEncoding('utf8');
+            listener.on('data', (d) => {
+                buf += d;
+                let nl;
+                while ((nl = buf.indexOf('\n')) >= 0) {
+                    pushed.push(JSON.parse(buf.slice(0, nl)));
+                    buf = buf.slice(nl + 1);
+                }
+            });
+            // past the state the removal sent
+            return until(() => pushed.length, (n) => n > 0, 5000, 'the state on connecting').then(() => sleep(1000));
+        })
+        .then(() => {
+            u.watchInstalled();
+            const before = pushed.length;
+            // removed outside the updater
+            fs.unlinkSync(path.join(opt, 'gate-tool', 'current'));
+            u.watchInstalled();
+            return until(() => pushed.slice(before), (l) => l.some((st) => st.type === 'state' && !row(st, 'gate-tool').installed), 10000,
+                'the state without gate-tool').then(() => sleep(1000));
+        })
+        .then(() => {
+            ok('a tool removed outside the updater: the state goes out to connected clients', row(pushed[0], 'gate-tool').installed === '1.0.0',
+                JSON.stringify(row(pushed[0], 'gate-tool')));
+            const before = pushed.length;
+            return remove('gate-tool').then((err) => until(() => pushed.length, (n) => n > before, 5000, 'the state after a refused Remove').then(() => err));
+        })
+        .then((err) => {
+            ok('a refused Remove sends the state again', !!err, String(err));
+            listener.end();
             done();
         }, (e) => {
+            if (listener) {
+                listener.end();
+            }
             done();
             throw e;
         });
@@ -6714,7 +6781,7 @@ function testCarApps(certs) {
     gh.repos['IterioDev/car-apps'].branches = { main: ghCommit('IterioDev/car-apps', tree('1.0.2')) };
     gh.repos['IterioDev/car-apps'].tags = [{ name: '1.1.0', sha: ghCommit('IterioDev/car-apps', tree('1.0.0')) },
         { name: '1.1.1', sha: ghCommit('IterioDev/car-apps', tree('1.0.1')) }];
-    ['cauliflowermossgrape/idrive7-apps', 'robertnisipeanu/idrive-apps'].forEach((r) => {
+    ['cauliflowermossgrape/idrive7-apps', 'robertnisipeanu/idrive-apps', 'hexlay/idrive7-system-monitor'].forEach((r) => {
         if (!gh.repos[r]) {
             ghRepo(r, { catalog: Buffer.from(JSON.stringify({ schema: 2, commit: 'test', components: [] })) });
         }
@@ -6849,6 +6916,34 @@ function testContent() {
     });
 }
 
+/* The repo files kept on disk stay under their cap before each write: the
+ * least recently used go first, never one the current install uses; a file
+ * that cannot fit is kept for the run only. */
+function testBlobCap() {
+    const sourcesLib = require('../js/sources');
+    const dir = path.join(T, 'blobcap');
+    const id = (text) => crypto.createHash('sha1').update(`blob ${text.length}\0`).update(text).digest('hex');
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((x) => Buffer.from(x.repeat(40)));
+    const kept = () => fs.readdirSync(dir).sort().join();
+    const names = (...l) => l.map(id).sort().join();
+    const uses = (...l) => new Set(l.map(id));
+    const old = sourcesLib.batchCache(dir, 100);
+    old.keep(id(a), a, uses(a));
+    old.keep(id(b), b, uses(b));
+    fs.utimesSync(path.join(dir, id(a)), new Date(1000), new Date(1000));
+    fs.utimesSync(path.join(dir, id(b)), new Date(2000), new Date(2000));
+    const batch = sourcesLib.batchCache(dir, 100);
+    batch.keep(id(c), c, uses(c));
+    ok('blob cap: a write past the cap evicts the least recently used first', kept() === names(b, c), kept());
+    batch.keep(id(d), d, uses(b, d));
+    ok('blob cap: a file the current install uses is not evicted, older or not', kept() === names(b, d), kept());
+    batch.keep(id(a), a, uses(a, b, d));
+    ok('blob cap: a file that cannot fit beside the current install\'s is kept for the run only',
+        kept() === names(b, d) && batch.blob(id(a)).equals(a), kept());
+    batch.drop();
+    ok('blob cap: drop empties the folder', kept() === '');
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -6857,6 +6952,7 @@ function main() {
     testCatalog();
     testCollect();
     testFileLog();
+    testBlobCap();
     return testRequiredAlone()
         .then(() => testContent())
         .then(() => testTar())

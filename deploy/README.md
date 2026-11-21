@@ -9,7 +9,7 @@ snapshots every change first, and restores a snapshot on request.
 | `deploy/mgu-install.js` | the owner's computer (Node 18+; Windows, macOS, Linux) | the first install over SSH from the published release, the updater's tokens, USB sticks as local repos |
 | `deploy/install.sh`, `deploy/install.ps1`, `deploy/installer/` | the owner's computer, without Node | run `mgu-install.js` as a standalone executable from the `installer` release |
 | `deploy/hu` | the Mac (system Node) | packs tool artifacts, installs components built from this checkout over SSH (development) |
-| `deploy/sources.json` | | the updater's sources the installers seed: the Store's own, idrive7-apps, idrive-apps and car-apps |
+| `deploy/sources.json` | | the updater's sources the installers seed: the Store's own, idrive7-apps, idrive-apps, car-apps and idrive7-system-monitor |
 | `deploy/transport/` | the Mac (system `python3`) | finds the unit's sshd over ENET or the hotspot, relays ENET, and the `--arm-debug` bootstrap |
 | `deploy/unit/mgu-deploy.sh` → `mgu-deploy.js` | the unit, as root, under its Node 8 | the installer itself |
 | `tools/oap_link.js`, `tools/oap_pack.js` | the unit (and the build machine) | build source packages and prepare packages built elsewhere |
@@ -103,9 +103,9 @@ Store, the renderer `mgu-render` and the internet uplink `mgu-uplink`
 checked against the catalog's size and sha256 before anything is sent; the
 Store is built on the unit. Newer installed tools and apps are kept, so
 running it again is safe. It seeds the updater's default sources
-(mgu-store, idrive7-apps, idrive-apps and car-apps; kept when the unit has
-its own). With `--token` a GitHub token is added afterwards (`token`,
-below).
+(mgu-store, idrive7-apps, idrive-apps, car-apps and idrive7-system-monitor;
+kept when the unit has its own). With `--token` a GitHub token is added
+afterwards (`token`, below).
 
 It ends with `Setup is done`, or `Restart the head unit to finish setup.`
 and, at a terminal, `Restart the head unit now? [y/N]`; `y` restarts the
@@ -293,7 +293,7 @@ mgu-deploy.sh install [--artifact <file>...] [--skip-older] [--other-source] [--
 mgu-deploy.sh status [--read-only] [--json]   # --read-only: changes nothing
 mgu-deploy.sh relay [<id>...] [--keep-safe-mode] --yes   # a stale tool's files again, without its install step
 mgu-deploy.sh setup <id> --yes                # a tool laid again, its install step included
-mgu-deploy.sh uninstall <id> [--yes]
+mgu-deploy.sh uninstall <id> [--yes]          # refused while an installed component requires it
 mgu-deploy.sh remove-all [--json] | remove-all --yes
 mgu-deploy.sh rollback <id> [--keep-safe-mode] [--yes]
 mgu-deploy.sh restore [name] [--yes]
@@ -324,6 +324,11 @@ the app is listed under `lost_held` with the reason until it is installed
 from the Store. While safe mode is on, every lost app but the Store
 (which has **Leave safe mode**) is held; the Store too under an updater before
 0.8.47.
+
+On iDrive 7, an app's first install frees app uids when the app manager has
+none left: the homes of our apps in `/var/opt/public/oap` that no registry
+entry uses go (not those changed in the last 10 minutes or that a process
+runs from). `status` shows the free app uids and those held by no app.
 
 - **rollback <id>** switches a tool to its other kept version (an update
   keeps the version before), or, on iDrive 7, an app to its kept older
@@ -522,8 +527,10 @@ goes into the list by its file name; `crashNames` adds others:
 ```
 
 A name the car's own programs use (`sh`, `wpa_supplicant`, `dbus-send`)
-does not belong there: give the program a name of its own instead. The
-list takes effect from the next boot.
+does not belong there: give the program a name of its own instead. Each
+name goes in also as `<name> (deleted)`, the name of a process whose
+executable an update replaced while it ran. The list takes effect from
+the next boot.
 
 Every service a tool installs runs with `LimitCORE=1`, so a crash of it or
 of a program it starts restarts that service, not the head unit, and with
@@ -569,12 +576,16 @@ services it installed stay.
 
 ### Safe mode
 
-When the head unit restarts four times in a row within 2 minutes of
-starting, by a crash or recovery restart none of our tools asked for, our
-tools' units stay off from the next start: **safe mode**. BMW's units are
-never touched. Units marked `"runsInSafeMode": true` in their tool's
-`component.json` still run; give it to units that recover the head unit or
-leave safe mode:
+When three starts of the head unit end within 5 minutes, by a crash or
+recovery restart none of our tools asked for or with no orderly shutdown
+at all (a power cut, a reset), and no start between them stays up 5
+minutes, our tools' units stay off from the next start: **safe mode**. The
+guard runs first at each start and our tools' units start after it, so the
+start that follows the third failed one already runs without them. A
+shutdown in order (switching the car off, the Store's or the HMI's
+restart) never counts. BMW's units are never touched. Units marked
+`"runsInSafeMode": true` in their tool's `component.json` still run; give
+it to units that recover the head unit or leave safe mode:
 
 ```json
 "units": [{ "name": "acme-recovery.service", "from": "systemd/acme-recovery.service", "runsInSafeMode": true }]

@@ -878,9 +878,7 @@ static int any_claim(void) {                           /* 0 none, 1 a shown app 
 
 static void touch_defaults(int area[4]) {
     if (cfg.touch_area[2]) { memcpy(area, cfg.touch_area, 4 * sizeof *area); return; }
-    area[0] = area[1] = area[2] = area[3] = 0;
-    if (screen_w == 2880 && screen_h == 960) { area[1] = 76; area[2] = 2880; area[3] = 764; }   /* iDrive 8: title strip, climate bar */
-    else if (screen_w == 1920 && screen_h == 720) { area[0] = 84; area[2] = 1836; area[3] = 720; }   /* iDrive 7: back column (the kit claims tabs in the title strip; status icons are never claimed) */
+    touch_auto_area(screen_w, screen_h, area);
 }
 
 /* ---------------- controller gate (upstream inputgate) ---------------- */
@@ -1007,7 +1005,7 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         c->dialect = DIALECT_NATIVE;
         int emb = embed_available(), area[4], ctl = ccu_free() ? ctl_gate_loaded() : 0;
         app_area(area);
-        uint32_t caps = CAP_PIXMAP | CAP_VIDEO | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
+        uint32_t caps = CAP_PIXMAP | CAP_VIDEO | CAP_VIDEO_NV12 | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
                         (ctl ? CAP_CONTROLLER : 0) | (ctl == 2 ? CAP_CONTROLLER_HOLD : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
                         (touch_on ? CAP_FINGERS : 0);
         /* a gate that cannot tell which app is in front would never show the app: no mode, the app keeps its own screens */

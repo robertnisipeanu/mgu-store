@@ -207,7 +207,7 @@ skipped. The unit-specific ones:
 |---|---|---|
 | screen, app area | read from Winston's output: 1920×720, area 108,82,1790,638 | 2880×960, area 0,76,2880,764 |
 | `touch_iface`, `touch_saddr` | `vlan73`, `160.48.199.115` (`auto`: `lo` when there is no vlan73) | same |
-| `touch_area` | 84,0,1836,720 (`auto` by screen size) | 0,76,2880,764 |
+| `touch_area` | 0,0,1920,720 (`auto` by screen size) | 0,76,2880,764 |
 | `embed`, `embed_area` | 1, 104,88,1796,632 | never offered: no HmiMain3D, so no template is loaded |
 | `embed_zero_copy`, `tick_early`, `readback_pbo`, `embed_finish` | 1, 1, 1, 0 (embed: "Embed buffers") | same |
 | `fps`, `fps.<app>` | 0: an app that asks for a rate (the Store: 60) gets it; N: N frames a second in its place, for every such app or one (`fps.robertn_store = 30`) | same |
@@ -254,7 +254,8 @@ Pixel apps: `gpu.pixmap(1, 320, 200, 'index8', 'nearest')`, `gpu.palette(1,
 rgb768)`, `gpu.pixels(1, rects, indices)` for what changed, and
 `imageOp(1, x, y, w, h)` in each frame (`test/pixel_client.js`).
 
-Video (`info.video`): a player process writes decoded frames (I420) to
+Video (`info.video`): a player process writes decoded frames (I420, or NV12
+where `info.videoNv12` is set: the header's format word 1) to
 `/dev/shm/mgu-video-<name>` (PROTOCOL.md, "Video"); the app names the file
 with `gpu.video(1, '/dev/shm/mgu-video-<name>')` and puts
 `videoOp(1, x, y, w, h, r)` in its frames. Each new video frame draws the

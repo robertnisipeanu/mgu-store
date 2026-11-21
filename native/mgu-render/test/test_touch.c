@@ -139,6 +139,15 @@ int main(void)
           strstr(open_fw, "nft insert rule ip filter input iifname vlan73 ip saddr 160.48.199.115 udp dport 30570 accept"),
           "car rule: %s / %s", rule, open_fw);
 
+    /* touch_area = auto: iDrive 7 the whole screen, iDrive 8 below the title strip and above the climate bar */
+    int auto_area[4];
+    touch_auto_area(1920, 720, auto_area);
+    CHECK(auto_area[0] == 0 && auto_area[1] == 0 && auto_area[2] == 1920 && auto_area[3] == 720, "iDrive 7 auto area: %d,%d %dx%d",
+          auto_area[0], auto_area[1], auto_area[2], auto_area[3]);
+    touch_auto_area(2880, 960, auto_area);
+    CHECK(auto_area[0] == 0 && auto_area[1] == 76 && auto_area[2] == 2880 && auto_area[3] == 764, "iDrive 8 auto area: %d,%d %dx%d",
+          auto_area[0], auto_area[1], auto_area[2], auto_area[3]);
+
     /* lo: our rule lets both renderers' re-injections through */
     const int area[4] = { 0, 0, 0, 0 };
     if (touch_init("lo", "", area) != 0) { printf("touch_init failed\n"); return 1; }

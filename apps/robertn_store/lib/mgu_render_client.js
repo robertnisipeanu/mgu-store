@@ -25,7 +25,8 @@
  * Video (info.video; kept and sent again like pixmaps): video(id, '/dev/shm/mgu-video-<name>') names the frame file
  * a player writes (PROTOCOL.md, "Video"), a VIDEO op in each frame (videoOp()) shows its newest frame there; each new
  * frame draws the app's last frame again, but the app still sends at least one message a second while shown (an app
- * silent for 3 s is hidden). video(id, null) forgets it.
+ * silent for 3 s is hidden). video(id, null) forgets it. Frames are I420, or NV12 where info.videoNv12 says the renderer
+ * reads it (the file header's format word).
  *
  * Events: ready (screen, info), tick (n, ms), touch (phase, x, y), finger (phase, id, x, y), closed, state ({ mode, onScreen,
  * front }), ccu ({ seq, knob, press, tilt, raw }), stats, close. With `kit` (idrive7-apps / IterioDev
@@ -51,7 +52,8 @@ const E = { READY: 101, TICK: 102, ERROR: 103, STATS: 104, TOUCH: 105, CLOSED: 1
 const MODES = { layer: 1, embed: 2 };
 const MODE_NAMES = [null, 'layer', 'embed'];
 const FORMATS = { rgba: 1, rgbx: 2, index8: 3 };
-const CAPS = { touch: 1, controller: 2, frontGate: 4, pixmap: 8, video: 16, zeroCopy: 32, fingers: 64, controllerHold: 128 };
+const CAPS = { touch: 1, controller: 2, frontGate: 4, pixmap: 8, video: 16, zeroCopy: 32, fingers: 64, controllerHold: 128,
+    videoNv12: 256 };
 // X_GRAB's hold: the parts of the controller the HMI doesn't get while the app grabs it (none named: all three)
 const HOLD = { knob: 1, press: 2, tilt: 4 };
 const PHASES = [null, 'down', 'move', 'up', 'cancel'];
@@ -200,6 +202,7 @@ class RenderClient extends EventEmitter {
                 touch: !!(caps & CAPS.touch), controller: !!(caps & CAPS.controller),
                 frontGate: !!(caps & CAPS.frontGate), pixmap: !!(caps & CAPS.pixmap), video: !!(caps & CAPS.video),
                 zeroCopy: !!(caps & CAPS.zeroCopy), fingers: !!(caps & CAPS.fingers), controllerHold: !!(caps & CAPS.controllerHold),
+                videoNv12: !!(caps & CAPS.videoNv12),
             };
         } else if (type === E.READY) {
             this.ready = true; this.errLogged = false;

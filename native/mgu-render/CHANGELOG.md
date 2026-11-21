@@ -2,7 +2,16 @@
 
 ## Unreleased
 
+## 0.6.25
+
+- iDrive 7: `touch_area = auto` is the whole screen, 0,0,1920,720. Apps may claim any part of the screen, the back column included; a tap no app claims goes to the HMI. `touch_area` in the configuration sets any other area.
+
+## 0.6.24
+
 - Comments in the configuration and source only; no change on the unit.
+- Video frame files can be NV12, the layout hardware decoders write (the header's format word 1), so a player hands
+  over decoded frames without converting them to I420 on the CPU. X_READY caps 256 (`info.videoNv12` in the JS client)
+  tells a player the renderer reads NV12; I420 files stay as they are.
 
 ## 0.6.23
 

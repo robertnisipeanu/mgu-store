@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.8.51
+
+- Downloads, the checked package handed to the deploy tool, and builds on the unit go to RAM when there is room (to storage otherwise), so they are not written to the head unit's storage. Source listings and the updater's state files are written only when they change.
+
+## 0.8.50
+
+- The Store gets fresh state within a few seconds when components are installed or removed outside the updater, and after the updater refuses an install, update or removal.
+
+## 0.8.49
+
+- Files downloaded from public repositories for installs are kept on the unit and reused by later installs and updates, within a fixed size limit. Removing a source clears them.
+
+## 0.8.48
+
+- Default source: hexlay/idrive7-system-monitor (System Monitor, iDrive 7 only) on its default branch, added once at the first start of this version (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. On iDrive 8 its app is not offered. Like any source it can be removed; once removed it is not added again.
+
 ## 0.8.47
 
 - An app installed again from its kept package goes to the deploy tool with `--repair`: the deploy tool then installs it again once, and holds it after a failure or a second loss until it is installed from the Store.
