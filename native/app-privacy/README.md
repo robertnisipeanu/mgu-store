@@ -41,10 +41,10 @@ such a package.
 All sites are in `/usr/lib/oap-mainapp/src/main.js` and
 `/usr/lib/oap-mainapp/src/AppManagement/AppManagement.js` (on 6.5.5 and
 6.4.8 `main.bundle.js` and `AppManagement.bundle.js`, which the
-bytecode-loader stubs `main.js` and `AppManagement.js` run). MainApp
-8.1.1, 6.5.5 and 6.4.8 have no platform analytics, no update-availability sweep and no
-`DiagOapProvider`, so those rows apply to 8.3.2 and 8.2.10 only; 8.2.0
-has the sweep and `DiagOapProvider`, and no platform analytics.
+bytecode-loader stubs `main.js` and `AppManagement.js` run). The
+platform analytics row applies to 8.3.2 and 8.2.10 only, the diagnostic
+readout row to 8.3.2, 8.2.10 and 8.2.0. MainApp 8.1.1, 6.5.5 and 6.4.8
+also have no update-availability sweep.
 
 | Path | Site |
 |---|---|
