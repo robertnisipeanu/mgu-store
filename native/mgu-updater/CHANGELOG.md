@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.52
+
 - Downloads and the phone page's server still running when the updater hands over to its new version stop quietly, with no error in the log.
 
 ## 0.8.51
