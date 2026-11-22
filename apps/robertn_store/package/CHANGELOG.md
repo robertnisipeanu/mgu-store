@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.42
+
 - Settings → Share usage statistics turns the daily anonymous usage statistics on or off.
 
 ## 0.9.41

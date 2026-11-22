@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.53
+
 - Sends anonymous usage statistics once a day, with nothing from private sources. They can be turned off in the Store's Settings.
 
 ## 0.8.52
