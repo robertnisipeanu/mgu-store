@@ -284,7 +284,9 @@ is sent and what waited is dropped. An empty `stats_url` sends nothing.
 ```
 
 - `hw` and `istep`: the hardware variant and build train of the
-  firmware string (`unit.firmware`), left out when it has neither.
+  firmware string (`unit.firmware`), each left out when it has none.
+- `versions`: each only when that component came from a public repo or
+  the installers.
 - `apps` and `sources`: only GitHub sources whose repo said it is public
   when read, and what was installed from them (also from a stick's copy
   of one). A source that needs a sign-in, an https catalog, a folder and
@@ -295,8 +297,8 @@ is sent and what waited is dropped. An empty `stats_url` sends nothing.
   `checksum`, `check`, `refused`, `deploy`, `build`, `download`,
   `other`), never the error itself. `sources_added` and
   `sources_removed` compare the sources with the last ping's.
-- No id of the car or the install is sent. A later schema (`"v": 2`) can
-  add one; a server takes each schema it knows.
+- No id of the car or the install is sent. The ping goes through the
+  proxy when one is set.
 
 ## Configuration
 

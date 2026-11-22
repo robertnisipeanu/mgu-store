@@ -198,6 +198,8 @@
     "Phone over USB": "USB üzerinden telefon",
     "Usage statistics": "Kullanım istatistikleri",
     "Share usage statistics": "Kullanım istatistiklerini paylaş",
-    "Share anonymous usage statistics": "Anonim kullanım istatistiklerini paylaş"
+    "Share anonymous usage statistics": "Anonim kullanım istatistiklerini paylaş",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store, geliştirilmesine yardımcı olmak için günde bir kez anonim kullanım istatistikleri gönderir; örneğin hangi uygulamaların ve herkese açık kaynakların kullanıldığı ve ünitenin yazılım sürümü. Sizi veya aracınızı tanımlayan hiçbir şey toplanmaz.",
+    "You can turn this off here. Questions: {0}": "Bunu buradan kapatabilirsiniz. Sorular: {0}"
   }
 }

@@ -638,17 +638,13 @@ function statsOf(m) {
     const s = m.connected && m.st && m.st.stats;
     return s && typeof s === 'object' && typeof s.on === 'boolean' ? s : null;
 }
-const STATS_ABOUT = [
-    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.",
-    "You can turn this off here. Questions: github.com/robertnisipeanu/mgu-store"
-];
-
 function statsView(m) {
     const s = statsOf(m) || { on: false };
     return {
         rows: { items: [{ id: 'stats', title: tr("Share anonymous usage statistics"), sub: '', plain: true, vicon: 'gauge', iconColor: 'text',
             right: `toggle:${s.on ? 'on' : 'off'}`, act: { do: 'stats-toggle' } }], empty: '' },
-        about: { text: STATS_ABOUT.map((p) => tr(p)).join('\n') }
+        about: { text: [tr("The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected."),
+            tr("You can turn this off here. Questions: {0}", 'github.com/robertnisipeanu/mgu-store')].join('\n') }
     };
 }
 

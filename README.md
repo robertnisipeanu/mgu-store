@@ -228,7 +228,7 @@ is deleted.
 - iDrive 7 or 8, the hardware variant and the firmware version (its build
   train, such as `P18_23w44.2`)
 - the versions of the Store, the updater, the deploy tool, the renderer
-  and the uplink
+  and the uplink, when they came from a public source or the installer
 - the apps and tools installed from public GitHub sources (id and
   version), and the names of those sources
 - since the last report: first installs from public sources, failed

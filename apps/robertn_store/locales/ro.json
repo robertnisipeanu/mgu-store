@@ -198,6 +198,8 @@
     "Phone over USB": "Telefon prin USB",
     "Usage statistics": "Statistici de utilizare",
     "Share usage statistics": "Trimite statistici de utilizare",
-    "Share anonymous usage statistics": "Trimite statistici de utilizare anonime"
+    "Share anonymous usage statistics": "Trimite statistici de utilizare anonime",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store trimite o dată pe zi statistici de utilizare anonime, cum ar fi ce aplicații și surse publice sunt folosite și versiunea de software a unității, pentru a-l îmbunătăți. Nu se colectează nimic care să vă identifice pe dumneavoastră sau mașina.",
+    "You can turn this off here. Questions: {0}": "Puteți dezactiva acest lucru aici. Întrebări: {0}"
   }
 }

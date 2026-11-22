@@ -198,6 +198,8 @@
     "Phone over USB": "Celular via USB",
     "Usage statistics": "Estatísticas de uso",
     "Share usage statistics": "Compartilhar estatísticas de uso",
-    "Share anonymous usage statistics": "Compartilhar estatísticas de uso anônimas"
+    "Share anonymous usage statistics": "Compartilhar estatísticas de uso anônimas",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "A Store envia uma vez por dia estatísticas de uso anônimas, como quais apps e fontes públicas são usados e a versão de software da unidade, para ajudar a melhorá-la. Nada que identifique você ou seu carro é coletado.",
+    "You can turn this off here. Questions: {0}": "Você pode desativar isso aqui. Dúvidas: {0}"
   }
 }

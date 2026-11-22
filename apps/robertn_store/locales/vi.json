@@ -198,6 +198,8 @@
     "Phone over USB": "Điện thoại qua USB",
     "Usage statistics": "Thống kê sử dụng",
     "Share usage statistics": "Chia sẻ thống kê sử dụng",
-    "Share anonymous usage statistics": "Chia sẻ thống kê sử dụng ẩn danh"
+    "Share anonymous usage statistics": "Chia sẻ thống kê sử dụng ẩn danh",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store gửi thống kê sử dụng ẩn danh mỗi ngày một lần, chẳng hạn ứng dụng và nguồn công khai nào được dùng và phiên bản phần mềm của thiết bị, để giúp cải thiện. Không thu thập thông tin nào nhận dạng bạn hoặc xe của bạn.",
+    "You can turn this off here. Questions: {0}": "Bạn có thể tắt tính năng này tại đây. Thắc mắc: {0}"
   }
 }

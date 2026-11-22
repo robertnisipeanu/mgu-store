@@ -198,6 +198,8 @@
     "Phone over USB": "Telefon přes USB",
     "Usage statistics": "Statistiky používání",
     "Share usage statistics": "Sdílet statistiky používání",
-    "Share anonymous usage statistics": "Sdílet anonymní statistiky používání"
+    "Share anonymous usage statistics": "Sdílet anonymní statistiky používání",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store jednou denně odesílá anonymní statistiky používání, například které aplikace a veřejné zdroje se používají a verzi softwaru jednotky, aby se mohl zlepšovat. Neshromažďuje se nic, co by identifikovalo vás nebo vaše auto.",
+    "You can turn this off here. Questions: {0}": "Zde to můžete vypnout. Dotazy: {0}"
   }
 }

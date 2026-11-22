@@ -200,6 +200,8 @@
     "Phone over USB": "透過 USB 使用手機",
     "Usage statistics": "使用統計",
     "Share usage statistics": "分享使用統計",
-    "Share anonymous usage statistics": "分享匿名使用統計"
+    "Share anonymous usage statistics": "分享匿名使用統計",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store 每天提供一次匿名使用統計（使用中的應用程式、公開來源與版本），以改進 Store；不會提供可用來找到使用者或車輛的資訊。",
+    "You can turn this off here. Questions: {0}": "可在此關閉。問題：{0}"
   }
 }

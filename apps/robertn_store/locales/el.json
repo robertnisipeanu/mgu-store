@@ -198,6 +198,8 @@
     "Phone over USB": "Τηλέφωνο μέσω USB",
     "Usage statistics": "Στατιστικά χρήσης",
     "Share usage statistics": "Κοινοποίηση στατιστικών χρήσης",
-    "Share anonymous usage statistics": "Κοινοποίηση ανώνυμων στατιστικών χρήσης"
+    "Share anonymous usage statistics": "Κοινοποίηση ανώνυμων στατιστικών χρήσης",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Το Store στέλνει μία φορά την ημέρα ανώνυμα στατιστικά χρήσης, όπως ποιες εφαρμογές και δημόσιες πηγές χρησιμοποιούνται και την έκδοση λογισμικού της μονάδας, για να βελτιωθεί. Δεν συλλέγεται τίποτα που να ταυτοποιεί εσάς ή το αυτοκίνητό σας.",
+    "You can turn this off here. Questions: {0}": "Μπορείτε να το απενεργοποιήσετε εδώ. Ερωτήσεις: {0}"
   }
 }

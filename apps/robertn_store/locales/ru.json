@@ -198,6 +198,8 @@
     "Phone over USB": "Телефон через USB",
     "Usage statistics": "Статистика использования",
     "Share usage statistics": "Отправлять статистику использования",
-    "Share anonymous usage statistics": "Отправлять анонимную статистику использования"
+    "Share anonymous usage statistics": "Отправлять анонимную статистику использования",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store раз в день отправляет анонимную статистику использования, например какие приложения и публичные источники используются и версию ПО устройства, чтобы его улучшать. Ничего, что идентифицирует вас или ваш автомобиль, не собирается.",
+    "You can turn this off here. Questions: {0}": "Это можно отключить здесь. Вопросы: {0}"
   }
 }

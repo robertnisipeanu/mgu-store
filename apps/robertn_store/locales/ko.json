@@ -198,6 +198,8 @@
     "Phone over USB": "USB로 연결한 휴대폰",
     "Usage statistics": "사용 통계",
     "Share usage statistics": "사용 통계 공유",
-    "Share anonymous usage statistics": "익명 사용 통계 공유"
+    "Share anonymous usage statistics": "익명 사용 통계 공유",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store는 개선을 위해 사용 중인 앱과 공개 소스, 장치의 소프트웨어 버전 등 익명 사용 통계를 하루에 한 번 보냅니다. 사용자나 차량을 식별하는 정보는 수집하지 않습니다.",
+    "You can turn this off here. Questions: {0}": "여기에서 끌 수 있습니다. 문의: {0}"
   }
 }

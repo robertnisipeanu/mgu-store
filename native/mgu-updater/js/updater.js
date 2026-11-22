@@ -4273,12 +4273,15 @@ class Updater {
             const v = src && this.installedVersion(id);
             return v ? { id, v, src } : null;
         }).filter(Boolean);
+        // installed by the installers (no origin) or from a public repo: never a private source's version
+        const known = (id) => !this.origins[id] || !!this.publicRepo(this.origins[id].source);
+        const version = (id, kind) => (known(id) ? this.installedVersion(id, kind) : null);
         return {
             hmi: this.unit && this.unit.hmi,
             firmware: this.unit && this.unit.firmware,
-            versions: { store: this.installedVersion(this.conf.store_app, 'app'), updater: this.version,
-                deploy: this.installedVersion(this.conf.deploy_tool || 'mgu-deploy', 'tool'), render: this.installedVersion('mgu-render', 'tool'),
-                uplink: this.installedVersion(this.conf.uplink_tool || 'mgu-uplink', 'tool') },
+            versions: { store: version(this.conf.store_app, 'app'), updater: known(SELF) ? this.version : null,
+                deploy: version(this.conf.deploy_tool || 'mgu-deploy', 'tool'), render: version('mgu-render', 'tool'),
+                uplink: version(this.conf.uplink_tool || 'mgu-uplink', 'tool') },
             apps,
             sources: this.stored.map((d) => this.publicRepo(d.id)).filter(Boolean)
         };

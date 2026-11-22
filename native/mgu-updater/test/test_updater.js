@@ -7053,6 +7053,18 @@ function testStats(certs) {
                 JSON.stringify(p.events.failed) === '[{"id":"bad-tool","code":"checksum"}]' && p.first_ever === false &&
                 JSON.stringify(p.apps) === '[{"id":"pub-tool","v":"1.0.0","src":"owner/pub-stats"}]', text);
             ok('stats: nothing of the private source is in it', !/hidden|secret/.test(text), text);
+            const own = u.origins['mgu-updater'];
+            u.origins['mgu-updater'] = { source: 'sec' };
+            const hidden = u.statsInfo().versions.updater;
+            u.origins['mgu-updater'] = { source: 'pub' };
+            const shown = u.statsInfo().versions.updater;
+            if (own) {
+                u.origins['mgu-updater'] = own;
+            } else {
+                delete u.origins['mgu-updater'];
+            }
+            ok('stats: a Store tool\'s version is sent only when it came from a public source or the installers', !hidden && shown === u.version,
+                JSON.stringify([hidden, shown]));
             ok('stats: what it carried is cleared once it got through', file().events.installed.length === 0 && file().events.failed.length === 0,
                 JSON.stringify(file()));
             // the server fails: nothing else changes, and the day stays open
