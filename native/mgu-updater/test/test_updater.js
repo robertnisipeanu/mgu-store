@@ -74,6 +74,8 @@ process.env.MGU_UPDATER_REBOOT_WAIT_MS = '3000';
 process.env.MGU_UPDATER_STORE_HELLO_MS = '1500';
 let failures = 0;
 let passes = 0;
+// the usage statistics server (updates.test/v1/ping): the pings it got, and its answer
+const stats = { pings: [], answer: 204 };
 
 function ok(name, cond, detail) {
     if (cond) {
@@ -562,6 +564,17 @@ function startHttps(certs, dir) {
                 const data = m && gh.repos[m[1]] && gh.repos[m[1]].trees[m[2]] ? ghTarball(m[1], m[2]) : null;
                 res.writeHead(data ? 200 : 404, { 'Content-Length': data ? data.length : 0 });
                 res.end(data || '');
+                return;
+            }
+            if (host === 'updates.test' && req.url === '/v1/ping') {
+                // usage statistics: each ping kept; stats.answer is the HTTP status, or 0 to close without one
+                stats.pings.push({ method: req.method, url: req.url, type: req.headers['content-type'], body });
+                if (!stats.answer) {
+                    req.socket.destroy();
+                    return;
+                }
+                res.writeHead(stats.answer);
+                res.end();
                 return;
             }
             if (req.url === '/redirect') {
@@ -6944,6 +6957,152 @@ function testBlobCap() {
     ok('blob cap: drop empties the folder', kept() === '');
 }
 
+/* Usage statistics: one ping a UTC day after a check that read a network
+ * source, naming only public GitHub sources and what came from them; off
+ * sends nothing and drops what waits; a ping that fails changes nothing
+ * else and leaves the day open. */
+function testStats(certs) {
+    const { Updater } = require('../js/updater');
+    const M = path.join(T, 'stats');
+    const opt = path.join(M, 'opt');
+    const oap = path.join(M, 'oap');
+    const store = path.join(M, 'store');
+    [M, opt, oap, store, path.join(M, 'shm'), path.join(M, 'media')].forEach(mkdirp);
+    const deployLog = path.join(M, 'deploy.log');
+    fs.writeFileSync(deployLog, '');
+    Object.assign(process.env, { TOOL_ROOT: opt, OAP_ROOT: oap, FAKE_DEPLOY_LOG: deployLog });
+    delete process.env.FAKE_LEASE;
+    delete process.env.FAKE_PENDING;
+    const deploySh = path.join(M, 'mgu-deploy.sh');
+    fs.writeFileSync(deploySh, DEPLOY_SH, { mode: 0o755 });
+    fs.writeFileSync(path.join(M, 'lease.json'), JSON.stringify({ interface: 'vethuplink', dns: [`127.0.0.1:${DNS_PORT}`] }));
+    fs.writeFileSync(path.join(M, 'ca.pem'), certs.ca);
+    publish(store, [], { schema: 2 });
+    // a public and a private repo, each a catalog release of tools
+    const release = (repo, tools, opts) => {
+        ghRepo(repo, opts);
+        const files = tools.map((t) => [toolKit(M, t.id, '1.0.0', { [`${t.id}.sh`]: ['#!/bin/sh\n', 0o755] }, { title: t.id, uninstallable: true }), t]);
+        gh.repos[repo].releases = [{ assets: files.map(([file]) => ({ name: path.basename(file), data: fs.readFileSync(file) })) }];
+        gh.repos[repo].catalog = Buffer.from(JSON.stringify({ schema: 2, commit: 'test', components: files.map(([file, t]) => {
+            const data = fs.readFileSync(file);
+            return Object.assign(entry(file, 'tool', t.id), { title: t.id, uninstallable: true },
+                { artifact: { name: path.basename(file), size: data.length, sha256: t.bad ? sha256(Buffer.from('other')) : sha256(data),
+                    url: `${API}/repos/${repo}/releases/assets/${path.basename(file)}` } });
+        }) }));
+    };
+    release('owner/pub-stats', [{ id: 'pub-tool' }, { id: 'bad-tool', bad: true }]);
+    release('owner/secret-stats', [{ id: 'hidden-tool' }, { id: 'hidden-bad', bad: true }], { private: true, tokens: ['tok-all'] });
+    const sources = path.join(M, 'sources.json');
+    fs.writeFileSync(sources, JSON.stringify({ schema: 1, sources: [{ id: 'mgu-store', type: 'file', path: store, builtin: true },
+        { id: 'pub', type: 'github', repo: 'owner/pub-stats', channel: 'releases' },
+        { id: 'sec', type: 'github', repo: 'owner/secret-stats', channel: 'releases' }] }));
+    const conf = {
+        sources, credentials_dir: path.join(M, 'cred'), state_dir: path.join(M, 'state'), tool_root: opt, oap_root: oap, mainapp_uid: '12201',
+        store_app: 'robertn_store', deploy: deploySh, lease: path.join(M, 'lease.json'), ca_file: path.join(M, 'ca.pem'),
+        github_api: API, github_web: GH_WEB, github_raw: RAW, github_codeload: CODELOAD, github_client_id: '', builtin_repo: 'robertnisipeanu/mgu-store',
+        fetch_uid: String(FETCH_UID), fetch_gid: String(FETCH_UID), build_uid: '12995', build_gid: '12995',
+        build_timeout_s: '3', build_max_bytes: String(8 << 20), repo_max_bytes: String(8 << 20),
+        mounts: path.join(M, 'mounts'), usb_roots: path.join(M, 'media'), web_secret: path.join(M, 'web-secret'), web_uid: '12996', web_gid: '12202',
+        socket: path.join(M, 'shm', 'updater.sock'), socket_group: 'staff', deploy_tool: 'mgu-deploy', uplink_tool: 'mgu-uplink',
+        bootstrap_check_s: '6', privacy_tool: '', reboot: '', default_sources: '', stats_url: `https://updates.test:${HTTPS_PORT}/v1/ping`
+    };
+    fs.writeFileSync(conf.mounts, '');
+    stats.pings = [];
+    stats.answer = 204;
+    const u = new Updater(conf);
+    u.tokens.add('tok-all', { kind: 'github' });
+    const st = () => u.state();
+    const comp = (id) => st().components.find((c) => c.id === id) || {};
+    const pinged = () => (u.pinging || Promise.resolve()).then(() => stats.pings.map((p) => JSON.parse(p.body)));
+    const checked = () => u.check().then(pinged);
+    const install = (id) => ask(conf.socket, { op: 'install', id })
+        .then(() => until(st, () => !st().busy && !st().components.some((c) => c.queued), 60000, `${id} done`));
+    const file = () => JSON.parse(fs.readFileSync(path.join(conf.state_dir, 'stats.json'), 'utf8'));
+    const yesterday = () => {
+        u.stats.d.day = '2000-01-01';
+    };
+    return u.serve()
+        .then(checked)
+        .then((pings) => {
+            const p = pings[0] || {};
+            ok('stats: the first check sends one ping, a JSON POST', pings.length === 1 && stats.pings[0].method === 'POST' &&
+                stats.pings[0].url === '/v1/ping' && stats.pings[0].type === 'application/json', JSON.stringify(stats.pings));
+            ok('stats: it names the public source and no other; first ever, first this month', p.v === 1 &&
+                JSON.stringify(p.sources) === '["owner/pub-stats"]' && p.first_ever === true && p.first_this_month === true &&
+                p.versions && p.versions.updater === u.version, JSON.stringify(p));
+            ok('stats: the private source was read', (st().sources.find((s) => s.id === 'sec') || {}).status === 'ok', JSON.stringify(st().sources));
+            return ['pub-tool', 'bad-tool', 'hidden-tool', 'hidden-bad'].reduce((q, id) => q.then(() => install(id)), Promise.resolve());
+        })
+        .then(() => {
+            ok('stats: the installs ran', comp('pub-tool').status === 'installed' && comp('hidden-tool').status === 'installed' &&
+                !!comp('bad-tool').error && !!comp('hidden-bad').error, JSON.stringify(st().components.map((c) => [c.id, c.status, c.error])));
+            ok('stats: the private source\'s install and failure are not kept', !/hidden|secret/.test(fs.readFileSync(path.join(conf.state_dir, 'stats.json'), 'utf8')),
+                JSON.stringify(file()));
+            return checked();
+        })
+        .then((pings) => {
+            ok('stats: a second check the same day sends nothing', pings.length === 1, pings.length);
+            yesterday();
+            return checked();
+        })
+        .then((pings) => {
+            const p = pings[1] || {};
+            const text = JSON.stringify(p);
+            ok('stats: the next day\'s ping has the public installs and failures since, with a fixed failure code',
+                pings.length === 2 && JSON.stringify(p.events.installed) === '[{"id":"pub-tool","src":"owner/pub-stats"}]' &&
+                JSON.stringify(p.events.failed) === '[{"id":"bad-tool","code":"checksum"}]' && p.first_ever === false &&
+                JSON.stringify(p.apps) === '[{"id":"pub-tool","v":"1.0.0","src":"owner/pub-stats"}]', text);
+            ok('stats: nothing of the private source is in it', !/hidden|secret/.test(text), text);
+            ok('stats: what it carried is cleared once it got through', file().events.installed.length === 0 && file().events.failed.length === 0,
+                JSON.stringify(file()));
+            // the server fails: nothing else changes, and the day stays open
+            stats.answer = 500;
+            yesterday();
+            return checked();
+        })
+        .then((pings) => {
+            ok('stats: a ping the server refuses changes nothing else', pings.length === 3 && u.stats.d.day === '2000-01-01' &&
+                st().catalog.error === null && st().sources.every((s) => s.status === 'ok'), JSON.stringify([pings.length, u.stats.d, st().catalog]));
+            stats.answer = 0;
+            return checked();
+        })
+        .then((pings) => {
+            ok('stats: a connection closed without an answer changes nothing else', pings.length === 4 && u.stats.d.day === '2000-01-01' &&
+                st().catalog.error === null, JSON.stringify([pings.length, u.stats.d]));
+            return install('bad-tool');
+        })
+        .then(() => {
+            ok('stats: an install after failed pings runs as before', /does not match/.test(comp('bad-tool').error || '') &&
+                file().events.failed.length === 1, JSON.stringify([comp('bad-tool'), file()]));
+            ok('stats: the switch needs the secret', u.handle({ op: 'stats', on: false }) === 'forbidden' && u.stats.on);
+            ok('stats: off through the Store\'s request', u.handle({ op: 'stats', on: false, secret: u.secret }) === null && st().stats.on === false &&
+                file().on === false && file().events.failed.length === 0, JSON.stringify(file()));
+            stats.answer = 204;
+            return install('bad-tool').then(checked);
+        })
+        .then((pings) => {
+            ok('stats: off sends nothing and keeps nothing', pings.length === 4 && file().events.failed.length === 0, JSON.stringify([pings.length, file()]));
+            // a stats.json that cannot be written (a full disk) fails no install and stops no queue
+            u.handle({ op: 'stats', on: true, secret: u.secret });
+            u.stats.write = () => {
+                throw new Error('ENOSPC: no space left on device');
+            };
+            return install('bad-tool').then(() => install('pub-tool'));
+        })
+        .then(() => {
+            ok('stats: an unwritable stats file leaves installs and the queue as they are', !st().busy && /does not match/.test(comp('bad-tool').error || '') &&
+                comp('pub-tool').status === 'installed' && !comp('pub-tool').error, JSON.stringify([st().busy, comp('bad-tool'), comp('pub-tool')]));
+            let refused = null;
+            try {
+                u.handle({ op: 'stats', on: false, secret: u.secret });
+            } catch (e) {
+                refused = e.message;
+            }
+            ok('stats: off that cannot be saved is refused, and stays on', !!refused && st().stats.on === true, `${refused} ${JSON.stringify(st().stats)}`);
+            u.server.close();
+        });
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -6984,6 +7143,7 @@ function main() {
             .then(() => testDefaultPrivate(certs).catch((e) => ok('default private source scenario', false, e.stack)))
             .then(() => testAnonymous(certs).catch((e) => ok('anonymous GitHub scenario', false, e.stack)))
             .then(() => testCarApps(certs).catch((e) => ok('car-apps default source scenario', false, e.stack)))
+            .then(() => testStats(certs).catch((e) => ok('usage statistics scenario', false, e.stack)))
             .then(() => testDaemon(certs, pubDir))
             .then(() => {
                 dnsSrv.close();

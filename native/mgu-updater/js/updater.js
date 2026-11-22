@@ -33,6 +33,7 @@ const { runBuild, cleanBuilds } = require('./build');
 const { ServiceUids, retireOld } = require('./uids');
 const { UpdaterClient } = require('./client');
 const tunnel = require('./tunnel');
+const { Stats } = require('./stats');
 
 const ID = catalogLib.ID;
 
@@ -981,7 +982,7 @@ class Fetcher {
                             `${ev.from ? ` from byte ${ev.from}` : ''}`);
                     } else if ((ev.done || ev.error || ev.notModified) && !(result && result.error)) {
                         result = ev;
-                        if (this.conf.proxy) {
+                        if (this.conf.proxy && !job.quiet) {
                             this.noteProxy(ev.error && /^proxy /.test(ev.error) ? ev.error : ev.error ? this.proxyError : null);
                         }
                     }
@@ -1007,6 +1008,7 @@ class Fetcher {
             });
             child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, lease: this.conf.lease || undefined, ca: this.ca,
                 method: job.method || 'GET', body: job.body, keep: job.keep || [], proxy: this.conf.proxy || undefined,
+                connectMs: job.connectMs, idleMs: job.idleMs,
                 immutable: !!job.immutable, fresh: !!(job.fresh || this.fresh),
                 files: files ? files.map((f) => ({ url: f.url, dest: f.dest, maxBytes: f.maxBytes })) : undefined, parallel: job.parallel }));
         }).then((bytes) => {
@@ -1040,7 +1042,7 @@ function under(entry, id) {
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
 const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
-    'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set'];
+    'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set', 'stats'];
 // requests that change what is installed
 const CHANGES = ['install', 'uninstall', 'rollback', 'setup'];
 
@@ -1277,6 +1279,12 @@ class Updater {
         try {
             this.webEnabled = readJson(path.join(conf.state_dir, 'web.json')).enabled === true;
         } catch (e) { /* off */ }
+        // usage statistics (README.md, "Usage statistics"): on unless turned off; the ping under way
+        this.stats = new Stats(path.join(conf.state_dir, 'stats.json'), (file, text) => {
+            mkdirp(path.dirname(file), 0o755);
+            writeAtomic(file, text);
+        });
+        this.pinging = null;
         // the components the deploy tool says are not working, by id: { why, kept }
         this.stale = {};
         // the tools whose install step waits for their next install or Set up, by id: why
@@ -1861,6 +1869,8 @@ class Updater {
             // the uplink's device, preferred group and Wi-Fi (its status.json), null while it does not run
             uplink: this.uplink,
             privacy: this.privacy,
+            // usage statistics: { on }, null without a stats_url
+            stats: this.conf.stats_url ? this.stats.state() : null,
             // the proxy downloads go through (README.md, "Through a proxy"): its host:port, never its user name or password
             proxy: proxyState(this.conf.proxy, this.fetcher.proxyError),
             // why app changes wait for the next start of the head unit (the deploy tool's MainApp guard), or null
@@ -2300,6 +2310,7 @@ class Updater {
                 this.checking = null;
                 this.repairStale();
                 this.changed();
+                this.ping();
             });
         return this.checking;
     }
@@ -3170,6 +3181,9 @@ class Updater {
             return Promise.resolve(false);
         }
         const entry = own.id !== id ? under(own, id) : own;
+        // for usage statistics: a first install, from a public repo (null otherwise)
+        const had = !!this.installedVersion(id, entry.kind);
+        const repo = this.publicRepo(this.originOf(item.source));
         // an uplink installed without internet (from a stick) has none to give back
         const wasOnline = readLease(this.conf).online;
         this.busy = { id: key, op: 'install', phase: 'download', progress: 0, total: entry.artifact.size || null };
@@ -3290,10 +3304,18 @@ class Updater {
                 }
                 return this.bootstrapCheck(entry, toolDir, before, wasOnline);
             })
-            .then(() => self)
+            .then(() => {
+                if (!had && this.conf.stats_url) {
+                    this.stats.installed(id, repo);
+                }
+                return self;
+            })
             .catch((err) => {
                 console.log(`${id}@${entry.version}: ${err.message}`);
                 this.errors[key] = err.message;
+                if (this.conf.stats_url) {
+                    this.stats.failed(id, repo, err.message);
+                }
                 if (this.storeTrial && id === this.conf.store_app && this.storeTrial.version === entry.version) {
                     this.endStoreTrial();
                 }
@@ -4218,6 +4240,78 @@ class Updater {
         this.tokensChanged();
     }
 
+    /* The Store's usage statistics switch (on: true or false). Off drops
+     * what waits to be sent. */
+    setStats(req) {
+        if (!this.conf.stats_url) {
+            return 'this updater sends no usage statistics';
+        }
+        if (typeof req.on !== 'boolean') {
+            return 'stats needs on: true or false';
+        }
+        this.stats.set(req.on);
+        console.log(`stats: ${req.on ? 'on' : 'off'}`);
+        this.changed();
+        return null;
+    }
+
+    /* The repo of a GitHub source that said it is public when read, else
+     * null: a source that needs a sign-in, an https catalog, a folder or a
+     * stick is never named. */
+    publicRepo(sourceId) {
+        const def = this.stored.find((d) => d.id === sourceId);
+        const rt = def && this.src.get(def.id);
+        return def && def.type === 'github' && rt && rt.public ? def.repo : null;
+    }
+
+    /* What a ping names: the head unit, the Store's tools' versions, the
+     * components installed from public repos and those repos. */
+    statsInfo() {
+        const own = STORE_TOOLS.concat([this.conf.store_app]);
+        const apps = Object.keys(this.origins).filter((id) => own.indexOf(id) < 0).map((id) => {
+            const src = this.publicRepo(this.origins[id].source);
+            const v = src && this.installedVersion(id);
+            return v ? { id, v, src } : null;
+        }).filter(Boolean);
+        return {
+            hmi: this.unit && this.unit.hmi,
+            firmware: this.unit && this.unit.firmware,
+            versions: { store: this.installedVersion(this.conf.store_app, 'app'), updater: this.version,
+                deploy: this.installedVersion(this.conf.deploy_tool || 'mgu-deploy', 'tool'), render: this.installedVersion('mgu-render', 'tool'),
+                uplink: this.installedVersion(this.conf.uplink_tool || 'mgu-uplink', 'tool') },
+            apps,
+            sources: this.stored.map((d) => this.publicRepo(d.id)).filter(Boolean)
+        };
+    }
+
+    /* The day's ping, once a check has read a network source: sent in the
+     * background, its outcome changes nothing but the day it was sent. */
+    ping() {
+        const url = this.conf.stats_url;
+        const now = Date.now();
+        if (!url || this.pinging || !this.stats.due(now)) {
+            return;
+        }
+        const read = this.defs().some((d) => {
+            const rt = this.src.get(d.id);
+            return rt && rt.reader.network && rt.status === 'ok';
+        });
+        if (!read) {
+            return;
+        }
+        const body = this.stats.body(this.statsInfo(), now);
+        this.pinging = Promise.resolve()
+            .then(() => Stats.send(this.fetcher, url, body, this.version))
+            .catch(() => false)
+            .then((ok) => {
+                this.pinging = null;
+                if (ok && this.stats.on) {
+                    this.stats.sent(body, now);
+                }
+                console.log(`stats: ${ok ? 'sent' : 'not sent'}`);
+            });
+    }
+
     setWeb(enabled) {
         if (!web) {
             return 'this updater has no phone page';
@@ -4379,6 +4473,7 @@ class Updater {
         case 'token-remove': return this.tokenRemove(req.id);
         case 'web': return this.setWeb(req.enable === true);
         case 'proxy-set': return this.setProxy(req.url);
+        case 'stats': return this.setStats(req);
         case 'logs': return this.logs(req, reply);
         case 'uplink-prefer':
         case 'wifi-enable':

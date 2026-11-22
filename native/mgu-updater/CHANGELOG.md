@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Sends anonymous usage statistics once a day, with nothing from private sources. They can be turned off in the Store's Settings.
+
 ## 0.8.52
 
 - Downloads and the phone page's server still running when the updater hands over to its new version stop quietly, with no error in the log.
