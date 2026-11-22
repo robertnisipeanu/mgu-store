@@ -195,6 +195,9 @@
     "May cause CarPlay issues": "Có thể gây lỗi CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Trên iPhone, bật Tối đa hóa tương thích",
     "This network is 5 GHz only: CarPlay audio may drop": "Mạng này chỉ có 5 GHz: âm thanh CarPlay có thể bị ngắt",
-    "Phone over USB": "Điện thoại qua USB"
+    "Phone over USB": "Điện thoại qua USB",
+    "Usage statistics": "Thống kê sử dụng",
+    "Share usage statistics": "Chia sẻ thống kê sử dụng",
+    "Share anonymous usage statistics": "Chia sẻ thống kê sử dụng ẩn danh"
   }
 }

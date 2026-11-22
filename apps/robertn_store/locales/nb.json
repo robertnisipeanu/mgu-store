@@ -195,6 +195,9 @@
     "May cause CarPlay issues": "Kan gi problemer med CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Slå på Maksimer kompatibilitet på iPhone",
     "This network is 5 GHz only: CarPlay audio may drop": "Dette nettverket er bare 5 GHz: CarPlay-lyden kan falle ut",
-    "Phone over USB": "Telefon via USB"
+    "Phone over USB": "Telefon via USB",
+    "Usage statistics": "Bruksstatistikk",
+    "Share usage statistics": "Del bruksstatistikk",
+    "Share anonymous usage statistics": "Del anonym bruksstatistikk"
   }
 }

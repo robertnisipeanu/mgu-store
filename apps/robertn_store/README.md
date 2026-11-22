@@ -65,8 +65,9 @@ USB, Settings) beside:
   step; Sign in with GitHub while `state.signin` is true; Add token), Proxy
   (Off or its address, with an updater that reports `state.proxy`: its page
   turns it on or off and sets its address, `http://` or `socks5://`, checked
-  before it is sent), Phone access, the head unit and versions, Check now,
-  Restart head unit.
+  before it is sent), Phone access, Share usage statistics (On or Off,
+  with an updater that reports `state.stats`: its page has the switch and
+  a short note), the head unit and versions, Check now, Restart head unit.
 
 Confirm steps are a sheet over the page, Cancel first. BACK leaves a page.
 The controller moves a focus ring over what a page has to press, and a

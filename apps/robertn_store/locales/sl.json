@@ -195,6 +195,9 @@
     "May cause CarPlay issues": "Lahko povzroči težave s CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "V iPhonu vklopite Maksimiraj združljivost",
     "This network is 5 GHz only: CarPlay audio may drop": "To omrežje je samo 5 GHz: zvok CarPlay se lahko prekinja",
-    "Phone over USB": "Telefon prek USB"
+    "Phone over USB": "Telefon prek USB",
+    "Usage statistics": "Statistika uporabe",
+    "Share usage statistics": "Deli statistiko uporabe",
+    "Share anonymous usage statistics": "Deli anonimno statistiko uporabe"
   }
 }

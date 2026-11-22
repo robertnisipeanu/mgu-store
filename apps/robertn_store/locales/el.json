@@ -195,6 +195,9 @@
     "May cause CarPlay issues": "Μπορεί να προκαλέσει προβλήματα στο CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Στο iPhone, ενεργοποιήστε τη Μεγιστοποίηση συμβατότητας",
     "This network is 5 GHz only: CarPlay audio may drop": "Δίκτυο μόνο 5 GHz: ο ήχος του CarPlay μπορεί να διακόπτεται",
-    "Phone over USB": "Τηλέφωνο μέσω USB"
+    "Phone over USB": "Τηλέφωνο μέσω USB",
+    "Usage statistics": "Στατιστικά χρήσης",
+    "Share usage statistics": "Κοινοποίηση στατιστικών χρήσης",
+    "Share anonymous usage statistics": "Κοινοποίηση ανώνυμων στατιστικών χρήσης"
   }
 }

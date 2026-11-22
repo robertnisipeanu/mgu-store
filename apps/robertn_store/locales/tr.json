@@ -195,6 +195,9 @@
     "May cause CarPlay issues": "CarPlay'de sorunlara yol açabilir",
     "On the iPhone, turn on Maximize Compatibility": "iPhone'da Uyumluluğu Artır'ı açın",
     "This network is 5 GHz only: CarPlay audio may drop": "Bu ağ yalnızca 5 GHz: CarPlay sesi kesilebilir",
-    "Phone over USB": "USB üzerinden telefon"
+    "Phone over USB": "USB üzerinden telefon",
+    "Usage statistics": "Kullanım istatistikleri",
+    "Share usage statistics": "Kullanım istatistiklerini paylaş",
+    "Share anonymous usage statistics": "Anonim kullanım istatistiklerini paylaş"
   }
 }

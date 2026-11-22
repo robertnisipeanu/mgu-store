@@ -247,8 +247,15 @@ function compact(W, H) {
         list('rows', X, HEAD + 14, proxyW, 2 * LIST.rowH, { empty: '' }),
         text('error', X, HEAD + 14 + 2 * LIST.rowH + 20, proxyW, 130, '', 26, 'label', AMBER, { wrap: true })
     ]);
+    const aboutY = HEAD + 14 + LIST.rowH + 20;
+    const stats = screen('stats', 3, [
+        back(),
+        title('Usage statistics', titleX),
+        list('rows', X, HEAD + 14, proxyW, LIST.rowH, { empty: '' }),
+        text('about', X, aboutY, CW, B - aboutY, '', 25, 'label', TEXT, { wrap: true })
+    ]);
     return { design: { w: W, h: H }, screens: [store, app, confirm, installed, usb, settings, source, accounts, pick, login, phone, type,
-        wifi, prefer, proxy] };
+        wifi, prefer, proxy, stats] };
 }
 
 module.exports = { compact };

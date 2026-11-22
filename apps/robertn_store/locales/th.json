@@ -195,6 +195,9 @@
     "May cause CarPlay issues": "อาจทำให้ CarPlay มีปัญหา",
     "On the iPhone, turn on Maximize Compatibility": "เปิด เพิ่มความเข้ากันได้สูงสุด บน iPhone",
     "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย",
-    "Phone over USB": "โทรศัพท์ผ่าน USB"
+    "Phone over USB": "โทรศัพท์ผ่าน USB",
+    "Usage statistics": "สถิติการใช้งาน",
+    "Share usage statistics": "แชร์สถิติการใช้งาน",
+    "Share anonymous usage statistics": "แชร์สถิติการใช้งานแบบไม่ระบุตัวตน"
   }
 }
