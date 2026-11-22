@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Downloads and the phone page's server still running when the updater hands over to its new version stop quietly, with no error in the log.
+
 ## 0.8.51
 
 - Downloads, the checked package handed to the deploy tool, and builds on the unit go to RAM when there is room (to storage otherwise), so they are not written to the head unit's storage. Source listings and the updater's state files are written only when they change.
