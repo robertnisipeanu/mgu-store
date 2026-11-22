@@ -195,6 +195,11 @@
     "May cause CarPlay issues": "Peut perturber CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Sur l'iPhone, activez Optimiser la compatibilité",
     "This network is 5 GHz only: CarPlay audio may drop": "Ce réseau est en 5 GHz uniquement : le son CarPlay peut couper",
-    "Phone over USB": "Cellulaire par USB"
+    "Phone over USB": "Cellulaire par USB",
+    "Usage statistics": "Statistiques d'utilisation",
+    "Share usage statistics": "Partager les statistiques d'utilisation",
+    "Share anonymous usage statistics": "Partager les statistiques d'utilisation anonymes",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Le Store envoie une fois par jour des statistiques d'utilisation anonymes, comme les applis et sources publiques utilisées et la version logicielle de l'unité, pour l'améliorer. Rien qui vous identifie, vous ou votre véhicule, n'est recueilli.",
+    "You can turn this off here. Questions: {0}": "Vous pouvez désactiver cette option ici. Questions : {0}"
   }
 }

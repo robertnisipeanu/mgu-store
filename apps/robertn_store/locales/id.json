@@ -195,6 +195,11 @@
     "May cause CarPlay issues": "Dapat menimbulkan masalah CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Di iPhone, nyalakan Maksimalkan Kompatibilitas",
     "This network is 5 GHz only: CarPlay audio may drop": "Jaringan ini hanya 5 GHz: audio CarPlay bisa terputus",
-    "Phone over USB": "Ponsel lewat USB"
+    "Phone over USB": "Ponsel lewat USB",
+    "Usage statistics": "Statistik penggunaan",
+    "Share usage statistics": "Bagikan statistik penggunaan",
+    "Share anonymous usage statistics": "Bagikan statistik penggunaan anonim",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store mengirim statistik penggunaan anonim sekali sehari, seperti aplikasi dan sumber publik yang digunakan serta versi perangkat lunak unit, untuk membantu meningkatkannya. Tidak ada yang mengidentifikasi Anda atau mobil Anda yang dikumpulkan.",
+    "You can turn this off here. Questions: {0}": "Anda dapat menonaktifkannya di sini. Pertanyaan: {0}"
   }
 }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Settings → Share usage statistics turns the daily anonymous usage statistics on or off.
+
 ## 0.9.41
 
 No change on screen: the renderer client it carries is updated.

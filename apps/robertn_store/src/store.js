@@ -72,7 +72,7 @@ const i18n = require('./i18n.js');
 const { qrPng } = require('./qr.js');
 const { spell } = require('./speller.js');
 const { Drawn, DEPTHS } = require('./store_drawn.js');
-const { typeKey, wifiOf, proxyOf, restartShown, canRestart } = require('./store_ui.js');
+const { typeKey, wifiOf, proxyOf, statsOf, restartShown, canRestart } = require('./store_ui.js');
 const { PHASE, percent, rowState, rowAction, groupState, statusLine, sourceLabel, sourceState,
     sourcesState, sourceActions, sourceChannel, sourceAccount, tokenLabel, tokenState, tokenSources, accountsState,
     loginStatus, loginCode, phoneState, phoneAddress, parseSource, pickOptions, probeStatus, neededBy, sourcesMessage, tokenMessage,
@@ -797,6 +797,14 @@ class Store extends OnlineApp {
             break;
         }
         case 'proxy-edit': this._editProxy(); break;
+        case 'stats-toggle': {
+            const s = statsOf({ connected: this._connected, st: this._st });
+            if (s) {
+                logger.info(`usage statistics ${s.on ? 'off' : 'on'}`);
+                this._privileged({ op: 'stats', on: !s.on });
+            }
+            break;
+        }
         default: break;
         }
         this._render();

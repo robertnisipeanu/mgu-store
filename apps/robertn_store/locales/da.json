@@ -195,6 +195,11 @@
     "May cause CarPlay issues": "Kan give problemer med CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "Slå Maksimer kompatibilitet til på iPhone",
     "This network is 5 GHz only: CarPlay audio may drop": "Dette netværk er kun 5 GHz: CarPlay-lyd kan falde ud",
-    "Phone over USB": "Telefon via USB"
+    "Phone over USB": "Telefon via USB",
+    "Usage statistics": "Brugsstatistik",
+    "Share usage statistics": "Del brugsstatistik",
+    "Share anonymous usage statistics": "Del anonym brugsstatistik",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store sender én gang om dagen anonym brugsstatistik, f.eks. hvilke apps og offentlige kilder der bruges og enhedens softwareversion, så den kan blive bedre. Intet, der identificerer dig eller din bil, indsamles.",
+    "You can turn this off here. Questions: {0}": "Du kan slå det fra her. Spørgsmål: {0}"
   }
 }

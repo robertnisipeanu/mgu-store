@@ -195,6 +195,11 @@
     "May cause CarPlay issues": "Можливі проблеми з CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "На iPhone увімкніть «Максимальна сумісність»",
     "This network is 5 GHz only: CarPlay audio may drop": "Ця мережа лише 5 ГГц: звук CarPlay може перериватися",
-    "Phone over USB": "Телефон через USB"
+    "Phone over USB": "Телефон через USB",
+    "Usage statistics": "Статистика використання",
+    "Share usage statistics": "Надсилати статистику використання",
+    "Share anonymous usage statistics": "Надсилати анонімну статистику використання",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store раз на день надсилає анонімну статистику використання, наприклад які застосунки та публічні джерела використовуються і версію ПЗ пристрою, щоб його покращувати. Нічого, що ідентифікує вас або ваш автомобіль, не збирається.",
+    "You can turn this off here. Questions: {0}": "Це можна вимкнути тут. Питання: {0}"
   }
 }

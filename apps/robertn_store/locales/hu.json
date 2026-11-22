@@ -195,6 +195,11 @@
     "May cause CarPlay issues": "CarPlay-problémákat okozhat",
     "On the iPhone, turn on Maximize Compatibility": "Az iPhone-on kapcsolja be: Kompatibilitás maximalizálása",
     "This network is 5 GHz only: CarPlay audio may drop": "Ez a hálózat csak 5 GHz-es: a CarPlay hangja kimaradhat",
-    "Phone over USB": "Telefon USB-n keresztül"
+    "Phone over USB": "Telefon USB-n keresztül",
+    "Usage statistics": "Használati statisztika",
+    "Share usage statistics": "Használati statisztika megosztása",
+    "Share anonymous usage statistics": "Névtelen használati statisztika megosztása",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "A Store naponta egyszer névtelen használati statisztikát küld, például hogy mely alkalmazásokat és nyilvános forrásokat használják, valamint az egység szoftververzióját, a fejlesztés érdekében. Semmi olyat nem gyűjt, ami Önt vagy az autóját azonosítaná.",
+    "You can turn this off here. Questions: {0}": "Itt kikapcsolhatja. Kérdések: {0}"
   }
 }

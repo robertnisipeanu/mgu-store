@@ -215,6 +215,52 @@ on the same network, such as Clash on a computer or a router: Settings →
 downloads goes through it, and builds on the unit too. Turn it off to
 download directly again. The phone page has the same setting.
 
+### Usage statistics
+
+Once a day, the Store's updater sends a small anonymous report, to show
+how many cars use the Store, which apps and sources are used and which
+installs fail. It is on by default; turn it off in Settings → **Share
+usage statistics**. Off, nothing is sent and what was waiting to be sent
+is deleted.
+
+**What a report contains**
+
+- iDrive 7 or 8, the hardware variant and the firmware version (its build
+  train, such as `P18_23w44.2`)
+- the versions of the Store, the updater, the deploy tool, the renderer
+  and the uplink, when they came from a public source or the installer
+- the apps and tools installed from public GitHub sources (id and
+  version), and the names of those sources
+- since the last report: first installs from public sources, failed
+  installs (the app's id and a fixed reason code such as `download` or
+  `build`, never the error text), and public sources added or removed
+- whether it is the car's first report ever and its first this month
+
+**What it never contains**
+
+- anything about private sources (ones that need a sign-in) or anything
+  installed from them; https catalogs, folders and USB sticks other than
+  a copy of a public source are left out too
+- an id of the car, the head unit or the install, the VIN, location,
+  account names, tokens, Wi-Fi details or logs
+
+**What is kept**
+
+- The server keeps only daily and monthly totals (for example "cars on
+  iDrive 8 today" or "cars with this app version"); single reports are
+  never stored.
+- The IP address is neither stored nor logged. The country is taken from
+  it for the totals; a salted hash of it is used only for the server's
+  short-term rate limit.
+- Data is held on Cloudflare in the EU.
+
+The report is one HTTPS request with a 10-second limit. If it can't be
+sent, nothing else is affected; it is tried again at the next check that
+day. The updater's [README](native/mgu-updater/README.md#usage-statistics)
+shows a sample report.
+
+Questions: open an issue in this repository.
+
 ## Offline: USB stick
 
 A car without internet installs and updates from a USB stick. On the

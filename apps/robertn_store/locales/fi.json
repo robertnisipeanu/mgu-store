@@ -195,6 +195,11 @@
     "May cause CarPlay issues": "Voi aiheuttaa ongelmia CarPlayssa",
     "On the iPhone, turn on Maximize Compatibility": "Laita iPhonessa päälle Maksimoi yhteensopivuus",
     "This network is 5 GHz only: CarPlay audio may drop": "Tämä verkko on vain 5 GHz: CarPlayn ääni voi katkeilla",
-    "Phone over USB": "Puhelin USB:n kautta"
+    "Phone over USB": "Puhelin USB:n kautta",
+    "Usage statistics": "Käyttötilastot",
+    "Share usage statistics": "Jaa käyttötilastot",
+    "Share anonymous usage statistics": "Jaa anonyymit käyttötilastot",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store lähettää kerran päivässä anonyymejä käyttötilastoja, kuten mitä sovelluksia ja julkisia lähteitä käytetään ja yksikön ohjelmistoversion, kehittämisen tueksi. Mitään sinut tai autosi tunnistavaa ei kerätä.",
+    "You can turn this off here. Questions: {0}": "Voit poistaa tämän käytöstä täällä. Kysymykset: {0}"
   }
 }

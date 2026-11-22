@@ -264,6 +264,42 @@ It listens on port `web_port` (8470) of the hotspot address
 token each time it is turned on; without it the page says *Scan the code
 in the Store*.
 
+## Usage statistics
+
+Once a UTC day, after a check that read a network source, the updater
+sends one anonymous ping to `stats_url`: one HTTPS POST through the fetch
+uid, 10 s at most, never tried again. Whatever happens to it changes
+nothing else, and a day whose ping did not get through is tried at the
+next check. The Store's switch (`stats`, below) turns it off; off, nothing
+is sent and what waited is dropped. An empty `stats_url` sends nothing.
+
+```json
+{ "v": 1, "hmi": "ID7", "hw": "mgu-high", "istep": "P18_23w44.2",
+  "versions": { "store": "0.9.41", "updater": "0.8.52", "deploy": "0.8.27", "render": "0.6.16", "uplink": "0.7.13" },
+  "apps": [ { "id": "doom", "v": "1.0.1", "src": "cauliflowermossgrape/idrive7-apps" } ],
+  "sources": [ "robertnisipeanu/mgu-store", "cauliflowermossgrape/idrive7-apps" ],
+  "events": { "installed": [ { "id": "doom", "src": "cauliflowermossgrape/idrive7-apps" } ],
+    "failed": [ { "id": "gauges", "code": "download" } ], "sources_added": [], "sources_removed": [] },
+  "first_this_month": true, "first_ever": false }
+```
+
+- `hw` and `istep`: the hardware variant and build train of the
+  firmware string (`unit.firmware`), each left out when it has none.
+- `versions`: each only when that component came from a public repo or
+  the installers.
+- `apps` and `sources`: only GitHub sources whose repo said it is public
+  when read, and what was installed from them (also from a stick's copy
+  of one). A source that needs a sign-in, an https catalog, a folder and
+  any other stick are never named, nor anything installed from them.
+- `events`: first installs and failed installs since the last ping that
+  got through, each list at most 50, kept in `state/stats.json` (written
+  only when it changes); `failed` carries a fixed code (`requires`,
+  `checksum`, `check`, `refused`, `deploy`, `build`, `download`,
+  `other`), never the error itself. `sources_added` and
+  `sources_removed` compare the sources with the last ping's.
+- No id of the car or the install is sent. The ping goes through the
+  proxy when one is set.
+
 ## Configuration
 
 `updater.conf` (in the version folder) holds the defaults; `/var/opt/mgu-updater/updater.local.conf` overrides any key and
@@ -391,6 +427,7 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 | `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |
 | `{"op":"proxy-set","url"}` | the proxy downloads go through (`""`: none), kept in `updater.local.conf`; the sources are read again |
 | `{"op":"web","enable":true\|false}` | the phone page on or off, kept across restarts |
+| `{"op":"stats","on":true\|false}` | usage statistics on or off (off drops what waits to be sent). The state's `stats`: `{ "on" }`, `null` without a `stats_url` |
 | `{"op":"logs","unit","lines"}` | `{"type":"logs","unit","text"}`: a journal (the updater's, the uplink's, the renderer's and the deploy tool's units; 1–1000 lines) |
 | `{"op":"uplink-prefer","kind"}` | the uplink's preferred connection: `wifi`, `usb`, `phone` (`""` for none) ("The uplink") |
 | `{"op":"wifi-enable","on":true\|false}`, `{"op":"wifi-5ghz","on":true\|false}`, `{"op":"wifi-scan"}`, `{"op":"wifi-connect","ssid","psk"?}`, `{"op":"wifi-forget","ssid"}` | the uplink's Wi-Fi ("The uplink") |
@@ -446,6 +483,7 @@ js/certs.js              a server's certificate chain checked without its dates
 js/py/sitecustomize.py   a Python build's TLS: certificates checked without their dates
 js/client.js             socket client (Store app, command line)
 js/web.js                the phone page
+js/stats.js              the usage statistics ping
 updater.conf             defaults
 systemd/mgu-updater.service
 component.json           the tool component (deploy tool format); its unit runs in safe mode

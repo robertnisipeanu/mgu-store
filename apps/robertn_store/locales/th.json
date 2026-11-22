@@ -195,6 +195,11 @@
     "May cause CarPlay issues": "อาจทำให้ CarPlay มีปัญหา",
     "On the iPhone, turn on Maximize Compatibility": "เปิด เพิ่มความเข้ากันได้สูงสุด บน iPhone",
     "This network is 5 GHz only: CarPlay audio may drop": "เครือข่ายนี้มีเฉพาะ 5 GHz: เสียง CarPlay อาจขาดหาย",
-    "Phone over USB": "โทรศัพท์ผ่าน USB"
+    "Phone over USB": "โทรศัพท์ผ่าน USB",
+    "Usage statistics": "สถิติการใช้งาน",
+    "Share usage statistics": "แชร์สถิติการใช้งาน",
+    "Share anonymous usage statistics": "แชร์สถิติการใช้งานแบบไม่ระบุตัวตน",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store จะส่งสถิติการใช้งานแบบไม่ระบุตัวตนวันละครั้ง เช่น แอปและแหล่งที่มาสาธารณะที่ใช้ และเวอร์ชันซอฟต์แวร์ของเครื่อง เพื่อช่วยปรับปรุง ไม่มีการเก็บข้อมูลใดที่ระบุตัวคุณหรือรถของคุณ",
+    "You can turn this off here. Questions: {0}": "คุณปิดได้ที่นี่ สอบถาม: {0}"
   }
 }

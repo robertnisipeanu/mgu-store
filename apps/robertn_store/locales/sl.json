@@ -195,6 +195,11 @@
     "May cause CarPlay issues": "Lahko povzroči težave s CarPlay",
     "On the iPhone, turn on Maximize Compatibility": "V iPhonu vklopite Maksimiraj združljivost",
     "This network is 5 GHz only: CarPlay audio may drop": "To omrežje je samo 5 GHz: zvok CarPlay se lahko prekinja",
-    "Phone over USB": "Telefon prek USB"
+    "Phone over USB": "Telefon prek USB",
+    "Usage statistics": "Statistika uporabe",
+    "Share usage statistics": "Deli statistiko uporabe",
+    "Share anonymous usage statistics": "Deli anonimno statistiko uporabe",
+    "The Store sends anonymous usage statistics once a day, such as which apps and public sources are used and the head unit's software version, to help improve it. Nothing that identifies you or your car is collected.": "Store enkrat na dan pošlje anonimno statistiko uporabe, na primer katere aplikacije in javni viri se uporabljajo ter različico programske opreme enote, da se lahko izboljšuje. Nič, kar bi identificiralo vas ali vaš avto, se ne zbira.",
+    "You can turn this off here. Questions: {0}": "To lahko izklopite tukaj. Vprašanja: {0}"
   }
 }
