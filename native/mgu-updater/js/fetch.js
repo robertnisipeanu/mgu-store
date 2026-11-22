@@ -541,6 +541,8 @@ function leaseDns(file) {
 module.exports = { leaseDns, lookupVia, CONNECT_MS };
 
 if (require.main === module) {
+    // the updater has exited (a handover to its new version can leave fetches under way)
+    process.stdout.on('error', () => process.exit(1));
     let input = '';
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', (d) => { input += d; });

@@ -632,6 +632,8 @@ function serve() {
         report();
     };
 
+    // the updater has exited
+    process.stdout.on('error', () => process.exit(0));
     let input = '';
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', (d) => {
