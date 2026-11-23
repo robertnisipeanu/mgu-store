@@ -18,6 +18,7 @@
  * Off drops the events and known; nothing is sent while off.
  */
 const fs = require('fs');
+const path = require('path');
 
 const SCHEMA = 1;
 const MAX_EVENTS = 50;
@@ -27,6 +28,7 @@ const MAX_BYTES = 8192;
 // connection, then answer: 10 s together
 const CONNECT_MS = 5000;
 const IDLE_MS = 5000;
+const DAY_MS = 86400000;
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
@@ -73,6 +75,31 @@ function unitParts(firmware) {
     const train = words.map((w) => w.replace(/-[0-9]+-[0-9]+$/, '')).find((w) => TRAIN.test(w)) || null;
     const variant = words.map((w) => w.toLowerCase()).find((w) => VARIANT.test(w)) || null;
     return { istep: train, hw: variant };
+}
+
+/* When the updater was set up on this unit, in ms: the oldest modification
+ * time among the entries of its state folder (dir), which its first start
+ * makes and its updates keep; null when there is none. Read only. */
+function setUpAt(dir) {
+    let oldest = null;
+    let names = [];
+    try {
+        names = fs.readdirSync(dir);
+    } catch (e) { /* not there yet */ }
+    names.forEach((name) => {
+        try {
+            const t = fs.lstatSync(path.join(dir, name)).mtime.getTime();
+            oldest = oldest === null || t < oldest ? t : oldest;
+        } catch (e) { /* gone meanwhile */ }
+    });
+    return oldest;
+}
+
+/* Whether the Store is a new install: no ping has got through yet (lastDay
+ * null) and the updater was set up within the last day. A unit with a ping
+ * through had the Store before it. */
+function newInstall(lastDay, setUp, now) {
+    return lastDay === null && setUp !== null && now - setUp < DAY_MS;
 }
 
 function fresh() {
@@ -207,7 +234,8 @@ class Stats {
                 sources_removed: known ? this.d.known.filter((s) => have.indexOf(s.toLowerCase()) < 0) : []
             },
             first_this_month: this.d.month !== month(now),
-            first_ever: this.d.day === null
+            first_ever: this.d.day === null,
+            new_install: newInstall(this.d.day, this.d.day === null ? setUpAt(path.dirname(this.file)) : null, now)
         });
         return out;
     }
@@ -236,4 +264,4 @@ class Stats {
     }
 }
 
-module.exports = { Stats, failCode, unitParts, FAIL_CODES, SCHEMA };
+module.exports = { Stats, failCode, unitParts, newInstall, setUpAt, FAIL_CODES, SCHEMA };

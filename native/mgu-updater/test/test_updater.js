@@ -7115,6 +7115,24 @@ function testStats(certs) {
         });
 }
 
+/* new_install: a unit with no ping through yet whose updater state is under
+ * a day old; never once a ping got through. */
+function testNewInstall() {
+    const { newInstall, setUpAt } = require('../js/stats');
+    const now = Date.parse('2026-11-23T12:00:00Z');
+    const H = 3600000;
+    ok('new install: never pinged, set up an hour ago', newInstall(null, now - H, now) === true);
+    ok('new install: never pinged, set up two days ago (an existing car on its first ping)', newInstall(null, now - 48 * H, now) === false);
+    ok('new install: pinged before', newInstall('2026-11-22', now - H, now) === false);
+    ok('new install: no state folder', newInstall(null, null, now) === false);
+    const dir = path.join(T, 'setup-at');
+    mkdirp(dir);
+    ok('new install: an empty state folder has no set-up time', setUpAt(dir) === null && setUpAt(path.join(dir, 'none')) === null);
+    ['uids.json', 'boot.json'].forEach((f) => fs.writeFileSync(path.join(dir, f), '{}'));
+    fs.utimesSync(path.join(dir, 'uids.json'), (now - 72 * H) / 1000, (now - 72 * H) / 1000);
+    ok('new install: the set-up time is the oldest entry\'s', setUpAt(dir) === now - 72 * H, setUpAt(dir));
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -7124,6 +7142,7 @@ function main() {
     testCollect();
     testFileLog();
     testBlobCap();
+    testNewInstall();
     return testRequiredAlone()
         .then(() => testContent())
         .then(() => testTar())
