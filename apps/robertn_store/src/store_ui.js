@@ -380,7 +380,7 @@ function appView(m, page) {
     const v = {
         icon: Object.assign(iconOf(c), { badge: mine ? '' : s.badge, progress: s.progress }),
         name: { text: c.title },
-        author: { text: [c.author && tr("by {0}", c.author), c.source && tr("from {0}", src ? sourceLabel(src) : c.source)].filter(Boolean).join(' · ') },
+        author: { text: [c.author && tr("by {0}", c.author), c.source && tr("from {0}", src ? sourceLabel(src) : c.from || c.source)].filter(Boolean).join(' · ') },
         facts: { items: [{ text: tr("Version {0}", c.version) }, c.revision && { text: tr("Commit {0}", c.revision) }, c.size && { text: size(c.size) },
             // installed under another id than its source's
             c.listedId && !c.blocked && (c.installAs || c.id) !== c.listedId && { text: `Id ${c.installAs || c.id}` },

@@ -24,7 +24,7 @@ Store and the phone page add and remove them:
 ```json
 { "schema": 1, "sources": [
   { "id": "mgu-store", "type": "github", "repo": "robertnisipeanu/mgu-store", "builtin": true },
-  { "id": "idrive7-apps", "type": "github", "repo": "cauliflowermossgrape/idrive7-apps", "channel": "branch" },
+  { "id": "cauliflowermossgrape_idrive7-apps", "type": "github", "repo": "cauliflowermossgrape/idrive7-apps", "channel": "branch" },
   { "id": "s-3f9a",    "type": "https",  "url": "https://example.org/repo/catalog.json" }
 ] }
 ```
@@ -353,7 +353,7 @@ on connect, after each request, and whenever it changes (at most every
     "description": "…", "texts": { "de": { "title": "DOOM", "description": "…" } }, "author": "…",
     "icon": "/var/opt/mgu-updater/state/icons/…png",
     "mguHmi": ["ID7"], "compat": "yes", "provides": null, "service": null,
-    "listedId": null, "installAs": "doom", "blocked": null, "pendingReboot": false, "problem": null, "repair": null, "nextStart": null, "queued": false,
+    "listedId": null, "from": "cauliflowermossgrape/idrive7-apps", "installAs": "doom", "blocked": null, "pendingReboot": false, "problem": null, "repair": null, "nextStart": null, "queued": false,
     "previous": null, "requiredAlone": [], "error": null } ] }
 ```
 
@@ -367,7 +367,8 @@ on connect, after each request, and whenever it changes (at most every
   source states none; `icon` the kept icon's path, or null; `texts` the
   title and description in other languages, by the Store's language code
   (`de`, `pt-BR`, `zh-TW`), else null; `source` null for an installed
-  component without an origin.
+  component without an origin; `from` its source's repo or URL, also
+  once that source is removed.
 - `pendingReboot`: the change takes effect at the next start of the head
   unit; `nextStart` `install` or `remove` for an iDrive 8 app change queued
   for then (else null).
@@ -427,7 +428,7 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 | `{"op":"uninstall","id","tools"?}` | removes an `uninstallable` component (every app but the Store); then each of `tools`, which must be among the app row's `requiredAlone` |
 | `{"op":"setup","id"}` | Set up: a tool whose row has `needsSetup` set up again with its install step |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version |
-| `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
+| `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: a removed source's of the same repo or URL, else `<owner>_<repo>` lowercased, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch`, `branches` (at most 300) and `more` (there are more); `auth-needed`, `offline`, `rate-limited`, or `error` with `error`. A repo that is already a source is refused |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one); what it installed keeps it as its origin |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts, labelled (else with its account), and reads the sources that need one |

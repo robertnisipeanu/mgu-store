@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A new GitHub source's id is made of its owner and repo, so two repos of the same name never share one, and the phone page names each component's source by its repo.
+
 ## 0.8.56
 
 - A new source never takes over an installed component of a removed source, and the usage statistics name a component's source only while that source lists it.
