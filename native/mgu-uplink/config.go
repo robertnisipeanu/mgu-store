@@ -258,6 +258,9 @@ func (c config) wifiFile() string   { return c.RunDir + "/wifi.json" }
 func (c config) wpaCtrl() string    { return c.RunDir + "/wpa" }     // wpa_supplicant's control socket folder
 func (c config) wpaLocal() string   { return c.RunDir + "/wpa-ctl" } // our end of it
 
+// wifiFreqsFile holds the frequencies the saved networks were last joined on.
+func (c config) wifiFreqsFile() string { return c.RunDir + "/wifi-freqs.json" }
+
 // pairDir holds the unit's host identity for iPhone pairing; updates keep it.
 func (c config) pairDir() string { return c.StateDir + "/pairing" }
 

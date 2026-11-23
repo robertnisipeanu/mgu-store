@@ -132,6 +132,15 @@ while Wi-Fi is on and are never written to its configuration. Wi-Fi is
 is switched off. WPA2 personal and open networks; WPA3-only networks
 can't be joined.
 
+The car's supplicant makes no scans of its own while the car's wireless
+CarPlay and Android Auto keep its radio busy, so while Wi-Fi is not joined
+the uplink has it scan for the saved networks: at once, then after 10 s,
+20 s, 40 s, 80 s and every 2 min, starting over when Wi-Fi is switched on,
+joined or left, when a wireless session starts or ends, and when the unit
+wakes from sleep. Each of these scans first covers the channels the saved
+networks were last joined on. A saved network that a scan finds, a
+`wifi-scan` request's too, is joined.
+
 #### The band
 
 Wireless CarPlay and Android Auto use the car's 5 GHz Wi-Fi when they can,
@@ -145,11 +154,10 @@ network is joined on either band.
 
 #### During wireless CarPlay and Android Auto
 
-While wireless CarPlay or Android Auto is connected, the car's supplicant
-(`wlan0`) scans only off the phone's band. While Wi-Fi is not joined and
-that cannot be done (the band is not known, or the supplicant refuses it),
-and on `wlan1`, the supplicant's own scans stop (`wifi.paused`: `carplay`,
-`android-auto`).
+While wireless CarPlay or Android Auto is connected, the scans on `wlan0`
+for the saved networks cover only the band the phone is not on. While
+Wi-Fi is not joined and the phone's band is not known, and on `wlan1`, no
+scans are made on their own (`wifi.paused`: `carplay`, `android-auto`).
 A `wifi-scan` request and a `wifi-connect` still cover every channel, and
 a joined network stays joined.
 
@@ -187,8 +195,8 @@ taken), and `preferred` while a group is preferred:
 strongest first), `saved` the saved names, `scanning` true for 8 s after a
 scan request or a switch-on, `signal` dBm, `backend` what joins (`mgu-wpa` or
 `car-supplicant`) while Wi-Fi is on and there is a radio, `paused`
-(`carplay`, `android-auto`) while the supplicant makes no scans of its own
-during that wireless session, `freq` the frequency (MHz) of the access
+(`carplay`, `android-auto`) while no scans are made on their own during that
+wireless session, `freq` the frequency (MHz) of the access
 point joined when known, `allow5ghz` the Allow 5 GHz setting and `fiveOnly`
 true while joined on 5 GHz, with Allow 5 GHz off, to a network not seen on
 2.4 GHz. `error` keeps a failed join ("could not join … (wrong password, or

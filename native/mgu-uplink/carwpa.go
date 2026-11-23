@@ -471,18 +471,113 @@ func (s *carSupplicant) freq() int {
 	return int(f)
 }
 
-func (s *carSupplicant) scan() error {
+func (s *carSupplicant) scan() error { return s.scanFor(nil, false) }
+
+// carScanSSIDs saved networks at most get a directed probe in a scan: the
+// driver takes a few SSIDs a scan.
+const carScanSSIDs = 4
+
+// scanFor asks for a scan of freqs (nil: every channel). directed: with a
+// probe for the first saved networks (wpa.conf's order) besides the
+// wildcard, as scan_ssid=1 has the supplicant's own scans send.
+func (s *carSupplicant) scanFor(freqs []int, directed bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.path == "" {
 		return errors.New("the car's wpa_supplicant: not in use")
 	}
-	_, err := s.call(s.path, wpaDBusIface, "Scan", "a{sv}", dbusProps{{"Type", dbusVariant{"s", "active"}}})
+	args := dbusProps{{"Type", dbusVariant{"s", "active"}}}
+	if directed {
+		nets, _ := s.readSaved()
+		l := [][]byte{{}}
+		for i := 0; i < len(nets) && i < carScanSSIDs; i++ {
+			l = append(l, []byte(nets[i].ssid))
+		}
+		args = append(args, dbusProp{"SSIDs", dbusVariant{"aay", l}})
+	}
+	if len(freqs) > 0 {
+		ch := make([][2]uint32, len(freqs))
+		for i, f := range freqs {
+			ch[i] = [2]uint32{uint32(f), 20}
+		}
+		args = append(args, dbusProp{"Channels", dbusVariant{"a(uu)", ch}})
+	}
+	_, err := s.call(s.path, wpaDBusIface, "Scan", "a{sv}", args)
 	// rejected: it is scanning anyway
 	if err != nil && dbusErrorName(err) != wpaDBusIface+".ScanError" {
 		return fmt.Errorf("scan: %v", err)
 	}
 	return nil
+}
+
+// seen is the first saved network (wpa.conf's order) of ours that a scan
+// saw within the last age, "" none, and whether the supplicant reports a
+// scan under way.
+func (s *carSupplicant) seen(age time.Duration) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.path == "" {
+		return "", false
+	}
+	m, err := s.getAll(s.path, wpaDBusIface)
+	if err != nil {
+		return "", false
+	}
+	scanning, _ := prop[bool](m, "Scanning")
+	have := map[string]bool{}
+	for _, b := range paths(m, "BSSs") {
+		bm, err := s.getAll(b, wpaDBusBSS)
+		if err != nil {
+			continue
+		}
+		ssid, _ := prop[[]byte](bm, "SSID")
+		// a supplicant without Age: any BSS it lists
+		if a, ok := prop[uint32](bm, "Age"); !ok || time.Duration(a)*time.Second <= age {
+			have[string(ssid)] = true
+		}
+	}
+	nets, _ := s.readSaved()
+	for _, n := range nets {
+		if !have[n.ssid] {
+			continue
+		}
+		for _, name := range s.ours {
+			if name == n.ssid {
+				return n.ssid, scanning
+			}
+		}
+	}
+	return "", scanning
+}
+
+// pick selects our network for the saved ssid, as join does but with the
+// network kept as it is (its scan_freq too), so that the supplicant joins
+// it from the scan just made. Nothing is saved: joined turns the other
+// networks of ours on again, reload drops what it set up.
+func (s *carSupplicant) pick(ssid string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.path == "" {
+		return errors.New("the car's wpa_supplicant: not in use")
+	}
+	// SelectNetwork would switch off a network the car just added
+	if car, err := s.carNetwork(); err != nil || car {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("the car has a network of its own on %s", s.iface)
+	}
+	for p, name := range s.ours {
+		if name != ssid {
+			continue
+		}
+		if _, err := s.call(s.path, wpaDBusIface, "SelectNetwork", "o", p); err != nil {
+			return fmt.Errorf("the car's wpa_supplicant: SelectNetwork: %v", err)
+		}
+		s.pending = nil
+		return nil
+	}
+	return fmt.Errorf("%s is not in the car's wpa_supplicant", ssid)
 }
 
 // saved maps the saved names to their place in wpa.conf.

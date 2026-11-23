@@ -57,8 +57,8 @@ func dbusErrorName(err error) string {
 	return ""
 }
 
-// Values: string, objPath, uint32, int32, bool, []byte (ay), dbusVariant,
-// dbusProps (a{sv}) to send; replies also decode to the other basic types,
+// Values: string, objPath, uint32, int32, bool, []byte (ay), [][]byte (aay),
+// [][2]uint32 (a(uu)), dbusVariant, dbusProps (a{sv}) to send; replies also decode to the other basic types,
 // []any for arrays, []any for structs and map[string]any for dictionaries.
 type objPath string
 
@@ -324,6 +324,34 @@ func (e *dbusEnc) value(sig string, v any) error {
 		start := len(e.b)
 		for _, p := range x {
 			e.str(string(p))
+		}
+		binary.LittleEndian.PutUint32(e.b[at:], uint32(len(e.b)-start))
+	case "aay":
+		x, ok := v.([][]byte)
+		if !ok {
+			return bad
+		}
+		e.u32(0)
+		at := len(e.b) - 4
+		start := len(e.b)
+		for _, s := range x {
+			e.u32(uint32(len(s)))
+			e.b = append(e.b, s...)
+		}
+		binary.LittleEndian.PutUint32(e.b[at:], uint32(len(e.b)-start))
+	case "a(uu)":
+		x, ok := v.([][2]uint32)
+		if !ok {
+			return bad
+		}
+		e.u32(0)
+		at := len(e.b) - 4
+		e.pad(8) // the first entry's alignment is not part of the length
+		start := len(e.b)
+		for _, s := range x {
+			e.pad(8)
+			e.u32(s[0])
+			e.u32(s[1])
 		}
 		binary.LittleEndian.PutUint32(e.b[at:], uint32(len(e.b)-start))
 	case "a{sv}":

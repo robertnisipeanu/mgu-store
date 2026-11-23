@@ -46,6 +46,7 @@ type projection struct {
 	rx    map[string]uint64    // each P2P interface's received bytes at the last look
 	heard map[string]time.Time // when each last received
 	last  time.Time            // the last look
+	known bool                 // the last look compared the counts with the one before: it can tell a session
 }
 
 // projSession is a wireless projection session: kind carplay or
@@ -71,7 +72,8 @@ func projectionName(kind string) string {
 // counts: what they grew by meanwhile is no sign of a phone now.
 func (p *projection) look(proc string, now time.Time) projSession {
 	rx := p2pReceived(filepath.Join(proc, "net", "dev"))
-	if now.Sub(p.last) > projectionGap {
+	p.known = now.Sub(p.last) <= projectionGap
+	if !p.known {
 		p.rx, p.heard = map[string]uint64{}, map[string]time.Time{}
 	}
 	p.last = now

@@ -179,6 +179,7 @@ type wifiProvider struct {
 	dropped    map[string]bool // on every band after a join on 2.4 GHz did not work
 	stuckSince time.Time
 	bandScanAt time.Time
+	auto       autoScan // the search for the saved networks on the car's wlan0 (autoscan.go)
 
 	wake  chan struct{}
 	stopc chan struct{}
@@ -204,6 +205,7 @@ type wifiProvider struct {
 	joining   string
 	joinNew   bool // joining a network that was not saved
 	joinLimit bool // the join keeps to 2.4 GHz
+	joinAuto  bool // the search started the join (autoscan.go)
 	allow5    bool // joins use 5 GHz too
 	bandReset bool // setAllow5 ran: the tick ends what failed joins set
 	joinedAt  time.Time
@@ -225,6 +227,7 @@ func newWiFiProvider(c config, bin string) *wifiProvider {
 	return &wifiProvider{
 		ownIf: c.WiFiIf, carIf: carIfname, bcmdhd: "/sys/module/bcmdhd",
 		proj: newProjection(), groupFreq: car.groupFreq, freqs: map[string]int{}, bands: map[string]int{}, dropped: map[string]bool{},
+		auto:  newAutoScan(c.wifiFreqsFile()),
 		iface: c.WiFiIf, sys: sysClassNet, proc: "/proc", record: c.wifiFile(), linkUp: wifiLinkUp,
 		iftype: nl80211Iftype, dbusHas: dbusSupplicantHas, connmanConf: "/etc/connman/main.conf",
 		mgu: mgu, car: car, wpa: mgu,
@@ -313,6 +316,7 @@ func (p *wifiProvider) tick() {
 	p.mu.Lock()
 	st := wifiStatus{Enabled: p.enabled, Allow5: p.allow5, Networks: []wifiNetwork{}, Saved: []string{}}
 	p.mu.Unlock()
+	p.auto.tick()
 	switch {
 	case !st.Enabled:
 		p.release(errors.New("Wi-Fi switched off"), false)
@@ -340,6 +344,7 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	p.mu.Unlock()
 	if switched {
 		p.retakeAt, p.givebacks = time.Time{}, 0
+		p.auto.restart(p.auto.key)
 	}
 	// failed, or waiting to try again: nothing is looked at until the next try
 	if fails >= wifiMaxFails || fails > 0 && time.Now().Before(retryAt) {
@@ -424,7 +429,7 @@ func (p *wifiProvider) up(st *wifiStatus) {
 	now := time.Now()
 	p.mu.Lock()
 	st.Scanning = now.Before(p.scanUntil)
-	joining, joinNew, joinedAt, joinLimit := p.joining, p.joinNew, p.joinedAt, p.joinLimit
+	joining, joinNew, joinedAt, joinLimit, joinAuto := p.joining, p.joinNew, p.joinedAt, p.joinLimit, p.joinAuto
 	p.mu.Unlock()
 	if joining != "" {
 		switch {
@@ -447,9 +452,11 @@ func (p *wifiProvider) up(st *wifiStatus) {
 			st.Link, st.SSID = "connecting", joining
 		case now.Sub(joinedAt) > joinTimeout:
 			p.wpa.reload()
-			p.mu.Lock()
-			p.err = fmt.Sprintf("could not join %s (wrong password, or out of range)", joining)
-			p.mu.Unlock()
+			if !joinAuto {
+				p.mu.Lock()
+				p.err = fmt.Sprintf("could not join %s (wrong password, or out of range)", joining)
+				p.mu.Unlock()
+			}
 			logf("wifi: could not join %q", joining)
 			joining = ""
 		default:
@@ -493,7 +500,8 @@ func (p *wifiProvider) up(st *wifiStatus) {
 			}
 		}
 		held := p.wpa.hold(h)
-		if held && h.session != "" {
+		searching := p.wpa == wifiBackend(p.car) && p.search(st, idle, h)
+		if held && h.session != "" && !searching {
 			st.Paused = h.session
 		}
 		p.reviewBands(st, ws, sess, held)
@@ -526,7 +534,9 @@ func (p *wifiProvider) scanOnce() {
 	p.mu.Unlock()
 	if err := p.wpa.scan(); err != nil {
 		logf("wifi: scan after switching on: %v", err)
+		return
 	}
+	p.auto.asked()
 }
 
 // logBand logs the frequency and band of the access point joined, when
@@ -541,6 +551,7 @@ func (p *wifiProvider) logBand(st *wifiStatus) {
 	}
 	if on != p.joinedOn && on != "" {
 		logf("wifi: joined %s", on)
+		p.auto.joinedOn(st.SSID, st.Freq)
 	}
 	p.joinedOn = on
 }
@@ -565,16 +576,17 @@ func (p *wifiProvider) session() projSession {
 
 // phoneBand is the band of the P2P groups the phone is on (2 or 5), 0 when
 // they are on both or a frequency can't be read. Each group's frequency is
-// read once a session. With reqMu held.
+// read once a session, and again at each tick while it can't be. With
+// reqMu held.
 func (p *wifiProvider) phoneBand(s projSession) int {
 	b := 0
 	for _, ifname := range s.ifaces {
 		f, ok := p.freqs[ifname]
-		if !ok {
+		if f == 0 {
 			var err error
-			if f, err = p.groupFreq(ifname); err != nil {
+			if f, err = p.groupFreq(ifname); err != nil && !ok {
 				logf("wifi: the frequency of %s: %v", ifname, err)
-			} else {
+			} else if err == nil {
 				logf("wifi: %s on %d MHz", ifname, f)
 			}
 			p.freqs[ifname] = f
@@ -959,6 +971,7 @@ func (p *wifiProvider) scan() error {
 	defer p.poke()
 	err := p.wpa.scan()
 	if err == nil {
+		p.auto.asked()
 		return nil
 	}
 	if why := p.lost(p.wpa.status()); why != "" {
@@ -1000,7 +1013,7 @@ func (p *wifiProvider) connect(ssid, psk string) error {
 		return err
 	}
 	p.mu.Lock()
-	p.joining, p.joinNew, p.joinedAt, p.joinLimit = ssid, !had, time.Now(), limit
+	p.joining, p.joinNew, p.joinedAt, p.joinLimit, p.joinAuto = ssid, !had, time.Now(), limit, false
 	p.mu.Unlock()
 	if limit {
 		logf("wifi: joining %q on 2.4 GHz", ssid)

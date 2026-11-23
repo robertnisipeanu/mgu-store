@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- iDrive 7 with the car's `wlan0`: while Wi-Fi is not joined, the uplink has the car's supplicant scan for the saved networks and joins one it finds, also when the car's supplicant makes no scans of its own. The scans space out over time and start over when Wi-Fi is switched on, joined or left, when wireless CarPlay or Android Auto starts or ends, and after the unit wakes from sleep; each first covers the channels the saved networks were last joined on. During wireless CarPlay or Android Auto they cover only the band the phone is not on.
+- A `wifi-scan` request (opening the Store's Wi-Fi page) also joins a saved network it finds.
+- `wifi.paused` is set only while no scans for the saved networks can be made.
+
 ## 0.7.13
 
 - An app's lease file is rewritten only when the lease changes, not at each renewal of the same lease.
