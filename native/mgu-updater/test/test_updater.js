@@ -6025,6 +6025,11 @@ function testDefaultSources() {
             { id: 's-1a2b', type: 'github', repo: 'CauliflowerMossGrape/IDrive7-Apps', channel: 'releases' }]) && u.stored.length === 2 &&
         JSON.parse(fs.readFileSync(path.join(D, 'state', 'default-sources.json'), 'utf8')).added.join() === 'cauliflowermossgrape/idrive7-apps',
         JSON.stringify(stored()));
+    // an id a kept origin names, its source removed: free only to a source of the same repo
+    u.origins.kept_app = { source: 'idrive-apps', commit: null, removed: 'owner/idrive-apps' };
+    ok('default sources: an id a kept origin names is free only to the same repo', /^s-[0-9a-f]{4}$/.test(u.freeSourceId('idrive-apps', 'other/idrive-apps')) &&
+        u.freeSourceId('idrive-apps', 'Owner/IDrive-Apps') === 'idrive-apps' && u.freeSourceId('other-apps', 'other/other-apps') === 'other-apps');
+    delete u.origins.kept_app;
     // no sources.json: written with the built-in source and the default one
     fs.unlinkSync(file);
     fs.unlinkSync(path.join(D, 'state', 'default-sources.json'));
@@ -7053,6 +7058,12 @@ function testStats(certs) {
                 JSON.stringify(p.events.failed) === '[{"id":"bad-tool","code":"checksum"}]' && p.first_ever === false &&
                 JSON.stringify(p.apps) === '[{"id":"pub-tool","v":"1.0.0","src":"owner/pub-stats"}]', text);
             ok('stats: nothing of the private source is in it', !/hidden|secret/.test(text), text);
+            const pub = u.src.get('pub');
+            const listing = pub.components;
+            pub.components = listing.filter((c) => c.id !== 'pub-tool');
+            const unlisted = u.statsInfo().apps;
+            pub.components = listing;
+            ok('stats: an installed component its source lists no more is left out', JSON.stringify(unlisted) === '[]', JSON.stringify(unlisted));
             const own = u.origins['mgu-updater'];
             u.origins['mgu-updater'] = { source: 'sec' };
             const hidden = u.statsInfo().versions.updater;

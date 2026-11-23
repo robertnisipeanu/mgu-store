@@ -296,8 +296,9 @@ is sent and what waited is dropped. An empty `stats_url` sends nothing.
   component from any other source is left out.
 - `apps` and `sources`: only GitHub sources whose repo said it is public
   when read, and what was installed from them (also from a stick's copy
-  of one). A source that needs a sign-in, an https catalog, a folder and
-  any other stick are never named, nor anything installed from them.
+  of one) while the source lists it. A source that needs a sign-in, an
+  https catalog, a folder and any other stick are never named, nor
+  anything installed from them.
 - `events`: first installs and failed installs since the last ping that
   got through, each list at most 50, kept in `state/stats.json` (written
   only when it changes); `failed` carries a fixed code (`requires`,
