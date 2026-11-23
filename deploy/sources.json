@@ -2,9 +2,9 @@
   "schema": 1,
   "sources": [
     { "id": "mgu-store", "type": "github", "repo": "robertnisipeanu/mgu-store", "builtin": true },
-    { "id": "idrive7-apps", "type": "github", "repo": "cauliflowermossgrape/idrive7-apps", "channel": "branch" },
-    { "id": "idrive-apps", "type": "github", "repo": "robertnisipeanu/idrive-apps", "channel": "releases" },
-    { "id": "car-apps", "type": "github", "repo": "IterioDev/car-apps", "channel": "tags" },
-    { "id": "idrive7-system-monitor", "type": "github", "repo": "hexlay/idrive7-system-monitor", "channel": "branch" }
+    { "id": "cauliflowermossgrape_idrive7-apps", "type": "github", "repo": "cauliflowermossgrape/idrive7-apps", "channel": "branch" },
+    { "id": "robertnisipeanu_idrive-apps", "type": "github", "repo": "robertnisipeanu/idrive-apps", "channel": "releases" },
+    { "id": "iteriodev_car-apps", "type": "github", "repo": "IterioDev/car-apps", "channel": "tags" },
+    { "id": "hexlay_idrive7-system-monitor", "type": "github", "repo": "hexlay/idrive7-system-monitor", "channel": "branch" }
   ]
 }

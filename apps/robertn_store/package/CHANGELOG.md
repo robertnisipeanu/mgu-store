@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- An app whose source was removed names that source's repo.
+
 ## 0.9.42
 
 - Settings → Share usage statistics turns the daily anonymous usage statistics on or off.

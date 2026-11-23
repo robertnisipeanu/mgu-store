@@ -427,7 +427,7 @@ Requests: `{"op":"status"}`, `{"op":"check"}`, `{"op":"install","id"}`
 | `{"op":"uninstall","id","tools"?}` | removes an `uninstallable` component (every app but the Store); then each of `tools`, which must be among the app row's `requiredAlone` |
 | `{"op":"setup","id"}` | Set up: a tool whose row has `needsSetup` set up again with its install step |
 | `{"op":"rollback","id"}` | Undo update: a component whose row has `previous` back to that version |
-| `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: the repo's name, else `s-<hex>`) and reads it |
+| `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: `<owner>_<repo>` lowercased, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch`, `branches` (at most 300) and `more` (there are more); `auth-needed`, `offline`, `rate-limited`, or `error` with `error`. A repo that is already a source is refused |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one); what it installed keeps it as its origin |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts, labelled (else with its account), and reads the sources that need one |
