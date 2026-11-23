@@ -1493,13 +1493,16 @@ class Updater {
     /* The origin a source stands for: a stick folder mgu-install.js
      * usb-repo wrote from a stored source (its copyOf, mgu-copy.json:
      * github:<owner>/<repo> or the catalog's URL) stands for that source;
-     * any other source for itself. */
+     * a folder mgu-repo/<name> without one for the stored source <name>, or
+     * the only stored GitHub source of repo <name>; any other source for
+     * itself. */
     originOf(id) {
         const rt = this.src.get(id);
         const copy = rt && rt.def.type === 'usb' && rt.copyOf ? rt.copyOf.toLowerCase() : null;
         const def = copy && this.stored.find((d) => (d.type === 'github' ? `github:${d.repo}` : d.url || '').toLowerCase() === copy);
         const folder = !copy && /^usb:[^/]*\/mgu-repo\/([^/]+)$/.exec(id);
-        return def ? def.id : folder && this.stored.some((d) => d.id === folder[1]) ? folder[1] : id;
+        const named = folder ? this.stored.filter((d) => d.type === 'github' && d.repo.split('/')[1].toLowerCase() === folder[1]) : [];
+        return def ? def.id : folder && this.stored.some((d) => d.id === folder[1]) ? folder[1] : named.length === 1 ? named[0].id : id;
     }
 
     /* A source's repo or URL, also once it is removed (its id when unknown). */

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- A new GitHub source's id is made of its owner and repo, so two repos of the same name never share one.
+- A new GitHub source's id is made of its owner and repo, so two repos of the same name never share one, and the phone page names each component's source by its repo.
 
 ## 0.8.56
 

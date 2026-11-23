@@ -794,7 +794,7 @@ function renderComponents(list) {
     main.appendChild(el('div', null, c.title || c.id));
     var meta = [c.installAs || c.id, (c.installed || '-') + ' → ' + (c.version || '-') + (c.revision ? ' (' + c.revision + ')' : ''),
       STATUS[c.status] || c.status];
-    if (c.source) { meta.push(c.source); }
+    if (c.source) { meta.push(c.from || c.source); }
     if (c.pendingReboot) { meta.push('Restart pending'); }
     if (c.provides) { meta.push(c.provides); }
     if (c.compat === 'no') { meta.push('Not for this head unit'); }
