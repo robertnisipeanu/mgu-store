@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.56
+
 - A new source never takes over an installed component of a removed source, and the usage statistics name a component's source only while that source lists it.
 
 ## 0.8.55
