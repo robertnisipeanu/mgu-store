@@ -1354,10 +1354,24 @@ class Updater {
         list.forEach((def) => this.addRuntime(def));
     }
 
-    /* A source id from want (a repo's name) when it is free, else s-<random>. */
-    freeSourceId(want) {
-        const taken = (id) => this.stored.some((s) => s.id === id);
+    /* A source id from want (a repo's name) when it is free, else
+     * s-<random>. An id a kept origin names (its source removed) is free
+     * only to a source of the same repo or URL (from, sourcesLib.label):
+     * another source under it would take those components over as its
+     * own. */
+    freeSourceId(want, from) {
+        const kept = (id) => Object.keys(this.origins).some((c) => this.origins[c].source === id && this.origins[c].removed !== String(from).toLowerCase());
+        const taken = (id) => this.stored.some((s) => s.id === id) || kept(id);
         return want && ID.test(want) && !taken(want) ? want : `s-${crypto.randomBytes(2).toString('hex')}`;
+    }
+
+    /* The origins kept from a removed source of def's id are def's again. */
+    reclaimOrigins(def) {
+        const kept = Object.keys(this.origins).filter((c) => this.origins[c].source === def.id && this.origins[c].removed);
+        kept.forEach((c) => delete this.origins[c].removed);
+        if (kept.length) {
+            this.saveOrigins();
+        }
     }
 
     /* The default sources (default_sources: <owner>/<repo>[:<channel>] ...),
@@ -1384,7 +1398,7 @@ class Updater {
             const i = w.indexOf(':');
             const repo = i < 0 ? w : w.slice(0, i);
             if (!list.some((s) => s.type === 'github' && s.repo.toLowerCase() === repo.toLowerCase())) {
-                const def = { id: this.freeSourceId(repo.split('/')[1] && repo.split('/')[1].toLowerCase()), type: 'github', repo };
+                const def = { id: this.freeSourceId(repo.split('/')[1] && repo.split('/')[1].toLowerCase(), repo), type: 'github', repo };
                 if (i >= 0) {
                     def.channel = w.slice(i + 1);
                 }
@@ -1408,6 +1422,7 @@ class Updater {
             return;
         }
         defs.forEach((def) => {
+            this.reclaimOrigins(def);
             this.addRuntime(def);
             console.log(`source ${def.id}: added as a default source (${sourcesLib.label(def)}${def.channel ? `, ${def.channel}` : ''})`);
         });
@@ -4043,13 +4058,13 @@ class Updater {
             if (this.stored.some((s) => s.type === 'github' && s.repo.toLowerCase() === req.repo.toLowerCase())) {
                 return `${req.repo} is already a source`;
             }
-            def = { id: this.freeSourceId(req.repo.split('/')[1].toLowerCase()), type: 'github', repo: req.repo };
+            def = { id: this.freeSourceId(req.repo.split('/')[1].toLowerCase(), req.repo), type: 'github', repo: req.repo };
             if (req.channel) {
                 def.channel = req.channel;
             }
         } else if (req.type === 'https') {
             try {
-                def = sourcesLib.checkStored({ id: this.freeSourceId(want || null), type: 'https', url: req.url });
+                def = sourcesLib.checkStored({ id: this.freeSourceId(want || null, req.url), type: 'https', url: req.url });
             } catch (e) {
                 return 'url must be https://';
             }
@@ -4060,6 +4075,7 @@ class Updater {
             return 'type must be github or https';
         }
         this.saveSources(this.stored.concat([def]));
+        this.reclaimOrigins(def);
         this.addRuntime(def);
         console.log(`source ${def.id}: added (${sourcesLib.label(def)}${def.channel ? `, ${def.channel}` : ''})`);
         this.checkSource(def.id);
@@ -4114,10 +4130,12 @@ class Updater {
         cp.execFileSync('rm', ['-rf', path.join(this.ctx.cacheDir, id)]);
         // repo files are kept by git id, shared by every source
         this.ctx.batch.drop();
-        // what it installed keeps it as its origin: no other source updates that
+        // what it installed keeps it as its origin, with the repo or URL it was (removed): no other source updates that
         Object.keys(this.origins).forEach((c) => {
             if (this.origins[c].source === id && !this.installedOf(c)) {
                 delete this.origins[c];
+            } else if (this.origins[c].source === id) {
+                this.origins[c].removed = sourcesLib.label(def).toLowerCase();
             }
         });
         this.saveOrigins();
@@ -4264,12 +4282,21 @@ class Updater {
         return def && def.type === 'github' && rt && rt.public ? def.repo : null;
     }
 
+    /* Whether source id's last listing has installed component unit (under
+     * the id it lists, or the one the updater installed it as). */
+    lists(id, unit) {
+        const rt = this.src.get(id);
+        return !!rt && rt.components.some((c) => (this.aliases[`${id}:${c.id}`] || c.id) === unit);
+    }
+
     /* What a ping names: the head unit, the Store's tools' versions, the
-     * components installed from public repos and those repos. */
+     * components installed from public repos that list them, and those
+     * repos. */
     statsInfo() {
         const own = STORE_TOOLS.concat([this.conf.store_app]);
         const apps = Object.keys(this.origins).filter((id) => own.indexOf(id) < 0).map((id) => {
-            const src = this.publicRepo(this.origins[id].source);
+            const o = this.origins[id].source;
+            const src = this.lists(o, id) ? this.publicRepo(o) : null;
             const v = src && this.installedVersion(id);
             return v ? { id, v, src } : null;
         }).filter(Boolean);
