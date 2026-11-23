@@ -385,8 +385,8 @@ func TestDBusNoAutoStart(t *testing.T) {
 }
 
 // A car supplicant that refuses scan_freq: no scans of its own during the
-// session instead; one that refuses to clear it gets the network added
-// again without it.
+// session instead, while the uplink's search goes on (not paused); one that
+// refuses to clear it gets the network added again without it.
 func TestCarWiFiSessionRefused(t *testing.T) {
 	p, f, phone := carSession(t)
 	shown := scanShown
@@ -398,7 +398,7 @@ func TestCarWiFiSessionRefused(t *testing.T) {
 	defer p.stop()
 	waitWiFi(t, p, "scanning for Home", func(st wifiStatus) bool { return st.Link == "scanning" })
 	phone(true, "p2p-wlanc0-0")
-	waitWiFi(t, p, "paused instead", func(st wifiStatus) bool { return st.Paused == projCarPlay && oursAre(f, "scan_freq", "", false)(st) })
+	waitWiFi(t, p, "off instead", func(st wifiStatus) bool { return st.Paused == "" && oursAre(f, "scan_freq", "", false)(st) })
 	phone(false)
 	waitWiFi(t, p, "as before", func(st wifiStatus) bool { return st.Paused == "" && oursAre(f, "scan_freq", "", true)(st) })
 
