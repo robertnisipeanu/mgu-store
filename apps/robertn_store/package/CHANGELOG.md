@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.43
+
 - An app whose source was removed names that source's repo.
 
 ## 0.9.42
