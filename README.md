@@ -234,7 +234,8 @@ is deleted.
 - since the last report: first installs from public sources, failed
   installs (the app's id and a fixed reason code such as `download` or
   `build`, never the error text), and public sources added or removed
-- whether it is the car's first report ever and its first this month
+- whether it is the car's first report ever and its first this month,
+  and whether the Store was installed within the last day
 
 **What it never contains**
 
