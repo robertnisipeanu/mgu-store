@@ -197,8 +197,8 @@ class Stats {
     }
 
     /* The ping. info: { hmi, firmware, versions: { store, updater, deploy,
-     * render, uplink }, apps: [{ id, v, src }], sources: [repo] }, public
-     * ones only. */
+     * render, uplink: { v, src } }, apps: [{ id, v, src }], sources: [repo] },
+     * public ones only; a version's src is its public repo or "installer". */
     body(info, now) {
         const sources = (info.sources || []).filter((s) => REPO.test(s)).slice(0, MAX_SOURCES);
         const lower = (l) => l.map((s) => s.toLowerCase());
@@ -206,9 +206,9 @@ class Stats {
         const have = lower(sources);
         const versions = {};
         Object.keys(info.versions || {}).forEach((k) => {
-            const v = info.versions[k];
-            if (['store', 'updater', 'deploy', 'render', 'uplink'].indexOf(k) >= 0 && VERSION.test(v || '')) {
-                versions[k] = v;
+            const e = info.versions[k] || {};
+            if (['store', 'updater', 'deploy', 'render', 'uplink'].indexOf(k) >= 0 && VERSION.test(e.v || '') && (e.src === 'installer' || REPO.test(e.src || ''))) {
+                versions[k] = { v: e.v, src: e.src };
             }
         });
         const parts = unitParts(info.firmware);

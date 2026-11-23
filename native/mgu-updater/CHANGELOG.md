@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The usage statistics name the source each Store tool's version came from.
+
 ## 0.8.54
 
 - The usage statistics tell a new Store install apart from an existing one sending its first report.
