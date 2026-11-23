@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The usage statistics tell a new Store install apart from an existing one sending its first report.
+
 ## 0.8.53
 
 - Sends anonymous usage statistics once a day, with nothing from private sources. They can be turned off in the Store's Settings.

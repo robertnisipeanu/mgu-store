@@ -280,9 +280,13 @@ is sent and what waited is dropped. An empty `stats_url` sends nothing.
   "sources": [ "robertnisipeanu/mgu-store", "cauliflowermossgrape/idrive7-apps" ],
   "events": { "installed": [ { "id": "doom", "src": "cauliflowermossgrape/idrive7-apps" } ],
     "failed": [ { "id": "gauges", "code": "download" } ], "sources_added": [], "sources_removed": [] },
-  "first_this_month": true, "first_ever": false }
+  "first_this_month": true, "first_ever": false, "new_install": false }
 ```
 
+- `first_ever`: no ping has got through before. `new_install`: also, the
+  updater's state folder is under a day old (the oldest modification time
+  among its entries, read only), so the Store was installed within the
+  last day.
 - `hw` and `istep`: the hardware variant and build train of the
   firmware string (`unit.firmware`), each left out when it has none.
 - `versions`: each only when that component came from a public repo or
