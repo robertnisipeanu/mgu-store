@@ -4273,13 +4273,18 @@ class Updater {
             const v = src && this.installedVersion(id);
             return v ? { id, v, src } : null;
         }).filter(Boolean);
-        // installed by the installers (no origin) or from a public repo: never a private source's version
-        const known = (id) => !this.origins[id] || !!this.publicRepo(this.origins[id].source);
-        const version = (id, kind) => (known(id) ? this.installedVersion(id, kind) : null);
+        // where a Store tool came from: "installer" with no origin (put there by an installer), its public
+        // repo, or null for a private source, whose version is never sent
+        const from = (id) => (!this.origins[id] ? 'installer' : this.publicRepo(this.origins[id].source));
+        const entry = (id, v) => {
+            const src = from(id);
+            return src && v ? { v, src } : null;
+        };
+        const version = (id, kind) => entry(id, this.installedVersion(id, kind));
         return {
             hmi: this.unit && this.unit.hmi,
             firmware: this.unit && this.unit.firmware,
-            versions: { store: version(this.conf.store_app, 'app'), updater: known(SELF) ? this.version : null,
+            versions: { store: version(this.conf.store_app, 'app'), updater: entry(SELF, this.version),
                 deploy: version(this.conf.deploy_tool || 'mgu-deploy', 'tool'), render: version('mgu-render', 'tool'),
                 uplink: version(this.conf.uplink_tool || 'mgu-uplink', 'tool') },
             apps,

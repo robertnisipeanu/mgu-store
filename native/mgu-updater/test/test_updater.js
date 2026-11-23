@@ -7029,7 +7029,7 @@ function testStats(certs) {
                 stats.pings[0].url === '/v1/ping' && stats.pings[0].type === 'application/json', JSON.stringify(stats.pings));
             ok('stats: it names the public source and no other; first ever, first this month', p.v === 1 &&
                 JSON.stringify(p.sources) === '["owner/pub-stats"]' && p.first_ever === true && p.first_this_month === true &&
-                p.versions && p.versions.updater === u.version, JSON.stringify(p));
+                p.versions && JSON.stringify(p.versions.updater) === JSON.stringify({ v: u.version, src: 'installer' }), JSON.stringify(p));
             ok('stats: the private source was read', (st().sources.find((s) => s.id === 'sec') || {}).status === 'ok', JSON.stringify(st().sources));
             return ['pub-tool', 'bad-tool', 'hidden-tool', 'hidden-bad'].reduce((q, id) => q.then(() => install(id)), Promise.resolve());
         })
@@ -7063,7 +7063,9 @@ function testStats(certs) {
             } else {
                 delete u.origins['mgu-updater'];
             }
-            ok('stats: a Store tool\'s version is sent only when it came from a public source or the installers', !hidden && shown === u.version,
+            ok('stats: a Store tool\'s version is sent with its public source, never from a private one', !hidden &&
+                JSON.stringify(shown) === JSON.stringify({ v: u.version, src: 'owner/pub-stats' }) &&
+                JSON.stringify(u.stats.body(u.statsInfo(), Date.now()).versions.updater) === JSON.stringify({ v: u.version, src: 'installer' }),
                 JSON.stringify([hidden, shown]));
             ok('stats: what it carried is cleared once it got through', file().events.installed.length === 0 && file().events.failed.length === 0,
                 JSON.stringify(file()));

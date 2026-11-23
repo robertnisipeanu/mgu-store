@@ -275,7 +275,9 @@ is sent and what waited is dropped. An empty `stats_url` sends nothing.
 
 ```json
 { "v": 1, "hmi": "ID7", "hw": "mgu-high", "istep": "P18_23w44.2",
-  "versions": { "store": "0.9.41", "updater": "0.8.52", "deploy": "0.8.27", "render": "0.6.16", "uplink": "0.7.13" },
+  "versions": { "store": { "v": "0.9.41", "src": "robertnisipeanu/mgu-store" }, "updater": { "v": "0.8.52", "src": "installer" },
+    "deploy": { "v": "0.8.27", "src": "robertnisipeanu/mgu-store" }, "render": { "v": "0.6.16", "src": "robertnisipeanu/mgu-store" },
+    "uplink": { "v": "0.7.13", "src": "robertnisipeanu/mgu-store" } },
   "apps": [ { "id": "doom", "v": "1.0.1", "src": "cauliflowermossgrape/idrive7-apps" } ],
   "sources": [ "robertnisipeanu/mgu-store", "cauliflowermossgrape/idrive7-apps" ],
   "events": { "installed": [ { "id": "doom", "src": "cauliflowermossgrape/idrive7-apps" } ],
@@ -289,8 +291,9 @@ is sent and what waited is dropped. An empty `stats_url` sends nothing.
   last day.
 - `hw` and `istep`: the hardware variant and build train of the
   firmware string (`unit.firmware`), each left out when it has none.
-- `versions`: each only when that component came from a public repo or
-  the installers.
+- `versions`: each with its source, `src`: the public repo it was
+  installed from, or `installer` when an installer put it there. A
+  component from any other source is left out.
 - `apps` and `sources`: only GitHub sources whose repo said it is public
   when read, and what was installed from them (also from a stick's copy
   of one). A source that needs a sign-in, an https catalog, a folder and
