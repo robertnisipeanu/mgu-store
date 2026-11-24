@@ -1459,9 +1459,9 @@ function main(argv) {
         const log = (line) => out('app-privacy: ' + line);
         let r;
         try {
-            const same = recordFile && asRecorded(readRecord(recordFile), paths, unit);
-            if (same) {
-                const skipped = same.edits.filter((e) => e.result === 'skipped-not-found' && e.id.indexOf('helper:') !== 0);
+            const recorded = recordFile && asRecorded(readRecord(recordFile), paths, unit);
+            if (recorded) {
+                const skipped = recorded.edits.filter((e) => e.result === 'skipped-not-found' && e.id.indexOf('helper:') !== 0);
                 out('app-privacy: patched, as recorded' + (skipped.length ? '; skipped: ' + skipped.map((e) => e.id).join(', ') : ''));
                 return 0;
             }
