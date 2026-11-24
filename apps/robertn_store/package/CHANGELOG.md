@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The list stays on screen while the updater restarts.
+- While the updater is installing or has installs waiting, the list stays on screen when it restarts.
 - A page that stays as it is is not drawn again while it is shown.
 - The Store asks the updater for the catalog texts of its display language only and for download progress on its own, which keeps its memory use lower during installs.
 

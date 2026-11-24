@@ -235,8 +235,6 @@ const eq = (got, want, msg) => { checks += 1; assert.deepStrictEqual(got, want, 
 function run() {
     return app._setupRhmi().then(() => app._setupController()).then(() => {
         app._setVisible(true);
-        // the updater away: "not running" at once (the keeping of the last list is checked on its own)
-        app._awayMs = 0;
         // no updater yet, and it has not run since this Store was installed: no secret
         app._client.emit('down');
         return tick();
@@ -256,8 +254,7 @@ function run() {
         eq(last(/storeNavSources\.Visible/), 'storeNavSources.Visible=0', 'Sources hidden');
         eq(last(/storeNavPhone\.Visible/), 'storeNavPhone.Visible=0', 'Phone access hidden');
         eq(last(/storeSourceAccounts\.Visible/), 'storeSourceAccounts.Visible=0', 'Accounts hidden');
-        // the updater restarting (its own update): the last list stays up until it is back
-        app._awayMs = 60000;
+        // the updater restarting with an install queued (its own update): the last list stays up until it is back
         app._client.emit('state', Object.assign({}, ST, { components: [comp({}), comp({ id: 'quake', title: 'Quake', status: 'update', queued: true })] }));
         return tick();
     }).then(() => {
@@ -274,7 +271,6 @@ function run() {
             eq(sent.slice(sentAt).filter((r) => r.op === 'hello'), [hello], 'and the hello again once it is back');
             eq(writes.slice(at).filter((w) => /storeStatus|storeAppList/.test(w)), [], 'and the same list once it is back');
             eq(app._awayTimer, null);
-            app._awayMs = 0;
         });
     }).then(() => {
         app._client.emit('state', ST);

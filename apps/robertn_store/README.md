@@ -179,7 +179,8 @@ app's tile is hidden after an install that restarted the app manager
 (`tileHidden`); `Restart the head
 unit to finish setup` while the updater has not run since the Store was
 installed, which after the first install is until the next start; `Updater
-not running` once it has; `Safe mode` while the deploy tool's safe mode
+not running` once it has (while it installs or has installs waiting, the
+list stays up for 20 s first, as when it updates itself); `Safe mode` while the deploy tool's safe mode
 keeps our tools off, the updater's `safeMode`), **Leave safe mode** in safe
 mode (the start screen opens with the focus on it; hidden while an install runs; it asks
 the updater to leave it, and the tools start at the next start of the head

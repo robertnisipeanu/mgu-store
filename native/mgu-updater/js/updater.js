@@ -4711,7 +4711,7 @@ class Updater {
     /* The new version is in place: the supervisor starts it once we exit. */
     handover() {
         console.log('handing over to the new version');
-        // the new version takes up what is still queued once it is kept
+        // the new version takes up what is still queued, and starts it once it is kept
         if (this.queue.length) {
             mkdirp(this.conf.state_dir, 0o755);
             writeAtomic(path.join(this.conf.state_dir, 'queue.json'), JSON.stringify(this.queue));
@@ -4844,7 +4844,7 @@ class Updater {
         const needsCatalog = !fs.existsSync(local);
         const deadline = Date.now() + TRIAL_WAIT_MS;
         const fetched = () => !needsCatalog || (readLease(this.conf).online && this.reached());
-        // a local one: the sticks are read before the queue it takes up, which may install from them
+        // a local one: the sticks are read before the queue it takes up starts, which may install from them
         const sticks = () => {
             this.scanUsb();
             return Promise.all(this.usb.map((u) => this.checkSource(u.id)));
