@@ -270,11 +270,11 @@ class Store extends OnlineApp {
         this._st = null;
         this._stRaw = null;
         this._connected = false;
+        this._helloLanguage = null;     // the language the last hello named
         this._client = new UpdaterClient(SOCKET, { reconnectMs: RECONNECT_MS });
         this._client.on('state', (st) => {
-            // each connection says which Store this is: the updater's word that its update started
             if (!this._connected) {
-                this._client.send({ op: 'hello', id: APP_ID, version: this._version() });
+                this._hello();
             }
             this._connected = true;
             this._stRaw = st;
@@ -284,6 +284,16 @@ class Store extends OnlineApp {
             this._render();
         });
         this._client.on('probe', (answer) => this._probed(answer));
+        // a download's progress, between states
+        this._client.on('progress', (p) => {
+            const busy = this._stRaw && this._stRaw.busy;
+            if (!busy || !p.busy || p.busy.id !== busy.id) {
+                return;
+            }
+            this._stRaw = Object.assign({}, this._stRaw, { busy: p.busy });
+            this._st = Object.assign({}, this._st, { busy: p.busy });
+            this._render();
+        });
         this._client.on('down', () => {
             if (this._connected) {
                 logger.info('updater unreachable; reconnecting');
@@ -412,10 +422,27 @@ class Store extends OnlineApp {
         });
     }
 
+    /* Each connection says which Store this is (the updater's word that its
+     * update started), the language whose catalog texts it shows and that
+     * it takes a download's progress on its own; again when the language
+     * changes. An updater that knows neither sends every language and the
+     * whole state. */
+    _hello() {
+        this._helloLanguage = i18n.language();
+        this._client.send({ op: 'hello', id: APP_ID, version: this._version(), language: this._helloLanguage, progress: true });
+    }
+
+    _languageChanged() {
+        this._st = localized(this._stRaw);
+        if (this._connected && i18n.language() !== this._helloLanguage) {
+            this._hello();
+        }
+    }
+
     _displayLanguage(value) {
         if (i18n.setHmiLanguage(value)) {
             logger.info(`display language ${value}: ${i18n.language()}`);
-            this._st = localized(this._stRaw);
+            this._languageChanged();
             this._forgetWritten();
             this._render();
         }
@@ -640,7 +667,7 @@ class Store extends OnlineApp {
         logger.info(`screens: ${ui}`);
         this._ui = ui;
         if (i18n.useDrawn(ui !== 'widgets')) {
-            this._st = localized(this._stRaw);
+            this._languageChanged();
         }
         this._forgetWritten();
         this._render();
