@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.26
+
 - A frame that repeats the one on screen, with nothing it draws changed since, is not drawn and shown again; the app still gets its next tick. The app client's `alive()` tells mgu-render an app is running without sending a frame.
 
 ## 0.6.25
