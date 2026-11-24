@@ -6,8 +6,9 @@
  *
  * mgu-render's lines ("<us> R <step> <n> <app>", /run/mgu-render/trace.log) and the Store's ("<us> S <step> <n>
  * <kind>", /dev/shm/robertn_store-trace.log), both on the unit's CLOCK_MONOTONIC. <n> numbers the frames the app
- * sent (build-start, build-end, send; frame-rx, draw-start, draw-end, commit, callback: the frame drawn or shown)
- * and the touches it had (touch-in, touch-fwd; touch), counted from its connection on both sides. Each step's
+ * sent (build-start, build-end, send; frame-rx, draw-start, draw-end, commit, callback: the frame drawn or shown;
+ * frame-same: the picture on screen again, not drawn) and the touches it had (touch-in, touch-fwd; touch), counted
+ * from its connection on both sides. Each step's
  * median and p90 (ms) over the frames sent; what a frame waited for before its build (the renderer's TICK or a
  * touch); and the frames sent but never drawn.
  */
@@ -44,7 +45,7 @@ function analyse(render, store) {
     };
     const S = { start: by(store, 'build-start'), end: by(store, 'build-end'), send: by(store, 'send'), touch: by(store, 'touch') };
     const R = { rx: by(render, 'frame-rx'), ds: by(render, 'draw-start'), de: by(render, 'draw-end'), commit: by(render, 'commit'),
-        cb: by(render, 'callback'), tin: by(render, 'touch-in'), tfwd: by(render, 'touch-fwd') };
+        cb: by(render, 'callback'), same: by(render, 'frame-same'), tin: by(render, 'touch-in'), tfwd: by(render, 'touch-fwd') };
     const ticks = store.filter((e) => e.step === 'tick');
     const touches = store.filter((e) => e.step === 'touch');
     const steps = [
@@ -53,7 +54,7 @@ function analyse(render, store) {
         ['frame to next frame (send to send)', []]];
     const add = (i, a, b) => { if (a && b && b.us >= a.us) steps[i][1].push((b.us - a.us) / 1000); };
     const trig = { tick: 0, touch: 0, none: 0 };
-    let notDrawn = 0, offClock = 0;
+    let notDrawn = 0, same = 0, offClock = 0;
     const sent = [...S.send.keys()].sort((a, b) => a - b);
     sent.forEach((n, k) => {
         const st = S.start.get(n), en = S.end.get(n), se = S.send.get(n), rx = R.rx.get(n);
@@ -68,6 +69,7 @@ function analyse(render, store) {
         add(2, en, se);
         if (se && rx && rx.us < se.us) offClock++;
         add(3, se, rx);
+        if (R.same.has(n)) { same++; return; }
         if (!R.ds.has(n)) { notDrawn++; return; }
         add(4, rx, R.ds.get(n));
         add(5, R.ds.get(n), R.de.get(n));
@@ -102,7 +104,7 @@ function analyse(render, store) {
     const work = [['whole page builds', builds('whole')], ['drag frames', builds('drag')],
         ['a touch\'s first drag frame', firstDrag], ['release (settle)', pairs('settle-start', 'settle-end')],
         ['drag layers made ahead', pairs('prebuild-start', 'prebuild-end')]];
-    return { sent: sent.length, notDrawn, offClock, trig, steps, touch, tickIpc, work, touches: downs.length,
+    return { sent: sent.length, notDrawn, same, offClock, trig, steps, touch, tickIpc, work, touches: downs.length,
         seconds: sent.length > 1 ? (S.send.get(sent[sent.length - 1]).us - S.send.get(sent[0]).us) / 1e6 : 0 };
 }
 
@@ -110,7 +112,7 @@ function report(a) {
     const f = (x) => (x === null ? '     -' : x.toFixed(1).padStart(6));
     const row = (name, xs) => `  ${name.padEnd(36)} ${f(quantile(xs, 0.5))} ${f(quantile(xs, 0.9))}  (${xs.length})`;
     const out = [`${a.sent} frames sent in ${a.seconds.toFixed(1)} s (${a.seconds ? (a.sent / a.seconds).toFixed(1) : '-'} a second), ` +
-        `${a.notDrawn} never drawn (a newer one drawn in their place)`,
+        `${a.notDrawn} never drawn (a newer one drawn in their place), ${a.same} the picture on screen again (not drawn)`,
     `built after: the renderer's TICK ${a.trig.tick}, a touch ${a.trig.touch}, neither ${a.trig.none}`,
     `  ${'step'.padEnd(36)} median    p90  (frames) ms`];
     a.steps.forEach(([name, xs]) => out.push(row(name, xs)));

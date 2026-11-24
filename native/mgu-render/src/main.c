@@ -143,6 +143,10 @@ typedef struct client {
     int dirty;              /* a frame arrived that is not on screen yet */
     int want_tick;          /* tell the app when we can take the next frame */
     uint32_t frames_shown, ticks;
+    /* messages that can change what a frame draws: how many came, how many had come at the last draw; a frame like
+       the one on screen, not drawn again: its TICK at tick_at (0 = none due) */
+    uint32_t changes, drawn_changes;
+    uint64_t tick_at;
     /* watchdog: an app on screen that stops talking (hung) is hidden until it talks again */
     uint64_t last_msg; int stale;
     /* touch claims, logical px (CLAIM) */
@@ -335,6 +339,7 @@ static void send_error(client *c, const char *e) {
 static void send_tick(client *c) {
     uint32_t p[2] = { ++c->ticks, (uint32_t)((now_us() - t_start) / 1000) };
     c->want_tick = 0;
+    c->tick_at = 0;
     send_msg(c, E_TICK, p, sizeof p);
     if (trace_on()) trace(now_us(), "tick", c->app, c->ticks);
 }
@@ -663,6 +668,7 @@ static void render_layer(client *c) {
     uint64_t t0 = now_us();
     if (cap_wait(c, t0)) return;                          /* too early for its cap: stays dirty, drawn later */
     c->last_draw = t0;
+    c->drawn_changes = c->changes;
     c->tr_drawn = c->tr_committed = c->tr_frames;
     if (trace_on()) trace(t0, "draw-start", c->app, c->tr_drawn);
     eglMakeCurrent(edpy, c->es, c->es, ectx);
@@ -700,6 +706,7 @@ static void render_embed(void) {
     int b = draw ? embed_buffer(embed_zero_copy()) : -1;
     if (b >= 0) {
         c->last_draw = t0;
+        c->drawn_changes = c->changes;
         c->tr_drawn = c->tr_frames;
         if (trace_on()) trace(t0, "draw-start", c->app, c->tr_drawn);
         int w = cfg.embed_area[2], h = cfg.embed_area[3];
@@ -739,7 +746,7 @@ static void render_embed(void) {
         if (c->frames_shown++ == 0) send_state(c);
     }
     /* tick_early: the next frame is asked for as soon as the app's last one is drawn and no drawn frame waits */
-    if (cfg.tick_early && !dbr && c->want_tick && !c->dirty && embed_ready() < 0) send_tick(c);
+    if (cfg.tick_early && !dbr && c->want_tick && !c->dirty && !c->tick_at && embed_ready() < 0) send_tick(c);
 }
 
 void embed_frame_done(void) {
@@ -1089,6 +1096,30 @@ static int grab(client *c, const uint32_t *w, size_t nw) {
     return 0;
 }
 
+/* a message that leaves what the app's frames draw as they are */
+static int draws_nothing(const client *c, uint32_t type) {
+    switch (type) {
+    case M_FRAME: case MI_FPS: return 1;
+    case 9: return c->dialect != DIALECT_UPSTREAM;          /* CLAIM (upstream: IMAGE) */
+    case 10: return c->dialect == DIALECT_UPSTREAM;         /* upstream: GRAB (else IMAGE) */
+    case X_GRAB: case X_FINGERS: return c->dialect == DIALECT_NATIVE;
+    default: return 0;
+    }
+}
+
+/* the frame (nw words at p) is the one on screen and nothing it draws has changed since it was drawn: drawing it
+   again would show the same picture (a video's picture changes by itself) */
+static int same_frame(const client *c, const uint8_t *p, size_t nw) {
+    return nw && nw == c->frame_words && !c->dirty && shown(c) && !c->g.videos && c->changes == c->drawn_changes &&
+           !memcmp(c->frame, p, nw * 4);
+}
+
+/* the time between two TICKs of an app whose frames are not drawn: a frame of the display, or its cap's */
+static uint64_t tick_us(const client *c) {
+    uint64_t r = refresh_mhz > 0 ? 1000000000ull / (uint64_t)refresh_mhz : 16667, m = frame_us(c);
+    return m > r ? m : r;
+}
+
 /* returns -1 to drop the client */
 static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
     const uint32_t *w = (const uint32_t *)p;
@@ -1099,6 +1130,7 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
         set_dialect(c, d);
     }
     if (type != M_FRAME && type != X_GRAB && !(type == 10 && c->dialect == DIALECT_UPSTREAM)) c->unanswered = 0;
+    if (!draws_nothing(c, type)) c->changes++;
     switch (type) {
     case M_HELLO:
         hello(c, p, len);
@@ -1197,12 +1229,21 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
         return 0;
     case M_FRAME: {
         int first = !c->frame_words;
+        if (same_frame(c, p, nw)) {                       /* stays on screen; the app gets its TICK as if drawn */
+            answered(c);
+            c->tr_frames++;
+            if (trace_on()) { uint64_t t = now_us(); trace(t, "frame-rx", c->app, c->tr_frames); trace(t, "frame-same", c->app, c->tr_frames); }
+            c->want_tick = 1;
+            if (!c->tick_at) c->tick_at = now_us() + tick_us(c);
+            return 0;
+        }
         if (nw > c->frame_cap) { c->frame_cap = nw + 1024; c->frame = realloc(c->frame, c->frame_cap * 4); }
         memcpy(c->frame, p, nw * 4);
         c->frame_words = nw;
         answered(c);
         c->dirty = 1;
         c->want_tick = 1;
+        c->tick_at = 0;                                   /* its TICK comes once it is drawn */
         c->tr_frames++;
         if (trace_on()) trace(now_us(), "frame-rx", c->app, c->tr_frames);
         if (first && c->mode == MODE_EMBED) update_all();
@@ -1722,7 +1763,7 @@ int main(int argc, char **argv) {
         for (int i = 0; i < MAX_CLIENTS; i++) {
             client *c = clients[i];
             if (!c) continue;
-            /* apps send a frame at least every second while shown; 3 s of silence = hung */
+            /* apps send something at least every second while shown; 3 s of silence = hung */
             if (shown(c) && !c->stale && c->last_msg && tnow - c->last_msg > WATCHDOG_US) {
                 c->stale = 1; log_warn("%s: no frames for 3 s - hidden", c->app); update_all();
             }
@@ -1733,6 +1774,10 @@ int main(int argc, char **argv) {
             if (c->g.videos && shown(c) && c->frame_words) {
                 video_on = 1;
                 if (!c->dirty && gfx_video_pending(&c->g)) c->dirty = 1;
+            }
+            if (c->tick_at && tnow >= c->tick_at) {
+                if (c->want_tick && !c->dirty) send_tick(c);    /* dirty: it comes once that frame is drawn */
+                c->tick_at = 0;
             }
             if (c->mode == MODE_LAYER) render_layer(c);
         }
@@ -1770,7 +1815,8 @@ int main(int argc, char **argv) {
         int wait_ms = video_on ? 5 : ctl_gate_on ? 100 : 250;
         if (touch_on && touch_busy() && wait_ms > 20) wait_ms = 20;   /* nft's answer, seen within 20 ms */
         for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) {   /* in time for a capped app's waiting frame */
-            uint64_t us = cap_wait(clients[i], tnow);
+            uint64_t us = cap_wait(clients[i], tnow), t = clients[i]->tick_at;
+            if (t) { uint64_t d = t > tnow ? t - tnow : 1; if (!us || d < us) us = d; }
             if (us && (int)(us / 1000) + 1 < wait_ms) wait_ms = (int)(us / 1000) + 1;
         }
         int r = poll(pf, np, wait_ms);

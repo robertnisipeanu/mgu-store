@@ -54,6 +54,15 @@ Daemon to client:
 | 103 | ERROR | utf8 text |
 | 104 | STATS | u32 frames shown in the last second, avg render µs, max render µs; native only: u32 flags (1: drawn zero-copy into the HMI compositor's buffer) |
 
+A FRAME equal byte for byte to the one on screen, with no message since it was
+drawn that can change what it draws (anything but FRAME, FPS, CLAIM, GRAB and
+X_FINGERS), is not drawn again while the app is shown and has no video; its
+TICK comes a display frame (or the app's FPS interval) later.
+
+An app shown sends something at least once a second: one silent for 3 s is
+taken for hung and hidden. Without a frame to send, a native client repeats
+X_GRAB as it stands (on while it holds the controller, else 0).
+
 READY carries four words to every client. Upstream's kit reads words 1 and 2;
 IterioDev's reads the version (3: pictures supported, 4: video) and the touch word.
 

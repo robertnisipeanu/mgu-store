@@ -320,6 +320,12 @@ class RenderClient extends EventEmitter {
         if (this.ready && this.native) this._write(this._grabMsg(on ? 1 : 0));
     }
     _grabMsg(on) { return u32msg(X.GRAB, on && this.holdMask ? [1, this.holdMask] : [on]); }
+    /** Says the app is running, without a frame: an app shown sends something at least once a second, since one
+     *  silent for 3 s is taken for hung and hidden. It is GRAB as it stands, which every mgu-render takes as no
+     *  change and no answer to input. */
+    alive() {
+        if (this.ready && this.native) this._write(this._grabMsg(this.grabbing ? 1 : 0));
+    }
 
     /* ---- pixel images ---- */
     pixmap(id, w, h, format, filter) {

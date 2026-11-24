@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A page that stays as it is is not drawn again while it is shown.
+
 ## 0.9.43
 
 - An app whose source was removed names that source's repo.

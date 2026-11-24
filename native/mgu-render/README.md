@@ -260,7 +260,7 @@ where `info.videoNv12` is set: the header's format word 1) to
 with `gpu.video(1, '/dev/shm/mgu-video-<name>')` and puts
 `videoOp(1, x, y, w, h, r)` in its frames. Each new video frame draws the
 app's last frame again; the app still sends at least one message a second
-while it is shown (its frame again will do), since an app silent for 3 s is
+while it is shown (`gpu.alive()` will do), since an app silent for 3 s is
 taken for hung and hidden. The frame file must be the app's (its uid), or a
 system player's (root, or `nobody`). IterioDev's YouTube app
 (IterioDev/car-apps, with its player mgu-ytplay) uses it through IterioDev's
