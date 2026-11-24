@@ -3,6 +3,7 @@
 ## Unreleased
 
 - A page that stays as it is is not drawn again while it is shown.
+- The Store asks the updater for the catalog texts of its display language only and for download progress on its own, which keeps its memory use lower during installs.
 
 ## 0.9.43
 

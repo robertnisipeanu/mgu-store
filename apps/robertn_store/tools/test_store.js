@@ -244,7 +244,7 @@ function run() {
         app._client.emit('state', Object.assign({}, base, { components: [comp({})] }));
         return tick();
     }).then(() => {
-        const hello = { op: 'hello', id: 'robertn_store', version: 'test' };
+        const hello = { op: 'hello', id: 'robertn_store', version: 'test', language: 'en', progress: true };
         eq(sent.filter((r) => r.op === 'hello'), [hello], 'a connection says which Store this is');
         app._client.emit('state', Object.assign({}, base, { components: [comp({})] }));
         eq(sent.filter((r) => r.op === 'hello'), [hello], 'once per connection');
@@ -311,6 +311,9 @@ function run() {
         app._client.emit('state', Object.assign({}, ST, { busy: { id: 'doom', op: 'install', phase: 'download', progress: 0, total: 10 } }));
         return tick();
     }).then(() => {
+        app._client.emit('progress', { type: 'progress', busy: { id: 'doom', op: 'install', phase: 'download', progress: 5, total: 10 } });
+        app._client.emit('progress', { type: 'progress', busy: { id: 'quake', op: 'install', phase: 'download', progress: 9, total: 10 } });
+        eq(app._st.busy.progress, 5, 'a download\'s progress between states; another component\'s is left to the next state');
         // as last written: [Restart head unit shown, it can be pressed, its confirm step's Restart can be pressed]
         const restartWidgets = () => ['storeRestart.visible', 'storeRestart.enabled', 'storeRestartConfirm.enabled'].map((k) => app._written[k]);
         eq(restartWidgets(), [true, false, false], 'greyed out while an install runs');
@@ -1945,10 +1948,12 @@ function runLanguage() {
         eq(hmiContext, ['de.bmw.infotainment.hmi.hmicontext.HMIContext HMI_CID',
             'de.bmw.infotainment.hmi.hmicontext2.HMIContext2 1'], 'both HMI contexts of the CID');
         eq([check(), nav()], ['Check for updates', '1 update'], 'English');
+        sent.length = 0;
         displayLanguage('CHINESISCH_SIMPLE');
         return tick();
     }).then(() => {
         eq([check(), nav()], ['检查更新', '1 项更新'], 'Simplified Chinese: the widget screens follow');
+        eq(sent.filter((r) => r.op === 'hello').map((r) => r.language), ['zh-CN'], 'the updater is told the language whose texts to send');
         displayLanguage('DEUTSCH');
         return tick();
     }).then(() => {

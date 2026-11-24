@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A client can ask for the catalog texts of its own language only and for download progress on its own, and the updater checks installed components for changes without reading their files each time.
+
 ## 0.8.57
 
 - A new GitHub source's id is made of its owner and repo, so two repos of the same name never share one, and the phone page names each component's source by its repo.

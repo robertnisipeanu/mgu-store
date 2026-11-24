@@ -336,6 +336,26 @@ function readJson(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
+// a language code a client's hello may name (the catalog texts' keys: de, pt-BR, zh-TW)
+const LANGUAGE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+
+/* st with each component's texts cut to language and its base language
+ * (pt for pt-BR), null where it has neither; st itself without a language. */
+function textsIn(st, language) {
+    if (!language) {
+        return st;
+    }
+    const keys = [language, language.split('-')[0]];
+    return Object.assign({}, st, { components: st.components.map((c) => {
+        if (!c.texts) {
+            return c;
+        }
+        const texts = keys.filter((k) => Object.prototype.hasOwnProperty.call(c.texts, k))
+            .reduce((o, k) => Object.assign(o, { [k]: c.texts[k] }), {});
+        return Object.assign({}, c, { texts: Object.keys(texts).length ? texts : null });
+    }) });
+}
+
 function sha256(buf) {
     return crypto.createHash('sha256').update(buf).digest('hex');
 }
@@ -1239,8 +1259,13 @@ class Updater {
         this.adoptTried = false;
         this.privacy = null;
         this.clients = new Set();
+        // what each client said in its hello: { language, progress }
+        this.said = new WeakMap();
         this.checking = null;
         this.sendTimer = null;
+        this.progressTimer = null;
+        // the files read while one state is made, each read once (state)
+        this.reads = null;
         this.rebooting = false;
         this.rebootError = null;
         this.rebootErrorTimer = null;
@@ -1556,7 +1581,7 @@ class Updater {
      * before: itself, the deploy tool, the Store and what the updater
      * requires. */
     kept() {
-        return [SELF, this.conf.deploy_tool, this.conf.store_app].concat(Object.keys(selfComponent().requires || {}));
+        return this.once('kept', () => [SELF, this.conf.deploy_tool, this.conf.store_app].concat(Object.keys(selfComponent().requires || {})));
     }
 
     /* The ids the updater never removes: kept, and the other tools the
@@ -1600,6 +1625,10 @@ class Updater {
      * installed. An installed id without an origin, or whose origin lists it
      * no more, is a row of its own (unlisted). */
     resolved() {
+        return this.once('resolved', () => this.resolveNow());
+    }
+
+    resolveNow() {
         const online = readLease(this.conf).online;
         const groups = new Map();
         const taken = new Set(Object.keys(this.aliases).map((k) => this.aliases[k]));
@@ -1759,13 +1788,60 @@ class Updater {
         return tools.concat(apps).filter(Boolean).map((c) => `${c.kind}:${c.id}@${c.version}`).join();
     }
 
+    /* The files installedNow reads, as one line of their size, times and
+     * inode (the change time also for a file written in place with its
+     * archive's time): it moves whenever what they say can. An app's
+     * registry file is read again only when it moves (it names the app's
+     * home). */
+    installedStamp() {
+        const stamp = (file) => {
+            try {
+                const st = fs.statSync(file);
+                return `${st.size}:${st.mtime.getTime()}:${st.ctime.getTime()}:${st.ino}`;
+            } catch (e) {
+                return '-';
+            }
+        };
+        const names = (dir) => {
+            try {
+                return fs.readdirSync(dir).sort();
+            } catch (e) {
+                return [];
+            }
+        };
+        const registry = path.join(this.conf.oap_root, `oap_${this.conf.mainapp_uid}`, 'data', 'apps');
+        const kept = this.appPackages || new Map();
+        this.appPackages = new Map();
+        const tools = names(this.conf.tool_root).map((id) => `${id}=${stamp(path.join(this.conf.tool_root, id, 'current', 'component.json'))}`);
+        const apps = names(registry).filter((f) => /\.json$/.test(f)).map((f) => {
+            const entry = stamp(path.join(registry, f));
+            let pkg = kept.get(f);
+            if (!pkg || pkg.entry !== entry) {
+                let file = null;
+                try {
+                    file = path.join(appHome(this.conf, f.slice(0, -5)), 'source', 'package.json');
+                } catch (e) { /* no home named */ }
+                pkg = { entry, file };
+            }
+            this.appPackages.set(f, pkg);
+            return `${f}=${entry}:${pkg.file ? stamp(pkg.file) : '-'}`;
+        });
+        return tools.concat(apps).join();
+    }
+
     /* A change to what is installed made outside the updater (the deploy
      * tool run by hand): the deploy tool asked again and the state sent.
-     * Changes while the updater works go out with its own state. */
+     * Changes while the updater works go out with its own state. What is
+     * installed is read only when its files moved (installedStamp). */
     watchInstalled() {
         if (this.watchingInstalled) {
             return;
         }
+        const stamp = this.installedStamp();
+        if (stamp === this.installedStamped) {
+            return;
+        }
+        this.installedStamped = stamp;
         const now = this.installedNow();
         const seen = this.installedSeen;
         this.installedSeen = now;
@@ -1798,13 +1874,26 @@ class Updater {
     }
 
     installedOf(id, kind, wantTitle) {
-        if (kind === 'app') {
-            return installedApp(this.conf, id, wantTitle);
+        return this.once(`installed\0${id}\0${kind}\0${!!wantTitle}`, () => {
+            if (kind === 'app') {
+                return installedApp(this.conf, id, wantTitle);
+            }
+            if (kind === 'tool') {
+                return installedTool(this.conf, id);
+            }
+            return installedApp(this.conf, id) || installedTool(this.conf, id);
+        });
+    }
+
+    /* fn's value, made once per key while a state is made (state), else each time. */
+    once(key, fn) {
+        if (!this.reads) {
+            return fn();
         }
-        if (kind === 'tool') {
-            return installedTool(this.conf, id);
+        if (!this.reads.has(key)) {
+            this.reads.set(key, fn());
         }
-        return installedApp(this.conf, id) || installedTool(this.conf, id);
+        return this.reads.get(key);
     }
 
     sourceState(def) {
@@ -1825,7 +1914,18 @@ class Updater {
         };
     }
 
+    /* The state every client gets (README.md, "The socket"). The files it
+     * reads are read once while it is made. */
     state() {
+        this.reads = new Map();
+        try {
+            return this.makeState();
+        } finally {
+            this.reads = null;
+        }
+    }
+
+    makeState() {
         const all = this.resolved();
         const resolved = Array.from(all.values());
         const installed = resolved.map((r) => this.installedOf(r.entry.id, r.entry.kind, r.entry.title === r.entry.id)).filter(Boolean);
@@ -1853,7 +1953,7 @@ class Updater {
             }
             return Object.assign(row, {
                 // the kept icon (a PNG anyone may read), null without one
-                icon: own || (icon && fs.existsSync(icon) ? icon : null),
+                icon: own || (icon && this.once(`icon\0${icon}`, () => fs.existsSync(icon)) ? icon : null),
                 compat: catalogLib.compat(row.mguHmi, this.unit && this.unit.hmi),
                 revision: entry.revision || null,
                 // the id its source lists, when the row's id is another
@@ -1866,7 +1966,8 @@ class Updater {
                 blocked: entry.blocked || null,
                 // also an install queued for the next start (iDrive 8), not installed until then
                 pendingReboot: placed || (ours && this.pending.indexOf(unit) >= 0),
-                problem: row.installed ? (entry.kind === 'tool' && toolProblem(this.conf, unit)) || this.repairWhy(unit, ours) : null,
+                problem: row.installed ? (entry.kind === 'tool' && this.once(`problem\0${unit}`, () => toolProblem(this.conf, unit))) ||
+                    this.repairWhy(unit, ours) : null,
                 // why the installed component does not work until it is set up again (the deploy tool's stale)
                 repair: row.installed && ours && this.stale[unit] ? this.stale[unit].why : null,
                 // why the installed tool's install step waits for its next install or Set up
@@ -1946,10 +2047,52 @@ class Updater {
         if (this.sendTimer) {
             return;
         }
+        // the state carries the progress too
+        clearTimeout(this.progressTimer);
+        this.progressTimer = null;
         this.sendTimer = setTimeout(() => {
             this.sendTimer = null;
-            const line = JSON.stringify(this.state()) + '\n';
-            this.clients.forEach((s) => s.write(line));
+            this.send(Array.from(this.clients));
+        }, 250);
+    }
+
+    /* The state to clients, each with the texts of the language its hello named. */
+    send(clients) {
+        if (!clients.length) {
+            return;
+        }
+        const st = this.state();
+        const lines = new Map();
+        clients.forEach((s) => {
+            const language = (this.said.get(s) || {}).language || null;
+            if (!lines.has(language)) {
+                lines.set(language, JSON.stringify(textsIn(st, language)) + '\n');
+            }
+            s.write(lines.get(language));
+        });
+    }
+
+    /* A download's progress, at most every 250 ms: {type:"progress", busy}
+     * to the clients whose hello asked for it, the state to the others. */
+    progressed() {
+        if (this.sendTimer || this.progressTimer) {
+            return;
+        }
+        this.progressTimer = setTimeout(() => {
+            this.progressTimer = null;
+            const full = [];
+            const line = JSON.stringify({ type: 'progress', busy: this.busy }) + '\n';
+            this.clients.forEach((s) => {
+                if ((this.said.get(s) || {}).progress) {
+                    // a download that has ended: the state that says so is on its way
+                    if (this.busy) {
+                        s.write(line);
+                    }
+                } else {
+                    full.push(s);
+                }
+            });
+            this.send(full);
         }, 250);
     }
 
@@ -2674,8 +2817,23 @@ class Updater {
         rmIfThere(path.join(this.conf.state_dir, 'store-trial.json'));
     }
 
-    /* {op: "hello", id, version}: a client says what it is. The Store on
-     * trial saying it ends the trial. Nothing is answered. */
+    /* {op: "hello", id, version, language, progress}: a client says what it
+     * is. The Store on trial saying it ends the trial. Nothing is answered;
+     * a client that names another language than before gets the state again
+     * with that language's texts (textsIn). */
+    hello(req, s) {
+        this.storeHello(req);
+        if (!s) {
+            return;
+        }
+        const was = this.said.get(s);
+        const language = typeof req.language === 'string' && LANGUAGE.test(req.language) ? req.language : null;
+        this.said.set(s, { language, progress: req.progress === true });
+        if (language !== ((was && was.language) || null)) {
+            this.send([s]);
+        }
+    }
+
     storeHello(req) {
         const t = this.storeTrial;
         if (t && req.id === this.conf.store_app && req.version === t.version) {
@@ -3087,7 +3245,7 @@ class Updater {
             if (total) {
                 this.busy.total = total;
             }
-            this.changed();
+            this.progressed();
         };
         if (!entry.path) {
             return rt.reader.artifact(entry, progress);
@@ -4499,9 +4657,10 @@ class Updater {
         return !!v && catalogLib.compareVersions(v, STORE_REBOOT_SECRET_SINCE) < 0;
     }
 
-    /* One request; returns the reason it is refused, null when the state
-     * answers it, or undefined when it answers later through reply(msg). */
-    handle(req, reply) {
+    /* One request of client (its socket); returns the reason it is refused,
+     * null when the state answers it, or undefined when it answers later
+     * through reply(msg). */
+    handle(req, reply, client) {
         if (PRIVILEGED.indexOf(req.op) >= 0 && !this.authorized(req.secret) && !(req.op === 'reboot' && this.storeRebootsWithoutSecret())) {
             return 'forbidden';
         }
@@ -4514,7 +4673,7 @@ class Updater {
         case 'uninstall': return typeof req.id === 'string' ? this.requestUninstall(req.id, req.tools) : 'uninstall needs an id';
         case 'rollback': return typeof req.id === 'string' ? this.requestRollback(req.id) : 'rollback needs an id';
         case 'setup': return typeof req.id === 'string' ? this.requestSetup(req.id) : 'setup needs an id';
-        case 'hello': this.storeHello(req); return undefined;
+        case 'hello': this.hello(req, client); return undefined;
         case 'source-add': return this.sourceAdd(req);
         case 'source-probe': return this.sourceProbe(req, reply);
         case 'source-remove': return this.sourceRemove(req.id);
@@ -4605,7 +4764,9 @@ class Updater {
     }
 
     /* One JSON request per line (README.md, "The socket"). Every client gets
-     * the full state on connect and whenever it changes; a refused request
+     * the state on connect and whenever it changes (with only the texts of
+     * the language its hello names, and download progress on its own when
+     * its hello asks for it); a refused request
      * gets {type:"error", op, error}. The direct answer to a request carries
      * its "rid". */
     accept(s) {
@@ -4637,12 +4798,13 @@ class Updater {
                 const rid = (typeof req.rid === 'string' && req.rid.length <= 64) || Number.isInteger(req.rid) ? { rid: req.rid } : {};
                 const reply = (msg) => {
                     if (!s.destroyed) {
-                        s.write(JSON.stringify(Object.assign(msg, rid)) + '\n');
+                        const out = msg.type === 'state' ? textsIn(msg, (this.said.get(s) || {}).language || null) : msg;
+                        s.write(JSON.stringify(Object.assign(out, rid)) + '\n');
                     }
                 };
                 let error;
                 try {
-                    error = this.handle(req, reply);
+                    error = this.handle(req, reply, s);
                 } catch (e) {
                     error = e.message;
                 }
