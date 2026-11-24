@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The updater runs in the head unit's slice for standard services, so it does not take CPU time ahead of the HMI.
+
 ## 0.8.59
 
 - After the updater updates itself, it checks the new version against its built-in source, and against every source only when that one does not answer, and goes on with the queued updates straight away.

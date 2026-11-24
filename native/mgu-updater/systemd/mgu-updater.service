@@ -8,7 +8,9 @@ After=local-fs.target
 ExecStart=/var/opt/mgu-updater/current/mgu-updater
 Restart=always
 RestartSec=5
-# Its downloads, builds and installs give way to the HMI.
+# Not ahead of the HMI: the head unit's slice for its standard services. Its downloads, builds and installs
+# give way to the others there.
+Slice=standard.slice
 Nice=10
 # The unit's system.conf sends stdout to null by default; the updater logs there.
 StandardOutput=journal
