@@ -2004,6 +2004,25 @@ test('boot applies with the same rules and records the run', () => {
         assert.ok(/app-privacy: patched \(applied\); skipped: user-update-all/.test(r.stdout), r.stdout);
         assert.strictEqual(b.readRecord().latest[0].command, 'boot');
         assert.strictEqual(runTool(b.args('check')).code, 0);
+        // bundles as the last patched run recorded them: nothing read beyond their hashes, nothing written
+        const boot = () => runTool(b.args('boot').filter((a) => a !== '--json'));
+        const recorded = fs.readFileSync(b.record, 'utf8');
+        let again = boot();
+        assert.ok(/^app-privacy: patched, as recorded; skipped: user-update-all\n$/.test(again.stdout), again.stdout);
+        assert.strictEqual(fs.readFileSync(b.record, 'utf8'), recorded);
+        // a restored stock bundle (one byte differs from the record) is patched again
+        const patched = b.read('main');
+        fs.writeFileSync(b.paths.main, patcher.removePatches(patched, patcher.PATCH_SETS_8_1_1.main));
+        again = boot();
+        assert.ok(/app-privacy: patched \(applied\)/.test(again.stdout), again.stdout);
+        assert.strictEqual(b.read('main'), patched);
+        // a record another release wrote: the full apply
+        const rec = b.readRecord();
+        rec.latest[rec.latest.length - 1].appPrivacy = '0.0.1';
+        fs.writeFileSync(b.record, JSON.stringify(rec));
+        again = boot();
+        assert.ok(/\napp-privacy: patched; skipped: user-update-all\n$/.test(again.stdout), again.stdout);
+        assert.ok(/patched, as recorded/.test(boot().stdout));
     });
     withMainapp('ID8', patcher.PATCH_SETS_21_9_2_15, '9.2.15', (b) => {
         b.edit('main', anchorOf(patcher.PATCH_SETS_21_9_2_15, 'crash-count').patch[0], 'gone()');
