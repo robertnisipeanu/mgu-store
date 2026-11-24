@@ -589,6 +589,29 @@ function testPendingReboot() {
         st.pending_reboot.some((p) => p.id === 'app-privacy' && p.reason === PENDING), JSON.stringify(st.pending_reboot));
 }
 
+/* status --json's inputs: what a caller keeps the answer by. */
+function testStatusInputs() {
+    const root = fakeRoot();
+    root.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    const st = root.status();
+    const stamp = (f) => {
+        try {
+            const t = fs.statSync(f);
+            return `${t.size}:${t.mtime.getTime()}:${t.ctime.getTime()}:${t.ino}`;
+        } catch (e) {
+            return '-';
+        }
+    };
+    const inputs = st.inputs || {};
+    const moved = Object.keys(inputs).filter((f) => f !== '/proc/mounts' && stamp(f) !== inputs[f]);
+    check('status inputs: right after the run, every input it names still holds', Object.keys(inputs).length > 0 && !moved.length, moved.join(' '));
+    const entry = root.p(`var/opt/public/oap/oap_${MGR}/data/apps/stock_app.json`);
+    check('status inputs: a file it read is one, and nothing of the proc root', !!inputs[entry] &&
+        !Object.keys(inputs).some((f) => f.indexOf(root.p('proc')) === 0), Object.keys(inputs).join(' '));
+    fs.writeFileSync(entry, `${fs.readFileSync(entry, 'utf8')} `);
+    check('status inputs: a change to it shows in its stamp', stamp(entry) !== inputs[entry]);
+}
+
 /* ---- scratch in RAM, linked backups --------------------------------------------------------- */
 
 function testScratch() {
@@ -10901,6 +10924,7 @@ const SUITES = [
     testRefusals,
     testToolInstall,
     testPendingReboot,
+    testStatusInputs,
     testApps,
     testScratch,
     testAppUids,

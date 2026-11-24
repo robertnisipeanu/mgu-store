@@ -7059,7 +7059,11 @@ function managerRunsCopy() {
     if (inplaceHookOf(copy) === null) return !managerStale();
     if (hookAnnounced(m)) return true;
     var lb = lastBounceAt();
-    return m.started !== null && lb > 0 && m.started >= lb - 1 && m.started + CFG.bounceMinUpS > nowS();
+    if (m.started !== null && lb > 0 && m.started >= lb - 1 && m.started + CFG.bounceMinUpS > nowS()) {
+        answerHoldsUntil((m.started + CFG.bounceMinUpS) * 1000);
+        return true;
+    }
+    return false;
 }
 /* The copy's in-place hook announced itself for manager m. */
 function hookAnnounced(m) {
@@ -7444,6 +7448,65 @@ function collectStatusNow(state) {
         app_uids: appUids(),
         stock_backup: fs.existsSync(path.join(BACKUPS_DIR, 'stock')) };
 }
+/* status --json's inputs (README.md, "status"): the files this run read,
+ * each stamped as it was first read (one this run wrote, or a folder it
+ * changed the entries of: as the run left it), so a caller can keep the answer while they hold. Live parts (units,
+ * journals, running, app_uids) and the app manager's process are not among
+ * them; inputs_until (epoch ms) is when an answer that rests on the time
+ * runs out. */
+var readStamps = null;
+var wrotePaths = null;
+var answerUntil = Infinity;
+var fsStat = fs.statSync;
+var fsRead = fs.readFileSync;
+function answerHoldsUntil(ms) { answerUntil = Math.min(answerUntil, ms); }
+/* size:mtime:ctime:inode (ms), '-' when absent; /proc/mounts the sha256 of its text. */
+function inputStamp(p) {
+    try {
+        if (p === '/proc/mounts') return crypto.createHash('sha256').update(fsRead(p)).digest('hex').slice(0, 16);
+        var st = fsStat(p);
+        return st.size + ':' + st.mtime.getTime() + ':' + st.ctime.getTime() + ':' + st.ino;
+    } catch (e) { return '-'; }
+}
+function trackReads() {
+    readStamps = {};
+    wrotePaths = {};
+    var read = function (p) {
+        if (typeof p !== 'string') return;
+        var r = path.resolve(p);
+        if (!(r in readStamps)) readStamps[r] = inputStamp(r);
+    };
+    // the folder too: its entries are the run's to change
+    var wrote = function (p) {
+        if (typeof p !== 'string') return;
+        wrotePaths[path.resolve(p)] = true;
+        wrotePaths[path.dirname(path.resolve(p))] = true;
+    };
+    var wrap = function (m, each) {
+        var orig = fs[m];
+        fs[m] = function () { each.apply(null, arguments); return orig.apply(fs, arguments); };
+    };
+    ['readFileSync', 'statSync', 'lstatSync', 'existsSync', 'readdirSync', 'readlinkSync', 'realpathSync', 'accessSync']
+        .forEach(function (m) { wrap(m, read); });
+    wrap('openSync', function (p, flags) {
+        var reading = typeof flags === 'number' ? (flags & 3) === 0 : !flags || /^(r|rs|sr)$/.test(flags);
+        (reading ? read : wrote)(p);
+    });
+    ['writeFileSync', 'appendFileSync', 'unlinkSync', 'mkdirSync', 'rmdirSync', 'chmodSync', 'chownSync', 'utimesSync', 'truncateSync']
+        .forEach(function (m) { wrap(m, wrote); });
+    wrap('mkdtempSync', function (prefix) { wrote(prefix + 'x'); });
+    ['renameSync', 'symlinkSync', 'copyFileSync', 'linkSync'].forEach(function (m) {
+        wrap(m, function (a, b) { wrote(a); wrote(b); });
+    });
+}
+function readInputs() {
+    var out = {}, proc = path.resolve(CFG.proc);
+    Object.keys(readStamps).sort().forEach(function (p) {
+        var live = [proc, '/proc', '/sys', '/dev'].some(function (d) { return p === d || p.indexOf(d + '/') === 0; });
+        if (!live || p === '/proc/mounts') out[p] = wrotePaths[p] ? inputStamp(p) : readStamps[p];
+    });
+    return out;
+}
 function cmdStatus(args, crashList, live, limits, listing) {
     var s = collectStatus(loadState());
     s.crash_list = crashList;
@@ -7452,7 +7515,14 @@ function cmdStatus(args, crashList, live, limits, listing) {
     if (listing) s.listing = listing;
     s.app_privacy_record = privacyRecord();
     s.safe_mode = readSafeMode();
-    if (args.json) { say(JSON.stringify(s)); return 0; }
+    if (args.json) {
+        if (readStamps) {
+            s.inputs = readInputs();
+            if (answerUntil < Infinity) s.inputs_until = Math.floor(answerUntil);
+        }
+        say(JSON.stringify(s));
+        return 0;
+    }
     say('crash handler whitelist: ' + crashList.state + ' (' + crashList.reason + ')');
     say('service limits: ' + limits.state + ' (' + limits.reason + ')');
     if (live) say('live app installs: ' + live.state + ' (' + live.reason + ')');
@@ -9236,7 +9306,7 @@ function runCommand() {
         if (args.command === 'help' || args.command === '--help') { say(HELP); return 0; }
         if (args.command === 'check') return cmdCheck(args);
         if (args.command === 'install') return cmdInstall(args);
-        if (args.command === 'status') { statusReadOnly = !!args.readOnly; syncMgrHome(); syncGuard(); syncStashes(); syncHeld(); syncId7Parts(); return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits(), isId8() ? syncListingId8() : syncListingId7()); }
+        if (args.command === 'status') { if (args.json) trackReads(); statusReadOnly = !!args.readOnly; syncMgrHome(); syncGuard(); syncStashes(); syncHeld(); syncId7Parts(); return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits(), isId8() ? syncListingId8() : syncListingId7()); }
         if (args.command === 'relist') {
             if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0) throw refuse('run as root');
             return cmdRelist();

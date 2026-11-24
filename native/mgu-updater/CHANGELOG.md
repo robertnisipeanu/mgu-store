@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The updater asks the deploy tool and app-privacy again only when what their last answers rest on has changed, and at each periodic check, and reads the free space once for downloads close together.
+
 ## 0.8.61
 
 - The updater uses less CPU at start and at each check: downloads close together share one download process, a check reuses the deploy tool's answer from just before, and a start reads the sources once and leaves files that are already right as they are.
