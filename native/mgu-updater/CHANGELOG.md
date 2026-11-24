@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.58
+
 - A client can ask for the catalog texts of its own language only and for download progress on its own, and the updater checks installed components for changes without reading their files each time.
 
 ## 0.8.57
