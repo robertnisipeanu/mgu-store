@@ -2010,7 +2010,7 @@ test('boot applies with the same rules and records the run', () => {
         let again = boot();
         assert.ok(/^app-privacy: patched, as recorded; skipped: user-update-all\n$/.test(again.stdout), again.stdout);
         assert.strictEqual(fs.readFileSync(b.record, 'utf8'), recorded);
-        // a restored stock bundle (one byte differs from the record) is patched again
+        // a restored stock bundle is patched again
         const patched = b.read('main');
         fs.writeFileSync(b.paths.main, patcher.removePatches(patched, patcher.PATCH_SETS_8_1_1.main));
         again = boot();

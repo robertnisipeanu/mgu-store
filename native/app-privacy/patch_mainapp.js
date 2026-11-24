@@ -38,9 +38,9 @@
  * check exits 0 patched, 1 unpatched, 2 mismatch. apply and revert exit 0
  * when the files end in the requested state (changed or not), 2 when they
  * refuse (mismatch; nothing written) and 1 on an error while writing.
- * boot is apply for the boot unit and always exits 0; while each bundle
- * has the sha256 this release's last recorded patched run gave it, it
- * reads nothing else and writes nothing. With --json the last
+ * boot is apply for the boot unit and always exits 0; while the record's
+ * latest entry is this release's, patched, and each bundle still has the
+ * sha256 it gives, it reads nothing else and writes nothing. With --json the last
  * stdout line is one JSON object: {version, command, state, changed,
  * restartNeeded, files, edits, skipped, unit, mainapp, mainappVersion,
  * fingerprint}, for check also record; restartNeeded is true while a
@@ -1025,7 +1025,7 @@ function prepare(command, paths, sets, known) {
         job.refused = refused.length;
         const applied = found.edits.filter((e) => e.plan === 'apply');
         // survey found text to be base with exactly the carried edits
-        const patched = found.edits.every((e) => e.carried === (e.plan === 'apply')) ? text :
+        const patched = !found.patchedBy && found.edits.every((e) => e.carried === (e.plan === 'apply')) ? text :
             applyPatches(found.base, applied.map((e) => e.patch));
         job.state = !refused.length && same(text, patched) ? 'patched' : 'unpatched';
         if (command !== 'revert' && refused.length) {

@@ -204,7 +204,8 @@ calls it.
 ## Record
 
 After every `apply`, `check` and `revert` of the unit's own bundles, and
-every `boot` that finds them changed, the tool writes `/var/opt/app-privacy/edit-record.json`:
+every `boot` that does not find them as the latest entry records them
+patched by this release, the tool writes `/var/opt/app-privacy/edit-record.json`:
 
 ```json
 { "latest": [ { "time": "2026-11-01T10:24:19.000Z", "command": "apply", "appPrivacy": "1.7.0",
