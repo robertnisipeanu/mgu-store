@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.7.4
+
 - At each start, while MainApp's bundles are exactly as app-privacy last patched them, it only checks their checksums and leaves them and its record untouched. Checking and patching the bundles takes less memory and less time.
 
 ## 1.7.3

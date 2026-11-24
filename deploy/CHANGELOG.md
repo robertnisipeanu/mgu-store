@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.28
+
 - At the first start after a tool update, the check of the updated tools waits for its time without holding the deploy tool's lock, so the queued iDrive 8 app changes and the app platform start at their usual time, and installs are not held up meanwhile.
 
 ## 0.8.27
