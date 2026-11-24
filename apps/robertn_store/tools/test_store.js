@@ -164,6 +164,7 @@ class RenderClient extends EventEmitter {
     claim(r) { this.claims = r; }
     fps(n) { fpsAsked = n; }
     grab(on) { this.grabbing = on; }
+    alive() {}
     frame(rec) { frames.push(rec); return true; }
     dropLayer(id) { dropped.push(id); }
 }

@@ -41,7 +41,7 @@ const DEPTHS = 3;
 const ICON_BYTES = 128 * 1024;          // a package picture: at most this big
 const ICONS_KEPT = 48;                  // decoded pictures kept, the most recently shown
 const FPS = 60;                         // frames a second at most (mgu-render's fps setting can give another)
-const KEEPALIVE_MS = 1000;              // the renderer hides an app silent for 3 s
+const KEEPALIVE_MS = 1000;              // the renderer hides an app silent for 3 s: something at least this often
 const CLOSED_RESHOW_MS = 700;           // a touch outside that left the page where it was
 const DRAG_PX = 14;
 const DRAG_ROWS_PX = 2048;                // a drag's cached rows: at most this high on the device (mgu-render takes 4096)
@@ -447,16 +447,23 @@ class Drawn extends EventEmitter {
         }
         this.gpu.show(on);
         clearInterval(this.keepalive);
+        // a page that stays as it is: the renderer hears from it without a frame; a frame held for a tick that has
+        // not come goes now
         this.keepalive = on ? setInterval(() => {
-            if (Date.now() - this.sentAt >= KEEPALIVE_MS) {
+            if (Date.now() - this.sentAt < KEEPALIVE_MS) {
+                return;
+            }
+            if (this.dirty) {
                 this.render(true);
+            } else {
+                this.gpu.alive();
             }
         }, KEEPALIVE_MS) : null;
     }
 
     /* Draws the frame (sent while the renderer is ready and the page is
      * shown, one at a time) and writes the top host state's proxies. same:
-     * nothing but a scroll changed since the last build (the keepalive). */
+     * nothing but a scroll changed since the last build. */
     render(same) {
         if (!this.mode || !this.w) {
             return;

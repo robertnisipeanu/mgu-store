@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A frame that repeats the one on screen, with nothing it draws changed since, is not drawn and shown again; the app still gets its next tick. The app client's `alive()` tells mgu-render an app is running without sending a frame.
+
 ## 0.6.25
 
 - iDrive 7: `touch_area = auto` is the whole screen, 0,0,1920,720. Apps may claim any part of the screen, the back column included; a tap no app claims goes to the HMI. `touch_area` in the configuration sets any other area.
