@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.7.5
+
 - A start with MainApp's bundles and app-privacy as they were at the last start runs no Node: the boot unit compares checksums only.
 
 ## 1.7.4
