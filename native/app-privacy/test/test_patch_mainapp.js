@@ -2035,6 +2035,60 @@ test('boot applies with the same rules and records the run', () => {
     });
 });
 
+test('the boot unit starts no Node while the boot stamp holds, and boot runs on any change', () => {
+    withMainapp('ID7', patcher.PATCH_SETS_8_1_1, '8.1.1', (b) => {
+        b.edit('main', anchorOf(patcher.PATCH_SETS_8_1_1, 'user-update-all').patch[0], 'gone()');
+        // the installed script beside the record, as on the unit
+        fs.symlinkSync(path.dirname(TOOL), path.join(b.dir, 'current'));
+        const unit = fs.readFileSync(path.join(__dirname, '..', 'systemd', 'app-privacy.service'), 'utf8')
+            .match(/^ExecStart=\/bin\/sh -c '(.*)'$/m)[1].split('/var/opt/app-privacy').join(b.dir);
+        // boot as the unit runs it, on the bundles the test names; or a marker for whether it ran
+        const boot = [process.execPath, TOOL].concat(b.args('boot').filter((a) => a !== '--json')).join(' ');
+        const shell = (as) => childProcess.spawnSync('sh', ['-c', unit.split('/usr/bin/node $D/current/patch_mainapp.js boot')
+            .join(as === 'node' ? boot : 'echo NODE-RAN')], { encoding: 'utf8' }).stdout;
+        const stamp = path.join(b.dir, patcher.BOOT_STAMP);
+        assert.ok(/app-privacy: patched \(applied\)/.test(shell('node')));
+        assert.ok(fs.existsSync(stamp));
+        assert.strictEqual(shell('echo'), 'app-privacy: patched, as recorded; skipped: user-update-all\n');
+        // a restored stock bundle: boot runs and patches it, and the stamp holds again
+        const patched = b.read('main');
+        fs.writeFileSync(b.paths.main, patcher.removePatches(patched, patcher.PATCH_SETS_8_1_1.main));
+        assert.strictEqual(shell('echo'), 'NODE-RAN\n');
+        assert.ok(/app-privacy: patched \(applied\)/.test(shell('node')));
+        assert.strictEqual(b.read('main'), patched);
+        assert.strictEqual(shell('echo'), 'app-privacy: patched, as recorded; skipped: user-update-all\n');
+        // another installed script (an update of app-privacy), or no record: boot runs
+        const other = path.join(b.dir, 'other');
+        fs.mkdirSync(other);
+        fs.writeFileSync(path.join(other, 'patch_mainapp.js'), fs.readFileSync(TOOL, 'utf8') + '\n');
+        fs.unlinkSync(path.join(b.dir, 'current'));
+        fs.symlinkSync(other, path.join(b.dir, 'current'));
+        assert.strictEqual(shell('echo'), 'NODE-RAN\n');
+        fs.unlinkSync(path.join(b.dir, 'current'));
+        fs.symlinkSync(path.dirname(TOOL), path.join(b.dir, 'current'));
+        assert.ok(shell('echo').indexOf('as recorded') > 0);
+        fs.renameSync(b.record, b.record + '.away');
+        assert.strictEqual(shell('echo'), 'NODE-RAN\n');
+        fs.renameSync(b.record + '.away', b.record);
+        // a record another release's run rewrote: boot runs
+        fs.appendFileSync(b.record, ' ');
+        assert.strictEqual(shell('echo'), 'NODE-RAN\n');
+        assert.ok(/as recorded/.test(shell('node')));
+        assert.ok(shell('echo').indexOf('as recorded') > 0);
+        // a revert removes the stamp; a bundle that is not patched leaves none
+        assert.strictEqual(runTool(b.args('revert')).code, 0);
+        assert.ok(!fs.existsSync(stamp));
+        assert.strictEqual(shell('echo'), 'NODE-RAN\n');
+        // a stamp whose script is not the installed one is never written
+        assert.strictEqual(runTool(b.args('apply')).code, 0);
+        assert.ok(fs.existsSync(stamp));
+        fs.unlinkSync(path.join(b.dir, 'current'));
+        fs.symlinkSync(other, path.join(b.dir, 'current'));
+        assert.strictEqual(runTool(b.args('check')).code, 0);
+        assert.ok(!fs.existsSync(stamp));
+    });
+});
+
 test('a bundle with all of an earlier release\'s edits is named as patched by it and upgraded', () => withBundles((b) => {
     const stock = b.read('main');
     const earlier = patcher.applyPatches(stock, patcher.EARLIER_PATCH_SETS[1].main);

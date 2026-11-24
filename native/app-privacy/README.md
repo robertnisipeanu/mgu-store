@@ -111,9 +111,10 @@ the deploy tool's format; `"mguHmi": ["ID7", "ID8"]`), installed at
 a boot oneshot ordered before `oapcontroller.service` that runs `boot`
 (apply, always exit 0). While each bundle has the sha256 the record's
 latest entry gives it, patched by this release, `boot` only hashes the
-bundles. When the bundles are replaced (a software update
-that leaves `/etc` in place, a restored copy), the next boot patches them
-again before MainApp starts. `/etc` is on the root filesystem: an update
+bundles; at a start with the bundles, the tool and its record unchanged
+since, the unit runs no Node at all. When the bundles are replaced (a
+software update that leaves `/etc` in place, a restored copy), the next
+boot patches them again before MainApp starts. `/etc` is on the root filesystem: an update
 that rewrites all of it removes the unit too, and the component has to be
 installed again.
 
