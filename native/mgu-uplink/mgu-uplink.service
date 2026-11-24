@@ -6,6 +6,8 @@ After=local-fs.target
 Conflicts=ipheth-tether.service
 
 [Service]
+# The head unit's slice for its standard services (its own network services run there), not ahead of the HMI.
+Slice=standard.slice
 ExecStart=/var/opt/mgu-uplink/current/mgu-uplink run -c /var/opt/mgu-uplink/current/mgu-uplink.conf
 Restart=always
 RestartSec=5
