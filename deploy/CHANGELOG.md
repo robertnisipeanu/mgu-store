@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- On iDrive 8, a start with the provisioning files, the app list and the app manager's folders as at the last start skips listing our apps again.
+- On iDrive 7, the deploy tool's status run brings an older provisioning fallback boot unit up to date, so its changes apply from the next start without waiting for an app install.
+
 ## 0.8.29
 
 - A start with MainApp's files, app-privacy and the deploy tool as they were when the provisioning fallback's copy was built binds that copy without building and checking it again; any change builds it again first.
