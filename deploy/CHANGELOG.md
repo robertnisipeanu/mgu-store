@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- At the first start after a tool update, the check of the updated tools waits for its time without holding the deploy tool's lock, so the queued iDrive 8 app changes and the app platform start at their usual time, and installs are not held up meanwhile.
+
 ## 0.8.27
 
 - Installs write less to the head unit's storage: packages are unpacked, prepared and checked in RAM when there is room (on storage otherwise), a package is written to the system partition once, straight from its file, and a backup links a file that an earlier backup or kept package already holds instead of storing it again.
