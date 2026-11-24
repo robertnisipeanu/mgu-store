@@ -4548,6 +4548,26 @@ function testLock() {
     r = root.run(['uninstall', 'fixture-tool', '--yes']);
     check('lock: a lock whose holder is gone is taken over', r.status === 0 && !fs.existsSync(root.tool('fixture-tool')) &&
         !fs.existsSync(lock), r.out);
+    // the boot check waits for its uptime without the lock: the start's other runs go ahead meanwhile
+    write(root.p('proc/uptime'), '20.00 10.00\n');
+    write(root.p('var/opt/mgu-deploy/verify.json'), JSON.stringify({ 'fixture-tool': { version: '0.2.0', previous: null, boot: 'boot-0' } }));
+    const outFile = `${root.R}.verify.out`;
+    const fd = fs.openSync(outFile, 'w');
+    const child = cp.spawn(UNIT_NODE, [UNIT_JS, 'verify'],
+        { env: Object.assign({}, root.env, { MGU_DEPLOY_VERIFY_AFTER_S: '32' }), stdio: ['ignore', fd, fd] });
+    fs.closeSync(fd);
+    const t0 = Date.now();
+    while (!fs.readFileSync(outFile, 'utf8').includes('once the head unit has been up 32s') && Date.now() - t0 < 10000) sleep(100);
+    r = runWait(['install', '--artifact', toolArtifact('0.2.0'), '--yes'], 500);
+    check('lock: an install runs while the boot check waits', r.status === 0 && !r.out.includes('waiting for the mgu-deploy run') &&
+        fs.existsSync(root.tool('fixture-tool')), r.out);
+    const lastFile = root.p('var/opt/mgu-deploy/last-verify.json');
+    while (!(fs.existsSync(lastFile) && !fs.existsSync(lock)) && Date.now() - t0 < 30000) sleep(100);
+    const last = readJsonOrNull(lastFile);
+    check('lock: the boot check then takes the lock and checks the version current at that time',
+        last && JSON.stringify(last.results) === JSON.stringify([{ id: 'fixture-tool', version: '0.2.0', ok: true }]) &&
+        !fs.existsSync(root.p('var/opt/mgu-deploy/verify.json')) && !fs.existsSync(lock), fs.readFileSync(outFile, 'utf8') + JSON.stringify(last));
+    child.kill();
 }
 
 /* An id provisioning already uses keeps provisioning's flags: hidden. */
