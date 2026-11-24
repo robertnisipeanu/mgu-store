@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- After the updater updates itself, it checks the new version against one source and goes on with the queued updates straight away.
 ## 0.8.58
 
 - A client can ask for the catalog texts of its own language only and for download progress on its own, and the updater checks installed components for changes without reading their files each time.

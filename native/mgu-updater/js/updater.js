@@ -4833,9 +4833,12 @@ class Updater {
      * up (a boot) or a passing network error is not taken for a broken
      * version. Otherwise it exits and the supervisor goes back to the version
      * on record in trial; the reason is left for the version that runs next.
-     * A version the local installer put there (trial-local) needs only the
-     * deploy tool: the car may have no internet while it is set up.
-     * Installs queue meanwhile. */
+     * The built-in source is read first, and every source only when it does
+     * not answer: one answer shows the network path works, and the other
+     * sources are read at the first check. A version the local installer put
+     * there (trial-local) needs only the deploy tool: the car may have no
+     * internet while it is set up. What the version before left queued, and
+     * installs asked for meanwhile, wait for the trial's end. */
     commitTrial(trial) {
         const local = path.join(this.conf.tool_root, SELF, 'trial-local');
         const needsCatalog = !fs.existsSync(local);
@@ -4846,10 +4849,13 @@ class Updater {
             this.scanUsb();
             return Promise.all(this.usb.map((u) => this.checkSource(u.id)));
         };
-        const attempt = () => (!needsCatalog ? sticks() : (readLease(this.conf).online ? this.check() : Promise.resolve())
+        const builtin = this.stored.find((d) => d.builtin);
+        const read = () => this.checkSource(builtin.id).then(() => (fetched() ? undefined : this.check()));
+        const attempt = () => (!needsCatalog ? sticks() : (readLease(this.conf).online ? read() : Promise.resolve())
             .then(() => fetched() || Date.now() >= deadline ? undefined
                 : new Promise((r) => setTimeout(r, 3000)).then(attempt)));
         this.busy = { id: SELF, phase: 'check' };
+        this.takeQueue();
         this.changed();
         return attempt()
             .then(() => deployStatus(this.conf))
@@ -4860,7 +4866,6 @@ class Updater {
                     console.log(`running ${this.version}: update committed`);
                     this.tokens.removeLegacy((l) => console.log(l));
                     this.busy = null;
-                    this.takeQueue();
                     this.next();
                     return;
                 }
