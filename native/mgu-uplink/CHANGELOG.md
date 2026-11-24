@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.15
+
 - The uplink runs in the head unit's slice for standard services, so it does not take CPU time ahead of the HMI.
 
 ## 0.7.14
