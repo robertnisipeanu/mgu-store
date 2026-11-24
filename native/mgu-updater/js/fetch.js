@@ -5,7 +5,9 @@
  * uplink lets out, and one that can write nothing but its download folder.
  * Node 8.
  *
- * stdin: one JSON job
+ * stdin: one JSON job; with the argument serve, any number of them, each
+ *   a line { id, job } or { id, remove: "<folder>" }, run side by side
+ *   (below)
  *   { url, headers, dest, maxBytes, dns: ["1.2.3.4", ...], lease, ca, method, body, keep,
  *     connectMs, idleMs, retryMs, proxy, immutable, fresh, files, parallel }
  *   files: GETs of several files, [{ url, dest, maxBytes }, ...], each
@@ -48,6 +50,14 @@
  *                                               x-ratelimit-remaining 0 or retry-after)
  * Exactly one of done, notModified and error ends the output.
  *
+ * serve: each of a job's events carries its id (certDates none), and
+ * exactly one of done and notModified (without file) and error ends that
+ * job. A remove empties the folder,
+ * following no link, and answers { id, removed: true }: the folder itself
+ * is its maker's to remove. Each job has connections of its own, closed
+ * when it ends, which also stops the rest of a set whose file failed. The
+ * process ends once stdin closes and no job is under way.
+ *
  * A GET whose connection fails (cut mid-download, no data for idleMs, a
  * reset, no connection within connectMs) or that gets a 500, 502, 503 or 504 is tried again,
  * after 1, 2, 4 and 8 s: up to 4 times in a row without getting the file
@@ -81,6 +91,7 @@
  * own user name and password.
  */
 const fs = require('fs');
+const path = require('path');
 const dns = require('dns');
 const net = require('net');
 const tls = require('tls');
@@ -106,7 +117,7 @@ function emit(obj) {
 
 /* An event of job's: of its file, in a set of files. */
 function tell(job, obj) {
-    emit(job.file === undefined ? obj : Object.assign({ file: job.file }, obj));
+    (job.emit || emit)(job.file === undefined ? obj : Object.assign({ file: job.file }, obj));
 }
 
 /* Connections for a job's requests, kept open for the next request to the
@@ -309,7 +320,14 @@ function request(job, url, target, headers, hops, from, validator, settle) {
                     along[h] = headers[h];
                 }
             });
-            get(job, new URL(res.headers.location, url).toString(), along, hops + 1, from, validator, settle);
+            let next;
+            try {
+                next = new URL(res.headers.location, url).toString();
+            } catch (e) {
+                settle({ error: `${host}: a redirect to a malformed URL` });
+                return;
+            }
+            get(job, next, along, hops + 1, from, validator, settle);
             return;
         }
         if (res.statusCode === 304) {
@@ -425,6 +443,11 @@ function download(job, end) {
     let best = 0;      // the furthest the file has got: a try gets further only past it
     let validator = null;
     const next = () => {
+        // its set has ended (another file failed): no further try
+        if (job.halt && job.halt.on) {
+            end({ error: 'stopped' });
+            return;
+        }
         tries++;
         const headers = Object.assign({}, job.headers || {});
         if (from > 0) {
@@ -492,6 +515,7 @@ function download(job, end) {
  * file's error, else { done: true }. */
 function downloadAll(job, end) {
     const files = job.files;
+    const halt = { on: false };
     let next = 0;
     let left = files.length;
     let over = !left;
@@ -500,16 +524,17 @@ function downloadAll(job, end) {
             return;
         }
         const i = next++;
-        download(Object.assign({}, job, files[i], { file: i, files: undefined }), (r) => {
+        download(Object.assign({}, job, files[i], { file: i, files: undefined, halt }), (r) => {
             if (over) {
                 return;
             }
             if (r.error) {
                 over = true;
+                halt.on = true;
                 end(Object.assign({ file: i }, r));
                 return;
             }
-            tell({ file: i }, r);
+            tell({ file: i, emit: job.emit }, r);
             left -= 1;
             if (!left) {
                 over = true;
@@ -538,11 +563,93 @@ function leaseDns(file) {
     }
 }
 
+/* Empties dir: its entries, folders' entries first, no link followed. */
+function removeTree(dir) {
+    let names = [];
+    try {
+        names = fs.readdirSync(dir);
+    } catch (e) {
+        return;
+    }
+    names.forEach((n) => {
+        const p = path.join(dir, n);
+        try {
+            if (fs.lstatSync(p).isDirectory()) {
+                removeTree(p);
+                fs.rmdirSync(p);
+            } else {
+                fs.unlinkSync(p);
+            }
+        } catch (e) { /* gone, or not ours: its maker's removal says so */ }
+    });
+}
+
+/* The jobs of stdin's lines, side by side (serve, above). */
+function serve() {
+    let running = 0;
+    let closed = false;
+    const settle = () => {
+        if (closed && !running) {
+            process.exit(0);
+        }
+    };
+    const start = (text) => {
+        let msg;
+        try {
+            msg = JSON.parse(text);
+        } catch (e) {
+            emit({ error: 'bad job' });
+            return;
+        }
+        const say = (obj) => emit(Object.assign({ id: msg.id }, obj));
+        if (typeof msg.remove === 'string') {
+            removeTree(msg.remove);
+            say({ removed: true });
+            return;
+        }
+        const job = msg.job;
+        if (!job || typeof job !== 'object') {
+            say({ error: 'bad job' });
+            return;
+        }
+        job.agent = new Connections(job);
+        job.emit = say;
+        running++;
+        (job.files ? downloadAll : download)(job, (r) => {
+            job.agent.destroy();
+            say(r);
+            running--;
+            settle();
+        });
+    };
+    let input = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (d) => {
+        input += d;
+        let nl;
+        while ((nl = input.indexOf('\n')) >= 0) {
+            const text = input.slice(0, nl);
+            input = input.slice(nl + 1);
+            if (text.trim()) {
+                start(text);
+            }
+        }
+    });
+    process.stdin.on('end', () => {
+        closed = true;
+        settle();
+    });
+}
+
 module.exports = { leaseDns, lookupVia, CONNECT_MS };
 
 if (require.main === module) {
     // the updater has exited (a handover to its new version can leave fetches under way)
     process.stdout.on('error', () => process.exit(1));
+    if (process.argv[2] === 'serve') {
+        serve();
+        return;
+    }
     let input = '';
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', (d) => { input += d; });
