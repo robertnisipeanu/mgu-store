@@ -4034,6 +4034,20 @@ function dropVerify(id) {
 function uptimeS() {
     try { return parseFloat(fs.readFileSync(path.join(CFG.proc, 'uptime'), 'utf8')); } catch (e) { return Infinity; }
 }
+function dueVerify(v) {
+    var boot = bootId();
+    return Object.keys(v).filter(function (id) { return v[id].boot !== boot; });
+}
+/* The wait for verifyAfterS, run between the start's clean-up under the
+ * deploy lock and cmdVerify under it again: the queued iDrive 8 app changes
+ * (apply-pending, before the app platform starts) and installs go ahead
+ * meanwhile, and cmdVerify reads verify.json again. */
+function verifyWait() {
+    var due = dueVerify(readVerify());
+    if (!due.length || readSafeMode()) return;
+    var wait = CFG.verifyAfterS - uptimeS();
+    if (wait > 0) { say('checking ' + due.join(', ') + ' once the head unit has been up ' + CFG.verifyAfterS + 's'); sleepMs(wait * 1000); }
+}
 /* verify: at a start after the install, each tool noted in verify.json
  * whose noted version is current gets its boot services' health check
  * and its check, once the head unit has been up verifyAfterS. One that
@@ -4042,20 +4056,6 @@ function uptimeS() {
  * goes before anything runs, so nothing is checked or rolled back twice
  * and no start repeats it. The results: last-verify.json, status'
  * last_verify. */
-function dueVerify(v) {
-    var boot = bootId();
-    return Object.keys(v).filter(function (id) { return v[id].boot !== boot; });
-}
-/* The wait for verifyAfterS, before the deploy lock is taken: the queued
- * iDrive 8 app changes (apply-pending, before the app platform starts) and
- * installs go ahead meanwhile, and cmdVerify reads verify.json again under
- * the lock. */
-function verifyWait() {
-    var due = dueVerify(readVerify());
-    if (!due.length || readSafeMode()) return;
-    var wait = CFG.verifyAfterS - uptimeS();
-    if (wait > 0) { say('checking ' + due.join(', ') + ' once the head unit has been up ' + CFG.verifyAfterS + 's'); sleepMs(wait * 1000); }
-}
 function cmdVerify() {
     var v = readVerify(), due = dueVerify(v);
     if (!due.length) { say('nothing to check at this start'); return 0; }
@@ -9153,7 +9153,6 @@ function runCommand() {
         if (rootOnly && !(args.command === 'fallback' && args.positional[0] === 'status') &&
             !(args.command === 'appmanager' && !args.positional[0]) && !(args.command === 'remove-all' && !args.yes) &&
             !(args.command === 'safe-mode' && args.positional[0] !== 'off')) {
-            if (args.command === 'verify') verifyWait();
             acquireLock(); locked = true;
             try { cleanStale(); } catch (e) { warn('could not remove a killed run\'s files: ' + e.message); }
             var off = guardWhy();
@@ -9181,7 +9180,12 @@ function runCommand() {
         if (args.command === 'updater-sources') return cmdUpdaterSources();
         if (args.command === 'sdk-donor') return cmdSdkDonor(args);
         if (args.command === 'apply-pending') return cmdApplyPending();
-        if (args.command === 'verify') return cmdVerify();
+        if (args.command === 'verify') {
+            releaseLock(); locked = false;
+            verifyWait();
+            acquireLock(); locked = true;
+            return cmdVerify();
+        }
         if (args.command === 'remove-unused') return cmdRemoveUnused();
         if (args.command === 'appmanager') return cmdAppManager(args);
         if (args.command === 'safe-mode') return cmdSafeMode(args);
