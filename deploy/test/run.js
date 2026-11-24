@@ -1908,6 +1908,23 @@ function testFallback() {
     check('MainApp 6.5.5 (.bundle.js): boot unit builds from and binds over main.bundle.js', b655.status === 0 &&
         fs.readFileSync(mounts655, 'utf8').trim() ===
         `--bind ${boot655.p('var/opt/mgu-deploy/main.js')} ${boot655.p('usr/lib/oap-mainapp/src/main.bundle.js')}`, `${b655.stdout}${b655.stderr}`);
+    // status brings an older boot unit up to date, without an app install
+    const older = fakeRoot();
+    older.run(['fallback', 'on', '--yes']);
+    const olderUnit = older.p('etc/systemd/system/mgu-app-fallback.service');
+    write(olderUnit, '[Unit]\nDescription=an older boot unit\n');
+    const killed = older.kills().length;
+    const os7 = older.status();
+    check('boot unit: status brings an older one up to date, and only the unit file',
+        fs.readFileSync(olderUnit, 'utf8') === fs.readFileSync(path.join(HERE, '..', 'unit', 'mgu-app-fallback.service'), 'utf8') &&
+        os7.listing.reason === 'boot unit brought up to date' && older.kills().length === killed && older.status().listing.state === 'ok',
+        JSON.stringify(os7.listing));
+    // a unit whose kind is not known (both MainApp folders, no HMI running) keeps its boot unit as it is
+    fs.mkdirSync(older.p('usr/lib/oap-mainapp21'), { recursive: true });
+    write(olderUnit, '[Unit]\nDescription=an older boot unit\n');
+    older.status();
+    check('boot unit: status leaves it on a unit whose kind is not known',
+        fs.readFileSync(olderUnit, 'utf8') === '[Unit]\nDescription=an older boot unit\n');
 }
 
 /* The fallback built from the fixture main.js, run: its handle() is
@@ -9730,6 +9747,32 @@ function testId8Listing() {
     check('id8 listing: relist (the boot unit) puts it back', rl.status === 0 && rl.out.includes('listed for the provisioning fallback: oap-cardash') &&
         !!custom()['oap-cardash'], rl.out);
     check('id8 listing: relist again lists nothing', root.run(['relist']).out.includes('every app of ours is listed'));
+    // the boot unit's relist: with its inputs as at its last full run no Node starts; any change runs it again
+    const relistLine = fs.readFileSync(path.join(HERE, '..', 'unit', 'mgu-app-fallback-id8.service'), 'utf8')
+        .match(/^ExecStartPre=-\/bin\/sh -c '(.*)'$/m)[1].split('/bin/sh /var/opt/mgu-deploy/mgu-deploy.sh relist').join('RELIST')
+        .split('/var/opt/').join(root.p('var/opt/')).split('/usr/share/').join(root.p('usr/share/'))
+        .split('/usr/lib/').join(root.p('usr/lib/')).split('/etc/systemd/').join(root.p('etc/systemd/'));
+    const bootRelist = (cmd) => cp.spawnSync('sh', ['-c', relistLine.split('RELIST').join(cmd || `${UNIT_NODE} ${UNIT_JS} relist`)],
+        { encoding: 'utf8', env: Object.assign({}, process.env, root.env) }).stdout;
+    const stampFile = root.p('var/opt/mgu-deploy/relist.stamp');
+    let br = bootRelist();
+    check('id8 listing: the boot unit\'s relist records its inputs after a full run', br.includes('every app of ours is listed') &&
+        fs.existsSync(stampFile), br);
+    br = bootRelist('echo NODE-RAN');
+    check('id8 listing: with them unchanged the boot unit runs no relist', br === 'our apps are listed as at the last start\n', br);
+    fs.unlinkSync(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`));
+    br = bootRelist('echo NODE-RAN');
+    check('id8 listing: a changed listing runs relist', br === 'NODE-RAN\n' && !fs.existsSync(stampFile), br);
+    br = bootRelist();
+    check('id8 listing: which lists the app again and records the inputs', br.includes('listed for the provisioning fallback: oap-cardash') &&
+        !!custom()['oap-cardash'] && bootRelist('echo NODE-RAN').includes('as at the last start'), br);
+    const das0 = root.p('usr/share/tm/prov/das_000.xml'), das0Text = fs.readFileSync(das0);
+    fs.appendFileSync(das0, '\n');
+    check('id8 listing: a changed das file runs relist', bootRelist('echo NODE-RAN') === 'NODE-RAN\n');
+    fs.writeFileSync(das0, das0Text);
+    br = bootRelist('echo another mgu-deploy run holds the lock; status lists them');
+    check('id8 listing: a relist that did not run records nothing', !fs.existsSync(stampFile) && bootRelist('echo NODE-RAN') === 'NODE-RAN\n', br);
+    bootRelist();
     fs.unlinkSync(root.p(`var/opt/public/oap/oap_${MGR}/data/custom_apps.json`));
     const again = root.run(['install', '--artifact', art, '--yes']);
     check('id8 listing: an install with the app current puts it back', again.status === 0 &&
@@ -9737,7 +9780,7 @@ function testId8Listing() {
         again.out.includes('listed for the provisioning fallback, from the next start of the head unit: oap-cardash') && !!custom()['oap-cardash'], again.out);
     const unit = fs.readFileSync(path.join(HERE, '..', 'unit', 'mgu-app-fallback-id8.service'), 'utf8');
     check('id8 listing: the fallback\'s boot unit relists before it builds the copy',
-        /\nExecStartPre=-\/bin\/sh \/var\/opt\/mgu-deploy\/mgu-deploy\.sh relist\n/.test(unit));
+        /\nExecStartPre=-\/bin\/sh -c '.*\/bin\/sh \/var\/opt\/mgu-deploy\/mgu-deploy\.sh relist.*'\nExecStart=/.test(unit));
     const unitPath = root.p('etc/systemd/system/mgu-app-fallback.service');
     write(unitPath, '[Unit]\nDescription=an older boot unit\n');
     const ur = root.status();

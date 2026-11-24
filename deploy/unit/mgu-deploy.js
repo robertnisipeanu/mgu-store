@@ -137,6 +137,8 @@ var RECMGR_OWNED = path.join(DEPLOY_DIR, 'recmgr-names.json');
 var FALLBACK_UNIT = 'mgu-app-fallback.service';
 var FALLBACK_NAME = 'mgu-app-fallback';
 var FALLBACK_COPY = path.join(DEPLOY_DIR, 'main.js');
+/* the iDrive 8 boot unit's record of relist's inputs at its last full run */
+var RELIST_STAMP = path.join(DEPLOY_DIR, 'relist.stamp');
 var FALLBACK_BUILD_INSTALLED = path.join(DEPLOY_DIR, 'current', 'fallback_build.js');
 var INPLACE_DIR = path.join(DEPLOY_DIR, 'inplace');
 var INPLACE_REQUEST = path.join(INPLACE_DIR, 'request.json');
@@ -6036,11 +6038,7 @@ function syncListingId8() {
         if (fallbackUnitOld()) {
             var busy = rootBusy();
             if (busy) return { state: ids.length ? 'changed' : 'pending', reason: done.concat(['boot unit: ' + busy]).join('; ') };
-            takeSnapshot('listing', [path.join(CFG.systemd, FALLBACK_UNIT)]);
-            syncDisks();
-            rootfsWindow([{ type: 'copy', src: fallbackUnitSource(), path: path.join(CFG.systemd, FALLBACK_UNIT), mode: 0o644 }]);
-            runOk(CFG.systemctl, ['daemon-reload']);
-            pruneBackups();
+            refreshFallbackUnit();
             done.push('boot unit brought up to date');
         }
         return { state: 'changed', reason: done.join('; ') };
@@ -6052,28 +6050,49 @@ function syncListingId8() {
         process.stdout.write = out;
     }
 }
-/* status on iDrive 7, run as root: lists the apps id7Unlisted() names. The
- * running manager reads the listing when provisioning reaches it, so their
- * tiles show from the manager's next start, or, with the fallback lost,
- * once an install turns it on again; an install restarts the manager that
- * has not taken them. Null on a unit with neither the fallback nor an app of ours. */
+/* The fallback's boot unit file as this version has it, from the next start
+ * (main.js stays bound as it is). */
+function refreshFallbackUnit() {
+    takeSnapshot('listing', [path.join(CFG.systemd, FALLBACK_UNIT)]);
+    syncDisks();
+    rootfsWindow([{ type: 'copy', src: fallbackUnitSource(), path: path.join(CFG.systemd, FALLBACK_UNIT), mode: 0o644 }]);
+    runOk(CFG.systemctl, ['daemon-reload']);
+    pruneBackups();
+}
+/* status on iDrive 7, run as root: lists the apps id7Unlisted() names, and,
+ * on a unit known to be iDrive 7 (unitInfo), brings the fallback's boot
+ * unit file up to date. The running manager
+ * reads the listing when provisioning reaches it, so their tiles show from
+ * the manager's next start, or, with the fallback lost, once an install
+ * turns it on again; an install restarts the manager that has not taken
+ * them. Null on a unit with neither the fallback nor an app of ours. */
 function syncListingId7() {
     if (isId8() || (!fallbackPresent() && !ourInstalledApps().length)) return null;
     var out = process.stdout.write, locked = false;
     process.stdout.write = function () { return true; };
     try {
-        if (!id7Unlisted().length) return { state: 'ok', reason: 'every app of ours is listed' };
+        var unitOld = function () { return unitInfo().hmi === 'ID7' && fallbackUnitOld(); };
+        if (!id7Unlisted().length && !unitOld()) return { state: 'ok', reason: 'every app of ours is listed' };
         var held = statusHeld();
         if (held) return { state: 'pending', reason: held };
         if (!runningInstalled() && !FAKE) return { state: 'pending', reason: 'this deploy tool is not the installed one' };
         locked = statusLock();
         if (!locked) return { state: 'pending', reason: 'another mgu-deploy run holds the lock' };
-        var s = loadState(), ids = listUnlistedId7(s);
-        if (!ids.length) return { state: 'ok', reason: 'every app of ours is listed' };
-        saveState(s);
-        var when = fallbackLost() ? 'once an install turns the provisioning fallback on again' : 'from the next start of the app manager';
-        process.stderr.write('listed for the provisioning fallback, ' + when + ': ' + ids.join(', ') + '\n');
-        return { state: 'changed', reason: 'listed ' + ids.join(', ') + '; their tiles show ' + when };
+        var s = loadState(), ids = listUnlistedId7(s), done = [];
+        if (ids.length) {
+            saveState(s);
+            var when = fallbackLost() ? 'once an install turns the provisioning fallback on again' : 'from the next start of the app manager';
+            process.stderr.write('listed for the provisioning fallback, ' + when + ': ' + ids.join(', ') + '\n');
+            done.push('listed ' + ids.join(', ') + '; their tiles show ' + when);
+        }
+        if (unitOld()) {
+            var busy = rootBusy();
+            if (busy) return { state: ids.length ? 'changed' : 'pending', reason: done.concat(['boot unit: ' + busy]).join('; ') };
+            refreshFallbackUnit();
+            done.push('boot unit brought up to date');
+        }
+        if (!done.length) return { state: 'ok', reason: 'every app of ours is listed' };
+        return { state: 'changed', reason: done.join('; ') };
     } catch (e) {
         process.stderr.write('mgu-deploy: our apps not listed again: ' + e.message + '\n');
         return { state: 'error', reason: e.message };
@@ -6902,6 +6921,7 @@ function unbindFallback() {
     if (wasBound) runOk(CFG.umount, [mainJs()]);
     rmrf(FALLBACK_COPY);
     rmrf(FALLBACK_COPY + '.stamp');
+    rmrf(RELIST_STAMP);
     /* The boot unit binds the copy before app-privacy's boot run, so the
      * stock main.js under it may hold an older patch or none. With the
      * guard off it stays as it is until the next start. */
