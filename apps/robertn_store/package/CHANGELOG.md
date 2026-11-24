@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.45
+
+- While the updater is installing or has installs waiting, the list stays on screen when it restarts.
+
 ## 0.9.44
 
 - A page that stays as it is is not drawn again while it is shown.

@@ -4711,7 +4711,7 @@ class Updater {
     /* The new version is in place: the supervisor starts it once we exit. */
     handover() {
         console.log('handing over to the new version');
-        // the new version takes up what is still queued once it is kept
+        // the new version takes up what is still queued, and starts it once it is kept
         if (this.queue.length) {
             mkdirp(this.conf.state_dir, 0o755);
             writeAtomic(path.join(this.conf.state_dir, 'queue.json'), JSON.stringify(this.queue));
@@ -4833,23 +4833,29 @@ class Updater {
      * up (a boot) or a passing network error is not taken for a broken
      * version. Otherwise it exits and the supervisor goes back to the version
      * on record in trial; the reason is left for the version that runs next.
-     * A version the local installer put there (trial-local) needs only the
-     * deploy tool: the car may have no internet while it is set up.
-     * Installs queue meanwhile. */
+     * The built-in source is read first, and every source only when it does
+     * not answer: one answer shows the network path works, and the other
+     * sources are read at the first check. A version the local installer put
+     * there (trial-local) needs only the deploy tool: the car may have no
+     * internet while it is set up. What the version before left queued, and
+     * installs asked for meanwhile, wait for the trial's end. */
     commitTrial(trial) {
         const local = path.join(this.conf.tool_root, SELF, 'trial-local');
         const needsCatalog = !fs.existsSync(local);
         const deadline = Date.now() + TRIAL_WAIT_MS;
         const fetched = () => !needsCatalog || (readLease(this.conf).online && this.reached());
-        // a local one: the sticks are read before the queue it takes up, which may install from them
+        // a local one: the sticks are read before the queue it takes up starts, which may install from them
         const sticks = () => {
             this.scanUsb();
             return Promise.all(this.usb.map((u) => this.checkSource(u.id)));
         };
-        const attempt = () => (!needsCatalog ? sticks() : (readLease(this.conf).online ? this.check() : Promise.resolve())
+        const builtin = this.stored.find((d) => d.builtin);
+        const read = () => this.checkSource(builtin.id).then(() => (fetched() ? undefined : this.check()));
+        const attempt = () => (!needsCatalog ? sticks() : (readLease(this.conf).online ? read() : Promise.resolve())
             .then(() => fetched() || Date.now() >= deadline ? undefined
                 : new Promise((r) => setTimeout(r, 3000)).then(attempt)));
         this.busy = { id: SELF, phase: 'check' };
+        this.takeQueue();
         this.changed();
         return attempt()
             .then(() => deployStatus(this.conf))
@@ -4860,7 +4866,6 @@ class Updater {
                     console.log(`running ${this.version}: update committed`);
                     this.tokens.removeLegacy((l) => console.log(l));
                     this.busy = null;
-                    this.takeQueue();
                     this.next();
                     return;
                 }

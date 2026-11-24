@@ -254,6 +254,25 @@ function run() {
         eq(last(/storeNavSources\.Visible/), 'storeNavSources.Visible=0', 'Sources hidden');
         eq(last(/storeNavPhone\.Visible/), 'storeNavPhone.Visible=0', 'Phone access hidden');
         eq(last(/storeSourceAccounts\.Visible/), 'storeSourceAccounts.Visible=0', 'Accounts hidden');
+        // the updater restarting with an install queued (its own update): the last list stays up until it is back
+        app._client.emit('state', Object.assign({}, ST, { components: [comp({}), comp({ id: 'quake', title: 'Quake', status: 'update', queued: true })] }));
+        return tick();
+    }).then(() => {
+        const at = writes.length;
+        const sentAt = sent.length;
+        app._client.emit('down');
+        app._client.emit('down');
+        return tick().then(() => {
+            eq(writes.slice(at).filter((w) => /storeStatus|storeAppList/.test(w)), [], 'the updater away: the last list stays up');
+            app._client.emit('state', Object.assign({}, ST, { components: [comp({}), comp({ id: 'quake', title: 'Quake', status: 'update', queued: true })] }));
+            return tick();
+        }).then(() => {
+            const hello = { op: 'hello', id: 'robertn_store', version: 'test', language: 'en', progress: true };
+            eq(sent.slice(sentAt).filter((r) => r.op === 'hello'), [hello], 'and the hello again once it is back');
+            eq(writes.slice(at).filter((w) => /storeStatus|storeAppList/.test(w)), [], 'and the same list once it is back');
+            eq(app._awayTimer, null);
+        });
+    }).then(() => {
         app._client.emit('state', ST);
         return tick();
     }).then(() => {

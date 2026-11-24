@@ -91,6 +91,8 @@ const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const SECRET_FILE = path.join(DATA_DIR, 'updater-secret');
 const WEB_URL_FILE = path.join(DATA_DIR, 'web-url');
 const RECONNECT_MS = 2000;
+// how long the last list stays up while an updater at work is away (it restarts when it updates itself)
+const UPDATER_AWAY_MS = 20000;
 const PRESS_DEDUPE_MS = 400;
 const HIDE_SETTLE_MS = 800;
 const WEB_URL_POLL_MS = 1000;           // web-url re-read while Phone access is open and on
@@ -272,10 +274,13 @@ class Store extends OnlineApp {
         this._connected = false;
         this._helloLanguage = null;     // the language the last hello named
         this._client = new UpdaterClient(SOCKET, { reconnectMs: RECONNECT_MS });
+        this._awayTimer = null;
         this._client.on('state', (st) => {
-            if (!this._connected) {
+            if (!this._connected || this._awayTimer) {
                 this._hello();
             }
+            clearTimeout(this._awayTimer);
+            this._awayTimer = null;
             this._connected = true;
             this._stRaw = st;
             this._st = localized(st);
@@ -295,12 +300,27 @@ class Store extends OnlineApp {
             this._render();
         });
         this._client.on('down', () => {
-            if (this._connected) {
-                logger.info('updater unreachable; reconnecting');
-            }
-            this._connected = false;
+            const away = () => {
+                this._awayTimer = null;
+                this._connected = false;
+                this._render();
+            };
             this._probeFailed('updater not running');
-            this._render();
+            if (this._awayTimer) {
+                return;
+            }
+            const st = this._connected && this._st;
+            if (!st) {
+                away();
+                return;
+            }
+            logger.info('updater unreachable; reconnecting');
+            // an updater installing or with installs waiting: its list stays up for UPDATER_AWAY_MS
+            if (st.busy || st.components.some((c) => c.queued)) {
+                this._awayTimer = setTimeout(away, UPDATER_AWAY_MS);
+            } else {
+                away();
+            }
         });
         this._client.on('reply-error', (msg, op) => {
             // an updater before 0.8.7 does not know hello: nothing to do
@@ -1858,6 +1878,7 @@ class Store extends OnlineApp {
         logger.info(`store shutting down (${reason})`);
         clearTimeout(this._hideTimer);
         clearTimeout(this._tokenAdding && this._tokenAdding.timer);
+        clearTimeout(this._awayTimer);
         this._endPick();
         this._pollWebUrl(false);
         this._client.close();
