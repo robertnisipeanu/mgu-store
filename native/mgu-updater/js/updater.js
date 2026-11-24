@@ -59,6 +59,8 @@ const REBOOT_MIN_UPTIME_S = Number(process.env.MGU_UPDATER_REBOOT_MIN_UPTIME_S |
 const REBOOT_SPACING_MS = 10 * 60 * 1000;
 const REBOOT_HOUR_MAX = 3;
 const HOUR_MS = 60 * 60 * 1000;
+// a check the updater starts itself asks the deploy tool again only when its last answer is older
+const REFRESH_FRESH_MS = 120000;
 // how long after the start that put an app in place (iDrive 8) MainApp may take to list it
 const PLACED_GRACE_MS = 5 * 60 * 1000;
 // A Store this new or newer says hello when it connects; its update stands once it has (storeTrial).
@@ -772,8 +774,92 @@ class Scratch {
     }
 }
 
-/* Downloads run in a child as the fetch uid, each into a folder of its own
- * that root makes in state_dir and hands to that uid. Root reads the result
+/* The fetch child (fetch.js serve) the downloads of a burst share, as one
+ * uid: started for the first, ended FETCH_IDLE_MS after the last.
+ * run(msg, onEvent, onEnd): onEvent(ev) for each of the job's events
+ * until onEnd(final event); onEnd(null, error or null) when the child
+ * ends first. */
+const FETCH_IDLE_MS = 10000;
+class FetchWorker {
+    constructor(opts) {
+        this.uid = opts.uid;
+        this.jobs = new Map();
+        this.n = 0;
+        this.ended = false;
+        this.idle = null;
+        this.onOther = () => {};
+        this.child = cp.spawn(process.execPath, [path.join(HERE, 'fetch.js'), 'serve'],
+            Object.assign({ stdio: ['pipe', 'pipe', 'inherit'], cwd: '/', env: {} }, opts));
+        let buf = '';
+        this.child.stdout.setEncoding('utf8');
+        this.child.stdout.on('data', (d) => {
+            buf += d;
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, nl);
+                buf = buf.slice(nl + 1);
+                let ev;
+                try {
+                    ev = JSON.parse(line);
+                } catch (e) {
+                    continue;
+                }
+                const job = this.jobs.get(ev.id);
+                if (!job) {
+                    this.onOther(ev);
+                } else if (!ev.retry && (ev.error || ev.removed || ((ev.done || ev.notModified) && ev.file === undefined))) {
+                    this.drop(ev.id);
+                    job.onEnd(ev);
+                } else {
+                    job.onEvent(ev);
+                }
+            }
+        });
+        const gone = (err) => {
+            this.ended = true;
+            clearTimeout(this.idle);
+            const left = Array.from(this.jobs.values());
+            this.jobs.clear();
+            left.forEach((j) => j.onEnd(null, err instanceof Error ? err : null));
+        };
+        this.child.on('error', gone);
+        this.child.on('close', gone);
+        this.child.stdin.on('error', () => {});
+    }
+
+    run(msg, onEvent, onEnd) {
+        const id = ++this.n;
+        clearTimeout(this.idle);
+        this.jobs.set(id, { onEvent, onEnd });
+        this.child.stdin.write(JSON.stringify(Object.assign({ id }, msg)) + '\n');
+        return id;
+    }
+
+    /* Stops waiting for job id (its events are no longer read). */
+    drop(id) {
+        this.jobs.delete(id);
+        if (!this.jobs.size && !this.ended) {
+            clearTimeout(this.idle);
+            this.idle = setTimeout(() => this.end(), FETCH_IDLE_MS);
+        }
+    }
+
+    end() {
+        clearTimeout(this.idle);
+        this.ended = true;
+        this.child.stdin.end();
+    }
+
+    /* Stops the child and every job in it. */
+    kill() {
+        this.ended = true;
+        this.child.kill('SIGKILL');
+    }
+}
+
+/* Downloads run in a child as the fetch uid (FetchWorker: one for the
+ * downloads close together), each into a folder of its own that root makes
+ * in state_dir and hands to that uid. Root reads the result
  * only through a descriptor opened without following links and checked to
  * be a regular file of bounded size, and removes the folder's contents as
  * the fetch uid, so nothing that uid plants there leads root anywhere. */
@@ -823,14 +909,47 @@ class Fetcher {
     /* Removes a download folder as the fetch uid; done() once it is gone, or failed to go. */
     retire(dir, done) {
         const end = done || (() => {});
-        cp.spawn('rm', ['-rf', dir], this.asFetchUid({ stdio: 'ignore' }))
+        const removed = () => {
+            try {
+                fs.rmdirSync(dir);
+            } catch (e) { /* gone, or refilled since: the next start retries */ }
+            end();
+        };
+        const rm = () => cp.spawn('rm', ['-rf', dir], this.asFetchUid({ stdio: 'ignore' }))
             .on('error', () => end())
-            .on('close', () => {
-                try {
-                    fs.rmdirSync(dir);
-                } catch (e) { /* gone, or refilled since: the next start retries */ }
-                end();
-            });
+            .on('close', removed);
+        const w = this.w;
+        if (w && !w.ended && w.uid === this.asFetchUid({}).uid) {
+            // a child that ends first leaves it to rm
+            w.run({ remove: dir }, () => {}, (ev) => (ev ? removed() : rm()));
+            return;
+        }
+        rm();
+    }
+
+    /* Ends the fetch child, with whatever still runs in it. */
+    stop() {
+        if (this.w && !this.w.ended) {
+            this.w.kill();
+        }
+    }
+
+    /* The fetch child for the next download: the one running, while it
+     * runs as the fetch uid, else a new one. */
+    worker() {
+        const opts = this.asFetchUid({});
+        if (!this.w || this.w.ended || this.w.uid !== opts.uid) {
+            if (this.w && !this.w.ended) {
+                this.w.end();
+            }
+            this.w = new FetchWorker(opts);
+            this.w.onOther = (ev) => {
+                if (ev.certDates) {
+                    this.datesIgnored(ev.certDates, ev.error);
+                }
+            };
+        }
+        return this.w;
     }
 
     /* Download folders an earlier run left. */
@@ -960,77 +1079,75 @@ class Fetcher {
         const files = job.files && job.files.map((f, i) => Object.assign({}, f, { dest: path.join(dir, String(i)) }));
         const got = files && [];
         return new Promise((resolve, reject) => {
-            const child = cp.spawn(process.execPath, [path.join(HERE, 'fetch.js')],
-                this.asFetchUid({ stdio: ['pipe', 'pipe', 'inherit'], cwd: dir, env: {} }));
+            const w = this.worker();
             let result = null;
-            let buf = '';
-            child.stdout.setEncoding('utf8');
-            child.stdout.on('data', (d) => {
-                buf += d;
-                let nl;
-                while ((nl = buf.indexOf('\n')) >= 0) {
-                    const line = buf.slice(0, nl);
-                    buf = buf.slice(nl + 1);
-                    let ev;
-                    try {
-                        ev = JSON.parse(line);
-                    } catch (e) {
-                        continue;
-                    }
-                    if (files && ev.file !== undefined && ev.done) {
-                        // read as it comes: what a later failure leaves is not needed
-                        try {
-                            got[ev.file] = Object.assign(this.collect(files[ev.file].dest, files[ev.file].maxBytes),
-                                { headers: ev.headers || {}, resumed: !!ev.resumed });
-                            if (onProgress) {
-                                onProgress(ev.file, ev.bytes, ev.bytes);
-                            }
-                        } catch (err) {
-                            result = { error: err.message };
-                            child.kill();
-                        }
-                    } else if (ev.progress !== undefined && onProgress) {
-                        if (files) {
-                            onProgress(ev.file, ev.progress, ev.total || null);
-                        } else {
-                            onProgress(ev.progress, ev.total || maxBytes || null);
-                        }
-                    } else if (ev.certDates) {
-                        this.datesIgnored(ev.certDates, ev.error);
-                    } else if (ev.retry) {
-                        console.log(`fetch: ${files && ev.file !== undefined && files[ev.file] ? files[ev.file].name : name}: ${ev.error}; trying again in ${ev.after / 1000} s` +
-                            `${ev.from ? ` from byte ${ev.from}` : ''}`);
-                    } else if ((ev.done || ev.error || ev.notModified) && !(result && result.error)) {
-                        result = ev;
-                        if (this.conf.proxy && !job.quiet) {
-                            this.noteProxy(ev.error && /^proxy /.test(ev.error) ? ev.error : ev.error ? this.proxyError : null);
-                        }
-                    }
+            let settled = false;
+            let id = null;
+            const settle = (err) => {
+                if (settled) {
+                    return;
                 }
-            });
-            child.on('error', reject);
-            child.on('close', () => {
-                if (result && result.notModified) {
+                settled = true;
+                if (err) {
+                    reject(err);
+                } else if (result && result.notModified) {
                     resolve(Object.assign(Buffer.alloc(0), { headers: result.headers || {}, notModified: true }));
                 } else if (result && result.done && files) {
                     resolve(got);
                 } else if (result && result.done) {
                     try {
                         resolve(Object.assign(this.collect(dest, maxBytes), { headers: result.headers || {}, resumed: !!result.resumed }));
-                    } catch (err) {
-                        reject(err);
+                    } catch (e) {
+                        reject(e);
                     }
                 } else {
                     reject(Object.assign(new Error(result && result.error || 'download failed'),
                         result && result.status ? { status: result.status } : {}, result && result.rateLimited ? { rateLimited: true } : {},
                         result && result.tooBig ? { tooBig: true } : {}));
                 }
-            });
-            child.stdin.end(JSON.stringify({ url, headers, dest, maxBytes, dns: lease.dns, lease: this.conf.lease || undefined, ca: this.ca,
+            };
+            const onEvent = (ev) => {
+                if (files && ev.file !== undefined && ev.done) {
+                    // read as it comes: what a later failure leaves is not needed
+                    try {
+                        got[ev.file] = Object.assign(this.collect(files[ev.file].dest, files[ev.file].maxBytes),
+                            { headers: ev.headers || {}, resumed: !!ev.resumed });
+                        if (onProgress) {
+                            onProgress(ev.file, ev.bytes, ev.bytes);
+                        }
+                    } catch (e) {
+                        // nothing more of what that uid wrote is read: the child goes, with the downloads beside it
+                        result = { error: e.message };
+                        w.drop(id);
+                        w.kill();
+                        settle();
+                    }
+                } else if (ev.progress !== undefined && onProgress) {
+                    if (files) {
+                        onProgress(ev.file, ev.progress, ev.total || null);
+                    } else {
+                        onProgress(ev.progress, ev.total || maxBytes || null);
+                    }
+                } else if (ev.retry) {
+                    console.log(`fetch: ${files && ev.file !== undefined && files[ev.file] ? files[ev.file].name : name}: ${ev.error}; trying again in ${ev.after / 1000} s` +
+                        `${ev.from ? ` from byte ${ev.from}` : ''}`);
+                }
+            };
+            const onEnd = (ev, err) => {
+                if (ev) {
+                    result = ev;
+                    if (this.conf.proxy && !job.quiet) {
+                        this.noteProxy(ev.error && /^proxy /.test(ev.error) ? ev.error : ev.error ? this.proxyError : null);
+                    }
+                }
+                settle(err);
+            };
+            id = w.run({ job: { url, headers, dest, maxBytes, dns: lease.dns, lease: this.conf.lease || undefined, ca: this.ca,
                 method: job.method || 'GET', body: job.body, keep: job.keep || [], proxy: this.conf.proxy || undefined,
                 connectMs: job.connectMs, idleMs: job.idleMs,
                 immutable: !!job.immutable, fresh: !!(job.fresh || this.fresh),
-                files: files ? files.map((f) => ({ url: f.url, dest: f.dest, maxBytes: f.maxBytes })) : undefined, parallel: job.parallel }));
+                files: files ? files.map((f) => ({ url: f.url, dest: f.dest, maxBytes: f.maxBytes })) : undefined, parallel: job.parallel } },
+            onEvent, onEnd);
         }).then((bytes) => {
             this.retire(dir, room.release);
             return bytes;
@@ -1262,6 +1379,8 @@ class Updater {
         // what each client said in its hello: { language, progress }
         this.said = new WeakMap();
         this.checking = null;
+        // when refresh() last had the deploy tool's answer (epoch ms)
+        this.refreshedAt = 0;
         this.sendTimer = null;
         this.progressTimer = null;
         // the files read while one state is made, each read once (state)
@@ -2460,7 +2579,10 @@ class Updater {
         return true;
     }
 
-    check() {
+    /* auto: one the updater starts itself (at start, its interval, the
+     * uplink coming up), which takes the deploy tool's word from a refresh
+     * just made; one asked for asks the deploy tool again. */
+    check(auto) {
         if (this.checking) {
             return this.checking;
         }
@@ -2479,7 +2601,15 @@ class Updater {
                 this.iconPass = Promise.all(rts.map((rt) => rt.icons)).then(() => Promise.all(rts.map((rt) => this.fetchIcons(rt))));
                 return this.pruneIcons();
             })
-            .then(() => this.refresh())
+            // with or without a refresh: the apps the sources list are taken over and lost ones put back
+            .then(() => {
+                if (!auto || Date.now() - this.refreshedAt >= REFRESH_FRESH_MS) {
+                    return this.refresh();
+                }
+                this.takeOver();
+                this.repairLost();
+                return undefined;
+            })
             .then(() => {
                 this.checking = null;
                 this.repairStale();
@@ -3669,6 +3799,7 @@ class Updater {
      * the installed providers, the privacy patch. */
     refresh() {
         return Promise.all([deployStatus(this.conf), privacyState(this.conf)]).then(([st, privacy]) => {
+            this.refreshedAt = st ? Date.now() : 0;
             this.pending = pendingOf(st);
             this.nextStart = nextStartOf(st);
             if (st) {
@@ -4027,6 +4158,8 @@ class Updater {
         const roles = changed.map((c) => c.role);
         if (roles.indexOf('fetch') >= 0) {
             this.fetcher.notBefore = Date.now() + UPLINK_RESCAN_MS;
+            // nothing keeps running as the uid given up
+            this.fetcher.stop();
         }
         if (roles.indexOf('web') >= 0) {
             this.writeSecrets();
@@ -4185,7 +4318,7 @@ class Updater {
             }
             this.webUrl = url;
             const store = this.storeData();
-            if (!store) {
+            if (!store || (!url && !fs.existsSync(path.join(store.data, 'web-url')))) {
                 return undefined;
             }
             // the Store reads the file when a state arrives: one goes out once it is written
@@ -4894,8 +5027,8 @@ class Updater {
             }
             this.writeSecrets();
             if (web) {
-                // also with false: it removes a firewall rule an earlier run left
-                Promise.resolve(this.applyWeb()).then(() => this.syncWebUrl(true));
+                // also with false: it removes a firewall rule an earlier run left; writeSecrets wrote web-url
+                Promise.resolve(this.applyWeb()).then(() => this.syncWebUrl());
             }
             const trial = path.join(this.conf.tool_root, SELF, 'trial');
             if (fs.existsSync(trial)) {
@@ -4923,8 +5056,13 @@ class Updater {
             }
             this.refresh().then(() => this.changed());
             let wasOnline = readLease(this.conf).online;
-            setTimeout(() => this.check(), Number(this.conf.first_check_s) * 1000);
-            setInterval(() => this.check(), Number(this.conf.check_interval_s) * 1000);
+            // the first check also reads what an uplink that comes up before it brings
+            let firstDue = true;
+            setTimeout(() => {
+                firstDue = false;
+                this.check(true);
+            }, Number(this.conf.first_check_s) * 1000);
+            setInterval(() => this.check(true), Number(this.conf.check_interval_s) * 1000);
             // a Store update on trial: its process looked for each second
             setInterval(() => this.watchStoreTrial(), 1000);
             // USB media: nothing announces a stick, so the mounts are looked
@@ -4973,8 +5111,8 @@ class Updater {
                 if (online !== wasOnline) {
                     wasOnline = online;
                     this.changed();
-                    if (online) {
-                        this.check();
+                    if (online && !firstDue) {
+                        this.check(true);
                     }
                 }
             }, 15000);

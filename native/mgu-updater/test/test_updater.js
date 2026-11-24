@@ -1167,7 +1167,38 @@ function testFetch(certs, pubDir) {
         .then((r) => {
             const last = r.events[r.events.length - 1];
             ok('fetch: a file that fails ends the set with its error and its index', r.code !== 0 && last.error && last.file === 1, JSON.stringify(last));
+            return serveFetch([
+                { id: 1, job: Object.assign({}, base, { url: `https://updates.test:${HTTPS_PORT}/payload.bin`, headers: {}, dest: path.join(dl, 's1'), maxBytes: 300000 }) },
+                { id: 2, job: Object.assign({}, base, { url: `https://updates.test:${HTTPS_PORT}/missing.bin`, headers: {}, dest: path.join(dl, 's2') }) }
+            ], { id: 3, remove: dl }, FETCH_UID);
+        })
+        .then((r) => {
+            const end = (id) => r.events.filter((e) => e.id === id && (e.done || e.error || e.removed));
+            ok('fetch serve: jobs side by side in one child, each ended once under its own id', end(1).length === 1 && end(1)[0].done &&
+                end(1)[0].bytes === 300000 && end(2).length === 1 && end(2)[0].status === 404, JSON.stringify(r.events.filter((e) => e.progress === undefined)));
+            ok('fetch serve: a remove empties the folder as the fetch uid; the child ends once stdin closes', end(3).length === 1 &&
+                fs.readdirSync(dl).length === 0 && r.code === 0);
         });
+}
+
+/* fetch.js serve: jobs written at once, then remove once they have ended, then stdin closed. */
+function serveFetch(jobs, remove, uid) {
+    return new Promise((resolve) => {
+        const child = cp.spawn(process.execPath, [path.join(ROOT, 'js', 'fetch.js'), 'serve'],
+            { uid, gid: uid, stdio: ['pipe', 'pipe', 'inherit'], env: {}, cwd: '/' });
+        let out = '';
+        const events = () => out.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+        child.stdout.on('data', (d) => {
+            out += d;
+            const ended = events().filter((e) => e.done || e.error).length;
+            if (ended === jobs.length && remove) {
+                child.stdin.end(`${JSON.stringify(remove)}\n`);
+                remove = null;
+            }
+        });
+        child.on('close', (code) => resolve({ code, events: events() }));
+        jobs.forEach((j) => child.stdin.write(`${JSON.stringify(j)}\n`));
+    });
 }
 
 /* Root reads a download only if it is a regular file within the size. */

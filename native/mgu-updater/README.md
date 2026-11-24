@@ -152,9 +152,10 @@ an id wins. Sticks are only read, and no link on them is followed.
 
 ## Installing
 
-- Sources are read at start (after `first_check_s`), every
-  `check_interval_s`, when the uplink comes up, when a stick is put in, and
-  on request (the Store, `updater.js check`).
+- Sources are read at start (after `first_check_s`, which also covers an
+  uplink that comes up before then), every `check_interval_s`, when the
+  uplink comes up, when a stick is put in, and on request (the Store,
+  `updater.js check`).
 - Installs run on request, one at a time; later requests queue. The deploy
   tool's own update goes first, the Store's last. The updater installs
   nothing unasked, except to set up again what a firmware update left not
@@ -492,7 +493,7 @@ js/catalog.js            catalog parsing (schema 1 and 2), installed-vs-source p
 js/tar.js                .tar.gz in memory: reading a repo tarball, packing a component
 js/build.js              a repo's build script, as the build uid
 js/login.js              GitHub device-flow sign-in
-js/fetch.js              one download, as the fetch uid
+js/fetch.js              downloads, as the fetch uid
 js/certs.js              a server's certificate chain checked without its dates
 js/py/sitecustomize.py   a Python build's TLS: certificates checked without their dates
 js/client.js             socket client (Store app, command line)

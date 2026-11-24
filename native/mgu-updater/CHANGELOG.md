@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The updater uses less CPU at start and at each check: downloads close together share one download process, a check reuses the deploy tool's answer from just before, and a start reads the sources once and leaves files that are already right as they are.
+
 ## 0.8.60
 
 - The updater runs in the head unit's slice for standard services, so it does not take CPU time ahead of the HMI.
