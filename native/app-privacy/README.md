@@ -109,7 +109,9 @@ Python. It ships as the `app-privacy` tool component (`component.json`,
 the deploy tool's format; `"mguHmi": ["ID7", "ID8"]`), installed at
 `/var/opt/app-privacy/current/patch_mainapp.js`, with `app-privacy.service`,
 a boot oneshot ordered before `oapcontroller.service` that runs `boot`
-(apply, always exit 0). When the bundles are replaced (a software update
+(apply, always exit 0). While each bundle has the sha256 the record's
+latest entry gives it, patched by this release, `boot` only hashes the
+bundles. When the bundles are replaced (a software update
 that leaves `/etc` in place, a restored copy), the next boot patches them
 again before MainApp starts. `/etc` is on the root filesystem: an update
 that rewrites all of it removes the unit too, and the component has to be
@@ -201,8 +203,9 @@ calls it.
 
 ## Record
 
-After every `apply`, `check`, `boot` and `revert` of the unit's own
-bundles, the tool writes `/var/opt/app-privacy/edit-record.json`:
+After every `apply`, `check` and `revert` of the unit's own bundles, and
+every `boot` that does not find them as the latest entry records them
+patched by this release, the tool writes `/var/opt/app-privacy/edit-record.json`:
 
 ```json
 { "latest": [ { "time": "2026-11-01T10:24:19.000Z", "command": "apply", "appPrivacy": "1.7.0",

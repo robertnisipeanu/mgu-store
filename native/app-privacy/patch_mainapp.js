@@ -38,7 +38,9 @@
  * check exits 0 patched, 1 unpatched, 2 mismatch. apply and revert exit 0
  * when the files end in the requested state (changed or not), 2 when they
  * refuse (mismatch; nothing written) and 1 on an error while writing.
- * boot is apply for the boot unit and always exits 0. With --json the last
+ * boot is apply for the boot unit and always exits 0; while the record's
+ * latest entry is this release's, patched, and each bundle still has the
+ * sha256 it gives, it reads nothing else and writes nothing. With --json the last
  * stdout line is one JSON object: {version, command, state, changed,
  * restartNeeded, files, edits, skipped, unit, mainapp, mainappVersion,
  * fingerprint}, for check also record; restartNeeded is true while a
@@ -632,16 +634,44 @@ function detectUnit() {
 const PREDICATE = 'isLocalOnlyApp';
 const HELPER_NAME = 'function ' + PREDICATE + '(';
 
+/* The bundle code takes either a string or a Buffer (a bundle as read
+ * from its file) for text; anchors and replacements are ASCII strings,
+ * which match a bundle's bytes as they match its decoded text. */
 function count(text, sub) {
-    return text.split(sub).length - 1;
+    let n = 0;
+    for (let i = text.indexOf(sub); i >= 0; i = text.indexOf(sub, i + sub.length)) {
+        n += 1;
+    }
+    return n;
 }
 
+/* Every non-overlapping occurrence of from, left to right; text itself
+ * when there is none. */
 function replaceAll(text, from, to) {
-    return text.split(from).join(to);
+    let i = text.indexOf(from);
+    if (i < 0) {
+        return text;
+    }
+    const parts = [];
+    let last = 0;
+    for (; i >= 0; i = text.indexOf(from, last)) {
+        parts.push(text.slice(last, i));
+        last = i + from.length;
+    }
+    parts.push(text.slice(last));
+    if (!Buffer.isBuffer(text)) {
+        return parts.join(to);
+    }
+    const sep = Buffer.from(to, 'latin1');
+    return Buffer.concat(parts.reduce((all, part, k) => (k ? all.concat([sep, part]) : [part]), []));
+}
+
+function same(a, b) {
+    return Buffer.isBuffer(a) ? a.equals(b) : a === b;
 }
 
 function sha256(text) {
-    return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+    return crypto.createHash('sha256').update(text, Buffer.isBuffer(text) ? undefined : 'utf8').digest('hex');
 }
 
 function short(anchor) {
@@ -732,7 +762,7 @@ function survey(text, patches) {
         const stray = count(base, PREDICATE);
         if (stray) {
             problems.push(stray + ' occurrence(s) of ' + PREDICATE + ' outside these edits');
-        } else if (applyPatches(base, edits.filter((e) => e.carried).map((e) => e.patch)) !== text) {
+        } else if (!same(applyPatches(base, edits.filter((e) => e.carried).map((e) => e.patch)), text)) {
             problems.push('the edits cannot be removed exactly');
         }
     }
@@ -796,7 +826,7 @@ function examine(text, kind, sets) {
             continue;
         }
         const base = removePatches(text, patches);
-        if (classify(base, patches) === 'unpatched' && applyPatches(base, patches) === text) {
+        if (classify(base, patches) === 'unpatched' && same(applyPatches(base, patches), text)) {
             const s = survey(base, current);
             if (!s.problems.length) {
                 found = s;
@@ -826,7 +856,7 @@ function writeAll(fd, data) {
 }
 
 function writeText(file, text) {
-    const data = Buffer.from(text, 'utf8');
+    const data = Buffer.isBuffer(text) ? text : Buffer.from(text, 'utf8');
     if (isMountedFile(file)) {
         writeInPlace(file, data);
         return;
@@ -976,7 +1006,7 @@ function prepare(command, paths, sets, known) {
             state: null, patchedBy: null, problems: [], target: null, edits: [], refused: 0, wrote: null };
         let text;
         try {
-            text = fs.readFileSync(file, 'utf8');
+            text = fs.readFileSync(file);
         } catch (e) {
             job.problems.push('cannot read: ' + e.message);
             return job;
@@ -994,12 +1024,14 @@ function prepare(command, paths, sets, known) {
         const refused = found.edits.filter((e) => e.plan.indexOf('refused') === 0);
         job.refused = refused.length;
         const applied = found.edits.filter((e) => e.plan === 'apply');
-        const patched = applyPatches(found.base, applied.map((e) => e.patch));
-        job.state = !refused.length && text === patched ? 'patched' : 'unpatched';
+        // survey found text to be base with exactly the carried edits
+        const patched = !found.patchedBy && found.edits.every((e) => e.carried === (e.plan === 'apply')) ? text :
+            applyPatches(found.base, applied.map((e) => e.patch));
+        job.state = !refused.length && same(text, patched) ? 'patched' : 'unpatched';
         if (command !== 'revert' && refused.length) {
             job.problems = refused.map(refusal);
             job.state = null;
-        } else if (command === 'apply' && text !== patched) {
+        } else if (command === 'apply' && !same(text, patched)) {
             const s = survey(patched, sets.current[kind]);
             if (s.problems.length || s.edits.some((e, i) => e.carried !== (found.edits[i].plan === 'apply'))) {
                 job.problems.push('patched output does not verify');
@@ -1007,7 +1039,7 @@ function prepare(command, paths, sets, known) {
             } else {
                 job.target = patched;
             }
-        } else if (command === 'revert' && text !== found.base) {
+        } else if (command === 'revert' && !same(text, found.base)) {
             job.target = found.base;
         }
         return job;
@@ -1261,6 +1293,28 @@ function writeRecord(file, result, time) {
     return record;
 }
 
+/* The record's latest entry when this release found the bundles at paths
+ * patched and each bundle still has the sha256 it recorded: the same bytes
+ * give the same result, so a boot has nothing to do. Anything else (a
+ * head-unit software update, a MainApp update or reset, a restored stock
+ * bundle, another app-privacy release, no record) gets the full apply. */
+function asRecorded(record, paths, unit) {
+    const e = record.latest[record.latest.length - 1];
+    const kinds = Object.keys(paths);
+    if (!e || e.appPrivacy !== VERSION || e.unit !== unit || e.state !== 'patched' || !Array.isArray(e.edits) ||
+            !Array.isArray(e.files) || e.files.length !== kinds.length) {
+        return null;
+    }
+    return kinds.every((kind) => {
+        const f = e.files.filter((x) => x && x.kind === kind)[0];
+        try {
+            return !!f && f.path === paths[kind] && f.sha256 === sha256(fs.readFileSync(paths[kind]));
+        } catch (err) {
+            return false;
+        }
+    }) ? e : null;
+}
+
 /* Build side: every app this repository packs carries the marker in its
  * package.json. Adds it to the staged tree's package.json when missing. */
 function stampPackage(pkgDir) {
@@ -1405,6 +1459,12 @@ function main(argv) {
         const log = (line) => out('app-privacy: ' + line);
         let r;
         try {
+            const recorded = recordFile && asRecorded(readRecord(recordFile), paths, unit);
+            if (recorded) {
+                const skipped = recorded.edits.filter((e) => e.result === 'skipped-not-found' && e.id.indexOf('helper:') !== 0);
+                out('app-privacy: patched, as recorded' + (skipped.length ? '; skipped: ' + skipped.map((e) => e.id).join(', ') : ''));
+                return 0;
+            }
             r = run('apply', paths, log, null, null, unit);
             record(r, log);
             out('app-privacy: ' + r.result.state + (r.written ? ' (applied)' : '') +
