@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A start with MainApp's files, app-privacy and the deploy tool as they were when the provisioning fallback's copy was built binds that copy without building and checking it again; any change builds it again first.
+- An update installed while the version it replaces still waits for its check at the next start keeps the version before that, which passed its check, as the one to go back to, for that check and for Undo update.
+
 ## 0.8.28
 
 - At the first start after a tool update, the check of the updated tools waits for its time without holding the deploy tool's lock, so the queued iDrive 8 app changes and the app platform start at their usual time, and installs are not held up meanwhile.

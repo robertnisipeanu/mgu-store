@@ -100,7 +100,9 @@ The `app-privacy` tool component (`component.json`) installs
 `app-privacy.service`: `Type=oneshot`, `RemainAfterExit=yes`,
 `Before=oapcontroller.service`, `WantedBy=multi-user.target`, running
 `patch_mainapp.js boot` (apply; always exit 0), listed in recmgr
-`[Whitelist]` and `[WhitelistExitSuccess]` as `app-privacy`. A head-unit
+`[Whitelist]` and `[WhitelistExitSuccess]` as `app-privacy`. A start whose
+bundles, installed script and record still have the md5 its boot stamp
+lists runs no Node. A head-unit
 software update replaces both bundles; the next boot patches them again
 before MainApp starts. An install that carries apps installs the component
 before any of them.

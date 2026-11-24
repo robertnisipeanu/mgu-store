@@ -1844,12 +1844,42 @@ function testFallback() {
     const command = fs.readFileSync(path.join(HERE, '..', 'unit', 'mgu-app-fallback.service'), 'utf8')
         .match(/^ExecStart=\/bin\/sh -c '(.*)'$/m)[1]
         .split('/usr/bin/node').join(UNIT_NODE).split('/var/opt/').join(boot.p('var/opt/'))
-        .split('/usr/lib/').join(boot.p('usr/lib/'));
-    const bootRun = () => cp.spawnSync('sh', ['-c', `mount() { echo "$*" >> '${mounts}'; }; ${command}`], { encoding: 'utf8' });
+        .split('/usr/lib/').join(boot.p('usr/lib/')).split('/etc/systemd/').join(boot.p('etc/systemd/'));
+    const bootRun = (cmd) => cp.spawnSync('sh', ['-c', `mount() { echo "$*" >> '${mounts}'; }; ${cmd || command}`], { encoding: 'utf8' });
     let b = bootRun();
     check('boot unit: a copy that parses is bound', b.status === 0 &&
         fs.readFileSync(mounts, 'utf8').includes(`--bind ${boot.p('var/opt/mgu-deploy/main.js')}`), `${b.stdout}${b.stderr}`);
     fs.unlinkSync(mounts);
+    // a start with everything as at the copy's build binds it with no Node; any change builds it again
+    const noNode = command.split(UNIT_NODE).join(path.join(T, 'no-node'));
+    const bound = () => { const m = fs.existsSync(mounts) && fs.readFileSync(mounts, 'utf8'); fs.rmSync(mounts, { force: true }); return !!m && m.includes('--bind'); };
+    b = bootRun(noNode);
+    check('boot unit: with its inputs and the copy as at its build, the copy is bound and no Node runs',
+        b.status === 0 && bound() && b.stdout.includes('fallback copy unchanged since its build'), `${b.stdout}${b.stderr}`);
+    const copyFile = boot.p('var/opt/mgu-deploy/main.js'), stockFile = boot.p('usr/lib/oap-mainapp/src/main.js');
+    const builtCopy = fs.readFileSync(copyFile), stock = fs.readFileSync(stockFile);
+    [['the copy', copyFile, Buffer.concat([builtCopy, Buffer.from('\n')])],
+        ['the stock main.js', stockFile, Buffer.concat([stock, Buffer.from('\n')])],
+        ['the builder', boot.p('var/opt/mgu-deploy/current/fallback_build.js'), null],
+        ['the unit', boot.p('etc/systemd/system/mgu-app-fallback.service'), null]].forEach(([what, file, data]) => {
+        const was = fs.readFileSync(file);
+        const lnk = fs.lstatSync(file).isSymbolicLink() ? fs.readlinkSync(file) : null;
+        if (lnk) fs.unlinkSync(file);
+        fs.writeFileSync(file, data || Buffer.concat([was, Buffer.from('\n')]));
+        b = bootRun(noNode);
+        const skipped = bound();
+        b = bootRun();
+        const rebuilt = bound();
+        check(`boot unit: ${what} changed: the copy is built again`, !skipped && rebuilt, `${b.stdout}${b.stderr}`);
+        if (lnk) { fs.unlinkSync(file); fs.symlinkSync(lnk, file); } else fs.writeFileSync(file, was);
+        bootRun();
+        bound();
+    });
+    fs.rmSync(boot.p('var/opt/mgu-deploy/main.js.stamp'), { force: true });
+    b = bootRun(noNode);
+    check('boot unit: without its stamp the copy is built', !bound(), `${b.stdout}${b.stderr}`);
+    bootRun();
+    bound();
     fs.writeFileSync(boot.p('usr/lib/oap-mainapp/src/main.js'), unparsable);
     b = bootRun();
     check('boot unit: a copy that does not parse is not bound, the unit succeeds', b.status === 0 && !fs.existsSync(mounts) &&
@@ -3190,6 +3220,57 @@ function testCheck() {
     root.run(['install', '--artifact', checkArtifact('0.3.0'), '--yes'], env);
     root.run(['rollback', 'fixture-tool', '--yes'], env);
     check('check: a rollback drops the note for the next start', !fs.existsSync(root.p('var/opt/mgu-deploy/verify.json')));
+
+    // versions installed while the one before them still waits for its check (the boot check waits for its
+    // uptime without the lock): the version that passed a check stays the one to go back to
+    const kept = (rt) => fs.readdirSync(path.join(rt.tool('fixture-tool'), 'versions')).sort().join(',');
+    const atBoot = (rt, text) => write(rt.p('var/opt/mgu-deploy/recmgr-at-boot.json'),
+        JSON.stringify({ boot: fs.readFileSync(rt.p('proc/boot_id'), 'utf8').trim(), text }));
+    /* 0.2.0 passed its check, 0.3.0 waits for its check at this start */
+    const due = () => {
+        const rt = fakeRoot({ active: 'fixture-tool.service' });
+        rt.run(['install', '--artifact', checkArtifact('0.2.0'), '--yes'], env);
+        rt.reboot(Math.floor(Date.now() / 1000) + 5);
+        rt.run(['verify'], env);
+        atBoot(rt, '[Whitelist]\n');
+        rt.run(['install', '--artifact', checkArtifact('0.3.0'), '--yes'], env);
+        rt.reboot(Math.floor(Date.now() / 1000) + 10);
+        return rt;
+    };
+    const chain = () => {
+        const rt = due();
+        atBoot(rt, '[Whitelist]\n');
+        const r4 = rt.run(['install', '--artifact', checkArtifact('0.4.0'), '--yes'], env);
+        const r5 = rt.run(['install', '--artifact', checkArtifact('0.5.0'), '--yes'], env);
+        return { rt, out: r4.out + r5.out, noted: (readJsonOrNull(rt.p('var/opt/mgu-deploy/verify.json')) || {})['fixture-tool'] };
+    };
+    let c = chain();
+    check('check: an update over a version not checked yet keeps the version before that as the one to go back to',
+        c.noted && c.noted.version === '0.5.0' && c.noted.previous === '0.2.0' && JSON.stringify(c.noted.unchecked) === '["0.3.0","0.4.0"]' &&
+        kept(c.rt) === '0.2.0,0.4.0,0.5.0' && c.out.includes('0.2.0 comes back if it does not work (0.3.0 was not checked yet)') &&
+        c.out.includes('0.2.0 comes back if it does not work (0.4.0 was not checked yet)'),
+        `${c.out}\n${JSON.stringify(c.noted)} ${kept(c.rt)}`);
+    c.rt.reboot(Math.floor(Date.now() / 1000) + 15);
+    fs.writeFileSync(path.join(dir, 'fail-0.5.0'), '');
+    r = c.rt.run(['verify'], env);
+    last = readJsonOrNull(c.rt.p('var/opt/mgu-deploy/last-verify.json')) || {};
+    check('check: one that fails then goes back to the version that passed its check',
+        r.status === 0 && cur(c.rt) === 'versions/0.2.0' && last.results && last.results[0].rolledBack === true &&
+        last.results[0].previous === '0.2.0', `${r.out}\n${JSON.stringify(last)}`);
+    fs.unlinkSync(path.join(dir, 'fail-0.5.0'));
+    c = chain();
+    c.rt.reboot(Math.floor(Date.now() / 1000) + 15);
+    r = c.rt.run(['verify'], env);
+    check('check: one that passes then keeps the version to go back to beside it, the versions between go',
+        r.status === 0 && cur(c.rt) === 'versions/0.5.0' && kept(c.rt) === '0.2.0,0.5.0' &&
+        c.rt.status().components.find((x) => x.id === 'fixture-tool').previous === '0.2.0', `${r.out}\n${kept(c.rt)}`);
+    // meanwhile Undo update goes back to it too
+    c = chain();
+    check('check: Undo update while it waits for its check names the version that passed its check',
+        c.rt.status().components.find((x) => x.id === 'fixture-tool').previous === '0.2.0');
+    r = c.rt.run(['rollback', 'fixture-tool', '--yes'], env);
+    check('check: a rollback then goes back to it', r.status === 0 && cur(c.rt) === 'versions/0.2.0' &&
+        !fs.existsSync(c.rt.p('var/opt/mgu-deploy/verify.json')), r.out);
 }
 
 /* A tool an installed app requires (the updater's record of its install)

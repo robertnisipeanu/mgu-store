@@ -40,7 +40,8 @@
  * refuse (mismatch; nothing written) and 1 on an error while writing.
  * boot is apply for the boot unit and always exits 0; while the record's
  * latest entry is this release's, patched, and each bundle still has the
- * sha256 it gives, it reads nothing else and writes nothing. With --json the last
+ * sha256 it gives, it reads nothing else and writes nothing but the boot
+ * stamp, when it is missing or out of date (bootStampText). With --json the last
  * stdout line is one JSON object: {version, command, state, changed,
  * restartNeeded, files, edits, skipped, unit, mainapp, mainappVersion,
  * fingerprint}, for check also record; restartNeeded is true while a
@@ -1293,6 +1294,84 @@ function writeRecord(file, result, time) {
     return record;
 }
 
+/* The boot stamp, BOOT_STAMP beside the record: while the installed script
+ * (current/patch_mainapp.js beside the record), the bundles and the record
+ * have the md5 it lists, the boot unit's shell prints its first line and
+ * starts no Node. Its text for the record's entry: that line, as boot
+ * prints it for the entry, then md5sum's lines for the installed script,
+ * each bundle in the order of paths, and the record. Null, and no stamp,
+ * unless the installed script is this one and the entry is this release's,
+ * found the bundles patched and gives each bundle the sha256 its bytes
+ * have now. md5 is only a change check here, the cheapest the head unit's
+ * shell has. */
+const BOOT_STAMP = 'boot-stamp';
+
+function asRecordedLine(entry) {
+    const skipped = entry.edits.filter((e) => e.result === 'skipped-not-found' && e.id.indexOf('helper:') !== 0);
+    return 'app-privacy: patched, as recorded' + (skipped.length ? '; skipped: ' + skipped.map((e) => e.id).join(', ') : '');
+}
+
+function bootStampText(recordFile, paths, entry) {
+    if (!entry || entry.appPrivacy !== VERSION || entry.state !== 'patched' || !Array.isArray(entry.edits) ||
+            !Array.isArray(entry.files)) {
+        return null;
+    }
+    const script = path.join(path.dirname(recordFile), 'current', 'patch_mainapp.js');
+    if (fs.realpathSync(script) !== fs.realpathSync(__filename)) {
+        return null;
+    }
+    const md5 = (data) => crypto.createHash('md5').update(data).digest('hex');
+    const lines = [asRecordedLine(entry), md5(fs.readFileSync(script)) + '  ' + script];
+    const kinds = Object.keys(paths);
+    for (let i = 0; i < kinds.length; i += 1) {
+        const f = entry.files.filter((x) => x && x.kind === kinds[i])[0];
+        const data = fs.readFileSync(paths[kinds[i]]);
+        if (!f || f.path !== paths[kinds[i]] || f.sha256 !== sha256(data)) {
+            return null;
+        }
+        lines.push(md5(data) + '  ' + paths[kinds[i]]);
+    }
+    lines.push(md5(fs.readFileSync(recordFile)) + '  ' + recordFile);
+    return lines.join('\n') + '\n';
+}
+
+/* Writes the boot stamp for entry, or removes it when there is none; one
+ * that is up to date is left as it is. */
+function syncBootStamp(recordFile, paths, entry) {
+    const file = path.join(path.dirname(recordFile), BOOT_STAMP);
+    let text = null;
+    try {
+        text = bootStampText(recordFile, paths, entry);
+    } catch (e) {
+        text = null;
+    }
+    try {
+        if (text === null) {
+            fs.unlinkSync(file);
+            return;
+        }
+        let now = null;
+        try {
+            now = fs.readFileSync(file, 'utf8');
+        } catch (e) {
+            // none yet
+        }
+        if (now === text) {
+            return;
+        }
+        const tmp = file + '.' + process.pid + '.tmp';
+        fs.writeFileSync(tmp, text, { mode: 0o644 });
+        fs.renameSync(tmp, file);
+    } catch (e) {
+        // no stamp: the next start runs boot
+        try {
+            fs.unlinkSync(file);
+        } catch (ignored) {
+            // none there
+        }
+    }
+}
+
 /* The record's latest entry when this release found the bundles at paths
  * patched and each bundle still has the sha256 it recorded: the same bytes
  * give the same result, so a boot has nothing to do. Anything else (a
@@ -1448,12 +1527,14 @@ function main(argv) {
         if (!recordFile) {
             return null;
         }
+        let written = null;
         try {
-            return writeRecord(recordFile, Object.assign({}, r.result, { command }), new Date().toISOString());
+            written = writeRecord(recordFile, Object.assign({}, r.result, { command }), new Date().toISOString());
         } catch (e) {
             log('record not written: ' + e.message);
-            return null;
         }
+        syncBootStamp(recordFile, paths, written && written.latest[written.latest.length - 1]);
+        return written;
     };
     if (command === 'boot') {
         const log = (line) => out('app-privacy: ' + line);
@@ -1461,8 +1542,8 @@ function main(argv) {
         try {
             const recorded = recordFile && asRecorded(readRecord(recordFile), paths, unit);
             if (recorded) {
-                const skipped = recorded.edits.filter((e) => e.result === 'skipped-not-found' && e.id.indexOf('helper:') !== 0);
-                out('app-privacy: patched, as recorded' + (skipped.length ? '; skipped: ' + skipped.map((e) => e.id).join(', ') : ''));
+                out(asRecordedLine(recorded));
+                syncBootStamp(recordFile, paths, recorded);
                 return 0;
             }
             r = run('apply', paths, log, null, null, unit);
@@ -1493,7 +1574,7 @@ module.exports = {
     PREINSTALLED_DIR_21, HELPER_JS_21, PATCH_SETS_21, KNOWN_SHA256_21,
     PATCH_SETS_21_9_2_15, KNOWN_SHA256_21_9_2_15,
     UNITS, unitOf, bundlePathFor, resolveBundlePaths,
-    EDIT_INFO, REQUIRED_EDITS, EDIT_TITLES, RECORD_FILE, RECORD_FINGERPRINTS, RECORD_HISTORY,
+    EDIT_INFO, REQUIRED_EDITS, EDIT_TITLES, RECORD_FILE, RECORD_FINGERPRINTS, RECORD_HISTORY, BOOT_STAMP,
     classify, applyPatches, removePatches, run, stampPackage, checkApps, main
 };
 

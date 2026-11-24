@@ -6,10 +6,13 @@ Before=oapcontroller.service
 
 [Service]
 # Applies the patch when a head-unit software update has replaced the
-# bundles; a no-op otherwise. Always exits 0 (recmgr: WhitelistExitSuccess).
+# bundles; a no-op otherwise. While the bundles, the installed script and
+# the record have the md5 the stamp lists (patch_mainapp.js, "boot
+# stamp"), the start runs no Node. Always exits 0 (recmgr:
+# WhitelistExitSuccess).
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/node /var/opt/app-privacy/current/patch_mainapp.js boot
+ExecStart=/bin/sh -c 'D=/var/opt/app-privacy; S=$D/boot-stamp; set -- $(sed 1,2d "$S" 2>/dev/null | sed "s/^[0-9a-f]*  //"); [ $# -gt 0 ] && [ "$(md5sum $D/current/patch_mainapp.js "$@" 2>&1)" = "$(sed 1d "$S")" ] && sed -n 1p "$S" && exit 0; exec /usr/bin/node $D/current/patch_mainapp.js boot'
 
 [Install]
 WantedBy=multi-user.target
