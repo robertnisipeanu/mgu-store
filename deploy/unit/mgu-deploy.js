@@ -4042,13 +4042,25 @@ function uptimeS() {
  * goes before anything runs, so nothing is checked or rolled back twice
  * and no start repeats it. The results: last-verify.json, status'
  * last_verify. */
+function dueVerify(v) {
+    var boot = bootId();
+    return Object.keys(v).filter(function (id) { return v[id].boot !== boot; });
+}
+/* The wait for verifyAfterS, before the deploy lock is taken: the queued
+ * iDrive 8 app changes (apply-pending, before the app platform starts) and
+ * installs go ahead meanwhile, and cmdVerify reads verify.json again under
+ * the lock. */
+function verifyWait() {
+    var due = dueVerify(readVerify());
+    if (!due.length || readSafeMode()) return;
+    var wait = CFG.verifyAfterS - uptimeS();
+    if (wait > 0) { say('checking ' + due.join(', ') + ' once the head unit has been up ' + CFG.verifyAfterS + 's'); sleepMs(wait * 1000); }
+}
 function cmdVerify() {
-    var v = readVerify(), boot = bootId(), due = Object.keys(v).filter(function (id) { return v[id].boot !== boot; });
+    var v = readVerify(), due = dueVerify(v);
     if (!due.length) { say('nothing to check at this start'); return 0; }
     /* their services did not start: checked at a start without safe mode */
     if (readSafeMode()) { say('safe mode is on: ' + due.join(', ') + ' checked at a start without it'); return 0; }
-    var wait = CFG.verifyAfterS - uptimeS();
-    if (wait > 0) { say('checking ' + due.join(', ') + ' once the head unit has been up ' + CFG.verifyAfterS + 's'); sleepMs(wait * 1000); }
     var left = {};
     Object.keys(v).forEach(function (id) { if (due.indexOf(id) < 0) left[id] = v[id]; });
     writeVerify(left);
@@ -9141,6 +9153,7 @@ function runCommand() {
         if (rootOnly && !(args.command === 'fallback' && args.positional[0] === 'status') &&
             !(args.command === 'appmanager' && !args.positional[0]) && !(args.command === 'remove-all' && !args.yes) &&
             !(args.command === 'safe-mode' && args.positional[0] !== 'off')) {
+            if (args.command === 'verify') verifyWait();
             acquireLock(); locked = true;
             try { cleanStale(); } catch (e) { warn('could not remove a killed run\'s files: ' + e.message); }
             var off = guardWhy();
