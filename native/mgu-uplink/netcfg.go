@@ -71,13 +71,15 @@ func wantRules(c config, uids []int, lease *Lease) map[ruleKey]*netlink.Rule {
 		if lease != nil {
 			for _, server := range lease.DNS {
 				ip := net.ParseIP(server).To4()
-				if ip == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLoopback() { continue }
+				if ip == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLoopback() {
+					continue
+				}
 				r := netlink.NewRule()
 				r.Family = netlink.FAMILY_V4
 				r.Priority = c.Pref + prefDNS
 				r.UIDRange = netlink.NewRuleUIDRange(uint32(uid), uint32(uid))
 				r.Table = c.Table
-				r.Dst = &net.IPNet{IP: ip, Mask: net.CIDRMask(32,32)}
+				r.Dst = &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}
 				want[keyOf(*r)] = r
 			}
 		}
@@ -95,7 +97,9 @@ func wantRules(c config, uids []int, lease *Lease) map[ruleKey]*netlink.Rule {
 		}
 	}
 	var leaseIP net.IP
-	if lease != nil { leaseIP = net.ParseIP(lease.IP).To4() }
+	if lease != nil {
+		leaseIP = net.ParseIP(lease.IP).To4()
+	}
 	if leaseIP != nil {
 		r := netlink.NewRule()
 		r.Family = netlink.FAMILY_V4
@@ -132,8 +136,12 @@ func syncRules(c config, uids []int, lease *Lease) (bool, error) {
 		if keys[i].pref != keys[j].pref {
 			return keys[i].pref < keys[j].pref
 		}
-		if keys[i].uid != keys[j].uid { return keys[i].uid < keys[j].uid }
-		if keys[i].src != keys[j].src { return keys[i].src < keys[j].src }
+		if keys[i].uid != keys[j].uid {
+			return keys[i].uid < keys[j].uid
+		}
+		if keys[i].src != keys[j].src {
+			return keys[i].src < keys[j].src
+		}
 		return keys[i].dst < keys[j].dst
 	})
 	for _, k := range keys {

@@ -1,7 +1,7 @@
 name: Uplink DNS routing
 on:
   push:
-    branches: [codex/uplink-overlap-dns]
+    paths: ['native/mgu-uplink/**', '.github/workflows/uplink-dns.yml']
   pull_request:
     paths: ['native/mgu-uplink/**', '.github/workflows/uplink-dns.yml']
 permissions:
@@ -17,8 +17,7 @@ jobs:
       - name: Vet and unit tests
         working-directory: native/mgu-uplink
         run: |
-          gofmt -w netcfg.go session.go status.go dns_routing_test.go
-          git diff > /tmp/uplink-format.patch
+          test -z "$(gofmt -l netcfg.go session.go status.go dns_routing_test.go)"
           go vet ./...
           go test ./...
       - name: Overlapping subnet routing in an isolated Linux namespace
@@ -32,6 +31,4 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: uplink-dns-candidate
-          path: |
-            /tmp/mgu-uplink
-            /tmp/uplink-format.patch
+          path: /tmp/mgu-uplink
