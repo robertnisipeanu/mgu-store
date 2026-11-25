@@ -469,6 +469,7 @@ function unitInfo() {
     if (id7 !== id8) { hmi = id8 ? 'ID8' : 'ID7'; basis = id8 ? CFG.mainapp21 : CFG.mainapp; }
     else {
         hmi = hmiProcess();
+        answerHoldsUntil(0);
         basis = hmi ? (hmi === 'ID8' ? 'Hmi8' : 'HmiMain3D') + ' running' : (id7 ? 'both MainApp folders' : 'no MainApp folder') + ', no HMI running';
     }
     UNIT_INFO = { hmi: hmi, firmware: firmwareString(), basis: basis };
@@ -880,12 +881,16 @@ function statusHeld() {
  * stderr (stdout keeps status's own). */
 function statusStep(what, fn) {
     var out = process.stdout.write;
-    if (statusHeld()) return;
+    // a step not run, or failed, is tried again at the next status: this answer is not one to keep
+    if (statusHeld()) { answerHoldsUntil(0); return; }
     process.stdout.write = function (x) { return process.stderr.write(x); };
     try {
-        if (!statusLock()) return;
+        if (!statusLock()) { answerHoldsUntil(0); return; }
         try { fn(); } finally { releaseLock(); }
-    } catch (e) { process.stderr.write('mgu-deploy: ' + what + ': ' + e.message + '\n'); }
+    } catch (e) {
+        answerHoldsUntil(0);
+        process.stderr.write('mgu-deploy: ' + what + ': ' + e.message + '\n');
+    }
     finally { process.stdout.write = out; }
 }
 /* The manager's node child, waited for up to bounceTimeoutMs: oapcontroller
@@ -2470,6 +2475,8 @@ function mainappHmi() {
             var r = iface ? run(CFG.node, ['-e', HMI_READER, iface, env('MGU_DEPLOY_SOMEIP', '/usr/lib/someip.node'),
                 path.join(CFG.mainapp, 'node_modules', 'codings.node')], { allowFail: true, timeout: 15000 }) : null;
             raw = (r && lastJsonLine(r.stdout)) || {};
+            // unread: the next status reads it again
+            if (typeof raw.hmiVersion !== 'string') answerHoldsUntil(0);
             if (typeof raw.hmiVersion === 'string' && !statusReadOnly) {
                 try { mkdirp(CFG.run); writeAtomic(hmiReadFile(), JSON.stringify({ boot: boot, hmiVersion: raw.hmiVersion, brand: raw.brand })); }
                 catch (e) { /* read again next time */ }
@@ -7450,27 +7457,35 @@ function collectStatusNow(state) {
 }
 /* status --json's inputs (README.md, "status"): the files this run read,
  * each stamped as it was first read (one this run wrote, or a folder it
- * changed the entries of: as the run left it), so a caller can keep the answer while they hold. Live parts (units,
- * journals, running, app_uids) and the app manager's process are not among
- * them; inputs_until (epoch ms) is when an answer that rests on the time
- * runs out. */
+ * changed the entries of: as the run left it), so a caller can keep the
+ * answer while they hold. Live parts (units, journals, running, app_uids)
+ * and the app manager's process are not among them; inputs_until (epoch
+ * ms) is when an answer that rests on the time runs out. A run whose
+ * answer rests on more (answerHoldsUntil(0)) gives no inputs. */
 var readStamps = null;
 var wrotePaths = null;
 var answerUntil = Infinity;
 var fsStat = fs.statSync;
+var fsLstat = fs.lstatSync;
 var fsRead = fs.readFileSync;
+var readsFrom = 0;
 function answerHoldsUntil(ms) { answerUntil = Math.min(answerUntil, ms); }
-/* size:mtime:ctime:inode (ms), '-' when absent; /proc/mounts the sha256 of its text. */
+/* size:mtime:ctime:inode (ms) as lstat gives them, for a link followed by
+ * '>' and its target's ('>-' when it leads nowhere), '-' when absent;
+ * /proc/mounts the sha256 of its text. */
 function inputStamp(p) {
+    var one = function (st) { return st.size + ':' + st.mtime.getTime() + ':' + st.ctime.getTime() + ':' + st.ino; };
     try {
         if (p === '/proc/mounts') return crypto.createHash('sha256').update(fsRead(p)).digest('hex').slice(0, 16);
-        var st = fsStat(p);
-        return st.size + ':' + st.mtime.getTime() + ':' + st.ctime.getTime() + ':' + st.ino;
+        var st = fsLstat(p);
+        if (!st.isSymbolicLink()) return one(st);
+        try { return one(st) + '>' + one(fsStat(p)); } catch (e) { return one(st) + '>-'; }
     } catch (e) { return '-'; }
 }
 function trackReads() {
     readStamps = {};
     wrotePaths = {};
+    readsFrom = Date.now();
     var read = function (p) {
         if (typeof p !== 'string') return;
         var r = path.resolve(p);
@@ -7503,7 +7518,14 @@ function readInputs() {
     var out = {}, proc = path.resolve(CFG.proc);
     Object.keys(readStamps).sort().forEach(function (p) {
         var live = [proc, '/proc', '/sys', '/dev'].some(function (d) { return p === d || p.indexOf(d + '/') === 0; });
-        if (!live || p === '/proc/mounts') out[p] = wrotePaths[p] ? inputStamp(p) : readStamps[p];
+        if (live && p !== '/proc/mounts') return;
+        out[p] = wrotePaths[p] ? inputStamp(p) : readStamps[p];
+        // another writer's change in the second before the run, or while it ran, may share one stamp
+        if (!wrotePaths[p] && p !== '/proc/mounts') {
+            String(out[p]).split('>').forEach(function (one) {
+                if (Number(one.split(':')[2]) >= readsFrom - 1000) answerHoldsUntil(0);
+            });
+        }
     });
     return out;
 }
@@ -7517,8 +7539,15 @@ function cmdStatus(args, crashList, live, limits, listing) {
     s.safe_mode = readSafeMode();
     if (args.json) {
         if (readStamps) {
-            s.inputs = readInputs();
-            if (answerUntil < Infinity) s.inputs_until = Math.floor(answerUntil);
+            // a repair left pending or failed, or another run under way: the next status looks again
+            if ([crashList, live, limits, listing].some(function (r) { return r && r.state !== 'ok'; })) answerHoldsUntil(0);
+            var lock = lockState();
+            if (lock.live) answerHoldsUntil(0);
+            var inputs = readInputs();
+            if (answerUntil > Date.now()) {
+                s.inputs = inputs;
+                if (answerUntil < Infinity) s.inputs_until = Math.floor(answerUntil);
+            }
         }
         say(JSON.stringify(s));
         return 0;
@@ -8878,6 +8907,7 @@ function repairKeepsSafeMode() {
  * An app the user removes has no record from the start of its removal. */
 function lostReport(state) {
     var lock = lockState(), out = { lost: [], held: [] };
+    if (!lock.free && lock.live) answerHoldsUntil(0);
     if ((!lock.free && lock.live) || !mgrDataReady()) return out;
     var all = isId8() ? unprovisionedId8() : Object.keys(state.apps).map(function (id) {
         var v = state.apps[id] && state.apps[id].version;

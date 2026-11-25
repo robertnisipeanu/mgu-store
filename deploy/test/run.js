@@ -593,11 +593,19 @@ function testPendingReboot() {
 function testStatusInputs() {
     const root = fakeRoot();
     root.run(['install', '--artifact', toolArtifact('0.2.0'), '--yes']);
+    // older than the second before the run
+    sleep(1200);
     const st = root.status();
+    const one = (t) => `${t.size}:${t.mtime.getTime()}:${t.ctime.getTime()}:${t.ino}`;
     const stamp = (f) => {
         try {
-            const t = fs.statSync(f);
-            return `${t.size}:${t.mtime.getTime()}:${t.ctime.getTime()}:${t.ino}`;
+            const l = fs.lstatSync(f);
+            if (!l.isSymbolicLink()) return one(l);
+            try {
+                return `${one(l)}>${one(fs.statSync(f))}`;
+            } catch (e) {
+                return `${one(l)}>-`;
+            }
         } catch (e) {
             return '-';
         }
@@ -608,8 +616,9 @@ function testStatusInputs() {
     const entry = root.p(`var/opt/public/oap/oap_${MGR}/data/apps/stock_app.json`);
     check('status inputs: a file it read is one, and nothing of the proc root', !!inputs[entry] &&
         !Object.keys(inputs).some((f) => f.indexOf(root.p('proc')) === 0), Object.keys(inputs).join(' '));
+    // a file changed just before the run: the answer is not given as one to keep
     fs.writeFileSync(entry, `${fs.readFileSync(entry, 'utf8')} `);
-    check('status inputs: a change to it shows in its stamp', stamp(entry) !== inputs[entry]);
+    check('status inputs: none while a file it read changed within the second before it ran', !root.status().inputs);
 }
 
 /* ---- scratch in RAM, linked backups --------------------------------------------------------- */

@@ -632,12 +632,11 @@ function providersOf(st) {
     return out;
 }
 
-/* The app-privacy patch's state (native/app-privacy/INTEGRATION.md §5):
- * patched (in effect), restart-needed (patched, but the running MainApp
- * started before the bundles were written), unpatched, mismatch, unknown
- * (the tool gave no answer), or null without the tool. */
-/* app-privacy's check: { state, files } (files: the bundles it read), or
- * null without the tool. */
+/* app-privacy's check: { state, files }, or null without the tool. state:
+ * the patch's (native/app-privacy/INTEGRATION.md §5), patched (in effect),
+ * restart-needed (patched, but the running MainApp started before the
+ * bundles were written), unpatched, mismatch or unknown (the tool gave no
+ * answer); files: the bundles it read. */
 function privacyState(conf) {
     if (!conf.privacy_tool || !fs.existsSync(conf.privacy_tool)) {
         return Promise.resolve(null);
@@ -1297,15 +1296,24 @@ function mainappProcess(conf) {
 }
 
 /* A file's stamp as the deploy tool's status inputs give it (deploy/README.md,
- * "status"): size:mtime:ctime:inode (ms), '-' when absent; /proc/mounts the
- * sha256 of its text. */
+ * "status"): size:mtime:ctime:inode (ms) as lstat gives them, for a link
+ * followed by '>' and its target's ('>-' when it leads nowhere), '-' when
+ * absent; /proc/mounts the sha256 of its text. */
 function inputStamp(p) {
+    const one = (st) => `${st.size}:${st.mtime.getTime()}:${st.ctime.getTime()}:${st.ino}`;
     try {
         if (p === '/proc/mounts') {
             return sha256(fs.readFileSync(p)).slice(0, 16);
         }
-        const st = fs.statSync(p);
-        return `${st.size}:${st.mtime.getTime()}:${st.ctime.getTime()}:${st.ino}`;
+        const st = fs.lstatSync(p);
+        if (!st.isSymbolicLink()) {
+            return one(st);
+        }
+        try {
+            return `${one(st)}>${one(fs.statSync(p))}`;
+        } catch (e) {
+            return `${one(st)}>-`;
+        }
     } catch (e) {
         return '-';
     }
@@ -2635,6 +2643,8 @@ class Updater {
      * just made; one asked for refreshes. force (its interval): the deploy
      * tool and app-privacy are asked again, whatever answers are kept. */
     check(auto, force) {
+        // one under way refreshes as forced when a forced one comes meanwhile
+        this.checkForced = this.checkForced || !!force;
         if (this.checking) {
             return this.checking;
         }
@@ -2655,8 +2665,10 @@ class Updater {
             })
             // with or without a refresh: the apps the sources list are taken over and lost ones put back
             .then(() => {
-                if (force || !auto || Date.now() - this.refreshedAt >= REFRESH_FRESH_MS) {
-                    return this.refresh(force);
+                const forced = this.checkForced;
+                this.checkForced = false;
+                if (forced || !auto || Date.now() - this.refreshedAt >= REFRESH_FRESH_MS) {
+                    return this.refresh(forced);
                 }
                 this.takeOver();
                 this.repairLost();
@@ -3847,8 +3859,6 @@ class Updater {
         return attempt();
     }
 
-    /* What only the unit's tools can tell: pending reboots, the head unit,
-     * the installed providers, the privacy patch. */
     /* The deploy tool's status and app-privacy's check, each answer kept
      * while what it rests on holds: this start of the head unit, the app
      * manager's process and the stamps of the files it read (the deploy
@@ -3889,6 +3899,8 @@ class Updater {
         return Promise.all([status, privacy]);
     }
 
+    /* What only the unit's tools can tell: pending reboots, the head unit,
+     * the installed providers, the privacy patch. */
     refresh(force) {
         return this.answers(force).then(([st, checked]) => {
             const privacy = checked ? checked.state : null;
