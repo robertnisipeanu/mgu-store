@@ -7260,6 +7260,58 @@ function testInstalledStamp() {
     });
 }
 
+/* The deploy tool's status and app-privacy's check are asked again only
+ * when what their answers rest on moved (Updater.answers). */
+function testKeptAnswers() {
+    const { Updater } = require('../js/updater');
+    const d = path.join(T, 'kept');
+    const p = (n) => path.join(d, n);
+    mkdirp(p('proc'));
+    ['input', 'bundle', 'calls'].forEach((n) => fs.writeFileSync(p(n), n === 'calls' ? '' : 'a'));
+    fs.writeFileSync(p('boot'), 'boot-1\n');
+    const stamp = 'const s = (f) => { try { const t = fs.statSync(f); return t.size + ":" + t.mtime.getTime() + ":" + t.ctime.getTime() + ":" + t.ino; } catch (e) { return "-"; } };';
+    fs.writeFileSync(p('deploy.js'), `#!${process.execPath}\nconst fs = require("fs"); ${stamp}\nfs.appendFileSync(${JSON.stringify(p('calls'))}, "status\\n");\n` +
+        `const until = fs.existsSync(${JSON.stringify(p('until'))}) ? Number(fs.readFileSync(${JSON.stringify(p('until'))}, "utf8")) : null;\n` +
+        `console.log(JSON.stringify(Object.assign({ components: [] }, { inputs: { ${JSON.stringify(p('input'))}: s(${JSON.stringify(p('input'))}) } }, until ? { inputs_until: until } : {})));\n`, { mode: 0o755 });
+    fs.writeFileSync(p('privacy.js'), `const fs = require("fs"); fs.appendFileSync(${JSON.stringify(p('calls'))}, "check\\n");\n` +
+        `console.log(JSON.stringify({ state: "patched", restartNeeded: false, files: [{ path: ${JSON.stringify(p('bundle'))} }] }));\n`);
+    const u = { conf: { deploy: p('deploy.js'), privacy_tool: p('privacy.js'), boot_id: p('boot'), proc: p('proc') }, answersKept: { status: null, privacy: null } };
+    const calls = () => {
+        const l = fs.readFileSync(p('calls'), 'utf8').split('\n').filter(Boolean);
+        return `${l.filter((x) => x === 'status').length}/${l.filter((x) => x === 'check').length}`;
+    };
+    const ask = (force) => Updater.prototype.answers.call(u, force).then(([st, pr]) => !!st && pr.state === 'patched');
+    const later = () => new Promise((r) => setTimeout(r, 20));
+    // a check's answer is kept once its files are older than the second before it ran
+    const settled = () => new Promise((r) => setTimeout(r, 1100));
+    const steps = [
+        ['the first refresh asks both; the check\'s new files keep it from being kept', () => null, '1/1'],
+        ['once they are older, the check\'s answer is kept', settled, '1/2'],
+        ['then neither is asked while nothing moved', () => null, '1/2'],
+        ['a file the deploy tool read that changed asks it again', () => fs.writeFileSync(p('input'), 'bb'), '2/2'],
+        ['a bundle the check read that changed asks it again', () => fs.writeFileSync(p('bundle'), 'bb'), '2/3'],
+        ['and again until it has settled, then it is kept', settled, '2/4'],
+        ['kept', () => null, '2/4'],
+        ['another app manager process asks both again', () => {
+            mkdirp(p('proc/4242'));
+            fs.writeFileSync(p('proc/4242/cmdline'), '/usr/bin/node\0/usr/lib/oap-mainapp/src/main.js\0');
+            fs.writeFileSync(p('proc/4242/stat'), '4242 (node) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 777 0 0');
+        }, '3/5'],
+        ['another start of the head unit asks both again', () => fs.writeFileSync(p('boot'), 'boot-2\n'), '4/6'],
+        ['an answer past its inputs_until is not kept', () => {
+            fs.writeFileSync(p('until'), String(Date.now() - 1));
+            fs.writeFileSync(p('input'), 'ccc');
+        }, '5/6'],
+        ['nor used', () => null, '6/6'],
+        ['force asks both', () => fs.unlinkSync(p('until')), '7/7', true]
+    ];
+    let chain = Promise.resolve();
+    steps.forEach(([what, change, want, force]) => {
+        chain = chain.then(later).then(change).then(() => ask(force)).then((good) => ok(`kept answers: ${what}`, good && calls() === want, calls()));
+    });
+    return chain;
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -7271,6 +7323,7 @@ function main() {
     testBlobCap();
     testNewInstall();
     return testInstalledStamp()
+        .then(() => testKeptAnswers())
         .then(() => testRequiredAlone())
         .then(() => testClientHello())
         .then(() => testContent())

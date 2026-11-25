@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `status --json` names the files its answer rests on, so a caller can keep the answer until one of them changes.
+
 ## 0.8.30
 
 - On iDrive 8, a start with the provisioning files, the app list and the app manager's folders as at the last start skips listing our apps again.

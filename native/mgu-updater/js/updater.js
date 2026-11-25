@@ -632,10 +632,11 @@ function providersOf(st) {
     return out;
 }
 
-/* The app-privacy patch's state (native/app-privacy/INTEGRATION.md §5):
- * patched (in effect), restart-needed (patched, but the running MainApp
- * started before the bundles were written), unpatched, mismatch, unknown
- * (the tool gave no answer), or null without the tool. */
+/* app-privacy's check: { state, files }, or null without the tool. state:
+ * the patch's (native/app-privacy/INTEGRATION.md §5), patched (in effect),
+ * restart-needed (patched, but the running MainApp started before the
+ * bundles were written), unpatched, mismatch or unknown (the tool gave no
+ * answer); files: the bundles it read. */
 function privacyState(conf) {
     if (!conf.privacy_tool || !fs.existsSync(conf.privacy_tool)) {
         return Promise.resolve(null);
@@ -645,9 +646,10 @@ function privacyState(conf) {
             (err, stdout) => {
                 try {
                     const r = JSON.parse(String(stdout).trim().split('\n').pop());
-                    resolve(r.state === 'patched' && r.restartNeeded ? 'restart-needed' : r.state || 'unknown');
+                    resolve({ state: r.state === 'patched' && r.restartNeeded ? 'restart-needed' : r.state || 'unknown',
+                        files: Array.isArray(r.files) && r.files.every((f) => f && typeof f.path === 'string') ? r.files.map((f) => f.path) : null });
                 } catch (e) {
-                    resolve('unknown');
+                    resolve({ state: 'unknown', files: null });
                 }
             });
     });
@@ -675,6 +677,7 @@ const CACHE_ONE = 256 << 10;
 // what the RAM scratch leaves free on its file system; amounts up to SCRATCH_SMALL need no df
 const SCRATCH_RESERVE = 64 << 20;
 const SCRATCH_SMALL = 1 << 20;
+const SCRATCH_DF_MS = 5000;
 
 function memAvailable() {
     try {
@@ -707,6 +710,8 @@ class Scratch {
         this.conf = conf;
         this.used = 0;
         this.own = null;
+        // the last free-space reading (free)
+        this.read = null;
     }
 
     get dir() {
@@ -755,7 +760,19 @@ class Scratch {
         if (bytes <= SCRATCH_SMALL) {
             return true;
         }
-        return total <= memAvailable() / 4 && bytes <= freeBytes(own ? this.dir : path.dirname(this.dir)) - (own ? 0 : SCRATCH_RESERVE);
+        return total <= memAvailable() / 4 && bytes <= this.free(own ? this.dir : path.dirname(this.dir)) - (own ? 0 : SCRATCH_RESERVE);
+    }
+
+    /* freeBytes(dir), read at most every SCRATCH_DF_MS: a download burst
+     * takes its room from one reading, less what it has taken since. */
+    free(dir) {
+        const now = Date.now();
+        const r = this.read;
+        if (!r || r.dir !== dir || now - r.at >= SCRATCH_DF_MS || now < r.at) {
+            this.read = { dir, at: now, bytes: freeBytes(dir), used: this.used };
+            return this.read.bytes;
+        }
+        return r.bytes - Math.max(0, this.used - r.used);
     }
 
     take(bytes) {
@@ -1237,28 +1254,68 @@ function storeTileShows(conf) {
  * own (it creates it at its first start after a factory reset), and node
  * runs its main.js (oap-mainapp on iDrive 7, oap-mainapp21 on iDrive 8). */
 function mainappReady(conf) {
-    const proc = conf.proc || '/proc';
     try {
-        if (fs.statSync(path.join(conf.oap_root, `oap_${conf.mainapp_uid}`, 'data')).uid !== Number(conf.mainapp_uid)) {
-            return false;
-        }
-        return fs.readdirSync(proc).filter((n) => /^\d+$/.test(n)).some((pid) => {
-            try {
-                const argv = fs.readFileSync(path.join(proc, pid, 'cmdline'), 'utf8').split('\0');
-                let i = 1;
-                for (; i < argv.length && argv[i].charAt(0) === '-'; i++) {
-                    if (argv[i] === '-r' || argv[i] === '--require') {
-                        i++;
-                    }
-                }
-                const script = argv[i] || '';
-                return /(^|\/)node$/.test(argv[0]) && /\/oap-mainapp(21)?\/src\/main\.js$/.test(script);
-            } catch (e) {
-                return false;
-            }
-        });
+        return fs.statSync(path.join(conf.oap_root, `oap_${conf.mainapp_uid}`, 'data')).uid === Number(conf.mainapp_uid) &&
+            mainappProcess(conf) !== '-';
     } catch (e) {
         return false;
+    }
+}
+
+/* The app manager's process (node running its main.js) as "<pid>:<start
+ * time>", '-' without one. */
+function mainappProcess(conf) {
+    const proc = conf.proc || '/proc';
+    let names = [];
+    try {
+        names = fs.readdirSync(proc).filter((n) => /^\d+$/.test(n));
+    } catch (e) {
+        return '-';
+    }
+    for (const pid of names) {
+        try {
+            const argv = fs.readFileSync(path.join(proc, pid, 'cmdline'), 'utf8').split('\0');
+            let i = 1;
+            for (; i < argv.length && argv[i].charAt(0) === '-'; i++) {
+                if (argv[i] === '-r' || argv[i] === '--require') {
+                    i++;
+                }
+            }
+            const script = argv[i] || '';
+            if (/(^|\/)node$/.test(argv[0]) && /\/oap-mainapp(21)?\/src\/main\.js$/.test(script)) {
+                let start = '';
+                try {
+                    const stat = fs.readFileSync(path.join(proc, pid, 'stat'), 'utf8');
+                    start = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] || '';
+                } catch (e) { /* the cmdline alone */ }
+                return `${pid}:${start}`;
+            }
+        } catch (e) { /* gone meanwhile */ }
+    }
+    return '-';
+}
+
+/* A file's stamp as the deploy tool's status inputs give it (deploy/README.md,
+ * "status"): size:mtime:ctime:inode (ms) as lstat gives them, for a link
+ * followed by '>' and its target's ('>-' when it leads nowhere), '-' when
+ * absent; /proc/mounts the sha256 of its text. */
+function inputStamp(p) {
+    const one = (st) => `${st.size}:${st.mtime.getTime()}:${st.ctime.getTime()}:${st.ino}`;
+    try {
+        if (p === '/proc/mounts') {
+            return sha256(fs.readFileSync(p)).slice(0, 16);
+        }
+        const st = fs.lstatSync(p);
+        if (!st.isSymbolicLink()) {
+            return one(st);
+        }
+        try {
+            return `${one(st)}>${one(fs.statSync(p))}`;
+        } catch (e) {
+            return `${one(st)}>-`;
+        }
+    } catch (e) {
+        return '-';
     }
 }
 
@@ -1381,6 +1438,8 @@ class Updater {
         this.checking = null;
         // when refresh() last had the deploy tool's answer (epoch ms)
         this.refreshedAt = 0;
+        // the deploy tool's and app-privacy's answers as kept (answers)
+        this.answersKept = { status: null, privacy: null };
         this.sendTimer = null;
         this.progressTimer = null;
         // the files read while one state is made, each read once (state)
@@ -2581,8 +2640,11 @@ class Updater {
 
     /* auto: one the updater starts itself (at start, its interval, the
      * uplink coming up), which takes the deploy tool's word from a refresh
-     * just made; one asked for asks the deploy tool again. */
-    check(auto) {
+     * just made; one asked for refreshes. force (its interval): the deploy
+     * tool and app-privacy are asked again, whatever answers are kept. */
+    check(auto, force) {
+        // one under way refreshes as forced when a forced one comes meanwhile
+        this.checkForced = this.checkForced || !!force;
         if (this.checking) {
             return this.checking;
         }
@@ -2603,8 +2665,10 @@ class Updater {
             })
             // with or without a refresh: the apps the sources list are taken over and lost ones put back
             .then(() => {
-                if (!auto || Date.now() - this.refreshedAt >= REFRESH_FRESH_MS) {
-                    return this.refresh();
+                const forced = this.checkForced;
+                this.checkForced = false;
+                if (forced || !auto || Date.now() - this.refreshedAt >= REFRESH_FRESH_MS) {
+                    return this.refresh(forced);
                 }
                 this.takeOver();
                 this.repairLost();
@@ -3795,10 +3859,51 @@ class Updater {
         return attempt();
     }
 
+    /* The deploy tool's status and app-privacy's check, each answer kept
+     * while what it rests on holds: this start of the head unit, the app
+     * manager's process and the stamps of the files it read (the deploy
+     * tool's inputs, until its inputs_until; the tool and the bundles the
+     * check names, unchanged while it ran). force: both asked again. */
+    answers(force) {
+        const key = `${bootId(this.conf)}\0${mainappProcess(this.conf)}`;
+        const holds = (k) => !force && !!k && k.key === key && Date.now() < k.until &&
+            Object.keys(k.inputs).every((p) => inputStamp(p) === k.inputs[p]);
+        const stamps = (files) => files.reduce((o, f) => Object.assign(o, { [f]: inputStamp(f) }), {});
+        const kept = this.answersKept;
+        const status = holds(kept.status) ? Promise.resolve(kept.status.answer) : deployStatus(this.conf).then((st) => {
+            const inputs = st && st.inputs;
+            this.answersKept.status = inputs && typeof inputs === 'object' && !Array.isArray(inputs) ? { key, answer: st, inputs,
+                until: typeof st.inputs_until === 'number' ? st.inputs_until : Infinity } : null;
+            return st;
+        });
+        let privacy;
+        if (holds(kept.privacy)) {
+            privacy = Promise.resolve(kept.privacy.answer);
+        } else {
+            // kept only when none of the files it read changed in the second before it ran or since
+            const tool = this.conf.privacy_tool;
+            const since = Date.now() - 1000;
+            privacy = privacyState(this.conf).then((r) => {
+                const files = r && r.files ? [tool].concat(r.files) : null;
+                const settled = !!files && files.every((f) => {
+                    try {
+                        return fs.statSync(f).ctime.getTime() < since;
+                    } catch (e) {
+                        return false;
+                    }
+                });
+                this.answersKept.privacy = settled ? { key, answer: r, inputs: stamps(files), until: Infinity } : null;
+                return r;
+            });
+        }
+        return Promise.all([status, privacy]);
+    }
+
     /* What only the unit's tools can tell: pending reboots, the head unit,
      * the installed providers, the privacy patch. */
-    refresh() {
-        return Promise.all([deployStatus(this.conf), privacyState(this.conf)]).then(([st, privacy]) => {
+    refresh(force) {
+        return this.answers(force).then(([st, checked]) => {
+            const privacy = checked ? checked.state : null;
             this.refreshedAt = st ? Date.now() : 0;
             this.pending = pendingOf(st);
             this.nextStart = nextStartOf(st);
@@ -4184,6 +4289,8 @@ class Updater {
      * SIGKILL 10 s later) and counts as failed. */
     deployTool(args) {
         this.deployError = null;
+        // what it changes is asked again
+        this.answersKept = { status: null, privacy: null };
         const limitS = Number(this.conf.deploy_timeout_s) || 5400;
         const limit = limitS >= 120 ? `${Math.round(limitS / 60)} min` : `${limitS} s`;
         return new Promise((resolve) => {
@@ -5062,7 +5169,7 @@ class Updater {
                 firstDue = false;
                 this.check(true);
             }, Number(this.conf.first_check_s) * 1000);
-            setInterval(() => this.check(true), Number(this.conf.check_interval_s) * 1000);
+            setInterval(() => this.check(true, true), Number(this.conf.check_interval_s) * 1000);
             // a Store update on trial: its process looked for each second
             setInterval(() => this.watchStoreTrial(), 1000);
             // USB media: nothing announces a stick, so the mounts are looked
