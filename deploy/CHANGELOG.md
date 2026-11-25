@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.31
+
 - `status --json` names the files its answer rests on, so a caller can keep the answer until one of them changes.
 
 ## 0.8.30
