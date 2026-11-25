@@ -27,7 +27,7 @@ jobs:
           sudo env MGU_UPLINK_NETNS_TEST=1 /tmp/mgu-uplink-test -test.run '^TestOverlappingDNSNetwork$' -test.v
       - name: Build candidate executable
         working-directory: native/mgu-uplink
-        run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w -X main.version=0.7.15-dns-candidate' -o /tmp/mgu-uplink .
+        run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w -X main.version=0.7.16' -o /tmp/mgu-uplink .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: uplink-dns-candidate
