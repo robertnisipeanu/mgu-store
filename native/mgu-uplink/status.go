@@ -97,6 +97,7 @@ func ruleString(r netlink.Rule) string {
 	if r.Src != nil {
 		s += " from " + r.Src.IP.String()
 	}
+	if r.Dst != nil { s += " to " + r.Dst.String() }
 	table := fmt.Sprint(r.Table)
 	if r.Table == mainTable {
 		table = "main"
