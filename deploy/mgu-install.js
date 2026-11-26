@@ -109,7 +109,8 @@ const SOURCES = { schema: 1, sources: [{ id: 'mgu-store', type: 'github', repo: 
     { id: 'cauliflowermossgrape_idrive7-apps', type: 'github', repo: 'cauliflowermossgrape/idrive7-apps', channel: 'branch' },
     { id: 'robertnisipeanu_idrive-apps', type: 'github', repo: 'robertnisipeanu/idrive-apps', channel: 'releases' },
     { id: 'iteriodev_car-apps', type: 'github', repo: 'IterioDev/car-apps', channel: 'tags' },
-    { id: 'hexlay_idrive7-system-monitor', type: 'github', repo: 'hexlay/idrive7-system-monitor', channel: 'branch' }] };
+    { id: 'hexlay_idrive7-system-monitor', type: 'github', repo: 'hexlay/idrive7-system-monitor', channel: 'branch' },
+    { id: 'paget96_garage', type: 'github', repo: 'Paget96/Paget96-Garage', channel: 'branch:main' }] };
 /* the installed deploy tool */
 const DEPLOY = '/var/opt/mgu-deploy/mgu-deploy.sh';
 const UPDATER_JS = '/var/opt/mgu-updater/current/updater.js';

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Default source: Paget96/Paget96-Garage (Paget96 Garage, iDrive 7 apps) on its main branch, added once at the first start of this version (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. Like any source it can be removed; once removed it is not added again.
+
 ## 0.8.62
 
 - The updater asks the deploy tool and app-privacy again only when what their last answers rest on has changed, and at each periodic check, and reads the free space once for downloads close together.
