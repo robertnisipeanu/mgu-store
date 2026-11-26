@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.46
+
 - Add source takes a catalog address without `https://`.
 
 ## 0.9.45
