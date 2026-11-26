@@ -147,7 +147,7 @@ tools, most of them for iDrive 8 only, at its newest x.y.z tag) and
 (System Monitor, iDrive 7 only).
 
 To add one: Settings → **Add source**, then type `owner/repo`, a GitHub
-link, or the `https://` address of a `catalog.json`. For a GitHub
+link, or the address of a `catalog.json` (`https://` may be left out). For a GitHub
 repository, pick what to follow from what it has: **Releases**, **Tags** or
 one of its branches.
 

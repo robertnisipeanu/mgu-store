@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The phone page's Add source takes a catalog address without `https://`.
+
 ## 0.8.62
 
 - The updater asks the deploy tool and app-privacy again only when what their last answers rest on has changed, and at each periodic check, and reads the free space once for downloads close together.
