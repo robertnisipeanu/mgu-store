@@ -875,7 +875,7 @@ function poll() {
 /* owner/repo or a repository's github.com address: { repo, branch } (branch: from .../tree/<branch>), or null */
 function ghRepo(v) {
   var m = /^(?:https?:\\/\\/)?(?:www\\.)?github\\.com\\/([^\\/\\s]+\\/[^\\/\\s]+?)(?:\\.git)?(?:\\/tree\\/(\\S+?))?\\/?$/i.exec(v) ||
-    /^([^\\/\\s:]+\\/[^\\/\\s]+?)(?:\\.git)?\\/?$/.exec(v);
+    /^([^\\/\\s:.]+\\/[^\\/\\s]+?)(?:\\.git)?\\/?$/.exec(v);
   if (!m) { return null; }
   try { return { repo: m[1], branch: m[2] ? decodeURIComponent(m[2]) : '' }; } catch (e) { return null; }
 }
@@ -900,6 +900,10 @@ function typedRepo() {
   return $('addType').value === 'github' ? ghRepo($('addValue').value.trim()) : null;
 }
 function keyOf(g) { return g ? g.repo + '#' + g.branch : null; }
+/* host/path typed without https:// (a host name first, which no GitHub owner is): the https address, else v */
+function withScheme(v) {
+  return /^[^\\/\\s:.]+(?:\\.[^\\/\\s:.]+)+(?::\\d+)?\\//.test(v) && !/^(?:www\\.)?github\\.com\\//i.test(v) ? 'https://' + v : v;
+}
 /* The typed repository asked about (on leaving the box, or the first Add); Add waits for the answer. */
 function probeRepo(force) {
   var g = typedRepo();
@@ -953,9 +957,9 @@ $('addForm').onsubmit = function (ev) {
   ev.preventDefault();
   var v = $('addValue').value.trim();
   if (!v) { return; }
-  var body = { op: 'source-add', type: 'https', url: v };
-  if ($('addType').value === 'github') {
-    var g = ghRepo(v);
+  var body = { op: 'source-add', type: 'https', url: withScheme(v) };
+  var g = $('addType').value === 'github' ? ghRepo(v) : null;
+  if (g || ($('addType').value === 'github' && withScheme(v) === v)) {
     // the first Add for a repository lists what it has
     if (g && keyOf(g) !== probe.key) {
       probeRepo(false);

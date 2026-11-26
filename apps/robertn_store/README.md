@@ -270,8 +270,10 @@ confirmed with OK, trimmed, is:
   the status line says why not (`Add source failed: Offline`, `GitHub limit
   reached. Try later or sign in.`, `… is already a source`, `the updater did not answer`
   after 30 s, `updater not running` when it goes away).
-- any other `https://host/path` address (the scheme in any case), a
-  catalog: `source-add` with `type: "https"`, `url`.
+- any other `https://host/path` address (the scheme in any case), or
+  `host/path` without the scheme when the host name has a dot (no GitHub
+  owner does), a catalog: `source-add` with `type: "https"`,
+  `url` (`https://host/path`).
 - anything else, a github.com address that is not a repo's included:
   `Not owner/repo or https://host/path: …` on the status line.
 
