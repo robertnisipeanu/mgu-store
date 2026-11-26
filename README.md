@@ -148,7 +148,7 @@ tools, most of them for iDrive 8 only, at its newest x.y.z tag),
 [Paget96-Garage](https://github.com/Paget96/Paget96-Garage) (Paget96 Garage: Health, Datalog, Exhaust, Standby; iDrive 7).
 
 To add one: Settings → **Add source**, then type `owner/repo`, a GitHub
-link, or the `https://` address of a `catalog.json`. For a GitHub
+link, or the address of a `catalog.json` (`https://` may be left out). For a GitHub
 repository, pick what to follow from what it has: **Releases**, **Tags** or
 one of its branches.
 

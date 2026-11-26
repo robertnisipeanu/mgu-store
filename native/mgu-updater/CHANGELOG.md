@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Default source: Paget96/Paget96-Garage (Paget96 Garage, iDrive 7 apps) on its main branch, added once at the first start of this version (and seeded by the installers, `deploy/sources.json`), unless a source of that repo is there already. Like any source it can be removed; once removed it is not added again.
+## 0.8.63
+
+- The phone page's Add source takes a catalog address without `https://`.
 
 ## 0.8.62
 

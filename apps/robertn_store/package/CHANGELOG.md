@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.46
+
+- Add source takes a catalog address without `https://`.
+
 ## 0.9.45
 
 - While the updater is installing or has installs waiting, the list stays on screen when it restarts.

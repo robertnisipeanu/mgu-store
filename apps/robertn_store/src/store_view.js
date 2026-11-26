@@ -398,6 +398,8 @@ function phoneAddress(web, fileText) {
 const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
 const BRANCH = /^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$/;
 const HTTPS = /^https:\/\/[^/\s]+\/\S*$/;
+// a host name first (GitHub owners have no dot): an https address typed without its scheme
+const BARE_HOST = /^[^/\s:.]+(?:\.[^/\s:.]+)+(?::\d+)?\//;
 const GITHUB_HOST = /^(?:https?:\/\/)?(?:www\.)?github\.com(?:\/|$)/i;
 const GITHUB_REPO = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+\/[^/\s]+?)(?:\.git)?(?:\/tree\/(\S+?))?\/?$/i;
 
@@ -416,7 +418,8 @@ function branchName(text) {
  * owner/repo or a github.com address of a repo (with or without https://,
  * .git or a trailing slash; .../tree/<branch> gives the channel
  * branch:<branch>), { type: 'https', url } for any other https address with
- * a path (the scheme in lower case), null for anything else. A repo
+ * a path (the scheme in lower case; host/path without it is taken as
+ * https://host/path), null for anything else. A repo
  * without a channel is offered on what it has (pickOptions). */
 function parseSource(text) {
     const t = String(text || '').trim();
@@ -435,7 +438,7 @@ function parseSource(text) {
     if (REPO.test(repo)) {
         return { type: 'github', repo };
     }
-    const url = t.replace(/^https:\/\//i, 'https://');
+    const url = BARE_HOST.test(t) ? `https://${t}` : t.replace(/^https:\/\//i, 'https://');
     return HTTPS.test(url) && url.length <= 2048 ? { type: 'https', url } : null;
 }
 
