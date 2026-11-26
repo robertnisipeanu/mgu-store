@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- First install seeds Paget96/Paget96-Garage (Paget96 Garage) as a source, like the other default sources.
+
 ## 0.8.31
 
 - `status --json` names the files its answer rests on, so a caller can keep the answer until one of them changes.

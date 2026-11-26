@@ -142,9 +142,10 @@ The Store comes with these sources: this repository,
 renderer that draws on the instrument cluster and the HUD, and the CarPlay
 map on the instrument cluster),
 [car-apps](https://github.com/IterioDev/car-apps) (IterioDev's apps and
-tools, most of them for iDrive 8 only, at its newest x.y.z tag) and
+tools, most of them for iDrive 8 only, at its newest x.y.z tag),
 [idrive7-system-monitor](https://github.com/hexlay/idrive7-system-monitor)
-(System Monitor, iDrive 7 only).
+(System Monitor, iDrive 7 only) and
+[Paget96-Garage](https://github.com/Paget96/Paget96-Garage) (Paget96 Garage: Health, Datalog, Exhaust, Standby; iDrive 7).
 
 To add one: Settings → **Add source**, then type `owner/repo`, a GitHub
 link, or the address of a `catalog.json` (`https://` may be left out). For a GitHub
