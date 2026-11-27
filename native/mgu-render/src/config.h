@@ -20,7 +20,8 @@ struct cfg {
     int embed;                  /* embed mode offered */
     char hmi_display[64];       /* the HMI's embedded compositor */
     uint32_t embed_surface_id;  /* the ivi id the page template samples */
-    int embed_area[4];          /* the template's box on the screen */
+    uint32_t embed_full_surface_id; /* the ivi id the whole-screen template samples (mgu-render-hmi.sh makes it) */
+    int embed_area[4];          /* the page template's box when the marker names none (a template made before boxes) */
     int embed_zero_copy;        /* draw embed frames into the compositor's GPU buffers when it takes dmabufs */
     int tick_early;             /* embed: TICK once the app's frame is drawn, not when the compositor shows it */
     int readback_pbo;           /* embed readback through a pixel buffer (GLES 3) */

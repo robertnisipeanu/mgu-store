@@ -121,7 +121,7 @@ Client to daemon:
 
 | Type | Name | Payload |
 |---|---|---|
-| 0x4d520001 | X_MODE | u32 mode: 1 layer, 2 embed. Before PLACE, or again to move the app |
+| 0x4d520001 | X_MODE | u32 mode: 1 layer, 2 embed[, u32 layout: 0 the page box, 1 the whole screen, only while X_READY offers it (caps 512)]. Before PLACE, or again to move the app |
 | 0x4d520002 | X_GRAB | u32 on[, u32 hold]: as upstream's GRAB; events come as X_CCU. hold: the parts of the controller the HMI doesn't get meanwhile, bits 1 knob, 2 press, 4 tilt; 0 or left out: all three ("Touch and controller") |
 | 0x4d520003 | X_PIXMAP | u32 id, w, h (1..2048), format (1 premultiplied RGBA, 2 RGBA shown opaque, 3 INDEX8), filter (0 nearest, 1 linear): an image written in regions, drawn with op 18 |
 | 0x4d520004 | X_PIXELS | u32 id, n (1..64), n × u32 x, y, w, h, then each rect's pixels in turn, rows top-down, packed (w × 1 or 4 bytes a row) |
@@ -132,7 +132,7 @@ Daemon to client:
 
 | Type | Name | Payload |
 |---|---|---|
-| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy, 64 X_FINGERS, 128 the loaded gate holds only the parts X_GRAB's hold names, 256 NV12 video frames), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz |
+| 0x4d520101 | X_READY | u32 version (1), modes (bit 0 layer, bit 1 embed: offered now), caps (1 touch routing, 2 controller gate loaded in the HMI and its event socket ours or free, 4 front gate, 8 pixmaps, 16 video, 32 embed frames drawn zero-copy, 64 X_FINGERS, 128 the loaded gate holds only the parts X_GRAB's hold names, 256 NV12 video frames, 512 embed may take the whole screen), i32 embed box x, y, w, h (0 when no embed), i32 app area x, y, w, h, u32 largest pixmap side, refresh mHz[, with caps 512: i32 whole-screen embed box x, y, w, h] |
 | 0x4d520102 | X_STATE | u32 mode, on screen, in front (the HMI shows the app's screen); sent whenever one changes |
 | 0x4d520103 | X_CCU | as upstream's CCU |
 | 0x4d520104 | X_FINGER | u32 phase (1 down, 2 move, 3 up, 4 cancel), u32 finger id (0..15, the display's), f32 x, y logical px: one finger of a gesture that began in a claim (after X_FINGERS 1). Cancel: the finger's lift was never seen and it is gone (x, y where it was last): drop it without acting on it, never as a tap or a release there |
@@ -213,6 +213,17 @@ taken for hung and hidden until it talks again, as IterioDev's kit does.
   newest shown one in front. X_READY offers embed only when the template is
   loaded in the running HMI (`mgu-render-hmi.service` ran before it started),
   and X_MODE 2 is refused with an ERROR otherwise.
+- **embed, the whole screen** (native, X_MODE 2 with layout 1): for an app
+  whose own page names the template `LT_State_A4A_StockExchange` instead.
+  The HMI draws ivi surface `embed_full_surface_id` over the whole screen
+  (X_READY's second box, 0,0 1920×720), with its title bar strip (home button,
+  title, status icons), its `<` arrow and its popups over the app, as over BMW's
+  map. What the app claims takes those touches from the HMI, as on a layer, so an
+  app that keeps the strip's controls leaves their area unclaimed. Every other app's
+  page, the Store's included, stays on the page box. X_READY offers it (caps 512)
+  only when that template is loaded too; X_MODE 2 1 is refused with an ERROR
+  otherwise. Each box is the one of the template the HMI loaded, from the marker
+  `mgu-render-hmi.sh` writes when it mounts them.
 
 **In front**: with a foreground gate configured, an app (any uid but root,
 from `SO_PEERCRED`) shows only while the HMI's `RemoteHmiApplication` for its

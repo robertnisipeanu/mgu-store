@@ -3,20 +3,31 @@
  * Writes the HMI page template that shows mgu-render's embed surface, for the
  * HmiMain3D it is given.
  *
- *   node hmi_template.js [--hmi /usr/bin/HmiMain3D] [--surface-id 0x500] --out DIR
+ *   node hmi_template.js [--hmi /usr/bin/HmiMain3D] [--surface-id 0x500] [--full-surface-id 0x501] --out DIR
  *
  * HmiMain3D builds its pages from widget definitions it reads from the *.pbw
  * files of its widget directories (protobuf; every name is an index into an
  * identifier table compiled into the binary, so the numbers belong to one
  * build). The binary names seven page templates that no file defines; this
- * defines one of them, LT_State_A4A_WelcomeApp: a state with the stock title
- * bar and, below it, an embedded-surface widget over the content area that
- * samples the ivi surface `surface id` from the HMI's embedded compositor
- * (wayland-1), stretched to the box (mgu-render.conf's embed_area is the same
- * box). Writes DIR/LT_State_A4A_WelcomeApp.pbw; systemd/mgu-render-hmi.sh --build
- * runs it on the unit's Node 8 when mgu-render is installed. An error is one line
- * on stderr: exit status 1 when this HmiMain3D lacks what the template needs, 3 for
- * anything else (memory, disk), which may pass on another try.
+ * defines two of them, each a state with the stock title bar and an
+ * embedded-surface widget that samples an ivi surface from the HMI's embedded
+ * compositor (wayland-1), stretched to the template's box:
+ * - LT_State_A4A_WelcomeApp, the page box: under the title bar, over the content
+ *   area (104,88 1796x632), surface `surface-id`. The template every in-page
+ *   app's page uses unless it asks for the whole screen.
+ * - FULL_TEMPLATE, the whole screen (0,0 1920x720), surface `full-surface-id`:
+ *   the title bar's box is 0 high, so the surface starts at the top and the HMI
+ *   draws the title bar's strip and its popups over it, as over BMW's map. Only an
+ *   app whose page names this template (and that asks for it with X_MODE) is drawn
+ *   there.
+ * Writes DIR/<template>.pbw for each, and DIR/boxes, a line per template written:
+ * "<layout> <surface id> <x> <y> <w> <h>" (mgu-render-hmi.sh puts it in the marker
+ * when it mounts them, and mgu-render takes each box from there). A HmiMain3D
+ * without the full-screen template's names gets the page box's template alone.
+ * systemd/mgu-render-hmi.sh --build runs it on the unit's Node 8 when mgu-render is
+ * installed. An error is one line on stderr: exit status 1 when this HmiMain3D lacks
+ * what the page box's template needs, 3 for anything else (memory, disk), which may
+ * pass on another try.
  */
 'use strict';
 
@@ -28,6 +39,15 @@ const TEMPLATE = 'eGfxIdWidgetType_LT_State_A4A_WelcomeApp';
 // centre display. The layout puts it below the title bar (y 88); x and size
 // are the template's.
 const AREA = { x: 104, w: 1796, h: 632 };
+// The whole screen, for the apps that ask for it. The title bar stays (a state without it shows nothing), its
+// layout box 0 high, so the surface below it starts at the top and the HMI draws the title bar's strip over it. On a
+// G26 a surface 720 high under the stock title bar box still got the 632 px that box leaves (its position only moves
+// it); without the title bar the page is black.
+// Its name is one HmiMain3D knows but no stock widget defines (on P18_23w44.2-1-3, with the A4A WelcomeApp template:
+// A4A_DailyWeather, A4A_NewsDetailsPlayer, A4A_Player_PreviewBar, A4A_StockExchange, A4A_WeatherOverviewPlayer,
+// PopupFullWide). A page that names it gets this layout.
+const FULL_TEMPLATE = 'eGfxIdWidgetType_LT_State_A4A_StockExchange';
+const FULL = { x: 0, w: 1920, h: 720 };
 
 /* Identifier name -> number from HmiMain3D's table of pointers to names. */
 function identifiers(data) {
@@ -113,7 +133,10 @@ function varint(n) {
     return Buffer.from(out);
 }
 
-function template(ids, surfaceId) {
+/* the template's .pbw: the page box (full false, the template byte for byte as before the whole-screen one came),
+   or the whole screen */
+function template(ids, surfaceId, full) {
+    const box = full ? FULL : AREA;
     const v = (f, n) => Buffer.concat([varint(f * 8), varint(n)]);
     const f32 = (f, x) => {
         const b = Buffer.alloc(4);
@@ -171,42 +194,62 @@ function template(ids, surfaceId) {
                     m(4, m(2, m(1, float(1)))),
                     m(5, m(2, m(1, v(41, 1)))),
                     flow)))),
-        m(3, vec3(ref(P('titlebarRegularDynTextW_ID7')), ref(P('defaultD_ID7')), ref(P('titlebarH_ID7')))),
+        m(3, vec3(ref(P('titlebarRegularDynTextW_ID7')), ref(P('defaultD_ID7')), full ? val(0) : ref(P('titlebarH_ID7')))),
         m(5, vec3(ref(P('titlebarX_ID7')), m(3, zero), ref(P('titlebarMB_ID7')))),
         flow,
         m(7, m(2, m(1, v(41, 0)))));
     const streamBox = m(1, id(1, 'eGfxIdWidget_layer'),
-        m(3, vec3(val(AREA.w), ref(P('defaultD_ID7')), val(AREA.h))),
-        m(5, vec3(val(AREA.x), val(0), val(0))),
+        m(3, vec3(val(box.w), ref(P('defaultD_ID7')), val(box.h))),
+        m(5, vec3(val(box.x), val(0), val(0))),
         flow,
         m(7, m(2, m(1, v(41, 0)))));
     const layout = m(9, id(1, 'eGfxIdLayout_content'),
         m(2, m(1, m(2, id(1, 'eGfxIdLayout_spec'), m(2, titlebarBox, streamBox)))));
-    return m(1, id(1, TEMPLATE), id(2, 'eGfxIdWidgetType_eWidgetType_PlayerBasic'),
+    return m(1, id(1, full ? FULL_TEMPLATE : TEMPLATE), id(2, 'eGfxIdWidgetType_eWidgetType_PlayerBasic'),
         titlebar, stream, ...params, layout,
         id(14, 'eGfxIdImportDefinition_WID_State_Generic'),
         id(14, 'eGfxIdImportDefinition_StatesWithTitlebarImport'),
         m(20, id(1, 'eGfxIdLayout_default')));
 }
 
+/* writes the templates into dir; returns the lines of DIR/boxes */
+function write(ids, dir, surfaceId, fullSurfaceId) {
+    const name = (t) => path.join(dir, `${t.replace('eGfxIdWidgetType_', '')}.pbw`);
+    const line = (layout, sid, b) => `${layout} 0x${sid.toString(16)} ${b.x} ${b.y || 0} ${b.w} ${b.h}`;
+    fs.writeFileSync(name(TEMPLATE), template(ids, surfaceId, false));
+    const lines = [line('content', surfaceId, { x: AREA.x, y: 88, w: AREA.w, h: AREA.h })];
+    let full = null;
+    try {
+        full = template(ids, fullSurfaceId, true);
+    } catch (e) {
+        if (!e.hmi) throw e;
+        console.error(`no whole-screen template: ${e.message}`);
+    }
+    if (full) {
+        fs.writeFileSync(name(FULL_TEMPLATE), full);
+        lines.push(line('full', fullSurfaceId, FULL));
+    }
+    fs.writeFileSync(path.join(dir, 'boxes'), lines.join('\n') + '\n');
+    return lines;
+}
+
 if (require.main === module) {
-    const opt = { hmi: '/usr/bin/HmiMain3D', 'surface-id': '0x500' };
+    const opt = { hmi: '/usr/bin/HmiMain3D', 'surface-id': '0x500', 'full-surface-id': '0x501' };
     for (let i = 2; i + 1 < process.argv.length; i += 2) {
         opt[process.argv[i].replace(/^--/, '')] = process.argv[i + 1];
     }
-    const surfaceId = Number(opt['surface-id']);
-    if (!opt.out || !Number.isInteger(surfaceId) || surfaceId < 0) {
-        console.error('usage: node hmi_template.js [--hmi FILE] [--surface-id ID] --out DIR');
+    const surfaceId = Number(opt['surface-id']), fullSurfaceId = Number(opt['full-surface-id']);
+    const good = (n) => Number.isInteger(n) && n >= 0;
+    if (!opt.out || !good(surfaceId) || !good(fullSurfaceId) || surfaceId === fullSurfaceId) {
+        console.error('usage: node hmi_template.js [--hmi FILE] [--surface-id ID] [--full-surface-id ID] --out DIR (two ids)');
         process.exit(2);
     }
-    const file = path.join(opt.out, `${TEMPLATE.replace('eGfxIdWidgetType_', '')}.pbw`);
     try {
-        fs.writeFileSync(file, template(identifiers(fs.readFileSync(opt.hmi)), surfaceId));
+        write(identifiers(fs.readFileSync(opt.hmi)), opt.out, surfaceId, fullSurfaceId).forEach((l) => console.log(l));
     } catch (e) {
         console.error(e.message);
         process.exit(e.hmi ? 1 : 3);
     }
-    console.log(`${file}: surface ${opt['surface-id']}`);
 }
 
-module.exports = { identifiers, template, TEMPLATE };
+module.exports = { identifiers, template, write, TEMPLATE, FULL_TEMPLATE, AREA, FULL };

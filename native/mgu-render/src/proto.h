@@ -79,7 +79,8 @@ struct mgu_video_head {
 
 /* client -> daemon, native only ("MR" + n: clear of every number the other dialects use) */
 enum {
-    X_MODE = 0x4d520001,    /* u32 mode (MODE_*): where the surface goes; before PLACE, or again to move it */
+    X_MODE = 0x4d520001,    /* u32 mode (MODE_*)[, u32 layout (LAYOUT_*)]: where the surface goes; before PLACE, or again
+                               to move it. Embed: LAYOUT_FULL only when X_READY offers it (CAP_EMBED_FULL) */
     X_GRAB = 0x4d520002,    /* u32 on[, u32 hold (HOLD_*)]: as MU_GRAB, events come as X_CCU; hold: the parts the HMI
                                doesn't get meanwhile, 0 or none = all three (the gate's file names them) */
     X_PIXMAP = 0x4d520003,  /* u32 id, u32 w, u32 h (1..GFX_PIXMAP_SIDE), u32 format (PIX_*), u32 filter (0 nearest,
@@ -95,6 +96,9 @@ enum { PIX_RGBA_PREMUL = 1, PIX_RGBA_OPAQUE = 2, PIX_INDEX8 = 3 };
 
 /* placement modes */
 enum { MODE_LAYER = 1, MODE_EMBED = 2 };
+/* embed layouts: the page box (under the HMI's title bar, the template every in-page app's page uses), or the whole
+   screen (the whole-screen template, which only the app's own page names; the HMI's strip and popups over it) */
+enum { LAYOUT_PAGE = 0, LAYOUT_FULL = 1 };
 
 /* daemon -> client, all dialects */
 enum {
@@ -123,7 +127,7 @@ enum {
 enum {
     X_READY = 0x4d520101,   /* before E_READY: u32 native version, u32 modes (bit per MODE_*), u32 caps (CAP_*),
                                i32 embed box x y w h (0 0 0 0: no embed), i32 app area x y w h, u32 pixmap side,
-                               u32 refresh mHz */
+                               u32 refresh mHz[, i32 whole-screen embed box x y w h (with CAP_EMBED_FULL)] */
     X_STATE = 0x4d520102,   /* u32 mode, u32 on screen, u32 in front (the HMI shows the app's screen): on change */
     X_CCU = 0x4d520103,     /* as EU_CCU */
     X_FINGER = 0x4d520104,  /* u32 phase (1 down, 2 move, 3 up, 4 cancel: its UP was lost, not a tap), u32 finger id
@@ -141,6 +145,7 @@ enum {
     CAP_FINGERS = 64,       /* X_FINGERS: every finger, with its id (X_FINGER) */
     CAP_CONTROLLER_HOLD = 128, /* the loaded gate holds only the parts X_GRAB's hold names (else all three) */
     CAP_VIDEO_NV12 = 256,   /* video frame files may be NV12 (mgu_video_head format 1) */
+    CAP_EMBED_FULL = 512,   /* embed may take the whole screen (X_MODE 2 with LAYOUT_FULL); X_READY has its box */
 };
 
 /* X_GRAB's hold: the parts of the controller the HMI doesn't get while the app grabs it */

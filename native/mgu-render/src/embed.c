@@ -281,6 +281,12 @@ int embed_connect(const char *display, uint32_t id, int w, int h, int zero_copy)
 }
 
 int embed_connected(void) { return E.state == READY; }
+int embed_target(uint32_t *id, int *w, int *h)
+{
+    if (!E.dpy) return 0;
+    *id = E.id; *w = E.w; *h = E.h;
+    return 1;
+}
 int embed_connecting(void) { return E.state == CONNECTING; }
 int embed_zero_copy(void) { return E.state == READY && E.ngpu > 0; }
 const char *embed_path(void) { return E.state == READY ? E.path : ""; }
@@ -303,6 +309,7 @@ void embed_disconnect(void)
     if (E.sync) { wl_callback_destroy(E.sync); E.sync = NULL; }
     for (int i = 0; i < NB; i++)
         if (E.buf[i]) { wl_buffer_destroy(E.buf[i]); E.buf[i] = NULL; }
+    embed_gl_cancel();                            /* a started readback would land in the buffers going now */
     if (E.map) { munmap(E.map, E.map_size); E.map = NULL; E.map_size = 0; }
     if (E.drm) wl_drm_destroy(E.drm);
     if (E.iapp) ivi_application_destroy(E.iapp);

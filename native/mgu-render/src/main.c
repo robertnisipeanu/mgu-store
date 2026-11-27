@@ -55,6 +55,7 @@
 #include "dbr.h"
 #include "dialect.h"
 #include "embed.h"
+#include "pages.h"
 #include "embed_gl.h"
 #include "gate.h"
 #include "gfx.h"
@@ -126,6 +127,7 @@ typedef struct client {
     gfx_xf xf;
     int visible;
     uint64_t show_seq;      /* order of SHOWs: the newest shown embed app holds the HMI's box */
+    int full;               /* embed: in the whole-screen template's box (X_MODE LAYOUT_FULL), else the page box */
     /* wayland (layer mode) */
     int slot;
     struct wl_surface *ws;
@@ -187,6 +189,13 @@ static struct kit kit;
 static int listen_fd = -1, own_socket;
 static uint64_t show_counter;
 static client *embed_owner;
+/* The page templates the HMI loaded, from the marker mgu-render-hmi.sh writes when it mounts them: [LAYOUT_PAGE] the
+   page box, [LAYOUT_FULL] the whole screen (on: loaded). The embed connection is for one of them at a time
+   (conn_layout: its surface id and buffer size); the shown app's layout picks it, and a change reconnects
+   (conn_switch meanwhile: embed stays offered). */
+_Static_assert((int)LAYOUT_PAGE == (int)PAGE_BOX && (int)LAYOUT_FULL == (int)PAGE_FULL, "X_MODE layouts index pages");
+static struct page pages[2];
+static int conn_layout, conn_switch, in_switch;
 static int touch_on;
 static int ccu_fd = -1, ctl_gate_on;
 static uint64_t ctl_gate_t, ccu_retry;
@@ -428,7 +437,7 @@ static int listed(const char *list, const char *app) {
 
 /* where the app's logical (0, 0) + placement offset sits on the screen */
 static void origin(const client *c, float *x, float *y) {
-    if (c->mode == MODE_EMBED) { *x = (float)cfg.embed_area[0]; *y = (float)cfg.embed_area[1]; }
+    if (c->mode == MODE_EMBED) { *x = (float)pages[c->full].box[0]; *y = (float)pages[c->full].box[1]; }
     else { *x = (float)c->x; *y = (float)c->y; }
 }
 
@@ -455,14 +464,39 @@ static void send_state(client *c) {
     send_msg(c, X_STATE, p, sizeof p);
 }
 
+static void embed_open(void) {
+    if (!pages[conn_layout].on) conn_layout = LAYOUT_PAGE;
+    const struct page *p = &pages[conn_layout];
+    if (embed_connect(cfg.hmi_display, p->id, p->box[2], p->box[3], cfg.embed_zero_copy) < 0) conn_switch = 0;
+}
+
+/* the connection for this layout's template: 1 when it had to be made again (the surface and the buffers' size
+   differ), 0 when it is that one already, or not there (it is made for conn_layout) */
+static int embed_retarget(int layout) {
+    const struct page *p = &pages[layout];
+    uint32_t id; int w, h;
+    conn_layout = layout;
+    if (!embed_target(&id, &w, &h) || (id == p->id && w == p->box[2] && h == p->box[3])) return 0;
+    log_info("embed: to the %s template (surface %#x %dx%d)", layout == LAYOUT_FULL ? "whole-screen" : "page box's",
+             p->id, p->box[2], p->box[3]);
+    conn_switch = 1;
+    in_switch = 1;                                      /* its embed_changed is the switch's own */
+    embed_disconnect();
+    in_switch = 0;
+    embed_open();
+    return 1;
+}
+
 /* the newest shown embed app that is in front and has a frame holds the HMI's box */
 static void embed_update(void) {
     client *best = NULL;
     for (int i = 0; i < MAX_CLIENTS; i++) {
         client *c = clients[i];
         if (!c || c->mode != MODE_EMBED || !c->visible || !c->frame_words || !in_front(c) || c->stale) continue;
+        if (c->full && !pages[LAYOUT_FULL].on) continue;     /* its template is not loaded (an HMI start without it) */
         if (!best || c->show_seq > best->show_seq) best = c;
     }
+    if (best && embed_retarget(best->full)) best = NULL;     /* reconnecting for its layout */
     if (!embed_connected()) best = NULL;
     if (best != embed_owner) {
         embed_discard();                                    /* what was drawn for the app before */
@@ -724,7 +758,8 @@ static void render_embed(void) {
         c->drawn_changes = c->changes;
         c->tr_drawn = c->tr_frames;
         if (trace_on()) trace(t0, "draw-start", c->app, c->tr_drawn);
-        int w = cfg.embed_area[2], h = cfg.embed_area[3];
+        uint32_t sid; int w = 0, h = 0;
+        if (!embed_target(&sid, &w, &h)) return;
         if (dbr) {
             int img[4] = { (int)c->dbr.img[0], (int)c->dbr.img[1], (int)c->dbr.img[2], (int)c->dbr.img[3] };
             int gpu = embed_gpu_index(b), pw = (int)c->dbr.w, ph = (int)c->dbr.h;
@@ -768,7 +803,12 @@ void embed_frame_done(void) {
     if (c && c->want_tick && !cfg.tick_early) send_tick(c);
 }
 
-void embed_changed(void) { update_all(); }
+/* connected, or lost */
+void embed_changed(void) {
+    if (in_switch) return;
+    conn_switch = 0;
+    update_all();
+}
 
 static int proc_is_hmi(int pid) {
     char p[64], name[64] = "";
@@ -797,13 +837,28 @@ static int hmi_pid(void) {
     return cached;
 }
 
-/* the HMI started after mgu-render-hmi.sh mounted the template (its marker) */
+/* the templates the marker names (pages.h); marker_seen: the marker they were read from */
+static struct stat marker_seen;
+static void read_pages(void) {
+    char text[1024] = "";
+    if (stat(cfg.embed_marker, &marker_seen) < 0) memset(&marker_seen, 0, sizeof marker_seen);
+    FILE *f = fopen(cfg.embed_marker, "r");
+    if (f) { text[fread(text, 1, sizeof text - 1, f)] = 0; fclose(f); }
+    pages_parse(text, cfg.embed_surface_id, cfg.embed_area, pages);
+    log_info("embed: page box %d,%d %dx%d (surface %#x)%s", pages[0].box[0], pages[0].box[1], pages[0].box[2],
+             pages[0].box[3], pages[0].id, pages[LAYOUT_FULL].on ? ", whole-screen template loaded" : "");
+}
+
+/* the HMI started after mgu-render-hmi.sh mounted the template (its marker); the marker read again when it changed */
 static int template_loaded(void) {
     static int cached_pid = -1, cached_val;
     static time_t cached_mtime;
     struct stat ms;
     int pid;
-    if (stat(cfg.embed_marker, &ms) < 0 || (pid = hmi_pid()) < 0) { cached_pid = -1; return 0; }
+    if (stat(cfg.embed_marker, &ms) < 0) { cached_pid = -1; return 0; }
+    if (ms.st_mtime != marker_seen.st_mtime || ms.st_ino != marker_seen.st_ino || ms.st_size != marker_seen.st_size)
+        read_pages();
+    if ((pid = hmi_pid()) < 0) { cached_pid = -1; return 0; }
     if (pid == cached_pid && ms.st_mtime == cached_mtime) return cached_val;
     char p[64], buf[1024];
     snprintf(p, sizeof p, "/proc/%d/stat", pid);
@@ -829,7 +884,10 @@ static int template_loaded(void) {
 static uint64_t t_listen;
 static int embed_settling(uint64_t t) { return cfg.embed && embed_connecting() && t - t_listen < 3000000; }
 
-static int embed_available(void) { return cfg.embed && embed_connected() && template_loaded(); }
+/* embed is offered: the template loaded, and the connection there (or being made again for the other layout) */
+static int embed_available(void) {
+    return cfg.embed && (embed_connected() || (conn_switch && embed_connecting())) && template_loaded();
+}
 
 /* ---------------- touch (touch.c asks) ---------------- */
 int touch_owner_at(int x, int y, int in_area) {
@@ -837,7 +895,7 @@ int touch_owner_at(int x, int y, int in_area) {
         client *c = clients[k % MAX_CLIENTS];
         if (!c || !takes_input(c) || c->overlay != (k < MAX_CLIENTS) || (!c->overlay && !in_area)) continue;
         if (c->mode == MODE_EMBED) {                      /* only in the HMI's box */
-            const int *b = cfg.embed_area;
+            const int *b = pages[c->full].box;
             if (x < b[0] || y < b[1] || x >= b[0] + b[2] || y >= b[1] + b[3]) continue;
         }
         float bx, by; origin(c, &bx, &by);
@@ -1051,15 +1109,19 @@ static void hello(client *c, const uint8_t *p, uint32_t len) {
         c->dialect = DIALECT_NATIVE;
         int emb = embed_available(), area[4], ctl = ccu_free() ? ctl_gate_loaded() : 0;
         app_area(area);
-        uint32_t caps = CAP_PIXMAP | CAP_VIDEO | CAP_VIDEO_NV12 | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
+        int full = emb && pages[LAYOUT_FULL].on;
+        uint32_t caps = (full ? CAP_EMBED_FULL : 0) | CAP_PIXMAP | CAP_VIDEO | CAP_VIDEO_NV12 | (touch_on ? CAP_TOUCH_ROUTE : 0) | (cfg.foreground_gate[0] ? CAP_FRONT_GATE : 0) |
                         (ctl ? CAP_CONTROLLER : 0) | (ctl == 2 ? CAP_CONTROLLER_HOLD : 0) | (emb && embed_zero_copy() ? CAP_EMBED_ZERO_COPY : 0) |
                         (touch_on ? CAP_FINGERS : 0);
         /* a gate that cannot tell which app is in front would never show the app: no mode, the app keeps its own screens */
         uint32_t modes = gate_applies(c) && gate_unavailable() ? 0 : (1u << (MODE_LAYER - 1)) | (emb ? 1u << (MODE_EMBED - 1) : 0);
-        uint32_t x[15] = { MGU_NATIVE_VERSION, modes, caps };
-        for (int k = 0; k < 4; k++) { x[3 + k] = emb ? (uint32_t)cfg.embed_area[k] : 0; x[7 + k] = (uint32_t)area[k]; }
+        uint32_t x[17] = { MGU_NATIVE_VERSION, modes, caps };
+        for (int k = 0; k < 4; k++) {
+            x[3 + k] = emb ? (uint32_t)pages[LAYOUT_PAGE].box[k] : 0; x[7 + k] = (uint32_t)area[k];
+            x[13 + k] = full ? (uint32_t)pages[LAYOUT_FULL].box[k] : 0;
+        }
         x[11] = GFX_PIXMAP_SIDE; x[12] = (uint32_t)refresh_mhz;
-        send_msg(c, X_READY, x, 13 * 4);
+        send_msg(c, X_READY, x, (full ? 17 : 13) * 4);
     }
     int listed_root = c->uid == 0 && listed(cfg.overlay_apps, c->app);
     c->overlay = listed_root && idrive8();
@@ -1075,12 +1137,26 @@ static void set_dialect(client *c, int d) {
     log_info("%s: speaks the %s dialect", c->app, dialect_name(d));
 }
 
-static int set_mode(client *c, uint32_t mode) {
-    if (mode != MODE_LAYER && mode != MODE_EMBED) return -1;
-    if ((int)mode == c->mode) return 0;
+static int set_mode(client *c, uint32_t mode, uint32_t layout) {
+    if ((mode != MODE_LAYER && mode != MODE_EMBED) || (layout != LAYOUT_PAGE && layout != LAYOUT_FULL)) return -1;
+    int full = mode == MODE_EMBED && layout == LAYOUT_FULL;
+    if ((int)mode == c->mode && full == c->full) return 0;
     if (mode == MODE_EMBED && !embed_available()) {
         send_error(c, "embed: not available (the HMI's page template is not loaded)");
         send_state(c);
+        return 0;
+    }
+    if (full && !pages[LAYOUT_FULL].on) {
+        send_error(c, "embed: the whole screen is not available (its page template is not loaded)");
+        send_state(c);
+        return 0;
+    }
+    c->full = full;
+    if ((int)mode == c->mode) {                          /* embed, the other template's box */
+        c->frames_shown = 0;
+        c->dirty = c->frame_words > 0;
+        log_info("%s: embed mode, %s", c->app, full ? "the whole screen" : "the page box");
+        update_all();
         return 0;
     }
     c->mode = (int)mode;
@@ -1090,7 +1166,7 @@ static int set_mode(client *c, uint32_t mode) {
         if (mode == MODE_EMBED) surface_destroy(c);
         else if (c->placed && surface_create(c) < 0) { send_error(c, "surface"); return -1; }
     }
-    log_info("%s: %s mode", c->app, mode == MODE_EMBED ? "embed" : "layer");
+    log_info("%s: %s mode%s", c->app, mode == MODE_EMBED ? "embed" : "layer", full ? ", the whole screen" : "");
     if (c->placed) { c->want_tick = 1; if (!c->frame_cb) send_tick(c); }
     update_all();
     return 0;
@@ -1298,7 +1374,7 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
     switch (type) {
     case X_MODE:
         if (nw < 1) return -1;
-        return set_mode(c, w[0]);
+        return set_mode(c, w[0], nw > 1 ? w[1] : LAYOUT_PAGE);
     case X_GRAB:
         return grab(c, w, nw);
     case X_FINGERS:
@@ -1356,7 +1432,7 @@ static int dbr_hello(client *c, const uint8_t *p) {
     if (!emb && (gfx_pixmap_def(&c->g, DBR_PIXMAP, (int)h.width, (int)h.height, pix, 0) < 0 ||
                  (pix == PIX_INDEX8 && gfx_pixmap_palette(&c->g, DBR_PIXMAP, gray) < 0)))
         return dbr_fail(c, DBR_ERR_DISPLAY, gfx_error());
-    if (emb) memcpy(area, cfg.embed_area, sizeof area);
+    if (emb) memcpy(area, pages[LAYOUT_PAGE].box, sizeof area);
     else app_area(area);
     if (!emb && h.dst_w && h.dst_h && h.dst_x >= area[0] && h.dst_y >= area[1] &&
         h.dst_x + h.dst_w <= area[0] + area[2] && h.dst_y + h.dst_h <= area[1] + area[3]) {
@@ -1380,7 +1456,7 @@ static int dbr_hello(client *c, const uint8_t *p) {
     c->nclaim = 1;                                       /* touch on the picture is the app's */
     memcpy(c->claim[0], img, sizeof img);
     struct dbr_ready rd = { DBR_VERSION, DBR_MAX_IN_FLIGHT, (unsigned)screen_w, (unsigned)screen_h, (uint32_t)refresh_mhz,
-                            emb ? cfg.embed_surface_id : SURF_BASE + c->slot, emb ? 0 : LAYER_BASE + c->slot,
+                            emb ? pages[LAYOUT_PAGE].id : SURF_BASE + c->slot, emb ? 0 : LAYER_BASE + c->slot,
                             (emb ? DBR_READY_HMI : DBR_READY_CONTROLLER) | (touch_on ? DBR_READY_TOUCH : 0),
                             { r[0], r[1], r[2], r[3] } };
     uint8_t out[DBR_READY_SIZE];
@@ -1824,7 +1900,8 @@ int main(int argc, char **argv) {
     if (cfg.foreground_gate[0] && gate_start(cfg.foreground_gate) < 0) return 1;
     if ((listen_fd = open_listener()) < 0) return 1;
     t_listen = now_us();
-    if (cfg.embed) embed_connect(cfg.hmi_display, cfg.embed_surface_id, cfg.embed_area[2], cfg.embed_area[3], cfg.embed_zero_copy);
+    read_pages();
+    if (cfg.embed) embed_open();
     share_tick();
 
     uint64_t gate_retry = 0, embed_retry = 0, share_next = 0;
@@ -1863,7 +1940,7 @@ int main(int argc, char **argv) {
         }
         if (cfg.embed && tnow >= embed_retry) {               /* (no-op while connected or connecting) */
             embed_retry = tnow + 5000000;
-            embed_connect(cfg.hmi_display, cfg.embed_surface_id, cfg.embed_area[2], cfg.embed_area[3], cfg.embed_zero_copy);
+            embed_open();
         }
         while (wl_display_prepare_read(dpy) != 0) wl_display_dispatch_pending(dpy);
         wl_display_flush(dpy);

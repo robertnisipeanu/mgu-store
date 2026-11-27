@@ -24,7 +24,9 @@ either on the app's own layer over the HMI or inside the app's own HMI page.
   - `embed`: inside the app's HMI page, on the page template
     `LT_State_A4A_WelcomeApp`, through the HMI's own compositor (`wayland-1`):
     the HMI's title bar, popups, camera, BACK and HOME behave as on any stock
-    page (display-bridge's placement).
+    page (display-bridge's placement). An app that asks for it (`full`) gets
+    the whole screen instead, with the HMI's strip and popups over it, on the
+    whole-screen template its own page names; every other app keeps the page box.
 - **Only the app in front shows**: a foreground gate reads the HMI's
   `RemoteHmiApplication` (iDrive 8: `RemoteHmiApplication2`) stack and the
   kernel's peer uid of each connection.
@@ -89,8 +91,11 @@ version runs from its next start, usually the next head-unit start.
 
 ## The HMI and the page template
 
-The template goes into HmiMain3D's widgets before the HMI starts, at every
-boot. After two boots in a row that mounted it and ended in an HMI failure,
+Two templates are made at install: `LT_State_A4A_WelcomeApp`, the page box
+under the title bar, and `LT_State_A4A_StockExchange`, the whole screen,
+for the apps whose own page names it. A HmiMain3D that lacks what the second
+needs gets the first alone. They go into HmiMain3D's widgets before the HMI
+starts, at every boot. After two boots in a row that mounted it and ended in an HMI failure,
 it is no longer mounted: the HMI starts with its stock widgets, apps that
 ask for the embed placement get their layer, and `status.json` gets
 `"hmi": "failed"` with the `problem` `In-page drawing unavailable: the HMI
@@ -230,6 +235,8 @@ gpu.on('ready', (screen, info) => {
     if (!info) { /* an older renderer: draw in software */ return; }
     if (info.modes.indexOf('embed') < 0) gpu.mode('layer');
     const box = gpu.mode() === 'embed' ? info.embedBox : info.appArea;
+    // the whole screen, on a page that names the whole-screen template:
+    //   gpu.mode(info.modes.indexOf('full') >= 0 ? 'full' : 'layer'), box info.fullBox
     gpu.place({ x: box.x, y: box.y, w: box.w, h: box.h, scale: 1, ox: 0, oy: 0 });
     gpu.show(true);
 });
@@ -249,6 +256,10 @@ A page for embed mode names the template as its state's widget:
     <layoutGroup id="100" name="Titlebar"><component id="10" type="title"/></layoutGroup>
 </container>
 ```
+
+A page for the whole screen (`full`) names `LT_State_A4A_StockExchange` instead.
+The HMI's strip stays over the top 88 px and its `<` arrow over the left 104:
+leave what of them should stay the HMI's unclaimed.
 
 Pixel apps: `gpu.pixmap(1, 320, 200, 'index8', 'nearest')`, `gpu.palette(1,
 rgb768)`, `gpu.pixels(1, rects, indices)` for what changed, and

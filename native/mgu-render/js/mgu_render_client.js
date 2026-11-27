@@ -14,9 +14,12 @@
  *   gpu.on('tick', () => gpu.frame(recorder));        // or gpu.frameWords(Uint32Array of draw ops)
  *   gpu.show(true);
  *
- * Modes: 'layer' (own layer over the HMI, placed in screen pixels) or 'embed' (inside the app's HMI
- * page on the page template LT_State_A4A_WelcomeApp; placement x, y are the box's, w, h its size).
- * The app picks one; info.modes lists what the renderer offers now.
+ * Modes: 'layer' (own layer over the HMI, placed in screen pixels), 'embed' (inside the app's HMI
+ * page on the page template LT_State_A4A_WelcomeApp; placement x, y are the box's, w, h its size), or
+ * 'full' (embed over the whole screen, info.fullBox, for an app whose own HMI page names the whole-screen
+ * template, hmi_template.js's FULL_TEMPLATE: the HMI's strip and popups are drawn over it; what the app
+ * claims of the strip takes those touches from the HMI, as on a layer). The app picks one; info.modes lists
+ * what the renderer offers now.
  *
  * Pixel apps (a game, a software-drawn canvas; kept and sent again after a reconnect or a new size): pixmap(id, w, h, 'index8' | 'rgba' | 'rgbx', 'nearest' |
  * 'linear'), then pixels(id, rects, data) for the regions that changed, palette(id, rgb768) for INDEX8,
@@ -49,11 +52,11 @@ const M = { HELLO: 1, PLACE: 2, SHOW: 3, ATLAS: 4, RAMP: 5, LAYER: 6, FRAME: 7, 
 const X = { MODE: 0x4d520001, GRAB: 0x4d520002, PIXMAP: 0x4d520003, PIXELS: 0x4d520004, PALETTE: 0x4d520005, FINGERS: 0x4d520006,
     READY: 0x4d520101, STATE: 0x4d520102, CCU: 0x4d520103, FINGER: 0x4d520104 };
 const E = { READY: 101, TICK: 102, ERROR: 103, STATS: 104, TOUCH: 105, CLOSED: 106 };
-const MODES = { layer: 1, embed: 2 };
+const MODES = { layer: [1], embed: [2], full: [2, 1] };   // X_MODE's words: the mode, then the layout
 const MODE_NAMES = [null, 'layer', 'embed'];
 const FORMATS = { rgba: 1, rgbx: 2, index8: 3 };
 const CAPS = { touch: 1, controller: 2, frontGate: 4, pixmap: 8, video: 16, zeroCopy: 32, fingers: 64, controllerHold: 128,
-    videoNv12: 256 };
+    videoNv12: 256, full: 512 };
 // X_GRAB's hold: the parts of the controller the HMI doesn't get while the app grabs it (none named: all three)
 const HOLD = { knob: 1, press: 2, tilt: 4 };
 const PHASES = [null, 'down', 'move', 'up', 'cancel'];
@@ -135,7 +138,7 @@ class RenderClient extends EventEmitter {
             this.fd = fs.openSync(this.opts.file, 'w');
             this.connected = this.ready = this.native = true;
             this._write(hello);
-            this._write(u32msg(X.MODE, [MODES[this.wantMode]]));
+            this._write(u32msg(X.MODE, MODES[this.wantMode]));
             setImmediate(() => this.emit('ready', this.screen, null));
             return this;
         }
@@ -195,6 +198,8 @@ class RenderClient extends EventEmitter {
             const modes = [], caps = p.readUInt32LE(8);
             if (p.readUInt32LE(4) & 1) modes.push('layer');
             if (p.readUInt32LE(4) & 2) modes.push('embed');
+            const full = (p.readUInt32LE(4) & 2) && (caps & CAPS.full) && p.length >= 68;
+            if (full) modes.push('full');
             this.native = true;
             this.info = {
                 version: p.readUInt32LE(0), modes, embedBox: rect(p, 12), appArea: rect(p, 28),
@@ -202,7 +207,7 @@ class RenderClient extends EventEmitter {
                 touch: !!(caps & CAPS.touch), controller: !!(caps & CAPS.controller),
                 frontGate: !!(caps & CAPS.frontGate), pixmap: !!(caps & CAPS.pixmap), video: !!(caps & CAPS.video),
                 zeroCopy: !!(caps & CAPS.zeroCopy), fingers: !!(caps & CAPS.fingers), controllerHold: !!(caps & CAPS.controllerHold),
-                videoNv12: !!(caps & CAPS.videoNv12),
+                videoNv12: !!(caps & CAPS.videoNv12), fullBox: full ? rect(p, 52) : null,
             };
         } else if (type === E.READY) {
             this.ready = true; this.errLogged = false;
@@ -211,7 +216,7 @@ class RenderClient extends EventEmitter {
                 this.log.warn('mgu-render: the renderer does not speak mgu-render/1');
                 this.info = null;
             } else {
-                this._write(u32msg(X.MODE, [MODES[this.wantMode]]));
+                this._write(u32msg(X.MODE, MODES[this.wantMode]));
                 if (this.placement) this._sendPlace();
                 this._sendPixmaps();
                 this._sendVideos();
@@ -246,13 +251,13 @@ class RenderClient extends EventEmitter {
         }
     }
 
-    /** 'layer' | 'embed' (or no argument: the mode asked for). */
+    /** 'layer' | 'embed' | 'full' (or no argument: the mode asked for). */
     mode(m) {
         if (m === undefined) return this.wantMode;
-        if (!MODES[m]) throw new Error('mode: layer or embed');
+        if (!MODES[m]) throw new Error('mode: layer, embed or full');
         if (m === this.wantMode) return m;
         this.wantMode = m;
-        if (this.ready && this.native) this._write(u32msg(X.MODE, [MODES[m]]));
+        if (this.ready && this.native) this._write(u32msg(X.MODE, MODES[m]));
         return m;
     }
 

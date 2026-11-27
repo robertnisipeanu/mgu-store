@@ -188,11 +188,21 @@ static void free_bo(int i, int h)
     B[i].stride = 0;
 }
 
+/* the buffers made so far go: a connection for another size (the other page template) makes its own */
+static void free_bufs(void)
+{
+    current();
+    glFinish();                                 /* nothing of ours still draws into them */
+    for (int i = 0; i < nbuf; i++) free_bo(i, bh);
+    log_info("embed: the %d GPU buffers %dx%d freed", nbuf, bw, bh);
+    nbuf = 0; bw = 0; bh = 0;
+}
+
 int embed_gl_buffers(int n, int w, int h, int fd[], uint32_t stride[], char *why, size_t len)
 {
     if (n > MAXBUF) n = MAXBUF;
     if (failed[0]) { snprintf(why, len, "%s", failed); return -1; }
-    if (nbuf && (w != bw || h != bh)) { snprintf(why, len, "buffers made for %dx%d", bw, bh); return -1; }
+    if (nbuf && (w != bw || h != bh)) free_bufs();
     current();
     setup();
     for (int i = nbuf; i < n; i++) {
@@ -219,9 +229,18 @@ fail:
 }
 
 /* ---------------- drawing ---------------- */
+static int rb_w, rb_h;                          /* the readback target's size */
 static int readback_target(int w, int h)
 {
+    if (rb_fbo && (w != rb_w || h != rb_h)) {        /* made for the other page template's size: made again */
+        pend_px = NULL;                                 /* a started readback was for the gone connection */
+        glDeleteFramebuffers(1, &rb_fbo); glDeleteTextures(1, &rb_tex);
+        if (pbo) glDeleteBuffers(1, &pbo);
+        free(rb_px);
+        rb_fbo = 0; rb_tex = 0; pbo = 0; rb_px = NULL;
+    }
     if (rb_fbo) { glBindFramebuffer(GL_FRAMEBUFFER, rb_fbo); return 0; }
+    rb_w = w; rb_h = h;
     if (!read_bgra && !(map_range && unmap) && !(rb_px = malloc((size_t)w * h * 4))) return -1;
     glGenTextures(1, &rb_tex); glBindTexture(GL_TEXTURE_2D, rb_tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);

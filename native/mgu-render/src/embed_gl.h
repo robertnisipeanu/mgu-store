@@ -13,7 +13,8 @@
    (GLES 3) */
 void embed_gl_init(EGLDisplay d, EGLSurface s, EGLContext ctx, int pbo, int finish);
 /* n dmabufs of w x h XRGB8888 (linear), each with an FBO: their fds and strides (kept open, owned here, made once
-   and kept for later connections); 0, or -1 with the reason in why */
+   and kept for later connections of that size; another size, the other page template's, makes them again); 0, or
+   -1 with the reason in why */
 int embed_gl_buffers(int n, int w, int h, int fd[], uint32_t stride[], char *why, size_t len);
 /* binds the target for a frame: dmabuf gpu (0..n-1), or the readback FBO (gpu < 0); returns gfx_draw's flags */
 int embed_gl_begin(int gpu, int w, int h);

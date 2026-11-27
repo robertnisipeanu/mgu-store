@@ -26,7 +26,8 @@
 static int opt_drm, opt_prime = 1, opt_refuse;
 
 struct dbuf { struct wl_resource *res; int fd; int w, h; uint32_t stride, format; int held; };
-struct surf { struct wl_resource *res, *pending, *current; struct wl_list frames; };
+/* current_gone: the shown buffer destroyed (a client that goes away destroys its buffers before its surface) */
+struct surf { struct wl_resource *res, *pending, *current; struct wl_list frames; struct wl_listener current_gone; int watching; };
 
 static uint32_t crc_table[256];
 static uint32_t crc32_rgb(const uint8_t *p, int w, int h, uint32_t stride)
@@ -69,6 +70,21 @@ static void set_held(struct wl_resource *r, int on)
 }
 
 /* ---- wl_surface ---- */
+static void current_gone(struct wl_listener *l, void *data)
+{
+    (void)data;
+    struct surf *s = wl_container_of(l, s, current_gone);
+    set_held(s->current, 0);
+    s->current = NULL;
+    s->watching = 0;
+}
+static void watch_current(struct surf *s, struct wl_resource *b)
+{
+    if (s->watching) wl_list_remove(&s->current_gone.link);
+    s->current = b;
+    s->watching = b != NULL;
+    if (b) { s->current_gone.notify = current_gone; wl_resource_add_destroy_listener(b, &s->current_gone); }
+}
 static void s_attach(struct wl_client *c, struct wl_resource *r, struct wl_resource *buf, int32_t x, int32_t y)
 {
     (void)c, (void)x, (void)y;
@@ -109,7 +125,7 @@ static void s_commit(struct wl_client *c, struct wl_resource *r)
         fflush(stdout);
         if (s->current && s->current != b) { set_held(s->current, 0); wl_buffer_send_release(s->current); }
         set_held(b, 1);
-        s->current = b;
+        watch_current(s, b);
         s->pending = NULL;
     }
     struct wl_resource *cb, *tmp;
@@ -129,7 +145,12 @@ static void surf_free(struct wl_resource *r)
     struct surf *s = wl_resource_get_user_data(r);
     struct wl_resource *cb, *tmp;
     wl_resource_for_each_safe(cb, tmp, &s->frames) wl_resource_destroy(cb);
-    if (s->current) { set_held(s->current, 0); wl_buffer_send_release(s->current); }
+    if (s->current) {
+        struct wl_resource *b = s->current;
+        watch_current(s, NULL);
+        set_held(b, 0);
+        wl_buffer_send_release(b);
+    }
     free(s);
 }
 

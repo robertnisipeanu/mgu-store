@@ -4,9 +4,11 @@
 # DIR holds hmi_template.js and mgu-render.conf (default: this script's directory); OUT keeps the
 # template (default: hmi beside DIR, DIR being <root>/current); status.json beside OUT says how its last build went.
 #
-# --build (the install runs it: component.json postInstall) makes the template from the installed
-# HmiMain3D for the conf's embed_surface_id, unless OUT holds it for this stamp already (that binary,
-# the generator and the id: its identifier numbers belong to one HmiMain3D build) or the last build
+# --build (the install runs it: component.json postInstall) makes the templates from the installed
+# HmiMain3D for the conf's embed_surface_id and embed_full_surface_id (the page box's template and the
+# whole screen's, with the boxes file naming each one's layout, surface and box), unless OUT holds them
+# for this stamp already (that binary, the generator and the ids: its identifier numbers belong to one
+# HmiMain3D build) or the last build
 # for this stamp failed for good (the generator found HmiMain3D lacking what the template needs). The
 # generator runs at nice 19, first in line for the out-of-memory killer, for at most 120 s; any other
 # failure (that limit, a signal, memory or disk) is tried again at the next install.
@@ -16,7 +18,8 @@
 # the template for this stamp, a copy of bmw/widget/ plus the template (the HMI loads every *.pbw in
 # its widget directories) is made in /run and mounted over it, else the stock widgets stay. Nothing on
 # /mnt/dataro is written, and the copy is made afresh at each boot. The marker tells the renderer the
-# template is in place for this HMI start.
+# templates are in place for this HMI start; it holds the boxes file, so the renderer takes each layout's
+# box and surface from the templates the HMI loaded.
 #
 # The HMI runs as its own user (not root): the template, its folder and the copy are made readable by
 # everyone (0644 files, 0755 folders) whatever umask the install or the boot runs with.
@@ -96,7 +99,7 @@ status() {
 # one value of status.json as written above, without its quotes
 field() { sed -n "s/^\"$1\": //p" "$STATUS" 2>/dev/null | sed 's/,$//; s/^"//; s/"$//'; }
 built() { [ "$(cat "$OUT/stamp" 2>/dev/null)" = "$stamp" ] && ls "$OUT"/*.pbw >/dev/null 2>&1; }
-readable() { chmod 0755 "$OUT" && chmod 0644 "$OUT"/*.pbw "$OUT/stamp"; }
+readable() { chmod 0755 "$OUT" && chmod 0644 "$OUT"/*.pbw "$OUT/stamp" && { [ ! -e "$OUT/boxes" ] || chmod 0644 "$OUT/boxes"; }; }
 
 # ---- the boot count ----
 
@@ -292,7 +295,10 @@ fi
 id=$(sed -n 's/^[[:space:]]*embed_surface_id[[:space:]]*=[[:space:]]*\([0-9A-Fa-fx]*\).*/\1/p' \
 	"$DIR/mgu-render.conf" 2>/dev/null | tail -n 1)
 id=${id:-0x500}
-stamp="$(stat -L -c '%s %Y' "$HMI") $(md5sum < "$DIR/hmi_template.js" | cut -d' ' -f1) $id"
+fid=$(sed -n 's/^[[:space:]]*embed_full_surface_id[[:space:]]*=[[:space:]]*\([0-9A-Fa-fx]*\).*/\1/p' \
+	"$DIR/mgu-render.conf" 2>/dev/null | tail -n 1)
+fid=${fid:-0x501}
+stamp="$(stat -L -c '%s %Y' "$HMI") $(md5sum < "$DIR/hmi_template.js" | cut -d' ' -f1) $id $fid"
 
 if [ "$MODE" = build ]; then
 	if built; then
@@ -309,7 +315,7 @@ if [ "$MODE" = build ]; then
 	NEW=$OUT.new
 	rm -rf "$NEW"
 	mkdir -p "$NEW"
-	"$NODE" "$DIR/hmi_template.js" --hmi "$HMI" --surface-id "$id" --out "$NEW" >/dev/null 2>"$NEW/log" &
+	"$NODE" "$DIR/hmi_template.js" --hmi "$HMI" --surface-id "$id" --full-surface-id "$fid" --out "$NEW" >/dev/null 2>"$NEW/log" &
 	gen=$!
 	# the unit's shell has renice, not nice
 	renice -n 19 -p $gen >/dev/null 2>&1 || :
@@ -376,7 +382,7 @@ cp "$OUT"/*.pbw "$RUN"/
 chmod 0755 "$RUN"
 (cd "$OUT" && for f in *.pbw; do chmod 0644 "$RUN/$f"; done)
 mount --bind "$RUN" "$WIDGETS"
-touch "$MARKER"
+if [ -s "$OUT/boxes" ]; then cp "$OUT/boxes" "$MARKER.tmp" && mv -f "$MARKER.tmp" "$MARKER"; else touch "$MARKER"; fi
 echo "mgu-render-hmi: $(cd "$OUT" && ls *.pbw) added to $WIDGETS"
 if [ "$s_state" = mounted ] && [ "$s_boot" = "$boot" ]; then
 	sh "$0" --confirm "$DIR" "$OUT" </dev/null &
