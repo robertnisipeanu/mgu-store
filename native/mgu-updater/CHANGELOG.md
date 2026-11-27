@@ -4,6 +4,10 @@
 
 - Catalog checks, icon downloads, builds and installs run faster with lower memory use and fewer network requests on the head unit. Self-updates run ahead of dependent queued updates, and queued updates and state files survive restarts cleanly.
 
+## 0.8.63
+
+- The phone page's Add source takes a catalog address without `https://`.
+
 ## 0.8.62
 
 - The updater asks the deploy tool and app-privacy again only when what their last answers rest on has changed, and at each periodic check, and reads the free space once for downloads close together.

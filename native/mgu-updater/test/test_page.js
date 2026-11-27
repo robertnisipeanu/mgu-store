@@ -106,5 +106,16 @@ const assert = require('assert');
     submit();
     await tick();
     assert.deepStrictEqual(sent, [{ op: 'source-add', type: 'https', url: 'https://example.org/catalog.json' }]);
+    // host/path without https://, in either box: that https address, at once, no probe
+    for (const type of ['https', 'github']) {
+        sent.length = 0;
+        els.addType.value = type;
+        els.addValue.value = 'example.org/k7q2m9';
+        els.addValue.oninput();
+        els.addValue.onchange();
+        submit();
+        await tick();
+        assert.deepStrictEqual(sent, [{ op: 'source-add', type: 'https', url: 'https://example.org/k7q2m9' }], type);
+    }
     console.log("page: all pass");
 })().catch((e) => { console.error(e); process.exit(1); });
