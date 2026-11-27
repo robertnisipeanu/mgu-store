@@ -46,6 +46,8 @@ const ICON_BYTES = 128 << 10; // a component's icon (PNG)
 // a GitHub component read file by file (githubReader partFiles): at most this many files, this many at a time (fetch.js)
 const PART_FILES = 400;
 const PART_PARALLEL = 6;
+const MANIFEST_PARALLEL = 6;
+const COPY_CHUNK = 256 << 10;
 // what one queue's installs keep (batchCache): repo files by git id, and the last whole repo read
 const BATCH_BYTES = 64 << 20;
 const WHOLE_BYTES = 96 << 20;
@@ -67,8 +69,9 @@ function readJsonFile(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-/* Writes a root-only file by rename: no reader sees it half written. */
-function writePrivate(file, text) {
+/* Writes a root-only file by rename: no reader sees it half written.
+ * sync: false skips fsync for content-addressed cache entries verified on read. */
+function writePrivate(file, text, sync) {
     try {
         if (fs.readFileSync(file).equals(Buffer.isBuffer(text) ? text : Buffer.from(text))) {
             return;
@@ -81,12 +84,119 @@ function writePrivate(file, text) {
     const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
     try {
         fs.writeSync(fd, text);
-        fs.fsyncSync(fd);
+        if (sync !== false) {
+            fs.fsyncSync(fd);
+        }
     } finally {
         fs.closeSync(fd);
     }
     fs.chmodSync(tmp, 0o600);
     fs.renameSync(tmp, file);
+}
+
+/* Maps items with at most limit concurrent calls to fn(item, index), preserving order. */
+function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    let failed = false;
+    const worker = () => {
+        if (failed || next >= items.length) {
+            return Promise.resolve();
+        }
+        const i = next++;
+        return Promise.resolve().then(() => fn(items[i], i)).then((v) => {
+            out[i] = v;
+            return worker();
+        }, (err) => {
+            failed = true;
+            throw err;
+        });
+    };
+    const n = Math.max(0, Math.min(limit, items.length));
+    return Promise.all(Array.from({ length: n }, worker)).then(() => out);
+}
+
+/* Streams regular file src (opened with O_NOFOLLOW|O_NONBLOCK) to dst (string or
+ * function(size) -> path, mode 0600) in COPY_CHUNK pieces, hashing with sha256.
+ * Resolves with { file, size, sha256 }. */
+function copyFileHashed(src, to, maxBytes, opts) {
+    const nonEmpty = !!(opts && opts.nonEmpty);
+    const sizeErr = (opts && opts.sizeError) || 'download is not a file of the expected size';
+    return new Promise((resolve, reject) => {
+        let inFd = null;
+        let outFd = null;
+        let dst = null;
+        let closed = false;
+        const finish = (err, res) => {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            if (inFd !== null) {
+                try { fs.closeSync(inFd); } catch (e) { /* closed */ }
+            }
+            if (outFd !== null) {
+                try { fs.closeSync(outFd); } catch (e) { /* closed */ }
+            }
+            if (err) {
+                if (dst) {
+                    rmQuiet(dst);
+                }
+                reject(err);
+            } else {
+                resolve(res);
+            }
+        };
+        try {
+            inFd = fs.openSync(src, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+            const st = fs.fstatSync(inFd);
+            if (!st.isFile() || (maxBytes && st.size > maxBytes) || (nonEmpty && st.size === 0)) {
+                throw new Error(sizeErr);
+            }
+            dst = typeof to === 'function' ? to(st.size) : to;
+            mkdirPrivate(path.dirname(dst));
+            outFd = fs.openSync(dst, 'w', (opts && opts.mode) || 0o600);
+        } catch (e) {
+            finish(e);
+            return;
+        }
+        const buf = Buffer.allocUnsafe(COPY_CHUNK);
+        const hash = crypto.createHash('sha256');
+        let total = 0;
+        const writeAll = (len, off) => {
+            fs.write(outFd, buf, off, len - off, null, (err, w) => {
+                if (err) {
+                    finish(err);
+                } else if (off + w < len) {
+                    writeAll(len, off + w);
+                } else {
+                    step();
+                }
+            });
+        };
+        const step = () => {
+            fs.read(inFd, buf, 0, buf.length, null, (err, n) => {
+                if (err) {
+                    finish(err);
+                } else if (!n) {
+                    if (nonEmpty && total === 0) {
+                        finish(new Error(sizeErr));
+                    } else {
+                        finish(null, { file: dst, size: total, sha256: hash.digest('hex') });
+                    }
+                } else {
+                    total += n;
+                    if (maxBytes && total > maxBytes) {
+                        finish(new Error(sizeErr));
+                        return;
+                    }
+                    hash.update(n === buf.length ? buf : buf.slice(0, n));
+                    writeAll(n, 0);
+                }
+            });
+        };
+        step();
+    });
 }
 
 function mkdirPrivate(dir) {
@@ -455,12 +565,16 @@ function repoCatalog(readFile, commit, revision, listDir, treeOf) {
             }
             return readFile(n).then((b) => ({ name: n, data: b }));
         }), Promise.reject(Object.assign(new Error('none'), { missing: true })));
-        return entries.reduce((p, rc) => p.then((list) => {
+        const slots = entries.map((rc) => {
             if (!rc || !ID.test(rc.id) || ['app', 'tool'].indexOf(rc.kind) < 0 || !safeRel(rc.path) || seen.has(rc.id)) {
-                skipped.push(`${rc && rc.id}: needs a unique id, kind app or tool and a path`);
-                return list;
+                return { skip: `${rc && rc.id}: needs a unique id, kind app or tool and a path` };
             }
             seen.add(rc.id);
+            return { rc };
+        });
+        const work = slots.filter((s) => s.rc);
+        return mapLimit(work, MANIFEST_PARALLEL, (slot) => {
+            const rc = slot.rc;
             const scripted = rc.kind === 'app' && rc.build !== undefined && rc.build !== 'unit';
             const manifest = typeof rc.manifest === 'string' && /^[A-Za-z0-9._-]+$/.test(rc.manifest) ? [rc.manifest] : null;
             const names = rc.kind === 'tool' ? ['component.json'] : manifest || (scripted ? ['app.json', 'package.json'] : ['mgu-app.json']);
@@ -510,7 +624,7 @@ function repoCatalog(readFile, commit, revision, listDir, treeOf) {
                     const rhmi = !scripted && rc.kind === 'app' && safeRel(c.tree || '') ? `${rc.path}/${c.tree}/rhmiData/` : null;
                     const iconRef = rc.kind !== 'app' ? null : scripted ? `${rc.path}/${safeRel(rc.icon) ? rc.icon : 'icon.png'}`
                         : rhmi ? `${rhmi}application.json` : null;
-                    return list.concat([Object.assign(catalogLib.checkExtras({
+                    slot.comp = Object.assign(catalogLib.checkExtras({
                         id: rc.id, kind: rc.kind, version: c.version, title: pick('title'), description: pick('description'),
                         texts: pick('texts'),
                         build: rc.kind === 'app' ? 'unit' : null, requires: Object.keys(requires).length ? requires : undefined,
@@ -526,7 +640,7 @@ function repoCatalog(readFile, commit, revision, listDir, treeOf) {
                         icon: iconRef || undefined,
                         commit: commit || null, revision: revision || null,
                         contentSpec: revision ? contentSpec(rc, script) : null
-                    }), rhmi ? { icon: { ref: iconRef, sha256: null, entryPoint: true } } : {})]);
+                    }), rhmi ? { icon: { ref: iconRef, sha256: null, entryPoint: true } } : {});
                 })
                 .catch((err) => {
                     if (err.rateLimited) {
@@ -534,11 +648,20 @@ function repoCatalog(readFile, commit, revision, listDir, treeOf) {
                     }
                     // a folder a pattern matched that is not an app (no manifest) is no component
                     if (!(rc.pattern && err.missing)) {
-                        skipped.push(`${rc.id}: ${err.missing ? `${names.map((n) => `${rc.path}/${n}`).join(' or ')} is missing` : err.message}`);
+                        slot.skip = `${rc.id}: ${err.missing ? `${names.map((n) => `${rc.path}/${n}`).join(' or ')} is missing` : err.message}`;
                     }
-                    return list;
                 });
-        }), Promise.resolve([])).then((components) => {
+        }).then(() => {
+            const components = [];
+            slots.forEach((s) => {
+                if (s.comp) {
+                    components.push(s.comp);
+                } else if (s.skip) {
+                    skipped.push(s.skip);
+                }
+            });
+            return components;
+        }).then((components) => {
             // a folder leaves out what other components inside it are made of; a build script that names
             // no shared files reads the whole repo but the other apps' folders
             const specs = components.filter((c) => c.contentSpec);
@@ -648,7 +771,7 @@ function packComponent(entry, files) {
         if (!c || c.id !== entry.id || c.version !== entry.version) {
             throw new Error(`${entry.path}/mgu-app.json does not name ${entry.id}@${entry.version}`);
         }
-        return tar.tgz(files.map((f) => ({ name: f.name, data: f.data, mode: f.mode & 0o111 ? 0o755 : 0o644 })).sort(byName), MTIME);
+        return tar.tgzAsync(files.map((f) => ({ name: f.name, data: f.data, mode: f.mode & 0o111 ? 0o755 : 0o644 })).sort(byName), MTIME);
     }
     if (entry.daemon) {
         return packService(entry, byPath);
@@ -697,7 +820,7 @@ function packComponent(entry, files) {
     }
     delete manifest.build;
     entries.push({ name: 'component.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), mode: 0o644 });
-    return tar.tgz(entries.sort(byName), MTIME);
+    return tar.tgzAsync(entries.sort(byName), MTIME);
 }
 
 /* The systemd unit of a service tool (checkService), running its program
@@ -742,7 +865,7 @@ function packService(entry, byPath) {
     if (entry.mguHmi) {
         manifest.mguHmi = entry.mguHmi;
     }
-    return tar.tgz([
+    return tar.tgzAsync([
         { name: 'component.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), mode: 0o644 },
         { name: `files/${sv.exec}`, data: bin.data, mode: 0o755 },
         { name: `units/${unit}`, data: Buffer.from(serviceUnit(entry)), mode: 0o644 }
@@ -868,7 +991,7 @@ function packPreload(entry, byPath) {
     if (entry.mguNeeds) {
         manifest.mguNeeds = entry.mguNeeds;
     }
-    return tar.tgz([
+    return tar.tgzAsync([
         { name: 'component.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n'), mode: 0o644 },
         { name: `files/${pl.library}`, data: lib.data, mode: 0o755 },
         { name: 'files/guard.sh', data: guardSh, mode: 0o755 },
@@ -985,7 +1108,8 @@ function renameApp(entry, files, unitId) {
  * OAP package's package.json name (flat, under package/, an .mgu's
  * source/); null for a tool kit or anything else. */
 function packageId(bytes, maxBytes) {
-    return tar.untgz(bytes, maxBytes).then((members) => {
+    const input = typeof bytes === 'string' ? fs.createReadStream(bytes) : bytes;
+    return tar.untgz(input, maxBytes).then((members) => {
         const byName = new Map(members.map((m) => [m.name.replace(/^\.\//, ''), m.data]));
         if (byName.has('component.json')) {
             return null;
@@ -1130,7 +1254,7 @@ function batchCache(dir, maxDisk) {
             if (f && !onDisk().has(id) && room(data.length, inUse)) {
                 try {
                     mkdirPrivate(dir);
-                    writePrivate(f, data);
+                    writePrivate(f, data, false);
                     disk.set(id, { size: data.length, t: Date.now() });
                     diskBytes += data.length;
                 } catch (e) { /* kept for this run only */ }
@@ -1158,12 +1282,8 @@ function batchCache(dir, maxDisk) {
                 }
                 return null;
             }
-            const now = new Date();
-            try {
-                fs.utimesSync(f, now, now);
-            } catch (e) { /* its age stays */ }
             if (kept) {
-                kept.t = now.getTime();
+                kept.t = Date.now();
             }
             return data;
         },
@@ -1228,12 +1348,17 @@ function folderReader(root, ctx) {
             }
             throw new Error('no catalog.json or mgu-repo.json');
         }),
-        artifact: (entry, onProgress) => {
+        artifact: (entry, onProgress, opts) => {
             const url = entry.artifact.url || entry.artifact.name;
             if (/^https:\/\//.test(url)) {
-                return ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress);
+                return ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress, null, opts);
             }
-            return Promise.resolve().then(() => readInside(root, url.replace(/^\.\//, ''), entry.artifact.size));
+            const rel = url.replace(/^\.\//, '');
+            if (opts && opts.to) {
+                return Promise.resolve().then(() => safePath(root, rel))
+                    .then((src) => copyFileHashed(src, opts.to, entry.artifact.size));
+            }
+            return Promise.resolve().then(() => readInside(root, rel, entry.artifact.size));
         },
         // with paths, the files under each (one not there left out, but the first), at most maxBuildBytes in all
         files: (commit, onProgress, under, paths) => Promise.resolve().then(() => {
@@ -1460,8 +1585,9 @@ function httpsReader(s, ctx) {
             return { mode: 'index', commit: null, skipped, components: Array.from(newest.values()).sort((a, b) => (a.id < b.id ? -1 : 1)) };
         });
     };
-    /* An artifact's bytes; an index's package is checked against its sha256 and kept (keep). */
-    const artifact = (entry, onProgress) => {
+    /* An artifact's bytes (or streamed { file, size, sha256 } when opts.to is given
+     * for a plain catalog); an index's package is checked against its sha256 and kept (keep). */
+    const artifact = (entry, onProgress, opts) => {
         const index = entry.artifact.index;
         const file = index && cached(entry.artifact.sha256);
         // what a version 2 index says of a package is the package's own word
@@ -1479,7 +1605,8 @@ function httpsReader(s, ctx) {
             }
         }
         const url = new URL(entry.artifact.url || entry.artifact.name, s.url).toString();
-        const got = ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress);
+        const reqOpts = !index ? opts : opts && opts.fresh ? { fresh: true } : undefined;
+        const got = ctx.net.get(url, ua(ctx.version), entry.artifact.name, entry.artifact.size, onProgress, null, reqOpts);
         if (!index) {
             return got;
         }
@@ -1495,7 +1622,7 @@ function httpsReader(s, ctx) {
     };
     return {
         network: true,
-        catalog: () => ctx.net.get(s.url, ua(ctx.version), 'catalog.json', 4 << 20).then((b) => {
+        catalog: () => (ctx.net.cached || ctx.net.get).call(ctx.net, s.url, ua(ctx.version), 'catalog.json', 4 << 20).then((b) => {
             const text = b.toString('utf8');
             let doc = null;
             try {
@@ -1623,8 +1750,8 @@ function githubReader(s, ctx) {
         .then((b) => parseJson(b, url));
     // a listing read before from the same commit or the same catalog.json (its memoKey): the updater's copy
     const reuse = (key) => (ctx.reuse ? ctx.reuse(key) : null);
-    const raw = (url, name, max, onProgress, anon) => counted(url, () => ctx.net.get(url, headers(url, 'application/octet-stream', anon),
-        name, max, onProgress));
+    const raw = (url, name, max, onProgress, anon, opts) => counted(url, () => ctx.net.get(url, headers(url, 'application/octet-stream', anon),
+        name, max, onProgress, null, opts));
     // the tarball endpoint redirects to codeload for its JSON media type; octet-stream is refused (415).
     // Without a token, codeload itself.
     const tarball = (commit, onProgress, anon) => {
@@ -1655,7 +1782,7 @@ function githubReader(s, ctx) {
     // the refs github.com advertises to git (parseRefs)
     const refs = () => {
         const url = `${web}/${s.repo}.git/info/refs?service=git-upload-pack`;
-        return counted(url, () => ctx.net.get(url, ua(ctx.version), 'refs', 4 << 20)).then(parseRefs);
+        return counted(url, () => (ctx.net.cached || ctx.net.get).call(ctx.net, url, ua(ctx.version), 'refs', 4 << 20)).then(parseRefs);
     };
     // an icon named by a release asset's name is that asset; an https URL stays
     const assetIcon = (c, assets) => {
@@ -2049,7 +2176,7 @@ function githubReader(s, ctx) {
                 throw err;
             });
         },
-        artifact: (entry, onProgress) => tokenOrNone((anon) => raw(entry.artifact.url, entry.artifact.name, entry.artifact.size, onProgress, anon)),
+        artifact: (entry, onProgress, opts) => tokenOrNone((anon) => raw(entry.artifact.url, entry.artifact.name, entry.artifact.size, onProgress, anon, opts)),
         // a repo tree's icon is its file at the listed commit
         icon: (entry) => (/^https:\/\//.test(entry.icon.ref) ? tokenOrNone((anon) => raw(entry.icon.ref, 'icon.png', ICON_BYTES, null, anon))
             : entry.commit && safeRel(entry.icon.ref) ? iconOf(entry, (rel, max) => (safeRel(rel)
@@ -2156,16 +2283,20 @@ function packageInfo(members) {
     const pkg = parseJson(byName.get(`${base}package.json`), 'package.json');
     let title = null;
     const rhmi = base === 'source/' ? 'rhmiData/' : `${base}rhmiData/`;
+    let app = null;
+    try {
+        const doc = parseJson(byName.get(`${rhmi}application.json`), 'application.json');
+        app = doc && doc.application ? doc.application : null;
+    } catch (e) { /* no application.json */ }
     // the HMIs its rhmiData has a UI for: application.json's uiDescriptions[].hmi, else its uiDescriptions/<hmi>/ folders
     const hmi = [];
-    try {
-        const uis = parseJson(byName.get(`${rhmi}application.json`), 'application.json').application.uiDescriptions || [];
-        uis.forEach((u) => (u && Array.isArray(u.hmi) ? u.hmi : []).forEach((h) => {
+    if (app && Array.isArray(app.uiDescriptions)) {
+        app.uiDescriptions.forEach((u) => (u && Array.isArray(u.hmi) ? u.hmi : []).forEach((h) => {
             if (catalogLib.HMIS.indexOf(h) >= 0 && hmi.indexOf(h) < 0) {
                 hmi.push(h);
             }
         }));
-    } catch (e) { /* no application.json */ }
+    }
     if (!hmi.length) {
         byName.forEach((data, name) => {
             const m = name.slice(0, rhmi.length) === rhmi && /^uiDescriptions\/([^/]+)\//.exec(name.slice(rhmi.length));
@@ -2174,26 +2305,23 @@ function packageInfo(members) {
             }
         });
     }
-    try {
-        const app = parseJson(byName.get(`${rhmi}application.json`), 'application.json').application;
-        const textId = app.entryPoints && app.entryPoints[0] && app.entryPoints[0].textId;
-        const groups = (app.variantGroups || []).map((g) => String(g.stringsPath || '').replace(/^\.\//, ''));
-        ['variantGroups/Common/texts'].concat(groups).some((dir) => {
-            const t = byName.get(`${rhmi}${dir}/en_GB.json`);
-            const text = t && textId && parseJson(t, 'en_GB.json')[textId];
-            title = typeof text === 'string' && text ? text : null;
-            return !!title;
-        });
-    } catch (e) { /* no entry-point text */ }
+    if (app) {
+        try {
+            const textId = app.entryPoints && app.entryPoints[0] && app.entryPoints[0].textId;
+            const groups = (app.variantGroups || []).map((g) => String(g.stringsPath || '').replace(/^\.\//, ''));
+            ['variantGroups/Common/texts'].concat(groups).some((dir) => {
+                const t = byName.get(`${rhmi}${dir}/en_GB.json`);
+                const text = t && textId && parseJson(t, 'en_GB.json')[textId];
+                title = typeof text === 'string' && text ? text : null;
+                return !!title;
+            });
+        } catch (e) { /* no entry-point text */ }
+    }
     // the store's picture (App Manager 2): icon.png beside package.json, else the entry point's icon;
     // a PNG of at most ICON_BYTES
     let ref = `${base}icon.png`;
     if (!byName.has(ref)) {
-        try {
-            ref = entryIcons(parseJson(byName.get(`${rhmi}application.json`), 'application.json').application, rhmi).find((r) => byName.has(r)) || null;
-        } catch (e) {
-            ref = null;
-        }
+        ref = app ? entryIcons(app, rhmi).find((r) => byName.has(r)) || null : null;
     }
     const ib = ref && byName.get(ref);
     const icon = ib && isIcon(ib)
@@ -2303,7 +2431,7 @@ function label(s) {
 }
 
 module.exports = {
-    load, save, checkStored, writePrivate, mkdirPrivate, reader, label, usbSources, mountPoints,
+    load, save, checkStored, writePrivate, mkdirPrivate, copyFileHashed, mapLimit, reader, label, usbSources, mountPoints,
     repoCatalog, contentSpec, contentOf, partPaths, buildPaths, batchCache, contentThen, packComponent, serviceUnit, preloadFiles, subtree, packageInfo, packageEntry, readInside, walkInside, authError,
     renameable, renameApp, packageId, uuid5, orderBranches, entryIcons, isIcon, safePath, parseRefs, REPO, CHANNEL, PACKAGE, ICON_BYTES,
     RATE_LIMIT

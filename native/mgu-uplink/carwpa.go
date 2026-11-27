@@ -68,19 +68,23 @@ type carSupplicant struct {
 	conf  string // the saved networks
 	ctrl  string // wpa.conf's ctrl_interface, for the mgu-wpa backend
 
-	mu       sync.Mutex
-	bus      *dbusConn
-	path     objPath // the interface object; "" until ensure
-	at       time.Time
-	ours     map[objPath]string // our networks in the car's supplicant: SSID
-	pending  *savedNet          // join's network until joined or reload
-	setAside bool
-	quiet    bool   // our networks are off (hold)
-	scanFreq string // the scan_freq our saved networks get (hold), "" none
-	freqOn   map[objPath]string
-	noFreq   bool             // the supplicant refused a scan_freq: hold turns ours off instead
-	lim      map[objPath]bool // ours on 2.4 GHz only (freq_list)
-	noLimit  bool             // the supplicant refused a freq_list: ours on every band
+	mu        sync.Mutex
+	bus       *dbusConn
+	path      objPath // the interface object; "" until ensure
+	at        time.Time
+	ours      map[objPath]string // our networks in the car's supplicant: SSID
+	pending   *savedNet          // join's network until joined or reload
+	setAside  bool
+	quiet     bool   // our networks are off (hold)
+	scanFreq  string // the scan_freq our saved networks get (hold), "" none
+	freqOn    map[objPath]string
+	noFreq    bool             // the supplicant refused a scan_freq: hold turns ours off instead
+	lim       map[objPath]bool // ours on 2.4 GHz only (freq_list)
+	noLimit   bool             // the supplicant refused a freq_list: ours on every band
+	confCache wpaConfCache
+	inTick    bool
+	tickProps map[string]any
+	tickBSS   map[objPath]map[string]any
 }
 
 func newCarSupplicant(iface, conf, ctrl string) *carSupplicant {
@@ -88,6 +92,56 @@ func newCarSupplicant(iface, conf, ctrl string) *carSupplicant {
 }
 
 func (s *carSupplicant) name() string { return backendCar }
+
+func (s *carSupplicant) beginTick() func() {
+	s.mu.Lock()
+	s.inTick = true
+	s.tickProps = nil
+	s.tickBSS = nil
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		s.inTick = false
+		s.tickProps = nil
+		s.tickBSS = nil
+		s.mu.Unlock()
+	}
+}
+
+// clearTick drops cached D-Bus properties after a state-changing call. With s.mu held.
+func (s *carSupplicant) clearTick() {
+	s.tickProps = nil
+	s.tickBSS = nil
+}
+
+// ifaceProps returns Interface properties, reusing the tick's snapshot when active. With s.mu held.
+func (s *carSupplicant) ifaceProps() (map[string]any, error) {
+	if s.inTick && s.tickProps != nil {
+		return s.tickProps, nil
+	}
+	m, err := s.getAll(s.path, wpaDBusIface)
+	if err == nil && s.inTick {
+		s.tickProps = m
+	}
+	return m, err
+}
+
+// bssProps returns BSS properties, reusing the tick's snapshot when active. With s.mu held.
+func (s *carSupplicant) bssProps(b objPath) (map[string]any, error) {
+	if s.inTick && s.tickBSS != nil {
+		if bm, ok := s.tickBSS[b]; ok {
+			return bm, nil
+		}
+	}
+	bm, err := s.getAll(b, wpaDBusBSS)
+	if err == nil && s.inTick {
+		if s.tickBSS == nil {
+			s.tickBSS = map[objPath]map[string]any{}
+		}
+		s.tickBSS[b] = bm
+	}
+	return bm, err
+}
 
 // call is one method call on the car's supplicant, over a connection kept
 // between calls and opened again after an error. With s.mu held.
@@ -369,6 +423,7 @@ func (s *carSupplicant) stop() {
 		s.call(s.path, wpaDBusIface, "Disconnect", "")
 	}
 	s.path, s.pending, s.quiet, s.scanFreq = "", nil, false, ""
+	s.clearTick()
 	if s.bus != nil {
 		s.bus.close()
 		s.bus = nil
@@ -409,7 +464,7 @@ func (s *carSupplicant) status() map[string]string {
 	if s.path == "" {
 		return map[string]string{}
 	}
-	m, err := s.getAll(s.path, wpaDBusIface)
+	m, err := s.ifaceProps()
 	if err != nil {
 		if dbusErrorName(err) == "org.freedesktop.DBus.Error.UnknownObject" ||
 			dbusErrorName(err) == "org.freedesktop.DBus.Error.UnknownMethod" {
@@ -433,7 +488,7 @@ func (s *carSupplicant) signal() (int, bool) {
 	if s.path == "" {
 		return 0, false
 	}
-	m, err := s.getAll(s.path, wpaDBusIface)
+	m, err := s.ifaceProps()
 	if err != nil {
 		return 0, false
 	}
@@ -441,7 +496,7 @@ func (s *carSupplicant) signal() (int, bool) {
 	if bss == "" || bss == "/" {
 		return 0, false
 	}
-	bm, err := s.getAll(bss, wpaDBusBSS)
+	bm, err := s.bssProps(bss)
 	if err != nil {
 		return 0, false
 	}
@@ -450,20 +505,28 @@ func (s *carSupplicant) signal() (int, bool) {
 }
 
 // freq is the frequency (MHz) of the access point the interface is on, 0
-// none or not known: CurrentBSS, then that BSS's Frequency, each one
-// property read with the call's timeout.
+// none or not known: CurrentBSS (reused from the tick's interface properties
+// when available), then that BSS's Frequency with the call's timeout.
 func (s *carSupplicant) freq() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.path == "" {
 		return 0
 	}
-	v, err := s.getProp(s.path, wpaDBusIface, "CurrentBSS")
-	bss, _ := v.(objPath)
-	if err != nil || bss == "" || bss == "/" {
+	var bss objPath
+	if s.inTick && s.tickProps != nil {
+		bss, _ = prop[objPath](s.tickProps, "CurrentBSS")
+	} else {
+		v, err := s.getProp(s.path, wpaDBusIface, "CurrentBSS")
+		if err != nil {
+			return 0
+		}
+		bss, _ = v.(objPath)
+	}
+	if bss == "" || bss == "/" {
 		return 0
 	}
-	v, err = s.getProp(bss, wpaDBusBSS, "Frequency")
+	v, err := s.getProp(bss, wpaDBusBSS, "Frequency")
 	f, _ := v.(uint16)
 	if err != nil {
 		return 0
@@ -503,6 +566,7 @@ func (s *carSupplicant) scanFor(freqs []int, directed bool) error {
 		args = append(args, dbusProp{"Channels", dbusVariant{"a(uu)", ch}})
 	}
 	_, err := s.call(s.path, wpaDBusIface, "Scan", "a{sv}", args)
+	s.clearTick()
 	// rejected: it is scanning anyway
 	if err != nil && dbusErrorName(err) != wpaDBusIface+".ScanError" {
 		return fmt.Errorf("scan: %v", err)
@@ -519,14 +583,14 @@ func (s *carSupplicant) seen(age time.Duration) (string, bool) {
 	if s.path == "" {
 		return "", false
 	}
-	m, err := s.getAll(s.path, wpaDBusIface)
+	m, err := s.ifaceProps()
 	if err != nil {
 		return "", false
 	}
 	scanning, _ := prop[bool](m, "Scanning")
 	have := map[string]bool{}
 	for _, b := range paths(m, "BSSs") {
-		bm, err := s.getAll(b, wpaDBusBSS)
+		bm, err := s.bssProps(b)
 		if err != nil {
 			continue
 		}
@@ -574,6 +638,7 @@ func (s *carSupplicant) pick(ssid string) error {
 		if _, err := s.call(s.path, wpaDBusIface, "SelectNetwork", "o", p); err != nil {
 			return fmt.Errorf("the car's wpa_supplicant: SelectNetwork: %v", err)
 		}
+		s.clearTick()
 		s.pending = nil
 		return nil
 	}
@@ -607,9 +672,9 @@ func (s *carSupplicant) networks() ([]wifiNetwork, []string, map[string]int) {
 	sort.Strings(names)
 	var rows []wifiNetwork
 	if s.path != "" {
-		if m, err := s.getAll(s.path, wpaDBusIface); err == nil {
+		if m, err := s.ifaceProps(); err == nil {
 			for _, b := range paths(m, "BSSs") {
-				bm, err := s.getAll(b, wpaDBusBSS)
+				bm, err := s.bssProps(b)
 				if err != nil {
 					continue
 				}
@@ -765,6 +830,7 @@ func (s *carSupplicant) selectNew(n savedNet) error {
 	if _, err := s.call(s.path, wpaDBusIface, "SelectNetwork", "o", p); err != nil {
 		return fmt.Errorf("the car's wpa_supplicant: SelectNetwork: %v", err)
 	}
+	s.clearTick()
 	n.band24 = s.lim[p]
 	s.pending = &n
 	return nil
@@ -1009,6 +1075,7 @@ func (s *carSupplicant) reload() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pending = nil
+	s.clearTick()
 	if s.path == "" {
 		return nil
 	}
@@ -1045,25 +1112,63 @@ func (s *carSupplicant) forget(ssid string) error {
 
 // ---- wpa.conf ----
 
-// readSaved reads the saved networks, highest priority first. A file it
-// can't read is set aside to wpa.conf.bad. With s.mu held.
-func (s *carSupplicant) readSaved() ([]savedNet, error) {
-	b, err := os.ReadFile(s.conf)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
+// wpaConfCache caches parsed wpa.conf networks keyed by (mtime, size).
+type wpaConfCache struct {
+	have  bool
+	mtime time.Time
+	size  int64
+	nets  []savedNet
+}
+
+type wpaConfParseError struct{ err error }
+
+func (e wpaConfParseError) Error() string { return e.err.Error() }
+func (e wpaConfParseError) Unwrap() error { return e.err }
+
+func (c *wpaConfCache) invalidate() {
+	c.have = false
+	c.nets = nil
+}
+
+func (c *wpaConfCache) read(path string) ([]savedNet, error) {
+	fi, err := os.Stat(path)
 	if err != nil {
+		c.invalidate()
+		return nil, err
+	}
+	if c.have && fi.ModTime().Equal(c.mtime) && fi.Size() == c.size {
+		return slices.Clone(c.nets), nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		c.invalidate()
 		return nil, err
 	}
 	nets, err := parseWPAConf(b)
 	if err != nil {
+		c.invalidate()
+		return nil, wpaConfParseError{err}
+	}
+	c.have, c.mtime, c.size, c.nets = true, fi.ModTime(), fi.Size(), nets
+	return slices.Clone(nets), nil
+}
+
+// readSaved reads the saved networks, highest priority first. A file it
+// can't read is set aside to wpa.conf.bad. With s.mu held.
+func (s *carSupplicant) readSaved() ([]savedNet, error) {
+	nets, err := s.confCache.read(s.conf)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	var pe wpaConfParseError
+	if errors.As(err, &pe) {
 		if os.Rename(s.conf, s.conf+".bad") == nil {
-			logf("wifi: could not read %s (%v); moved to %s.bad", s.conf, err, s.conf)
+			logf("wifi: could not read %s (%v); moved to %s.bad", s.conf, pe.err, s.conf)
 			s.setAside = true
 		}
 		return nil, nil
 	}
-	return nets, nil
+	return nets, err
 }
 
 // writeSaved writes wpa.conf as wpa_supplicant's SAVE_CONFIG would, in a
@@ -1098,7 +1203,11 @@ func (s *carSupplicant) writeSaved(nets []savedNet) error {
 	if err := os.WriteFile(tmp, b.Bytes(), 0600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.conf)
+	if err := os.Rename(tmp, s.conf); err != nil {
+		return err
+	}
+	s.confCache.invalidate()
+	return nil
 }
 
 // confString is a name as SAVE_CONFIG writes it: printable ASCII quoted,

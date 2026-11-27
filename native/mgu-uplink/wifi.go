@@ -113,6 +113,7 @@ type wifiBackend interface {
 	ready() bool // requests can be served
 	upFor() time.Duration
 	takeSetAside() bool
+	beginTick() func()         // scopes per-tick caching of status/scan/BSS reads
 	status() map[string]string // wpa_state; ssid when joining or joined
 	signal() (int, bool)
 	scan() error
@@ -161,6 +162,8 @@ type wifiProvider struct {
 	// notify, when set, is called once the provider takes or gives back the
 	// interface (the service's firewall guards it meanwhile).
 	notify func()
+	// onAssoc, when set, is called when Wi-Fi associates, leaves, or switches SSID.
+	onAssoc func()
 	// outranks says whether an uplink of kind ranks above Wi-Fi, so Wi-Fi
 	// could not take over from it (scanUplink.rank); nil: any kind does.
 	outranks func(kind string) bool
@@ -391,6 +394,7 @@ func (p *wifiProvider) up(st *wifiStatus) {
 		p.fails = 0
 		p.mu.Unlock()
 	}
+	defer p.wpa.beginTick()()
 	ws := p.wpa.status()
 	if why := p.lost(ws); why != "" {
 		// the car's Wi-Fi switched off is the car's use of wlan0
@@ -759,6 +763,11 @@ func (p *wifiProvider) publish(st wifiStatus) {
 		logf("wifi: %s", *st.Error)
 	}
 	setStatusWiFi(&st)
+	wasAssoc := old.Link == "connected" || old.Link == "online"
+	nowAssoc := st.Link == "connected" || st.Link == "online"
+	if p.onAssoc != nil && (wasAssoc != nowAssoc || nowAssoc && old.SSID != st.SSID) {
+		p.onAssoc()
+	}
 }
 
 func (p *wifiProvider) status() wifiStatus {
@@ -794,17 +803,23 @@ func (p *wifiProvider) own() error {
 			logf("wifi: unblocked %s's radio (%s)", p.iface, filepath.Base(r))
 		}
 	}
-	ls, err := p.linkUp(p.iface)
+	cur, err := p.linkUp(p.iface)
+	if err != nil {
+		if cur.Index > 0 {
+			cur.restore()
+		}
+		return err
+	}
+	ls := cur
 	// taken again after a give-back: the state before the first take stays
 	var prev wifiRecord
-	if b, e := os.ReadFile(p.record); e == nil && json.Unmarshal(b, &prev) == nil && prev.Link.Index == ls.Index {
+	if b, e := os.ReadFile(p.record); e == nil && json.Unmarshal(b, &prev) == nil && prev.Link.Index > 0 && prev.Link.Index == ls.Index {
 		ls = prev.Link
 	}
-	if e := writeJSON(p.record, wifiRecord{Link: ls}, 0644); err == nil {
-		err = e
-	}
-	if err != nil {
-		restoreWiFi(p.record, false)
+	if err := writeJSON(p.record, wifiRecord{Link: ls}, 0644); err != nil {
+		if cur.Index > 0 {
+			cur.restore()
+		}
 		return err
 	}
 	p.mu.Lock()

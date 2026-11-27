@@ -176,11 +176,28 @@ function untar(buf) {
     return out;
 }
 
+/* Regular files of a (gzipped) ustar archive, as { name, data }. Cached per
+ * path by stat metadata so unitDonors, findDonor and supplyEntry gunzip each
+ * donor archive at most once. */
+const tgzCache = new Map();
+function untarFile(file) {
+    const st = fs.statSync(file);
+    const mtime = st.mtimeMs !== undefined ? st.mtimeMs : st.mtime.getTime();
+    const ctime = st.ctimeMs !== undefined ? st.ctimeMs : st.ctime.getTime();
+    const hit = tgzCache.get(file);
+    if (hit && hit.size === st.size && hit.mtime === mtime && hit.ctime === ctime && hit.ino === st.ino) {
+        return hit.members;
+    }
+    const members = untar(fs.readFileSync(file));
+    tgzCache.set(file, { size: st.size, mtime, ctime, ino: st.ino, members });
+    return members;
+}
+
 /* The bundles a donor file offers, as { label, text, sdkVersion }: the
  * oap-sdk version is the one a donor package's package.json depends on. */
 function donorSources(file) {
     if (/\.tgz$/.test(file)) {
-        const members = untar(fs.readFileSync(file));
+        const members = untarFile(file);
         let sdkVersion = null;
         members.filter((m) => /^(?:package\/)?package\.json$/.test(m.name)).forEach((m) => {
             try {
@@ -217,7 +234,7 @@ function splitIdentity(name) {
     return Number(value);
 }
 
-function splitBundle(text) {
+function splitBundle(text, spec) {
     if (process.getuid && process.getuid() === 0) {
         const uid = splitIdentity('MGU_DEPLOY_SPLIT_UID');
         const gid = splitIdentity('MGU_DEPLOY_SPLIT_GID');
@@ -231,7 +248,11 @@ function splitBundle(text) {
                 fs.chmodSync(file, 0o644);
             });
             fs.chmodSync(work, 0o755);
-            const r = cp.spawnSync(process.execPath, [path.join(work, 'oap_link.js'), 'split'], {
+            const args = [path.join(work, 'oap_link.js'), 'split'];
+            if (spec) {
+                args.push(JSON.stringify(spec));
+            }
+            const r = cp.spawnSync(process.execPath, args, {
                 input: text, encoding: 'utf8', uid, gid, timeout: SPLIT_TIMEOUT,
                 killSignal: 'SIGKILL', maxBuffer: SPLIT_MAX, cwd: '/', env: {}
             });
@@ -243,7 +264,7 @@ function splitBundle(text) {
             rmrf(work);
         }
     }
-    return splitInProcess(text);
+    return splitInProcess(text, spec);
 }
 
 /* The browserify prelude at the start of text ({ end, prelude }), or null:
@@ -267,8 +288,10 @@ function findPrelude(text) {
 
 /* The context owns capture. No host function is exposed to donor code.
  * Anonymous function spacing is normalized for identical Node 8/host
- * bundles. Only string/number dependency ids survive serialization. */
-function splitInProcess(text) {
+ * bundles. Only string/number dependency ids survive serialization. When
+ * spec ({ names } or { api: true }) is given, only the resolved closure's
+ * modules are converted and returned, along with ids and closure. */
+function splitInProcess(text, spec) {
     const found = findPrelude(text);
     if (!found) {
         throw new Error('no browserify prelude');
@@ -280,17 +303,37 @@ function splitInProcess(text) {
         throw new Error('no module map');
     }
     const tight = /^\(\{\s*"?\d+"?:\[function\(/.test(text.slice(found.end, found.end + 64));
-    const mods = Object.create(null);
-    Object.keys(sandbox.mods).forEach((id) => {
+    const depMods = Object.create(null);
+    const fns = Object.create(null);
+    const rawIds = Object.keys(sandbox.mods);
+    rawIds.forEach((id) => {
         const m = sandbox.mods[id];
         if (!/^\d+$/.test(id) || !Array.isArray(m) || typeof m[0] !== 'function') {
             throw new Error('invalid module ' + id);
         }
-        const source = Function.prototype.toString.call(m[0]);
-        mods[id] = [tight ? source.replace(/^function \(/, 'function(') : source,
-            JSON.parse(serializeDeps(m[1]))];
+        fns[id] = m[0];
+        depMods[id] = [null, cleanDeps(m[1])];
     });
-    return { prelude: found.prelude, mods, tight };
+    let ids;
+    let closure;
+    let keep = rawIds;
+    if (spec) {
+        if (Array.isArray(spec.names)) {
+            ids = namesPick(spec.names)(depMods);
+        } else if (spec.api === true) {
+            ids = apiPick(depMods);
+        } else {
+            throw new Error('invalid split spec');
+        }
+        closure = closureOf(depMods, Object.keys(ids).map((k) => ids[k]));
+        keep = closure;
+    }
+    const mods = Object.create(null);
+    keep.forEach((id) => {
+        const source = Function.prototype.toString.call(fns[id]);
+        mods[id] = [tight ? source.replace(/^function \(/, 'function(') : source, depMods[id][1]];
+    });
+    return spec ? { prelude: found.prelude, mods, tight, ids, closure } : { prelude: found.prelude, mods, tight };
 }
 
 /* The one module id a require name has in the donor's dependency tables. */
@@ -390,10 +433,9 @@ function apiPick(mods) {
     return ids;
 }
 
-/* The first donor bundle that names every string in `mustName` and that
- * pick(mods) accepts (returning { key: module id }), with the closure of
- * those ids. */
-function findDonor(files, mustName, pick, what) {
+/* The first donor bundle that names every string in `mustName` and satisfies
+ * spec ({ names } or { api: true }), with the closure of its resolved ids. */
+function findDonor(files, mustName, spec, what) {
     const tried = [];
     for (let i = 0; i < files.length; i += 1) {
         let sources;
@@ -414,11 +456,9 @@ function findDonor(files, mustName, pick, what) {
                 continue;
             }
             try {
-                const split = splitBundle(s.text);
-                const ids = pick(split.mods);
-                const closure = closureOf(split.mods, Object.keys(ids).map((k) => ids[k]));
+                const split = splitBundle(s.text, spec);
                 return { file: files[i], label: s.label, text: s.text, sdkVersion: s.sdkVersion, prelude: split.prelude,
-                    mods: split.mods, ids, closure };
+                    mods: split.mods, ids: split.ids, closure: split.closure };
             } catch (e) {
                 tried.push(`${s.label}: ${e.message}`);
             }
@@ -460,7 +500,7 @@ function unitDonors(mainappDir, oapDir, opts) {
     };
     const out = list(path.join(mainappDir, 'preinstalled_apps'), /\.tgz$/).filter((file) => {
         try {
-            const pkg = untar(fs.readFileSync(file)).filter((m) => /^(?:package\/)?package\.json$/.test(m.name));
+            const pkg = untarFile(file).filter((m) => /^(?:package\/)?package\.json$/.test(m.name));
             return pkg.length === 1 && stock(JSON.parse(pkg[0].data.toString('utf8')));
         } catch (e) { return false; }
     });
@@ -492,7 +532,7 @@ function packageEntry(file) {
         let pkg;
         let read;
         if (/\.tgz$/.test(file)) {
-            const members = untar(fs.readFileSync(file));
+            const members = untarFile(file);
             const meta = members.filter((m) => /^(?:package\/)?package\.json$/.test(m.name))[0];
             const root = meta.name.slice(0, -'package.json'.length);
             pkg = JSON.parse(meta.data.toString('utf8'));
@@ -519,7 +559,10 @@ function supplyEntry(work, main, files) {
     if (!/^javascript\/[^/]+\.js$/.test(main)) {
         throw new Error(`package.json main ${main || '(none)'} is not javascript/<file>.js`);
     }
-    const entry = files.map(packageEntry).filter(Boolean)[0];
+    let entry = null;
+    for (let i = 0; i < files.length && !entry; i += 1) {
+        entry = packageEntry(files[i]);
+    }
     fs.writeFileSync(path.join(work, main), entry ? entry.text : LOADER);
     const config = path.join(work, 'javascript', 'runnerConfig.json');
     if (entry && !fs.existsSync(config)) {
@@ -540,18 +583,20 @@ function requiresOf(source) {
     return [...names];
 }
 
-function moduleEntry(donor, id) {
-    return `${id}:[${donor.mods[id][0]},${serializeDeps(donor.mods[id][1])}]`;
+function cleanDeps(deps) {
+    const out = {};
+    if (deps && typeof deps === 'object') {
+        Object.keys(deps).forEach((name) => {
+            if (typeof deps[name] === 'number' || typeof deps[name] === 'string') {
+                out[name] = deps[name];
+            }
+        });
+    }
+    return out;
 }
 
-function serializeDeps(deps) {
-    const out = {};
-    Object.keys(deps || {}).forEach((name) => {
-        if (typeof deps[name] === 'number' || typeof deps[name] === 'string') {
-            out[name] = deps[name];
-        }
-    });
-    return JSON.stringify(out);
+function moduleEntry(donor, id) {
+    return `${id}:[${donor.mods[id][0]},${JSON.stringify(cleanDeps(donor.mods[id][1]))}]`;
 }
 
 /* The bundle text: the donor's closure with its ids, then the app modules
@@ -677,7 +722,7 @@ function build(srcDir, outFile, opts) {
     const modules = m.modules.map((f) => ({ name: `./${path.basename(f)}`, file: f,
         source: fs.readFileSync(path.join(srcDir, f), 'utf8') }));
     m.modules.forEach((f) => nodeCheck(path.join(srcDir, f)));
-    const donor = findDonor(opts.donors || [], m.sdk, namesPick(m.sdk), m.sdk.join(', '));
+    const donor = findDonor(opts.donors || [], m.sdk, { names: m.sdk }, m.sdk.join(', '));
     const bundle = link(donor, modules, m.sdk);
     const work = fs.mkdtempSync(path.join(opts.workDir || os.tmpdir(), 'oap-link-'));
     try {
@@ -711,7 +756,7 @@ function build(srcDir, outFile, opts) {
             bundle: { entryModule: ENTRY_ID, moduleCount, appModules: modules.length, sdkModulesFrom: donor.label },
             main: entry ? { path: main, from: entry } : undefined
         }, null, 2) + '\n');
-        const packed = pack(work, outFile);
+        const packed = pack(work, outFile, opts);
         const certification = completed && packed.indexOf(completed.split(path.sep).join('/')) >= 0 ? completed : null;
         return { file: outFile, id: m.id, version: m.version, donor: donor.label, entry, moduleCount,
             bytes: Buffer.byteLength(bundle), certification, unknown };
@@ -760,7 +805,7 @@ Object.keys(ids).forEach(function (name) {
  * the oap-sdk core: { donor (its label), text (its bundle), sdkVersion,
  * api, index (index.js text), pkg (package.json text) }. */
 function sdkModule(donors) {
-    const donor = findDonor(donors || [], SDK_CORE, apiPick, `the oap-sdk core (${SDK_CORE.join(', ')})`);
+    const donor = findDonor(donors || [], SDK_CORE, { api: true }, `the oap-sdk core (${SDK_CORE.join(', ')})`);
     return {
         donor: donor.label, text: donor.text, sdkVersion: donor.sdkVersion || null, api: Object.keys(donor.ids), index: sdkModuleText(donor),
         pkg: JSON.stringify({ name: 'oap-sdk', version: donor.sdkVersion || '0.0.0', main: 'index.js',
@@ -927,7 +972,7 @@ function preparePackage(pkgDir, outFile, opts) {
     const unknown = dropUnknownInterfaces(pkgDir, opts.interfaces || null);
     stampPackage(pkgDir);
     fs.writeFileSync(outFile, tgz(filesBelow(pkgDir).map((name) =>
-        ({ name, data: fs.readFileSync(path.join(pkgDir, name)), mode: 0o644 })), MTIME));
+        ({ name, data: fs.readFileSync(path.join(pkgDir, name)), mode: 0o644 })), MTIME, opts));
     return { file: outFile, sdk, shrinkwrap, permissions, certification, unknown };
 }
 
@@ -957,7 +1002,8 @@ if (require.main === module) {
         if (process.argv[2] !== 'split' || (process.getuid && process.getuid() === 0)) {
             throw new Error('split worker requires an unprivileged uid');
         }
-        process.stdout.write(JSON.stringify(splitInProcess(fs.readFileSync(0, 'utf8'))));
+        const spec = process.argv[3] ? JSON.parse(process.argv[3]) : null;
+        process.stdout.write(JSON.stringify(splitInProcess(fs.readFileSync(0, 'utf8'), spec)));
     } catch (e) {
         process.stderr.write(e.message + '\n');
         process.exitCode = 1;

@@ -12,18 +12,19 @@ and Vietnamese with while a locale with that "font" is in use
     cyrillic     Cyrillic, Ukrainian's Ґ
     vietnamese   Latin-1's letters and Vietnamese's
 
-into the staged tree's fonts/<font>.json, which the Store reads when the
+into the staged tree's fonts/<font>.json (glyph metadata) and
+fonts/<font>.bin (zlib-compressed alpha slices), which the Store reads when the
 language is in use.
 
-Each is the faces of tools/bake_fonts.py with its letters and the
-characters of its locales' words and catalog texts (release/texts), at
-fewer sizes (the kit scales the nearest one). Each atlas is 1024 px wide
-(mgu-render's limit) and has a key from its contents, so the renderer,
+Each carries only the characters beyond tools/bake_fonts.py's base Inter
+atlases (merged at runtime by src/kit_fonts.js with the matching face and
+size), at fewer sizes (the kit scales the nearest one). Each atlas is 1024 px
+wide (mgu-render's limit) and has a key from its contents, so the renderer,
 which shares atlases between apps by id, never mixes them up with another
 font's. The renderer's glyph texture is shared and never emptied: a font
 holds one language family's letters only.
 """
-import glob, hashlib, json, os, sys
+import glob, hashlib, json, os, sys, zlib
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bake_fonts
@@ -66,12 +67,14 @@ def locale_text(font):
     return text
 
 
-def atlas(path, face, font, size, chars):
-    bake_fonts.TEXT = ''.join(sorted(set(bake_fonts.TEXT + chars)))
-    a = bake_fonts.bake(path, size, None, 1024)
-    a['key'] = 'Inter %s %s@%d@%s' % (face, font, size, hashlib.sha256(
-        json.dumps(a, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:16])
-    return a
+def atlas(path, face, font, size, chars, base_chars):
+    bake_fonts.TEXT = ''.join(sorted(set(chars) - set(base_chars)))
+    a, pixels = bake_fonts.bake(path, size, None, 1024, raw=True)
+    a['base'] = True
+    h = hashlib.sha256(json.dumps(a, sort_keys=True, separators=(',', ':')).encode())
+    h.update(pixels)
+    a['key'] = 'Inter %s %s@%d@%s' % (face, font, size, h.hexdigest()[:16])
+    return a, pixels
 
 
 def main():
@@ -81,19 +84,29 @@ def main():
     for font, letters in FONTS.items():
         chars = letters + locale_text(font)
         faces = {}
+        blobs = bytearray()
         for name, (file, sizes) in FACES.items():
             faces[name] = {'sizes': []}
             for s in sizes:
-                faces[name]['sizes'].append(atlas(os.path.join(sys.argv[1], file), name, font, s, chars))
+                a, pixels = atlas(os.path.join(sys.argv[1], file), name, font, s, chars, base)
+                packed = zlib.compress(pixels, 9)
+                a['offset'] = len(blobs)
+                a['length'] = len(packed)
+                blobs.extend(packed)
+                faces[name]['sizes'].append(a)
                 bake_fonts.TEXT = base
-        out = os.path.join(FONT_DIR, '%s.json' % font)
-        with open(out, 'w', encoding='utf-8', newline='\n') as o:
+        out_json = os.path.join(FONT_DIR, '%s.json' % font)
+        out_bin = os.path.join(FONT_DIR, '%s.bin' % font)
+        with open(out_json, 'w', encoding='utf-8', newline='\n') as o:
             json.dump({'family': 'Inter ' + font, 'source': 'Inter-Regular.ttf, Inter-SemiBold.ttf (Inter 4.1), tools/bake_inter.py',
                        'copyright': 'Copyright 2016 The Inter Project Authors', 'license': 'SIL Open Font License 1.1 (LICENSES.txt)',
                        'faces': faces}, o, separators=(',', ':'))
+        with open(out_bin, 'wb') as o:
+            o.write(blobs)
         rows = sum(a['atlasH'] + 1 for f in faces.values() for a in f['sizes'])
-        print('%s: %d glyphs, %d rows, %d bytes' % (os.path.relpath(out), len(faces['regular']['sizes'][0]['glyphs']),
-                                                   rows, os.path.getsize(out)))
+        print('%s: %d extra glyphs, %d rows, %d + %d bytes' % (os.path.relpath(out_json),
+                                                              len(faces['regular']['sizes'][0]['glyphs']),
+                                                              rows, os.path.getsize(out_json), os.path.getsize(out_bin)))
 
 
 if __name__ == '__main__':

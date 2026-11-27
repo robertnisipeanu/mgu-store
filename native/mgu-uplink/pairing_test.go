@@ -638,3 +638,60 @@ func TestIPhoneBackoff(t *testing.T) {
 		t.Fatal("a replugged phone keeps the backoff")
 	}
 }
+
+func TestMuxConnReadTimerLoop(t *testing.T) {
+	c := &muxConn{
+		closed: make(chan struct{}),
+		wake:   make(chan struct{}, 1),
+	}
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	readDone := make(chan struct {
+		n   int
+		err error
+		buf []byte
+	}, 1)
+	go func() {
+		buf := make([]byte, 16)
+		n, err := c.Read(buf)
+		readDone <- struct {
+			n   int
+			err error
+			buf []byte
+		}{n, err, buf[:n]}
+	}()
+	// Spurious wakeups iterate the Read loop with a live deadline.
+	for i := 0; i < 20; i++ {
+		select {
+		case c.wake <- struct{}{}:
+		default:
+		}
+		time.Sleep(time.Millisecond)
+	}
+	c.mu.Lock()
+	c.rbuf = append(c.rbuf, []byte("hello")...)
+	c.mu.Unlock()
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+	res := <-readDone
+	if res.err != nil || string(res.buf) != "hello" {
+		t.Fatalf("Read after wakeups: %q %v", res.buf, res.err)
+	}
+
+	// Deadline expiration after wakeups returns errMuxTimeout.
+	c.SetReadDeadline(time.Now().Add(40 * time.Millisecond))
+	go func() {
+		for i := 0; i < 5; i++ {
+			select {
+			case c.wake <- struct{}{}:
+			default:
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+	buf := make([]byte, 16)
+	if _, err := c.Read(buf); !errors.Is(err, errMuxTimeout) {
+		t.Fatalf("Read past deadline: %v, want errMuxTimeout", err)
+	}
+}

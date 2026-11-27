@@ -1,7 +1,9 @@
 'use strict';
 /**
- * Writes src/locales.js, the Store's languages as one of its modules, from
- * locales/<code>.json (one file per language; README.md, "Languages"):
+ * Writes src/locales.js (the compact language index) and package/locales/
+ * <code>.json (each language's runtime word map, loaded on demand by
+ * src/i18n.js) from locales/<code>.json (one file per language; README.md,
+ * "Languages"):
  *
  *   { "hmiLanguages": ["CHINESISCH_SIMPLE", "KANTONESISCH_SIMPLE"],
  *                                               the HMI's display languages it is for
@@ -18,8 +20,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const DIR = path.join(__dirname, '..', 'locales');
-const OUT = path.join(__dirname, '..', 'src', 'locales.js');
+const HERE = path.join(__dirname, '..');
+const DIR = path.join(HERE, 'locales');
+const OUT = path.join(HERE, 'src', 'locales.js');
+const PKG_DIR = path.join(HERE, require('../mgu-app.json').tree, 'locales');
 
 /* The locales, by file name: { code, hmiLanguages, rhmiTexts, font, words }. */
 function read() {
@@ -33,18 +37,38 @@ function read() {
     });
 }
 
+/* Runtime metadata index only; words live in package/locales/<code>.json and rhmiTexts are build-time only. */
+function index() {
+    return read().map((l) => {
+        const meta = { code: l.code, hmiLanguages: l.hmiLanguages };
+        if (l.font) {
+            meta.font = l.font;
+        }
+        if (l.drawn === false) {
+            meta.drawn = false;
+        }
+        return meta;
+    });
+}
+
 function source() {
-    return "'use strict';\n/* The Store's languages, written by tools/gen_locales.js from locales/*.json. */\n" +
-        `module.exports = ${JSON.stringify(read(), null, 1)};\n`;
+    return "'use strict';\n/* The Store's language index, written by tools/gen_locales.js from locales/*.json. */\n" +
+        `module.exports = ${JSON.stringify(index(), null, 1)};\n`;
 }
 
 function write() {
+    const all = read();
     fs.writeFileSync(OUT, source());
+    fs.mkdirSync(PKG_DIR, { recursive: true });
+    const keep = new Set(all.map((l) => `${l.code}.json`));
+    fs.readdirSync(PKG_DIR).filter((n) => /\.json$/.test(n) && !keep.has(n))
+        .forEach((n) => fs.unlinkSync(path.join(PKG_DIR, n)));
+    all.forEach((l) => fs.writeFileSync(path.join(PKG_DIR, `${l.code}.json`), JSON.stringify(l.words)));
 }
 
 if (require.main === module) {
     write();
-    console.log(`wrote ${path.relative(process.cwd(), OUT)}: ${read().map((l) => l.code).join(', ')}`);
+    console.log(`wrote ${path.relative(process.cwd(), OUT)} and ${path.relative(process.cwd(), PKG_DIR)}: ${read().map((l) => l.code).join(', ')}`);
 }
 
-module.exports = { read, source, write, DIR, OUT };
+module.exports = { read, index, source, write, DIR, OUT, PKG_DIR };

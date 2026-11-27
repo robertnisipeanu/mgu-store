@@ -197,6 +197,8 @@ function components(root = REPO) {
             changelog: `apps/${id}/${tree}/CHANGELOG.md`,
             shipped: [`apps/${id}/${tree}`].concat(manifest ?
                 [`apps/${id}/mgu-app.json`].concat(manifest.modules.map((m) => `apps/${id}/${m}`)) : []),
+            // what a release looks at beside it: the catalog entry's fields
+            listed: [`apps/${id}/release.json`],
             artifact: `apps/${id}/${id}@${version}${manifest ? '.src' : ''}.tgz`
         }, catalogFields(Object.assign({ mguHmi: rhmiHmi(stagedDir) }, release), `apps/${id}/release.json`)));
     });
@@ -221,6 +223,7 @@ function components(root = REPO) {
             versionFiles: c.versionFiles || [],
             changelog: `${dir}/CHANGELOG.md`,
             shipped,
+            listed: [],
             artifact: null
         }, catalogFields(c, `${dir}/component.json`)));
     };
@@ -604,16 +607,23 @@ function cmdBuild(ids) {
 
 function cmdCheck(ids) {
     warnDirty();
-    const a = build(ids, fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-check-a-')));
-    const b = build(ids, fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-check-b-')));
-    let ok = true;
-    a.forEach((e, i) => {
-        const same = e.artifact.sha256 === b[i].artifact.sha256;
-        ok = ok && same;
-        console.log(`${same ? 'reproducible' : 'DIFFERS'}  ${e.id}@${e.version}`);
-    });
-    if (!ok) {
-        process.exitCode = 1;
+    const dirA = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-check-a-'));
+    const dirB = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-check-b-'));
+    try {
+        const a = build(ids, dirA);
+        const b = build(ids, dirB);
+        let ok = true;
+        a.forEach((e, i) => {
+            const same = e.artifact.sha256 === b[i].artifact.sha256;
+            ok = ok && same;
+            console.log(`${same ? 'reproducible' : 'DIFFERS'}  ${e.id}@${e.version}`);
+        });
+        if (!ok) {
+            process.exitCode = 1;
+        }
+    } finally {
+        fs.rmSync(dirA, { recursive: true, force: true });
+        fs.rmSync(dirB, { recursive: true, force: true });
     }
 }
 
@@ -653,7 +663,7 @@ function writeRequires(root, c, resolved) {
     const file = path.join(root, c.dir, c.kind === 'app' ? 'release.json' : 'component.json');
     let text = fs.readFileSync(file, 'utf8');
     Object.keys(resolved).forEach((id) => {
-        const from = new RegExp(`("${id.replace(/[.]/g, '\\.')}"\\s*:\\s*)"${NEXT}"`);
+        const from = new RegExp(`("${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:\\s*)"${NEXT}"`);
         if (!from.test(text)) {
             throw new Error(`${path.relative(root, file)}: no "${id}": "${NEXT}"`);
         }
@@ -759,9 +769,10 @@ function plan(all, ids, repo = REPO) {
             out.set(c.id, { c, version: c.version, level: 'new' });
             return;
         }
-        const commits = git(['log', '--format=%H', `${tag}..HEAD`, '--'].concat(c.shipped), { cwd: repo }).split('\n').filter(Boolean);
+        const paths = c.shipped.concat(c.listed || []);
+        const commits = git(['log', '--format=%H', `${tag}..HEAD`, '--'].concat(paths), { cwd: repo }).split('\n').filter(Boolean);
         const changed = commits.length &&
-            cp.spawnSync('git', ['diff', '--quiet', tag, 'HEAD', '--'].concat(c.shipped), { cwd: repo }).status !== 0;
+            cp.spawnSync('git', ['diff', '--quiet', tag, 'HEAD', '--'].concat(paths), { cwd: repo }).status !== 0;
         // named: a patch release of the same content
         if (!changed && !ids.includes(c.id)) {
             return;
@@ -879,7 +890,7 @@ function cmdVersions(base) {
                     problems.push(`${c.dir}/${rel}: the release sets its version; keep VERSION = '${c.version}' (once)`);
                 }
             });
-            const changed = !was || cp.spawnSync('git', ['diff', '--quiet', base, 'HEAD', '--'].concat(c.shipped),
+            const changed = !was || cp.spawnSync('git', ['diff', '--quiet', base, 'HEAD', '--'].concat(c.shipped, c.listed || []),
                 { cwd: REPO }).status !== 0;
             const log = path.join(REPO, c.changelog);
             if (changed && fs.existsSync(log)) {
@@ -950,87 +961,95 @@ function cmdPublish(ids, dryRun, stamped) {
         ids = [...new Set(fs.readFileSync(STAMPED, 'utf8').split(/\s+/).filter(Boolean).concat(lagging.map((c) => c.id)))];
     }
     const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-publish-'));
-    const skipped = [];
-    // built twice: a version publishes only when both builds give the same
-    // bytes; with --stamped and nothing chosen, nothing is built
-    const built = stamped && !ids.length ? [] : build(ids, staging, skipped);
-    const again = built.length ? build(built.map((e) => e.id), fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-publish-b-')), skipped) : [];
-    const uploads = [];
-    const all = components();
-    built.forEach((e) => {
-        const p = current.get(e.id);
-        const c = all.find((x) => x.id === e.id);
-        const b = again.find((x) => x.id === e.id);
-        const next = Object.keys(e.requires || {}).filter((id) => e.requires[id] === NEXT);
-        // the gate binds what reaches cars; a folder (a test stick) takes any build
-        const checked = GATED.includes(c.id) && publishTarget.describe().startsWith('github:') && (!p || p.version !== e.version);
-        const source = checked ? sourceCommit(c) : '';
-        const gate = checked && gateProblem(c, source ? publishTarget.commitStatus(source, `release-check/${c.id}`) : null, source);
-        if (!b || b.artifact.sha256 !== e.artifact.sha256) {
-            skipped.push(`${e.id}@${e.version} builds differently each time`);
-        } else if (next.length) {
-            skipped.push(`${e.id}@${e.version} requires ${next.join(', ')} "${NEXT}": stamp first`);
-        } else if (gate) {
-            skipped.push(gate);
-        } else if (p && p.version === e.version && p.artifact.sha256 !== e.artifact.sha256) {
-            skipped.push(`${e.id}@${e.version} is published with other content: the release gives it its next version`);
-        } else if (p && compareVersions(e.version, p.version) < 0) {
-            skipped.push(`${e.id}@${e.version} is older than the published ${p.version}`);
-        } else if (!p || p.version !== e.version) {
-            uploads.push(e);
+    let stagingB = null;
+    try {
+        const skipped = [];
+        // built twice: a version publishes only when both builds give the same
+        // bytes; with --stamped and nothing chosen, nothing is built
+        const built = stamped && !ids.length ? [] : build(ids, staging, skipped);
+        const again = built.length ? build(built.map((e) => e.id), (stagingB = fs.mkdtempSync(path.join(os.tmpdir(), 'mgu-publish-b-'))), skipped) : [];
+        const uploads = [];
+        const all = components();
+        built.forEach((e) => {
+            const p = current.get(e.id);
+            const c = all.find((x) => x.id === e.id);
+            const b = again.find((x) => x.id === e.id);
+            const next = Object.keys(e.requires || {}).filter((id) => e.requires[id] === NEXT);
+            // the gate binds what reaches cars; a folder (a test stick) takes any build
+            const checked = GATED.includes(c.id) && publishTarget.describe().startsWith('github:') && (!p || p.version !== e.version);
+            const source = checked ? sourceCommit(c) : '';
+            const gate = checked && gateProblem(c, source ? publishTarget.commitStatus(source, `release-check/${c.id}`) : null, source);
+            if (!b || b.artifact.sha256 !== e.artifact.sha256) {
+                skipped.push(`${e.id}@${e.version} builds differently each time`);
+            } else if (next.length) {
+                skipped.push(`${e.id}@${e.version} requires ${next.join(', ')} "${NEXT}": stamp first`);
+            } else if (gate) {
+                skipped.push(gate);
+            } else if (p && p.version === e.version && p.artifact.sha256 !== e.artifact.sha256) {
+                skipped.push(`${e.id}@${e.version} is published with other content: the release gives it its next version`);
+            } else if (p && compareVersions(e.version, p.version) < 0) {
+                skipped.push(`${e.id}@${e.version} is older than the published ${p.version}`);
+            } else if (!p || p.version !== e.version) {
+                uploads.push(e);
+            }
+        });
+        skipped.forEach((m) => console.log(`skipped: ${m}`));
+        if (skipped.length) {
+            process.exitCode = 1;
         }
-    });
-    skipped.forEach((m) => console.log(`skipped: ${m}`));
-    if (skipped.length) {
-        process.exitCode = 1;
-    }
-    const unmet = unmetRequires(uploads, current);
-    if (unmet.length) {
-        throw new Error(`nothing published: ${unmet.join('; ')}`);
-    }
-    // the entries carried over list their artifact as the target does (publish.js listedUrl)
-    const relisted = [...current.values()].filter((e) => !uploads.some((x) => x.id === e.id)).filter((e) => {
-        const url = publishTarget.listedUrl(e);
-        if (url === e.artifact.url) {
-            return false;
+        const unmet = unmetRequires(uploads, current);
+        if (unmet.length) {
+            throw new Error(`nothing published: ${unmet.join('; ')}`);
         }
-        e.artifact.url = url;
-        return true;
-    });
-    // the entries carried over list their titles and descriptions in other languages as release/texts has them
-    const retexted = [...current.values()].filter((e) => !uploads.some((x) => x.id === e.id)).filter((e) => {
-        const c = all.find((x) => x.id === e.id);
-        const want = (c && c.texts) || null;
-        if (JSON.stringify(want) === JSON.stringify(e.texts || null)) {
-            return false;
+        // the entries carried over list their artifact as the target does (publish.js listedUrl)
+        const relisted = [...current.values()].filter((e) => !uploads.some((x) => x.id === e.id)).filter((e) => {
+            const url = publishTarget.listedUrl(e);
+            if (url === e.artifact.url) {
+                return false;
+            }
+            e.artifact.url = url;
+            return true;
+        });
+        // the entries carried over list their titles and descriptions in other languages as release/texts has them
+        const retexted = [...current.values()].filter((e) => !uploads.some((x) => x.id === e.id)).filter((e) => {
+            const c = all.find((x) => x.id === e.id);
+            const want = (c && c.texts) || null;
+            if (JSON.stringify(want) === JSON.stringify(e.texts || null)) {
+                return false;
+            }
+            if (want) {
+                e.texts = want;
+            } else {
+                delete e.texts;
+            }
+            return true;
+        });
+        if (!uploads.length && !removed.length && !relisted.length && !retexted.length) {
+            console.log('nothing new to publish');
+            return;
         }
-        if (want) {
-            e.texts = want;
-        } else {
-            delete e.texts;
+        removed.forEach((id) => console.log(`${dryRun ? 'would remove' : 'removing'} ${id}: not in the repository`));
+        relisted.forEach((e) => console.log(`${dryRun ? 'would list' : 'listing'} ${e.id}@${e.version} at ${e.artifact.url}`));
+        retexted.forEach((e) => console.log(`${dryRun ? 'would list' : 'listing'} ${e.id}@${e.version} with its texts`));
+        uploads.forEach((e) => console.log(`${dryRun ? 'would publish' : 'publishing'} ${e.id}@${e.version}`));
+        if (dryRun) {
+            return;
         }
-        return true;
-    });
-    if (!uploads.length && !removed.length && !relisted.length && !retexted.length) {
-        console.log('nothing new to publish');
-        return;
+        uploads.forEach((e) => {
+            e.artifact.url = publishTarget.uploadArtifact(e, path.join(staging, e.artifact.name));
+            current.set(e.id, e);
+        });
+        // the icons before the catalog that names them
+        uploads.filter((e) => e.icon).forEach((e) => publishTarget.uploadCatalogAsset(path.join(staging, e.icon)));
+        const catalogFile = writeCatalog([...current.values()], staging);
+        publishTarget.uploadCatalog(catalogFile);
+        console.log(`catalog published to ${publishTarget.describe()}`);
+    } finally {
+        fs.rmSync(staging, { recursive: true, force: true });
+        if (stagingB) {
+            fs.rmSync(stagingB, { recursive: true, force: true });
+        }
     }
-    removed.forEach((id) => console.log(`${dryRun ? 'would remove' : 'removing'} ${id}: not in the repository`));
-    relisted.forEach((e) => console.log(`${dryRun ? 'would list' : 'listing'} ${e.id}@${e.version} at ${e.artifact.url}`));
-    retexted.forEach((e) => console.log(`${dryRun ? 'would list' : 'listing'} ${e.id}@${e.version} with its texts`));
-    uploads.forEach((e) => console.log(`${dryRun ? 'would publish' : 'publishing'} ${e.id}@${e.version}`));
-    if (dryRun) {
-        return;
-    }
-    uploads.forEach((e) => {
-        e.artifact.url = publishTarget.uploadArtifact(e, path.join(staging, e.artifact.name));
-        current.set(e.id, e);
-    });
-    // the icons before the catalog that names them
-    uploads.filter((e) => e.icon).forEach((e) => publishTarget.uploadCatalogAsset(path.join(staging, e.icon)));
-    const catalogFile = writeCatalog([...current.values()], staging);
-    publishTarget.uploadCatalog(catalogFile);
-    console.log(`catalog published to ${publishTarget.describe()}`);
 }
 
 function main(argv) {

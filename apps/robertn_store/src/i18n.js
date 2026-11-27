@@ -6,22 +6,53 @@
  * the language has no translation. Arguments are data (names, versions,
  * sources, SSIDs, the updater's errors) and are never translated.
  *
- * The languages are src/locales.js (tools/gen_locales.js, from
- * locales/<code>.json). setHmiLanguage(value) picks the one for the HMI's
- * display language (a CommonTypes.Language name), English for any other,
- * an invalid value or none. A language with "drawn": false (a script the
- * renderer cannot lay out) is English while the drawn screens are in use
- * (useDrawn).
+ * The language index is src/locales.js (tools/gen_locales.js), and each
+ * language's word map is loaded on demand from locales/<code>.json beside
+ * javascript/ when that language is selected. setHmiLanguage(value) picks the
+ * one for the HMI's display language (a CommonTypes.Language name), English
+ * for any other, an invalid value or none. A language with "drawn": false (a
+ * script the renderer cannot lay out) is English while the drawn screens are
+ * in use (useDrawn).
  *
  * text(c, 'title') is a component's title or description in the language,
  * from its "texts" ({ "<code>": { title, description } }, the catalog's):
  * the language's, else that of its base language (pt for pt-BR), else c's
  * own, English.
  */
+const fs = require('fs');
+const path = require('path');
 const LOCALES = require('./locales.js');
 
 let current = null;
 let drawn = false;
+let loaded = null;                      // { code, words } for the active locale
+
+/* The package's locales folder: beside javascript/ in the installed app, in
+ * the staged tree mgu-app.json names in this repository. */
+function localeDir() {
+    const up = path.join(__dirname, '..');
+    const manifest = path.join(up, 'mgu-app.json');
+    if (fs.existsSync(manifest)) {
+        return path.join(up, JSON.parse(fs.readFileSync(manifest, 'utf8')).tree, 'locales');
+    }
+    return path.join(up, 'locales');
+}
+
+function wordsOf(l) {
+    if (!l) {
+        loaded = null;
+        return null;
+    }
+    if (loaded && loaded.code === l.code) {
+        return loaded.words;
+    }
+    try {
+        loaded = { code: l.code, words: JSON.parse(fs.readFileSync(path.join(localeDir(), `${l.code}.json`), 'utf8')) };
+    } catch (e) {
+        loaded = { code: l.code, words: null };
+    }
+    return loaded.words;
+}
 
 function codes() {
     return LOCALES.map((l) => l.code);
@@ -34,6 +65,10 @@ function setHmiLanguage(value) {
         return false;
     }
     current = next;
+    const act = active();
+    if (loaded && (!act || loaded.code !== act.code)) {
+        loaded = null;
+    }
     return true;
 }
 
@@ -41,7 +76,11 @@ function setHmiLanguage(value) {
 function useDrawn(on) {
     const before = active();
     drawn = !!on;
-    return active() !== before;
+    const after = active();
+    if (loaded && (!after || loaded.code !== after.code)) {
+        loaded = null;
+    }
+    return after !== before;
 }
 
 /* The locale whose words are shown: none for English. */
@@ -72,7 +111,7 @@ function text(c, field) {
 }
 
 function t(key, ...args) {
-    const words = active() && active().words;
+    const words = wordsOf(active());
     const text = words && Object.prototype.hasOwnProperty.call(words, key) && typeof words[key] === 'string' ? words[key] : key;
     return text.replace(/\{(\d+)\}/g, (match, i) => (Number(i) < args.length ? String(args[i]) : match));
 }

@@ -289,20 +289,6 @@ function main(job) {
             }
             up = s;
             socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
-            if (head && head.length) {
-                up.write(head);
-            }
-            const meter = (from, to) => from.on('data', (d) => {
-                if (!count(d.length)) {
-                    emit({ refused: `more than ${job.maxBytes} bytes` });
-                    up.destroy();
-                    socket.destroy();
-                    return;
-                }
-                to.write(d);
-            });
-            meter(up, socket);
-            meter(socket, up);
             up.on('end', () => socket.end());
             socket.on('end', () => up.end());
             [up, socket].forEach((x) => x.setTimeout(idleMs, () => {
@@ -313,6 +299,41 @@ function main(job) {
                 up.destroy();
                 socket.destroy();
             });
+            const meter = (from, to, initial) => {
+                let waiting = false;
+                const resume = () => {
+                    waiting = false;
+                    from.resume();
+                };
+                const onData = (d) => {
+                    if (!count(d.length)) {
+                        emit({ refused: `more than ${job.maxBytes} bytes` });
+                        up.destroy();
+                        socket.destroy();
+                        return;
+                    }
+                    if (!to.write(d) && !waiting) {
+                        waiting = true;
+                        from.pause();
+                        to.once('drain', resume);
+                    }
+                };
+                const cleanup = () => {
+                    from.removeListener('data', onData);
+                    to.removeListener('drain', resume);
+                };
+                from.on('data', onData);
+                from.once('end', cleanup);
+                from.once('close', cleanup);
+                from.once('error', cleanup);
+                to.once('close', cleanup);
+                to.once('error', cleanup);
+                if (initial && initial.length) {
+                    onData(initial);
+                }
+            };
+            meter(up, socket);
+            meter(socket, up, head);
         });
     });
     server.listen(0, '127.0.0.1', () => emit({ listening: server.address().port }));

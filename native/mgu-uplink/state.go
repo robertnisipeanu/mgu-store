@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +43,10 @@ type Lease struct {
 // returned as missing.
 func resolveUIDs(c config) (uids []int, byApp map[string]int, missing []string) {
 	dUIDs, dApps, _ := dropIns(c)
+	return resolveUIDsWith(c, dUIDs, dApps)
+}
+
+func resolveUIDsWith(c config, dUIDs []int, dApps []string) (uids []int, byApp map[string]int, missing []string) {
 	c.Apps = union(c.Apps, dApps)
 	c.UIDs = union(c.UIDs, dUIDs)
 	byApp = map[string]int{}
@@ -149,6 +154,24 @@ func readLease(path string) *Lease {
 		return nil
 	}
 	return &l
+}
+
+func sameLeaseValue(a, b *Lease) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Interface == b.Interface && a.IP == b.IP && a.Prefix == b.Prefix &&
+		a.Router == b.Router && a.LeaseSec == b.LeaseSec && a.Updated == b.Updated &&
+		slices.Equal(a.DNS, b.DNS)
+}
+
+func cloneLease(l *Lease) *Lease {
+	if l == nil {
+		return nil
+	}
+	cp := *l
+	cp.DNS = slices.Clone(l.DNS)
+	return &cp
 }
 
 // The app owns oap_<uid>/ and data/, so every access below them goes through

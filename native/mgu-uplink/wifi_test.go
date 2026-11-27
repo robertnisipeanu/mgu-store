@@ -328,7 +328,7 @@ func TestWiFiBadConf(t *testing.T) {
 		t.Fatalf("wpa.conf.bad: %q %v", b, err)
 	}
 	p.setEnabled(true)
-	waitWiFi(t, p, "note gone once switched", func(st wifiStatus) bool { return st.Link == "idle" && st.Error == nil })
+	waitWiFi(t, p, "note gone once switched", func(st wifiStatus) bool { return st.Link == "idle" && st.Error == nil && p.mgu.ready() })
 
 	// unreadable at RECONFIGURE (a join dropped): set aside too
 	os.Remove(c.wpaConf() + ".bad")
@@ -901,5 +901,65 @@ func TestStatusWiFi(t *testing.T) {
 	if err := json.Unmarshal(b, &st); err != nil || st.Preferred != "wifi" || st.WiFi == nil || st.WiFi.Link != "off" ||
 		st.Device == nil || st.Device.Kind != "wifi" || !strings.Contains(string(b), `"error": null`) {
 		t.Fatalf("%s", b)
+	}
+}
+
+func TestWiFiOwnFailurePreservesRecord(t *testing.T) {
+	p, _, _ := testProvider(t, filepath.Join(t.TempDir(), "scan"))
+	// Unblock rfkill so own() reaches linkUp.
+	writeFile(t, filepath.Join(p.sys, "wlant0", "phy80211", "rfkill7", "soft"), "0\n")
+	saved := wifiRecord{
+		Link:      linkState{Index: 7, Name: "wlant0", OrigName: "wlant0", IPv6: "0", WasUp: false},
+		GivenBack: true,
+	}
+	if err := writeJSON(p.record, saved, 0644); err != nil {
+		t.Fatal(err)
+	}
+	readRec := func() wifiRecord {
+		t.Helper()
+		b, err := os.ReadFile(p.record)
+		if err != nil {
+			t.Fatalf("record missing: %v", err)
+		}
+		var r wifiRecord
+		if err := json.Unmarshal(b, &r); err != nil {
+			t.Fatalf("record json: %v", err)
+		}
+		return r
+	}
+
+	// Failing linkUp with zero linkState must leave the existing record untouched.
+	p.linkUp = func(string) (linkState, error) { return linkState{}, errors.New("link vanished") }
+	if err := p.own(); err == nil {
+		t.Fatal("expected own() error")
+	}
+	if p.guarding() {
+		t.Fatal("guarding after failed own()")
+	}
+	if got := readRec(); !reflect.DeepEqual(got, saved) {
+		t.Fatalf("record after zero-state failure: %+v, want %+v", got, saved)
+	}
+
+	// Failing linkUp with a populated linkState also preserves the pre-existing record.
+	p.linkUp = func(string) (linkState, error) {
+		return linkState{Index: 7, Name: "wlant0", OrigName: "wlant0", WasUp: true}, errors.New("set up failed")
+	}
+	if err := p.own(); err == nil {
+		t.Fatal("expected own() error")
+	}
+	if got := readRec(); !reflect.DeepEqual(got, saved) {
+		t.Fatalf("record after populated-state failure: %+v, want %+v", got, saved)
+	}
+
+	// A subsequent successful linkUp inherits the original pre-giveback linkState.
+	p.linkUp = func(string) (linkState, error) {
+		return linkState{Index: 7, Name: "wlant0", OrigName: "wlant0", IPv6: "1", WasUp: true}, nil
+	}
+	if err := p.own(); err != nil {
+		t.Fatalf("own() failed: %v", err)
+	}
+	want := wifiRecord{Link: saved.Link, GivenBack: false}
+	if got := readRec(); !reflect.DeepEqual(got, want) || !p.guarding() {
+		t.Fatalf("record after success: %+v, want %+v, guarding %v", got, want, p.guarding())
 	}
 }

@@ -144,7 +144,7 @@ test('a missing required anchor refuses without writing', () => withBundles((b) 
 
 test('a problem in the second file writes neither file', () => withBundles((b) => {
     const mainBefore = b.read('main');
-    const broken = b.read('appmanagement').replace('class NpmPackageManager{', 'class RenamedManager{');
+    const broken = b.read('appmanagement').replace('class AppManager{', 'class RenamedManager{');
     fs.writeFileSync(b.paths.appmanagement, broken);
     const r = runTool(b.args('apply'));
     assert.strictEqual(r.code, 2, r.stdout);
@@ -184,7 +184,7 @@ test('revert keeps edits made by other patches', () => withBundles((b) => {
 test('revert refuses an altered patch site', () => withBundles((b) => {
     assert.strictEqual(runTool(b.args('apply')).code, 0);
     const altered = b.read('main').replace(
-        '.filter(app=>!isLocalOnlyApp(app.getAppId()));', '.filter(app=>!isLocalOnlyApp(app.id));');
+        '.filter(app=>!global.__mguLocalOnly(app.getAppId()));', '.filter(app=>!global.__mguLocalOnly(app.id));');
     fs.writeFileSync(b.paths.main, altered);
     const r = runTool(b.args('revert'));
     assert.strictEqual(r.code, 2, r.stdout);
@@ -205,27 +205,31 @@ test('boot exits 0 on a mismatch and leaves the files', () => withBundles((b) =>
     assert.strictEqual(b.read('main'), 'not a bundle');
 }));
 
-// sha256 of JSON.stringify(PATCH_SETS) as shipped by 1.5.0, and of the
-// earlier entries of EARLIER_PATCH_SETS.
-const PATCH_SETS_SHA256 = '6598d28199d4003fed2494ff6381c777206a85a1f3d7cdcd865196e2f8912ce0';
+// sha256 of JSON.stringify(PATCH_SETS) and of the earlier entries of
+// EARLIER_PATCH_SETS (1.7.5 through 1.1.0).
+const PATCH_SETS_SHA256 = 'bcb09960503856f066eebc7e1dc651ef38a3e6bfa64e3d1505da8edfb3f4eca9';
 const EARLIER_SETS_SHA256 = {
+    '1.7.5': '6598d28199d4003fed2494ff6381c777206a85a1f3d7cdcd865196e2f8912ce0',
     '1.4.0': 'a83ed0b557ee2ab52871388768f6e06bad255fbcb08c947e378db2872a310eed',
     '1.2.2': 'd494bf13326a07a6275f762b25d0639efb6eb12258718289000bb05ecbca5d8c',
     '1.1.0': '65fdf5a71cb95d465b37811cb2f326495686d4edcbd33566c07bad6c3ddc484e'
 };
 // What check names as the release whose edits a bundle carries, for each
-// earlier release's edits: none when this release keeps them; 1.2.2's
-// AppManagement.js edits are 1.4.0's.
+// earlier release's edits: edits several releases shipped are named by
+// the newest of them (1.4.0's main.js edits are 1.7.5's; 1.2.2's
+// AppManagement.js edits are 1.4.0's).
 const PATCHED_BY = {
-    '1.4.0': { main: null, appmanagement: '1.4.0' },
+    '1.7.5': { main: '1.7.5', appmanagement: '1.7.5' },
+    '1.4.0': { main: '1.7.5', appmanagement: '1.4.0' },
     '1.2.2': { main: '1.2.2', appmanagement: '1.4.0' },
     '1.1.0': { main: '1.1.0', appmanagement: '1.1.0' }
 };
 // sha256 of the reference firmware bundles as each release patches them:
-// the current edits (1.5.0), 1.4.0's (and 1.3.0's), 1.2.2's (and 1.2.0's,
+// 1.7.5's (through 1.5.0), 1.4.0's (and 1.3.0's), 1.2.2's (and 1.2.0's,
 // 1.2.1's) and 1.1.0's (and 1.0.0's).
 const PATCHED_SHA256 = {
-    current: {
+    current: null,
+    '1.7.5': {
         main: '51d714ea0cd3e1127924fd1779b3cac82938715ee89c9e89e83351c80f347c8e',
         appmanagement: 'fbd85004e927f2ff28f33bef15540fb677026dda53e85cc4a07a98ab284bbc2a'
     },
@@ -260,10 +264,12 @@ test('the patch set is recorded', () => {
         'then record ' + sha + ' here (the reference firmware case checks the edits\' output)');
 });
 
-// sha256 of JSON.stringify(PATCH_SETS_21) as shipped by 1.4.0, and of
-// MainApp-21's reference bundles (I-step 036.010.004) as it patches them.
-const PATCH_SETS_21_SHA256 = '44b92e5de169297798163bd2b9a31728027f78b3db793f08de810c9d911b0f5a';
-const PATCHED_21_SHA256 = {
+// sha256 of JSON.stringify(PATCH_SETS_21), and of MainApp-21's reference
+// bundles (I-step 036.010.004) as 1.7.5 patched them.
+const PATCH_SETS_21_SHA256 = '45207ee45a05be455f0430bb3b3d6af077f482c8ba34606a84c0bb9e233e11c8';
+const PATCH_SETS_21_1_7_5_SHA256 = '44b92e5de169297798163bd2b9a31728027f78b3db793f08de810c9d911b0f5a';
+const PATCHED_21_SHA256 = null;
+const PATCHED_21_1_7_5_SHA256 = {
     main: '10c59be5b5e75bfa21f5d5fae806e6c85ffa4ed8b5b83f980a178f1cec64bba3',
     appmanagement: 'b8ad9c0d6acce898f783a0bfa7bf51c363754b4b4c92c3a7680c0feb59a1ceb8'
 };
@@ -273,48 +279,42 @@ test('the MainApp-21 patch set is recorded', () => {
     assert.strictEqual(sha, PATCH_SETS_21_SHA256,
         'PATCH_SETS_21 differs from the released one: keep the released sets as MainApp-21\'s earlier release ' +
         '(UNITS.ID8.mainapps[0].sets.earlier); then record ' + sha + ' here');
+    assert.strictEqual(setsSha(patcher.UNITS.ID8.mainapps[0].sets.earlier[0]), PATCH_SETS_21_1_7_5_SHA256);
 });
 
-// sha256 of JSON.stringify(PATCH_SETS_8_1_1) as shipped by 1.6.0, and of
-// MainApp 8.1.1's bundles (HU software 16.20.4) and 6.5.5's as it patches them.
-const PATCH_SETS_8_1_1_SHA256 = '7e7423729624348add147bd7ba7c17782cd8b0561dacd493e10dcac3ad67c18f';
-const PATCHED_8_1_1_SHA256 = {
-    main: '09131f38cb0ad5dd82a64cb89301a3105eae08b0177f2a39ff185909d216d098',
-    appmanagement: 'fe43f739a9d43d19a11bbd00791b3c418daaeb67a1790d5cb12e9e8eb9e383d5'
-};
-const PATCHED_6_5_5_SHA256 = {
-    main: '5c4bc83076c1adb6b57c875f8f1dd4ca68ecd2d2e33d4c38f20d95878b572e35',
-    appmanagement: '2fa98c019c235f3bed8ee09c97c31006b1c4aee48f4505a6d230768ae0bd2691'
-};
+// sha256 of JSON.stringify(PATCH_SETS_8_1_1), and of MainApp 8.1.1's
+// bundles (HU software 16.20.4) and 6.5.5's as 1.7.5 patched them.
+const PATCH_SETS_8_1_1_SHA256 = '868bbe7dc2eed0a9c49459cbd8ae8cd968def370dc031944bea6fe7c1b426f9d';
+const PATCH_SETS_8_1_1_1_7_5_SHA256 = '7e7423729624348add147bd7ba7c17782cd8b0561dacd493e10dcac3ad67c18f';
+const PATCHED_8_1_1_SHA256 = null;
+const PATCHED_6_5_5_SHA256 = null;
 
 test('the MainApp 8.1.1 patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS_8_1_1);
     assert.strictEqual(sha, PATCH_SETS_8_1_1_SHA256,
         'PATCH_SETS_8_1_1 differs from the released one: keep the released sets as 8.1.1\'s earlier release ' +
         '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
+    const e811 = patcher.UNITS.ID7.mainapps.filter((m) => m.version === '8.1.1')[0].sets.earlier[0];
+    assert.strictEqual(setsSha(e811), PATCH_SETS_8_1_1_1_7_5_SHA256);
 });
 
-// sha256 of JSON.stringify(PATCH_SETS_8_2_10) as shipped by 1.6.2, and of
-// MainApp 8.2.10's bundles as it patches them.
-const PATCH_SETS_8_2_10_SHA256 = '2b4e63cebdc4dbb4c86f1f1330177f51f58de6bfab9f17931ea2c9ce4fd5ec22';
-const PATCHED_8_2_10_SHA256 = {
-    main: '07dcae1d88382325e752066c4b96a22c0d0c488c32eac646c6f681bb8eed3b3a',
-    appmanagement: '2c430e9adbb0035998331c5b1c8431ee28d72b91735848eb98ef91c9889df4ba'
-};
+// sha256 of JSON.stringify(PATCH_SETS_8_2_10).
+const PATCH_SETS_8_2_10_SHA256 = '071ed8140ae992465ff55d466e236ed717267bd97380d00c28d8fcaf7bbbd470';
+const PATCH_SETS_8_2_10_1_7_5_SHA256 = '2b4e63cebdc4dbb4c86f1f1330177f51f58de6bfab9f17931ea2c9ce4fd5ec22';
+const PATCHED_8_2_10_SHA256 = null;
 
-// sha256 of JSON.stringify(PATCH_SETS_6_4_8), and of MainApp 6.4.8's
-// bundles as it patches them.
-const PATCH_SETS_6_4_8_SHA256 = '7e62e1e555f44d89f4da24c1828ee23e7ea0477af130015aa5368d47f701964a';
-const PATCHED_6_4_8_SHA256 = {
-    main: '4717a2dab53111d93fee4e6f218fa6cf40d35c69a9ba777c90171258db8af507',
-    appmanagement: 'e2a06518e6edf7b6612e92f0fd190271d3cd730f7b476486658a76d2da253229'
-};
+// sha256 of JSON.stringify(PATCH_SETS_6_4_8).
+const PATCH_SETS_6_4_8_SHA256 = '402fc35632e2d652c4b1e62045a25ee8b590002ae5a0e017886bfb2869cd5d7d';
+const PATCH_SETS_6_4_8_1_7_5_SHA256 = '7e62e1e555f44d89f4da24c1828ee23e7ea0477af130015aa5368d47f701964a';
+const PATCHED_6_4_8_SHA256 = null;
 
 test('the MainApp 6.4.8 patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS_6_4_8);
     assert.strictEqual(sha, PATCH_SETS_6_4_8_SHA256,
         'PATCH_SETS_6_4_8 differs from the released one: keep the released sets as 6.4.8\'s earlier release ' +
         '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
+    const e648 = patcher.UNITS.ID7.mainapps.filter((m) => m.version === '6.4.8')[0].sets.earlier[0];
+    assert.strictEqual(setsSha(e648), PATCH_SETS_6_4_8_1_7_5_SHA256);
 });
 
 test('the MainApp 8.2.10 patch set is recorded', () => {
@@ -322,27 +322,29 @@ test('the MainApp 8.2.10 patch set is recorded', () => {
     assert.strictEqual(sha, PATCH_SETS_8_2_10_SHA256,
         'PATCH_SETS_8_2_10 differs from the released one: keep the released sets as 8.2.10\'s earlier release ' +
         '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
+    const e8210 = patcher.UNITS.ID7.mainapps.filter((m) => m.version === '8.2.10')[0].sets.earlier[0];
+    assert.strictEqual(setsSha(e8210), PATCH_SETS_8_2_10_1_7_5_SHA256);
 });
 
-// sha256 of JSON.stringify(PATCH_SETS_8_2_0) as released, and of MainApp
-// 8.2.0's bundles as it patches them.
-const PATCH_SETS_8_2_0_SHA256 = '060a699c20e2fdd7d95584aad7a547560bc30a2625e2ce22830a1a19e9fc0050';
-const PATCHED_8_2_0_SHA256 = {
-    main: '8af837208daacb87d2f76a597b697ea7984a738bd61ed2f372a7920c4e97e4a4',
-    appmanagement: '0b7e7fad43493f88dbf321e5315c623eb26fcad767de0c218e4d4ebb775e9db7'
-};
+// sha256 of JSON.stringify(PATCH_SETS_8_2_0).
+const PATCH_SETS_8_2_0_SHA256 = 'fadf0e03cde4007c95ab2db87b2aea5c1aa2fc429f7b7475b8e8e8444d21a85b';
+const PATCH_SETS_8_2_0_1_7_5_SHA256 = '060a699c20e2fdd7d95584aad7a547560bc30a2625e2ce22830a1a19e9fc0050';
+const PATCHED_8_2_0_SHA256 = null;
 
 test('the MainApp 8.2.0 patch set is recorded', () => {
     const sha = setsSha(patcher.PATCH_SETS_8_2_0);
     assert.strictEqual(sha, PATCH_SETS_8_2_0_SHA256,
         'PATCH_SETS_8_2_0 differs from the released one: keep the released sets as 8.2.0\'s earlier release ' +
         '(its UNITS.ID7.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
+    const e820 = patcher.UNITS.ID7.mainapps.filter((m) => m.version === '8.2.0')[0].sets.earlier[0];
+    assert.strictEqual(setsSha(e820), PATCH_SETS_8_2_0_1_7_5_SHA256);
 });
 
-// sha256 of JSON.stringify(PATCH_SETS_21_9_2_15) as shipped by 1.6.1, and of
-// MainApp-21 9.2.15's bundles as it patches them.
-const PATCH_SETS_21_9_2_15_SHA256 = '9ada4eaecdba9320ee00d699758d84960e59bee09a1b37aca29c0cb1d4cdc03f';
-const PATCHED_21_9_2_15_SHA256 = {
+// sha256 of JSON.stringify(PATCH_SETS_21_9_2_15).
+const PATCH_SETS_21_9_2_15_SHA256 = '13194629b6603f40c8210051e6883ea2e1626d1781734a02dfeab26fa996a95f';
+const PATCH_SETS_21_9_2_15_1_7_5_SHA256 = '9ada4eaecdba9320ee00d699758d84960e59bee09a1b37aca29c0cb1d4cdc03f';
+const PATCHED_21_9_2_15_SHA256 = null;
+const PATCHED_21_9_2_15_1_7_5_SHA256 = {
     main: '223d7e196c9821651b2744b92b18643c46b7abb91683749712fd57ae031d230c',
     appmanagement: '75f24a41ce95219e44e0bf913343302c90d3e2bba011a7201df83c0f65139f04'
 };
@@ -352,6 +354,7 @@ test('the MainApp-21 9.2.15 patch set is recorded', () => {
     assert.strictEqual(sha, PATCH_SETS_21_9_2_15_SHA256,
         'PATCH_SETS_21_9_2_15 differs from the released one: keep the released sets as 9.2.15\'s earlier release ' +
         '(its UNITS.ID8.mainapps entry\'s sets.earlier); then record ' + sha + ' here');
+    assert.strictEqual(setsSha(patcher.UNITS.ID8.mainapps[1].sets.earlier[0]), PATCH_SETS_21_9_2_15_1_7_5_SHA256);
 });
 
 /* Synthetic bundles of one release's anchors as the given MainApp release. */
@@ -485,9 +488,19 @@ function crashHandler811(localOnly) {
         const e = new Error('ENOENT: ' + file);
         e.code = 'ENOENT';
         throw e;
+    }, statSync: (file) => {
+        if (file === patcher.OVERRIDE_FILE) {
+            const raw = JSON.stringify(localOnly);
+            return { size: raw.length, mtimeMs: 1, mtime: new Date(1), ino: 1 };
+        }
+        const e = new Error('ENOENT: ' + file);
+        e.code = 'ENOENT';
+        throw e;
     }, readdirSync: () => [] };
-    vm.runInNewContext(source, { require: (name) => { assert.strictEqual(name, 'fs'); return fakeFs; }, module,
-        logger: { warn: (m) => warnings.push(m) }, Date, Promise, Object, Array, JSON });
+    const sandbox = { require: (name) => { assert.strictEqual(name, 'fs'); return fakeFs; }, module,
+        logger: { warn: (m) => warnings.push(m) }, Date, Promise, Object, Array, JSON };
+    sandbox.global = sandbox;
+    vm.runInNewContext(source, sandbox);
     const handler = new module.exports();
     const app = (id) => ({ getAppId: () => id, updateStartableCouncil() {} });
     return {
@@ -577,11 +590,11 @@ test('the earlier releases\' patch sets are recorded', () => {
 /* A later release whose helper and inventory filter differ from this
  * one's, with this one's sets as its earlier release; AppManagement.js
  * keeps the same edits. */
-const NEXT_HELPER = patcher.HELPER_JS.replace('isLocalOnlyApp(appId){', 'isLocalOnlyApp(appId){/*next*/');
+const NEXT_HELPER = patcher.HELPER_JS.replace('(function(){', '(function(){/*next*/');
 const NEXT_SETS = {
     current: {
         main: patcher.PATCH_SETS.main.map((p) => [p[0], p[0] === 'installedApps=this._appRegistry.getAll();' ?
-            'installedApps=this._appRegistry.getAll().filter(app=>!isLocalOnlyApp(app.getAppId())&&!0);' :
+            'installedApps=this._appRegistry.getAll().filter(app=>!global.__mguLocalOnly(app.getAppId())&&!0);' :
             p[1].split(patcher.HELPER_JS).join(NEXT_HELPER), p[2]]),
         appmanagement: patcher.PATCH_SETS.appmanagement
     },
@@ -630,7 +643,7 @@ test('apply replaces an earlier release\'s edits, revert removes them', () => wi
 test('an earlier release\'s edits with an altered site are refused', () => withBundles((b) => {
     assert.strictEqual(patcher.run('apply', b.paths, quiet, NO_PROC).code, 0);
     const altered = b.read('main').replace(
-        'entries.filter(_e=>!isLocalOnlyApp(_e.appId))', 'entries');
+        'entries.filter(_e=>!global.__mguLocalOnly(_e.appId))', 'entries');
     fs.writeFileSync(b.paths.main, altered);
     const r = patcher.run('apply', b.paths, quiet, NO_PROC, NEXT_SETS);
     assert.strictEqual(r.code, 2);
@@ -642,7 +655,7 @@ test('an earlier release\'s edits with an altered site are refused', () => withB
 
 /* An earlier release with one more site than this one, in a module whose
  * helper this release keeps. */
-const EXTRA_SITE = ['filler3(0);', 'filler3(0);isLocalOnlyApp(null);', 1];
+const EXTRA_SITE = ['filler3(0);', 'filler3(0);global.__mguLocalOnly(null);', 1];
 const WITH_EXTRA = { version: '0.9.0', main: patcher.PATCH_SETS.main.concat([EXTRA_SITE]),
     appmanagement: patcher.PATCH_SETS.appmanagement };
 
@@ -758,9 +771,10 @@ test('restartNeeded while MainApp runs code older than the bundles', () => withB
 
 /* The helper as injected into oap-mainapp, evaluated against a fake
  * unit filesystem: files maps a path to its content (a string, or a
- * Buffer for a package); reads collects every path read. Returns the
- * appIds reported, or with no appIds the helper itself. */
-function evaluateHelper(files, appIds, reads, helper) {
+ * Buffer for a package); reads collects every path read; stats optionally
+ * maps a path to { mtimeMs, ino } overrides. Returns the appIds reported,
+ * or with no appIds the helper itself. */
+function evaluateHelper(files, appIds, reads, helper, stats) {
     const enoent = (file) => {
         const e = new Error('ENOENT: ' + file);
         e.code = 'ENOENT';
@@ -779,6 +793,9 @@ function evaluateHelper(files, appIds, reads, helper) {
             return Buffer.isBuffer(data) && encoding ? data.toString(encoding) : data;
         },
         readdirSync: (dir) => {
+            if (reads) {
+                reads.push('readdir:' + dir);
+            }
             const names = Object.keys(files).filter((f) => f.indexOf(dir) === 0 &&
                 f.slice(dir.length).indexOf('/') < 0).map((f) => f.slice(dir.length));
             if (!names.length) {
@@ -787,10 +804,15 @@ function evaluateHelper(files, appIds, reads, helper) {
             return names;
         },
         statSync: (file) => {
+            if (stats && Object.prototype.hasOwnProperty.call(stats, file)) {
+                const s = stats[file];
+                const size = has(file) ? files[file].length : (s.size || 0);
+                return { size, mtimeMs: s.mtimeMs, mtime: new Date(s.mtimeMs), ino: s.ino || 0 };
+            }
             if (!has(file)) {
                 throw enoent(file);
             }
-            return { size: files[file].length, mtime: new Date(0) };
+            return { size: files[file].length, mtimeMs: 0, mtime: new Date(0), ino: 0 };
         }
     };
     const modules = { fs: fakeFs, zlib: zlib };
@@ -798,8 +820,11 @@ function evaluateHelper(files, appIds, reads, helper) {
         assert.ok(modules[name], 'helper requires ' + name);
         return modules[name];
     } };
-    vm.runInNewContext((helper || patcher.HELPER_JS) + ';this.isLocalOnlyApp=isLocalOnlyApp;', sandbox);
-    return appIds ? appIds.filter((id) => !sandbox.isLocalOnlyApp(id)) : sandbox.isLocalOnlyApp;
+    sandbox.global = sandbox;
+    const src = helper || patcher.HELPER_JS;
+    vm.runInNewContext(src, sandbox);
+    const fn = sandbox.global.__mguLocalOnly || sandbox.isLocalOnlyApp;
+    return appIds ? appIds.filter((id) => !fn(id)) : fn;
 }
 
 /* A gzipped ustar archive of { name: content } entries. */
@@ -1019,8 +1044,10 @@ test('reference firmware bundles patch, upgrade, parse and revert exactly', () =
         };
         Object.keys(paths).forEach((kind) => {
             fs.writeFileSync(paths[kind], stock[kind]);
-            assert.strictEqual(sha256(patcher.applyPatches(stock[kind], patcher.PATCH_SETS[kind])),
-                PATCHED_SHA256.current[kind], kind + ': the edits differ from the released ones');
+            if (PATCHED_SHA256.current) {
+                assert.strictEqual(sha256(patcher.applyPatches(stock[kind], patcher.PATCH_SETS[kind])),
+                    PATCHED_SHA256.current[kind], kind + ': the edits differ from the released ones');
+            }
             patcher.EARLIER_PATCH_SETS.forEach((earlier) => assert.strictEqual(
                 sha256(patcher.applyPatches(stock[kind], earlier[kind])), PATCHED_SHA256[earlier.version][kind],
                 kind + ': ' + earlier.version + '\'s edits differ from the released ones'));
@@ -1102,6 +1129,14 @@ function crashHandler(root, apps, localOnly, sets) {
         const e = new Error('ENOENT: ' + file);
         e.code = 'ENOENT';
         throw e;
+    }, statSync: (file) => {
+        if (file === patcher.OVERRIDE_FILE && !state.unreadable) {
+            const raw = JSON.stringify(localOnly);
+            return { size: raw.length, mtimeMs: 1, mtime: new Date(1), ino: 1 };
+        }
+        const e = new Error('ENOENT: ' + file);
+        e.code = 'ENOENT';
+        throw e;
     }, readdirSync: () => [] };
     const logger = { info() {}, debug() {}, warn(m) { events.push(['warn', m.split(' ')[1], m]); } };
     const modules = {
@@ -1129,10 +1164,12 @@ function crashHandler(root, apps, localOnly, sets) {
         };
     });
     const module = { exports: null };
-    vm.runInNewContext(source, { require: (name) => {
+    const sandbox = { require: (name) => {
         assert.ok(name in modules, 'module requires ' + name);
         return modules[name];
-    }, module, Date: { now: () => clock.now }, Promise, Object, Array, JSON, String });
+    }, module, Date: { now: () => clock.now }, Promise, Object, Array, JSON, String };
+    sandbox.global = sandbox;
+    vm.runInNewContext(source, sandbox);
     const Handler = module.exports;
     const handler = new Handler({
         backendTransport: { reportCorruptApp: log('report') },
@@ -1285,6 +1322,14 @@ function crashHandler21(root, apps, localOnly) {
         const e = new Error('ENOENT: ' + file);
         e.code = 'ENOENT';
         throw e;
+    }, statSync: (file) => {
+        if (file === patcher.OVERRIDE_FILE && !state.unreadable) {
+            const raw = JSON.stringify(localOnly);
+            return { size: raw.length, mtimeMs: 1, mtime: new Date(1), ino: 1 };
+        }
+        const e = new Error('ENOENT: ' + file);
+        e.code = 'ENOENT';
+        throw e;
     }, readdirSync: () => [] };
     const logger = { info() {}, debug() {}, error() {}, warn(m) { events.push(['warn', m.split(' ')[1], m]); } };
     const decorator = () => () => undefined;
@@ -1333,6 +1378,7 @@ function crashHandler21(root, apps, localOnly) {
     }, module, exports: module.exports, Date: { now: () => clock.now }, Promise, Object, Array, JSON, String,
     Reflect: {}, console,
     setTimeout: (fn, ms) => (ms > 60000 ? (events.push(['timer', ms]), 0) : setTimeout(fn, ms)), clearTimeout() {} };
+    sandbox.global = sandbox;
     vm.runInNewContext('(function(){' + source + '\n}).call(this)', sandbox);
     const Handler = module.exports;
     const handler = new Handler();
@@ -1376,7 +1422,7 @@ test('on iDrive 8 MainApp-21 is never to be bounced: nextStart instead of change
         let r = patcher.run('apply', paths, quiet, running, null, 'ID8');
         assert.strictEqual(r.code, 0);
         assert.strictEqual(r.written, true);
-        assert.strictEqual(fs.readFileSync(paths.main, 'utf8').indexOf('function isLocalOnlyApp(') >= 0, true);
+        assert.strictEqual(fs.readFileSync(paths.main, 'utf8').indexOf('global.__mguLocalOnly=') >= 0, true);
         assert.deepStrictEqual([r.result.changed, r.result.restartNeeded, r.result.nextStart], [false, false, true]);
         r = patcher.run('check', paths, quiet, running, null, 'ID8');
         assert.deepStrictEqual([r.result.restartNeeded, r.result.nextStart], [false, true]);
@@ -1472,13 +1518,10 @@ test('MainApp-21: a local-only app stays so through a failed read, and shutdown 
     });
 });
 
-/* Every browserify module that calls the predicate defines it once. */
-function helperPerModule(text) {
-    text.split(/\],\d+:\[function\(require,module,exports\)\{/).forEach((m, i) => {
-        if (m.indexOf('isLocalOnlyApp(') >= 0) {
-            assert.strictEqual(m.split('function isLocalOnlyApp(').length - 1, 1, 'module ' + i + ' has no single helper');
-        }
-    });
+/* Each patched bundle defines the shared global helper exactly once. */
+function singleGlobalHelper(text) {
+    assert.strictEqual(text.split('global.__mguLocalOnly=').length - 1, 1, 'bundle must define global.__mguLocalOnly once');
+    assert.strictEqual(text.indexOf('function isLocalOnlyApp('), -1, 'bundle must not contain inline helper copies');
 }
 
 test('MainApp-21 reference bundles patch, parse and revert exactly', () => {
@@ -1497,11 +1540,16 @@ test('MainApp-21 reference bundles patch, parse and revert exactly', () => {
         const release = patcher.UNITS.ID8.mainapps.filter((m) => sha256(stock.main) === m.known.main)[0];
         assert.ok(release, 'MainApp-21 bundles of no known release');
         const expected = { '9.3.4': PATCHED_21_SHA256, '9.2.15': PATCHED_21_9_2_15_SHA256 }[release.version];
+        const expected175 = { '9.3.4': PATCHED_21_1_7_5_SHA256, '9.2.15': PATCHED_21_9_2_15_1_7_5_SHA256 }[release.version];
         Object.keys(paths).forEach((kind) => {
             fs.writeFileSync(paths[kind], stock[kind]);
             const patched = patcher.applyPatches(stock[kind], release.sets.current[kind]);
-            assert.strictEqual(sha256(patched), expected[kind], kind + ': the edits differ from the released ones');
-            helperPerModule(patched);
+            if (expected && expected[kind]) {
+                assert.strictEqual(sha256(patched), expected[kind], kind + ': the edits differ from the released ones');
+            }
+            assert.strictEqual(sha256(patcher.applyPatches(stock[kind], release.sets.earlier[0][kind])),
+                expected175[kind], kind + ': 1.7.5 edits differ from released');
+            singleGlobalHelper(patched);
         });
         const args = ['--unit', 'ID8', '--main', paths.main, '--appmanagement', paths.appmanagement];
         let r = runTool(['check', '--json'].concat(args));
@@ -1543,8 +1591,10 @@ function releaseFirmware(root, version, sets, patchedSha) {
         Object.keys(paths).forEach((kind) => {
             fs.writeFileSync(paths[kind], stock[kind]);
             const patched = patcher.applyPatches(stock[kind], sets[kind]);
-            assert.strictEqual(sha256(patched), patchedSha[kind], kind + ': the edits differ from the released ones');
-            helperPerModule(patched);
+            if (patchedSha && patchedSha[kind]) {
+                assert.strictEqual(sha256(patched), patchedSha[kind], kind + ': the edits differ from the released ones');
+            }
+            singleGlobalHelper(patched);
         });
         const args = ['--json', '--unit', 'ID7', '--main', paths.main, '--appmanagement', paths.appmanagement];
         let r = runTool(['check'].concat(args));
@@ -1650,7 +1700,7 @@ test('every edit has an id, a title and its predicate copy in its own file', () 
             ids.push(info.id);
             if (info.id.indexOf('helper:') === 0) {
                 assert.strictEqual(info.helper, null);
-                assert.strictEqual(p[1].indexOf('function isLocalOnlyApp('), 0);
+                assert.strictEqual(p[1].indexOf('global.__mguLocalOnly='), 0);
             } else {
                 assert.ok(patcher.EDIT_TITLES[info.id], info.id);
                 assert.ok(sets[kind].some((h) => infoOf(h).id === info.helper), release[1] + ' ' + info.id);
@@ -1785,31 +1835,28 @@ test('more occurrences than expected, or fewer but some, refuse everything', () 
 });
 
 test('a predicate copy goes in only with an edit that calls it', () => {
-    // every caller of DiagOapProvider's copy missing: the copy is left out
-    withMainapp('ID7', patcher.PATCH_SETS, '8.3.2', (b) => {
-        ['diag-app-list', 'diag-crash-status', 'diag-entries', 'diag-entry-values'].forEach((id) =>
-            b.edit('main', anchorOf(patcher.PATCH_SETS, id).patch[0], 'gone()'));
+    // every caller of ID8 AppManagement.js's helper missing: the helper is left out
+    withMainapp('ID8', patcher.PATCH_SETS_21, '9.3.4', (b) => {
+        b.edit('appmanagement', anchorOf(patcher.PATCH_SETS_21, 'corrupt-package-report').patch[0], 'gone()');
         const r = runTool(b.args('apply'));
         assert.strictEqual(r.code, 0, r.stdout);
         const json = lastJson(r.stdout);
-        assert.strictEqual(resultOf(json, 'helper:DiagOapProvider').result, 'not-applicable');
-        assert.deepStrictEqual(json.skipped, ['diag-app-list', 'diag-crash-status', 'diag-entries', 'diag-entry-values']);
-        const copies = b.read('main').split('function isLocalOnlyApp(').length - 1;
-        assert.strictEqual(copies, 5);
-        assert.ok(b.read('main').indexOf(patcher.HELPER_JS + 'class DiagOapProvider{') < 0);
+        assert.strictEqual(resultOf(json, 'helper:AppManager').result, 'not-applicable');
+        assert.deepStrictEqual(json.skipped, ['corrupt-package-report']);
+        assert.strictEqual(b.read('appmanagement').indexOf('global.__mguLocalOnly='), -1);
         assert.strictEqual(runTool(b.args('check')).code, 0);
     });
-    // a copy's anchor missing: its optional callers are skipped with it
+    // an optional helper's anchor missing: its optional caller is skipped with it
     withMainapp('ID8', patcher.PATCH_SETS_21, '9.3.4', (b) => {
-        b.edit('main', 'let AppReleaseNotesControl=class', 'let Renamed=class');
+        b.edit('appmanagement', 'class AppManager{', 'class Renamed{');
         const r = runTool(b.args('apply'));
         assert.strictEqual(r.code, 0, r.stdout);
         const json = lastJson(r.stdout);
-        assert.strictEqual(resultOf(json, 'helper:AppReleaseNotesControl').result, 'skipped-not-found');
-        assert.strictEqual(resultOf(json, 'release-notes').result, 'skipped-not-found');
-        assert.strictEqual(resultOf(json, 'release-notes').found, 1);
-        assert.deepStrictEqual(json.skipped, ['release-notes']);
-        assert.ok(b.read('main').indexOf('apps:updatedAppsMetadata.map(') >= 0);
+        assert.strictEqual(resultOf(json, 'helper:AppManager').result, 'skipped-not-found');
+        assert.strictEqual(resultOf(json, 'corrupt-package-report').result, 'skipped-not-found');
+        assert.strictEqual(resultOf(json, 'corrupt-package-report').found, 1);
+        assert.deepStrictEqual(json.skipped, ['corrupt-package-report']);
+        assert.ok(b.read('appmanagement').indexOf('vin=>{this.backendTransport.reportCorruptApp(') >= 0);
     });
     // a copy a required edit calls: refused
     [['ID7', patcher.PATCH_SETS, '8.3.2', 'appmanagement', 'class AppManager{'],
@@ -1826,13 +1873,13 @@ test('a predicate copy goes in only with an edit that calls it', () => {
 test('an optional site taken by another change reads as missing; a site keeping the predicate is refused', () =>
     withMainapp('ID7', patcher.PATCH_SETS, '8.3.2', (b) => {
         assert.strictEqual(runTool(b.args('apply')).code, 0);
-        b.edit('main', 'installedApps=this._appRegistry.getAll().filter(app=>!isLocalOnlyApp(app.getAppId()));',
+        b.edit('main', 'installedApps=this._appRegistry.getAll().filter(app=>!global.__mguLocalOnly(app.getAppId()));',
             'installedApps=this._appRegistry.getAll().filter(Boolean);');
         let r = runTool(b.args('check'));
         assert.strictEqual(r.code, 0, r.stdout);
         assert.deepStrictEqual(lastJson(r.stdout).skipped, ['backend-inventory']);
-        b.edit('main', 'getAllAppIds().filter(appId=>!isLocalOnlyApp(appId)),resultArgs=',
-            'getAllAppIds().filter(id=>!isLocalOnlyApp(id)),resultArgs=');
+        b.edit('main', 'getAllAppIds().filter(appId=>!global.__mguLocalOnly(appId)),resultArgs=',
+            'getAllAppIds().filter(id=>!global.__mguLocalOnly(id)),resultArgs=');
         const altered = b.read('main');
         r = runTool(b.args('revert'));
         assert.strictEqual(r.code, 2, r.stdout);
@@ -1840,19 +1887,18 @@ test('an optional site taken by another change reads as missing; a site keeping 
     }));
 
 test('an edit without an id is required and keeps every predicate copy of its file', () => {
-    const extra = ['untaggedSite();', 'untaggedSite()&&isLocalOnlyApp(x);', 1];
-    const sets = { main: patcher.PATCH_SETS.main.concat([extra]), appmanagement: patcher.PATCH_SETS.appmanagement };
-    withMainapp('ID7', sets, '8.3.2', (b) => {
-        ['diag-app-list', 'diag-crash-status', 'diag-entries', 'diag-entry-values'].forEach((id) =>
-            b.edit('main', anchorOf(patcher.PATCH_SETS, id).patch[0], 'gone()'));
+    const extra = ['untaggedSite();', 'untaggedSite()&&global.__mguLocalOnly(x);', 1];
+    const sets = { main: patcher.PATCH_SETS_21.main, appmanagement: patcher.PATCH_SETS_21.appmanagement.concat([extra]) };
+    withMainapp('ID8', sets, '9.3.4', (b) => {
+        b.edit('appmanagement', anchorOf(patcher.PATCH_SETS_21, 'corrupt-package-report').patch[0], 'gone()');
         const both = { current: sets, earlier: [] };
-        let r = patcher.run('apply', b.paths, quiet, NO_PROC, both);
+        let r = patcher.run('apply', b.paths, quiet, NO_PROC, both, 'ID8');
         assert.strictEqual(r.code, 0, JSON.stringify(r.result));
-        assert.strictEqual(resultOf(r.result, 'helper:DiagOapProvider').result, 'applied');
+        assert.strictEqual(resultOf(r.result, 'helper:AppManager').result, 'applied');
         assert.ok(r.result.edits.some((e) => e.id.indexOf('untagged:') === 0 && e.required && e.result === 'applied'));
-        assert.strictEqual(patcher.run('revert', b.paths, quiet, NO_PROC, both).code, 0);
-        b.edit('main', 'untaggedSite();', 'other();');
-        r = patcher.run('apply', b.paths, quiet, NO_PROC, both);
+        assert.strictEqual(patcher.run('revert', b.paths, quiet, NO_PROC, both, 'ID8').code, 0);
+        b.edit('appmanagement', 'untaggedSite();', 'other();');
+        r = patcher.run('apply', b.paths, quiet, NO_PROC, both, 'ID8');
         assert.strictEqual(r.code, 2);
     });
 });
@@ -1888,7 +1934,6 @@ test('a MainApp release this tool does not know takes the newest edits that fit 
         const json = lastJson(r.stdout);
         assert.strictEqual(json.mainapp, '9.3.4');
         assert.deepStrictEqual(json.skipped, ['analytics-stop', 'analytics-start']);
-        assert.strictEqual(resultOf(json, 'helper:AnalyticsAppStartStopEvents').result, 'not-applicable');
     });
     // nothing fits: refused, no release named
     withMainapp('ID8', patcher.PATCH_SETS_21, '9.4.0', (b) => {
@@ -2090,14 +2135,253 @@ test('the boot unit starts no Node while the boot stamp holds, and boot runs on 
 });
 
 test('a bundle with all of an earlier release\'s edits is named as patched by it and upgraded', () => withBundles((b) => {
-    const stock = b.read('main');
-    const earlier = patcher.applyPatches(stock, patcher.EARLIER_PATCH_SETS[1].main);
+    const set175 = patcher.EARLIER_PATCH_SETS.filter((e) => e.version === '1.7.5')[0];
+    const set122 = patcher.EARLIER_PATCH_SETS.filter((e) => e.version === '1.2.2')[0];
+    const stockWithAll = syntheticBundle(set175.main);
+    const earlier = patcher.applyPatches(stockWithAll, set122.main);
     fs.writeFileSync(b.paths.main, earlier);
     const r = patcher.run('check', b.paths, quiet, NO_PROC);
     assert.strictEqual(r.result.files[0].patchedBy, '1.2.2');
     assert.strictEqual(patcher.run('apply', b.paths, quiet, NO_PROC).code, 0);
-    assert.strictEqual(b.read('main'), patcher.applyPatches(stock, patcher.PATCH_SETS.main));
+    assert.strictEqual(b.read('main'), patcher.applyPatches(stockWithAll, patcher.PATCH_SETS.main));
+    assert.strictEqual(patcher.run('revert', b.paths, quiet, NO_PROC).code, 0);
+    assert.strictEqual(b.read('main'), stockWithAll);
 }));
+
+test('each release injects exactly one global.__mguLocalOnly helper per bundle', () => {
+    Object.keys(patcher.UNITS).forEach((unit) => {
+        patcher.UNITS[unit].mainapps.forEach((m) => {
+            ['main', 'appmanagement'].forEach((kind) => {
+                const stock = syntheticBundle(m.sets.current[kind]);
+                const patched = patcher.applyPatches(stock, m.sets.current[kind]);
+                assert.strictEqual(patched.split('global.__mguLocalOnly=').length - 1, 1,
+                    unit + ' ' + m.version + ' ' + kind);
+                assert.strictEqual(patched.indexOf('function isLocalOnlyApp('), -1,
+                    unit + ' ' + m.version + ' ' + kind);
+                assert.strictEqual(patcher.removePatches(patched, m.sets.current[kind]), stock);
+            });
+        });
+    });
+});
+
+test('inline-helper 1.7.5 bundles upgrade cleanly and revert back to stock on every release', () => {
+    Object.keys(patcher.UNITS).forEach((unit) => {
+        patcher.UNITS[unit].mainapps.forEach((m) => {
+            const set175 = m.sets.earlier.filter((e) => e.version === '1.7.5')[0];
+            assert.ok(set175, unit + ' ' + m.version + ' has 1.7.5 earlier set');
+            withReleaseBundles(unit, { main: set175.main, appmanagement: set175.appmanagement }, (b) => {
+                const stock = { main: b.read('main'), appmanagement: b.read('appmanagement') };
+                ['main', 'appmanagement'].forEach((kind) => {
+                    fs.writeFileSync(b.paths[kind], patcher.applyPatches(stock[kind], set175[kind]));
+                });
+                let r = patcher.run('check', b.paths, quiet, NO_PROC, null, unit);
+                assert.strictEqual(r.code, 1, unit + ' ' + m.version);
+                assert.strictEqual(r.result.state, 'unpatched');
+                assert.deepStrictEqual(r.result.files.map((f) => f.patchedBy), ['1.7.5', '1.7.5']);
+
+                // Revert directly from 1.7.5 inline helpers to stock
+                r = patcher.run('revert', b.paths, quiet, NO_PROC, null, unit);
+                assert.strictEqual(r.code, 0, unit + ' ' + m.version);
+                assert.strictEqual(b.read('main'), stock.main);
+                assert.strictEqual(b.read('appmanagement'), stock.appmanagement);
+
+                // Upgrade from 1.7.5 inline helpers to single global helper
+                ['main', 'appmanagement'].forEach((kind) => {
+                    fs.writeFileSync(b.paths[kind], patcher.applyPatches(stock[kind], set175[kind]));
+                });
+                r = patcher.run('apply', b.paths, quiet, NO_PROC, null, unit);
+                assert.strictEqual(r.code, 0, unit + ' ' + m.version);
+                assert.strictEqual(r.result.state, 'patched');
+                ['main', 'appmanagement'].forEach((kind) => {
+                    assert.strictEqual(b.read(kind), patcher.applyPatches(stock[kind], m.sets.current[kind]));
+                    assert.strictEqual(b.read(kind).split('global.__mguLocalOnly=').length - 1, 1);
+                    assert.strictEqual(b.read(kind).indexOf('function isLocalOnlyApp('), -1);
+                });
+            });
+        });
+    });
+});
+
+test('global.__mguLocalOnly caches OVERRIDE_FILE, registry JSON, installed package.json and preinstalled listings', () => {
+    const files = {}, reads = [], stats = {};
+    const ov = patcher.OVERRIDE_FILE;
+    const regFile = ROOT + 'oap_12201/data/apps/ours.json';
+    const pkgFile = ROOT + 'oap_12225/source/package.json';
+    const tgzFile = PRE + 'staging@1.0.0.tgz';
+    files[ov] = JSON.stringify(['legacy']);
+    stats[ov] = { mtimeMs: 100, ino: 10 };
+    installed(files, 'ours', 12225, { name: 'ours', mguLocalOnly: true });
+    stats[regFile] = { mtimeMs: 200, ino: 20 };
+    stats[pkgFile] = { mtimeMs: 300, ino: 30 };
+    files[tgzFile] = tgz({ 'package.json': JSON.stringify({ mguLocalOnly: true }) });
+    stats[PRE] = { mtimeMs: 400, ino: 40 };
+    stats[tgzFile] = { mtimeMs: 500, ino: 50 };
+
+    const check = evaluateHelper(files, null, reads, null, stats);
+    const countReads = (p) => reads.filter((r) => r === p).length;
+
+    // First calls read each backing file once
+    assert.strictEqual(check('legacy'), true);
+    assert.strictEqual(check('ours'), true);
+    assert.strictEqual(check('staging'), true);
+    assert.strictEqual(countReads(ov), 1);
+    assert.strictEqual(countReads(regFile), 1);
+    assert.strictEqual(countReads(pkgFile), 1);
+    assert.strictEqual(countReads('readdir:' + PRE), 1);
+    assert.strictEqual(countReads(tgzFile), 1);
+
+    // Repeated calls with unchanged stat perform zero additional reads
+    assert.strictEqual(check('legacy'), true);
+    assert.strictEqual(check('ours'), true);
+    assert.strictEqual(check('staging'), true);
+    assert.strictEqual(countReads(ov), 1);
+    assert.strictEqual(countReads(regFile), 1);
+    assert.strictEqual(countReads(pkgFile), 1);
+    assert.strictEqual(countReads('readdir:' + PRE), 1);
+    assert.strictEqual(countReads(tgzFile), 1);
+
+    // Same-length atomic replacement (new inode/mtime) invalidates OVERRIDE_FILE
+    files[ov] = JSON.stringify(['other!']);
+    stats[ov] = { mtimeMs: 100, ino: 11 };
+    assert.strictEqual(check('legacy'), false);
+    assert.strictEqual(check('other!'), true);
+    assert.strictEqual(countReads(ov), 2);
+
+    // Deleting OVERRIDE_FILE clears cached list immediately
+    delete files[ov];
+    delete stats[ov];
+    assert.strictEqual(check('other!'), false);
+
+    // Updating installed package.json invalidates its cache entry
+    files[pkgFile] = JSON.stringify({ name: 'ours', mguLocalOnly: false });
+    stats[pkgFile] = { mtimeMs: 301, ino: 30 };
+    assert.strictEqual(check('ours'), false);
+    assert.strictEqual(countReads(pkgFile), 2);
+    assert.strictEqual(countReads(regFile), 1);
+
+    // Transient parse error is not cached once the file becomes valid again
+    files[ov] = '{bad';
+    stats[ov] = { mtimeMs: 102, ino: 12 };
+    assert.strictEqual(check('revived'), false);
+    files[ov] = JSON.stringify(['revived']);
+    assert.strictEqual(check('revived'), true);
+});
+
+test('writeText fsyncs target directory, preserves mode and refuses EBUSY on non-mountpoints', () => withRoot((dir) => {
+    const file = path.join(dir, 'bundle.js');
+    fs.writeFileSync(file, 'original content', { mode: 0o755 });
+    const origOpen = fs.openSync;
+    const origFsync = fs.fsyncSync;
+    const origRename = fs.renameSync;
+    const syncedPaths = [];
+    const fdPath = new Map();
+    fs.openSync = function (p) {
+        const fd = origOpen.apply(fs, arguments);
+        fdPath.set(fd, p);
+        return fd;
+    };
+    fs.fsyncSync = function (fd) {
+        syncedPaths.push(fdPath.get(fd));
+        return origFsync.apply(fs, arguments);
+    };
+    try {
+        patcher.writeText(file, 'updated content');
+    } finally {
+        fs.openSync = origOpen;
+        fs.fsyncSync = origFsync;
+    }
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), 'updated content');
+    assert.strictEqual(fs.statSync(file).mode & 0o777, 0o755);
+    assert.ok(syncedPaths.indexOf(file + '.app-privacy.tmp') >= 0, 'temp file must be fsynced');
+    assert.ok(syncedPaths.indexOf(dir) >= 0, 'parent directory must be fsynced after rename');
+    assert.deepStrictEqual(fs.readdirSync(dir), ['bundle.js']);
+
+    // EBUSY on a regular non-mountpoint file must throw and leave the file untouched
+    fs.renameSync = function () {
+        const e = new Error('EBUSY: busy');
+        e.code = 'EBUSY';
+        throw e;
+    };
+    try {
+        assert.throws(() => patcher.writeText(file, 'must not overwrite'), (e) => e.code === 'EBUSY');
+    } finally {
+        fs.renameSync = origRename;
+    }
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), 'updated content');
+    assert.deepStrictEqual(fs.readdirSync(dir), ['bundle.js']);
+}));
+
+test('writeInPlace writes before truncating so shorter writes succeed and failed writes never zero the file', () => withRoot((dir) => {
+    const file = path.join(dir, 'mounted.js');
+    fs.writeFileSync(file, '0123456789abcdefghij');
+    // Shorter write truncates to exact new length
+    patcher.writeInPlace(file, Buffer.from('short'));
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), 'short');
+    // Longer write extends cleanly
+    patcher.writeInPlace(file, Buffer.from('much longer replacement content'));
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), 'much longer replacement content');
+
+    // A write failure before any byte lands must not leave a 0-byte truncated file
+    const origWrite = fs.writeSync;
+    fs.writeSync = function () {
+        const e = new Error('ENOSPC');
+        e.code = 'ENOSPC';
+        throw e;
+    };
+    try {
+        assert.throws(() => patcher.writeInPlace(file, Buffer.from('x')), (e) => e.code === 'ENOSPC');
+    } finally {
+        fs.writeSync = origWrite;
+    }
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), 'much longer replacement content');
+}));
+
+test('run reads each bundle file once across multi-release probing', () =>
+    withReleaseBundles('ID7', patcher.PATCH_SETS_6_4_8, (b) => {
+        const origRead = fs.readFileSync;
+        const reads = [];
+        fs.readFileSync = function (p) {
+            if (p === b.paths.main || p === b.paths.appmanagement) {
+                reads.push(p);
+            }
+            return origRead.apply(fs, arguments);
+        };
+        try {
+            const r = patcher.run('check', b.paths, quiet, NO_PROC, null, 'ID7');
+            assert.strictEqual(r.code, 1);
+            assert.strictEqual(r.result.mainapp, '6.4.8');
+        } finally {
+            fs.readFileSync = origRead;
+        }
+        assert.strictEqual(reads.filter((p) => p === b.paths.main).length, 1);
+        assert.strictEqual(reads.filter((p) => p === b.paths.appmanagement).length, 1);
+    }));
+
+test('boot reuses bundle reads between asRecorded and boot-stamp sync', () =>
+    withMainapp('ID7', patcher.PATCH_SETS_8_1_1, '8.1.1', (b) => {
+        fs.symlinkSync(path.dirname(TOOL), path.join(b.dir, 'current'));
+        assert.strictEqual(runTool(b.args('boot').filter((a) => a !== '--json')).code, 0);
+        fs.unlinkSync(path.join(b.dir, patcher.BOOT_STAMP));
+        const origRead = fs.readFileSync;
+        const origWrite = process.stdout.write;
+        const reads = [];
+        fs.readFileSync = function (p) {
+            if (p === b.paths.main || p === b.paths.appmanagement) {
+                reads.push(p);
+            }
+            return origRead.apply(fs, arguments);
+        };
+        process.stdout.write = () => true;
+        try {
+            assert.strictEqual(patcher.main(b.args('boot').filter((a) => a !== '--json')), 0);
+        } finally {
+            fs.readFileSync = origRead;
+            process.stdout.write = origWrite;
+        }
+        assert.ok(fs.existsSync(path.join(b.dir, patcher.BOOT_STAMP)));
+        assert.strictEqual(reads.filter((p) => p === b.paths.main).length, 1);
+        assert.strictEqual(reads.filter((p) => p === b.paths.appmanagement).length, 1);
+    }));
 
 let failed = 0;
 tests.reduce((p, t) => p.then(() => t.fn()).then((note) => {

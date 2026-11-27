@@ -66,16 +66,60 @@ const DEFAULT_PATHS = {
     appmanagement: '/usr/lib/oap-mainapp/src/AppManagement/AppManagement.js'
 };
 
+const PREDICATE = '__mguLocalOnly';
+const LEGACY_PREDICATE = 'isLocalOnlyApp';
+const PREDICATES = [PREDICATE, LEGACY_PREDICATE];
+const HELPER_DEF = 'global.' + PREDICATE + '=';
+const LEGACY_HELPER_DEF = 'function ' + LEGACY_PREDICATE + '(';
+const CALL_EXPR = 'global.' + PREDICATE;
+
 // Runs inside oap-mainapp (uid 12201), which owns its registry and every
-// app folder. A registered app is decided by its installed package.json;
-// its registry entry names its uid. An app with no registry entry is one
-// MainApp is installing (or has not installed): it is decided by its
-// packages in PREINSTALLED_DIR, named as MainApp names them
-// (<appId>@<version>.tgz or <appId>-<version>.tgz), whose package.json
-// (flat or under package/) carries the marker. Each package is read once
-// per size and mtime. Any read or parse failure means "not local-only", so
-// an unmarked app is reported as before.
+// app folder. Defined once per bundle on global.__mguLocalOnly; caches
+// OVERRIDE_FILE, registry entries, installed package.json markers,
+// preinstalled directory listings and preinstalled .tgz markers keyed by
+// file size, mtime and inode so repeated calls avoid synchronous flash
+// reads and gunzipSync. Any read or parse failure means "not local-only",
+// so an unmarked app is reported as before.
 function helperJs(preinstalledDir) {
+    return HELPER_DEF + '(function(){' +
+        'var fs=require("fs"),root=' + JSON.stringify(OAP_ROOT) +
+        ',ov=' + JSON.stringify(OVERRIDE_FILE) +
+        ',dir=' + JSON.stringify(preinstalledDir) +
+        ',cache=Object.create(null);' +
+        'function sig(st){return st.size+":"+(typeof st.mtimeMs==="number"?st.mtimeMs:st.mtime.getTime())+":"+(st.ino||0)}' +
+        'function cached(file,load){var k=sig(fs.statSync(file)),c=cache[file];' +
+        'if(c&&c.k===k)return c.v;var v=load(file);cache[file]={k:k,v:v};return v}' +
+        'function readJson(file){return JSON.parse(fs.readFileSync(file,"utf8"))}' +
+        'function packageMarked(file){var t,o=0;' +
+        'try{t=require("zlib").gunzipSync(fs.readFileSync(file));' +
+        'while(o+512<=t.length&&t[o]!==0){' +
+        'var name=field(o,100).replace(/^\\.\\//,""),size=parseInt(field(o+124,12).trim(),8)||0;' +
+        'if(name==="package.json"||name==="package/package.json")' +
+        'return JSON.parse(t.toString("utf8",o+512,o+512+size)).' + MARKER_KEY + '===!0;' +
+        'o+=512+Math.ceil(size/512)*512}}catch(e){}return!1;' +
+        'function field(at,len){var s=t.toString("latin1",at,at+len),' +
+        'end=s.indexOf(String.fromCharCode(0));return end<0?s:s.slice(0,end)}}' +
+        'return function(appId){' +
+        'try{var listed=cached(ov,function(f){var l=readJson(f);return Array.isArray(l)?l:null});' +
+        'if(listed&&listed.indexOf(appId)>=0)return!0}catch(e){delete cache[ov]}' +
+        'if(typeof appId!=="string"||!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(appId))return!1;' +
+        'var regFile=root+"oap_12201/data/apps/"+appId+".json",uid=null,missing=!1;' +
+        'try{uid=cached(regFile,function(f){var u=readJson(f).userId;return typeof u==="number"&&u%1===0?u:null})}' +
+        'catch(e){delete cache[regFile];if(e&&e.code==="ENOENT")missing=!0;else return!1}' +
+        'if(!missing){if(uid===null)return!1;' +
+        'var pkgFile=root+"oap_"+uid+"/source/package.json";' +
+        'try{return cached(pkgFile,function(f){return readJson(f).' + MARKER_KEY + '===!0})}' +
+        'catch(e){delete cache[pkgFile];return!1}}' +
+        'try{var files;try{files=cached(dir,function(d){return fs.readdirSync(d)})}' +
+        'catch(e){delete cache[dir];files=fs.readdirSync(dir)}' +
+        'return files.some(function(file){' +
+        'var m=/^(.+)[@-](\\d+\\..+)\\.tgz$/.exec(file);if(!m||m[1]!==appId)return!1;' +
+        'return cached(dir+file,packageMarked)})}catch(e){return!1}}})();';
+}
+const HELPER_JS = helperJs(PREINSTALLED_DIR);
+
+// Inline per-module predicate shipped by 1.2.0 through 1.7.5 (for EARLIER_PATCH_SETS).
+function helperJs175(preinstalledDir) {
     return 'function isLocalOnlyApp(appId){' +
         'var fs=require("fs"),root=' + JSON.stringify(OAP_ROOT) + ',entry=null;' +
         'try{var listed=JSON.parse(fs.readFileSync(' + JSON.stringify(OVERRIDE_FILE) +
@@ -103,7 +147,7 @@ function helperJs(preinstalledDir) {
         'function field(at,len){var s=t.toString("latin1",at,at+len),' +
         'end=s.indexOf(String.fromCharCode(0));return end<0?s:s.slice(0,end)}}}';
 }
-const HELPER_JS = helperJs(PREINSTALLED_DIR);
+const HELPER_JS_1_7_5 = helperJs175(PREINSTALLED_DIR);
 
 // The predicate as 1.0.0 and 1.1.0 shipped it: registered apps only.
 const HELPER_JS_1_1_0 =
@@ -207,7 +251,7 @@ const CRASH_GATE_BEFORE =
  * precedes (the APP_CRASH analytics event); after replaces that ending
  * where the gate precedes nothing to skip. */
 function crashGateJs(logPrefix, giveUp, after) {
-    return 'if(appCorruptInfo.localOnlyRestarts||isLocalOnlyApp(appId)){const now=Date.now(),' +
+    return 'if(appCorruptInfo.localOnlyRestarts||' + CALL_EXPR + '(appId)){const now=Date.now(),' +
         'restarts=appCorruptInfo.localOnlyRestarts=(appCorruptInfo.localOnlyRestarts||[])' +
         '.filter(at=>now-at<' + CRASH_WINDOW_MS + ');' +
         'if(restarts.length>=' + CRASH_RESTARTS + '){' + (giveUp || '') +
@@ -227,66 +271,69 @@ const CRASH_EDITS = [
         ins('appCorruptInfo.recoveryAttemptsSinceCorruption++,', CRASH_COUNT_JS, 'app.updateStartableCouncil(', 1))
 ];
 
-const KEEP_APP = '.filter(app=>!isLocalOnlyApp(app.getAppId()))';
-const KEEP_APP_ID = '.filter(appId=>!isLocalOnlyApp(appId))';
+const KEEP_APP = '.filter(app=>!' + CALL_EXPR + '(app.getAppId()))';
+const KEEP_APP_ID = '.filter(appId=>!' + CALL_EXPR + '(appId))';
+
+/* Builds an earlier 1.7.5-era patch set (per-module inline helper and
+ * isLocalOnlyApp calls) from a current single-helper patch set. */
+function legacySet(patches, helperAnchors, helper) {
+    return helperAnchors.map((a) => [a, helper + a, 1]).concat(
+        patches.filter((p) => p[1].indexOf(HELPER_DEF) !== 0)
+            .map((p) => [p[0], p[1].split(CALL_EXPR).join(LEGACY_PREDICATE), p[2]])
+    );
+}
 
 const MAIN_PATCHES = [
-    // Predicate, one copy per bundle module that uses it.
-    helperInjection('AppManagementFfProviderImpl', 'var AppManagementFfProviderImplOptions;'),
-    helperInjection('AppManagementController', 'class AppManagementController{'),
+    // Single shared predicate on global.__mguLocalOnly, defined in CorruptAppsHandler.
     helperInjection('CorruptAppsHandler', 'class CorruptAppsHandler{'),
-    helperInjection('AppsAutoupdater', 'class AppsAutoupdater{'),
-    helperInjection('MainApp', 'class MainApp{'),
-    helperInjection('DiagOapProvider', 'class DiagOapProvider{'),
     // Backend inventory (AppManagement_ff.getAllInstalledApps) and the
     // backend-triggered update of every app (updateAllApps).
-    edit('backend-inventory', 'helper:AppManagementFfProviderImpl',
+    edit('backend-inventory', 'helper:CorruptAppsHandler',
         ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';', 1)),
-    edit('backend-update-all', 'helper:AppManagementFfProviderImpl', ins('getAllAppIds()', KEEP_APP_ID, ',resultArgs=', 1)),
+    edit('backend-update-all', 'helper:CorruptAppsHandler', ins('getAllAppIds()', KEEP_APP_ID, ',resultArgs=', 1)),
     // Update-availability sweep against the app repository.
-    edit('update-availability-sweep', 'helper:AppManagementController',
+    edit('update-availability-sweep', 'helper:CorruptAppsHandler',
         ins('this.appRegistry.getAll()', KEEP_APP, ',app=>{const appId', 1)),
     // Platform analytics APP_INSTALL events, success and failure.
-    edit('analytics-install', 'helper:AppManagementController',
-        ins('appId&&', '!isLocalOnlyApp(appId)&&', 'AnalyticsServiceBuilders_1', 2)),
+    edit('analytics-install', 'helper:CorruptAppsHandler',
+        ins('appId&&', '!' + CALL_EXPR + '(appId)&&', 'AnalyticsServiceBuilders_1', 2)),
     // Crash recovery, and no APP_CRASH analytics event for local-only apps.
     CRASH_EDITS[0],
     CRASH_EDITS[1],
     // The corrupt-app report.
-    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('()=>', 'isLocalOnlyApp(appId)?Promise.resolve():',
+    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('()=>', CALL_EXPR + '(appId)?Promise.resolve():',
         'this._backendTransport.reportCorruptApp(appId,version', 1)),
     // Periodic autonomous update of every app, and the user-triggered
     // update of every app.
-    edit('autoupdate-all', 'helper:AppsAutoupdater', ins('!appsUpdated.includes(entry)', '&&!isLocalOnlyApp(entry)', ')', 1)),
-    edit('user-update-all', 'helper:MainApp',
+    edit('autoupdate-all', 'helper:CorruptAppsHandler', ins('!appsUpdated.includes(entry)', '&&!' + CALL_EXPR + '(entry)', ')', 1)),
+    edit('user-update-all', 'helper:CorruptAppsHandler',
         ins('getAllAppIds()', KEEP_APP_ID, ';return logger.info(`${logPrefix} Trying', 1)),
     // Diagnostic readout (DiagOap StatusOap).
-    edit('diag-app-list', 'helper:DiagOapProvider', ins('getAllAppIds())', KEEP_APP_ID, ';', 2)),
-    edit('diag-crash-status', 'helper:DiagOapProvider',
+    edit('diag-app-list', 'helper:CorruptAppsHandler', ins('getAllAppIds())', KEEP_APP_ID, ';', 2)),
+    edit('diag-crash-status', 'helper:CorruptAppsHandler',
         ins('data){const logPrefix=`${this.CLASS_NAME}::persistCrashedStartingRunning`;',
-            'if(isLocalOnlyApp(data.name))return Promise.resolve();', '', 1)),
-    edit('diag-entries', 'helper:DiagOapProvider',
-        ins('for(const entry of entries', '.filter(_e=>!isLocalOnlyApp(_e.name))', ')', 1)),
-    edit('diag-entry-values', 'helper:DiagOapProvider',
-        ins('entryValue=entries', '.filter(_e=>!isLocalOnlyApp(_e.appId))', '.map(', 1))
+            'if(' + CALL_EXPR + '(data.name))return Promise.resolve();', '', 1)),
+    edit('diag-entries', 'helper:CorruptAppsHandler',
+        ins('for(const entry of entries', '.filter(_e=>!' + CALL_EXPR + '(_e.name))', ')', 1)),
+    edit('diag-entry-values', 'helper:CorruptAppsHandler',
+        ins('entryValue=entries', '.filter(_e=>!' + CALL_EXPR + '(_e.appId))', '.map(', 1))
 ];
 
 const APPMANAGEMENT_PATCHES = [
     helperInjection('AppManager', 'class AppManager{'),
-    helperInjection('NpmPackageManager', 'class NpmPackageManager{'),
     // Repository version query: local-only apps resolve from ./preinstalled.
-    edit('repository-version-query', 'helper:NpmPackageManager', ins('logPrefix),', 'isLocalOnlyApp(appId)?' +
+    edit('repository-version-query', 'helper:AppManager', ins('logPrefix),', CALL_EXPR + '(appId)?' +
         'Promise.reject(new OAPError(`${logPrefix} ${appId} is local-only; ' +
         'the app repository is not queried.`,"LOCAL_ONLY_APP")):', 'this._npmClient.view(appId)', 1)),
     // Package download: local-only apps never use the repository, so a
     // package missing from the preinstalled folder is never replaced by
     // one the repository serves under the app's name.
-    edit('package-source', 'helper:NpmPackageManager',
+    edit('package-source', 'helper:AppManager',
         ins('ignoreNpmRegistry=!1){const logPrefix="NpmPackageManager::download";',
-            'isLocalOnlyApp(appId)&&(ignoreNpmRegistry=!0);', '', 1)),
+            CALL_EXPR + '(appId)&&(ignoreNpmRegistry=!0);', '', 1)),
     // Corrupt-app report on package verification failure.
     edit('corrupt-package-report', 'helper:AppManager',
-        ins('vin=>{', 'isLocalOnlyApp(appId)||', 'this._backendTransport.reportCorruptApp(', 1))
+        ins('vin=>{', CALL_EXPR + '(appId)||', 'this._backendTransport.reportCorruptApp(', 1))
 ];
 // MainApp kills CertificateManager.js, which has the head unit's
 // certificate service create an app's keychain, after 35 s. A local-only
@@ -296,9 +343,9 @@ const APPMANAGEMENT_PATCHES = [
 const CERT_KILL_S = 125;
 function certEdit(n) {
     return edit('keychain-time', 'helper:AppManager',
-        ins('config.get("certificateManagerGids")),', 'isLocalOnlyApp(appId)?' + CERT_KILL_S + ':', '35)', n));
+        ins('config.get("certificateManagerGids")),', CALL_EXPR + '(appId)?' + CERT_KILL_S + ':', '35)', n));
 }
-const APPMANAGEMENT_PATCHES_1_4_0 = APPMANAGEMENT_PATCHES.slice();
+const APPMANAGEMENT_PATCHES_BASE = APPMANAGEMENT_PATCHES.slice();
 APPMANAGEMENT_PATCHES.push(certEdit(2));
 
 const PATCH_SETS = { main: MAIN_PATCHES, appmanagement: APPMANAGEMENT_PATCHES };
@@ -308,51 +355,64 @@ const PATCH_SETS = { main: MAIN_PATCHES, appmanagement: APPMANAGEMENT_PATCHES };
 // text an edit writes or HELPER_JS moves the outgoing sets here under the
 // last version that shipped them; an anchor that pins the same insertion
 // point needs no entry (tests: "the patch set is recorded", and the
-// reference firmware case). 1.4.0 (and 1.3.0) differs from this release in
-// the CertificateManager kill time only; 1.2.2 (and 1.2.0, 1.2.1) also in
-// the crash-recovery edit; 1.1.0 (and 1.0.0) in those and the helper.
+// reference firmware case). 1.7.5 (through 1.5.0) shipped per-module inline
+// helpers; 1.4.0 (and 1.3.0) also lacked the CertificateManager kill time;
+// 1.2.2 (and 1.2.0, 1.2.1) also differed in the crash-recovery edit;
+// 1.1.0 (and 1.0.0) in those and the helper.
 function withHelper(patches, helper) {
-    return patches.map((p) => [p[0], p[1].split(HELPER_JS).join(helper), p[2]]);
+    return patches.map((p) => [p[0], p[1].split(HELPER_JS_1_7_5).join(helper), p[2]]);
 }
-const MAIN_PATCHES_1_2_2 = MAIN_PATCHES.filter((p) => p !== CRASH_EDITS[1]).map((p) => p === CRASH_EDITS[0] ?
+const HELPERS_8_3_2 = [
+    'var AppManagementFfProviderImplOptions;', 'class AppManagementController{',
+    'class CorruptAppsHandler{', 'class AppsAutoupdater{', 'class MainApp{', 'class DiagOapProvider{'
+];
+const HELPERS_APPMGMT = ['class AppManager{', 'class NpmPackageManager{'];
+const MAIN_PATCHES_1_7_5 = legacySet(MAIN_PATCHES, HELPERS_8_3_2, HELPER_JS_1_7_5);
+const APPMANAGEMENT_PATCHES_1_7_5 = legacySet(APPMANAGEMENT_PATCHES, HELPERS_APPMGMT, HELPER_JS_1_7_5);
+const APPMANAGEMENT_PATCHES_1_4_0 = legacySet(APPMANAGEMENT_PATCHES_BASE, HELPERS_APPMGMT, HELPER_JS_1_7_5);
+const MAIN_PATCHES_1_2_2 = MAIN_PATCHES_1_7_5.filter((p) => p[0] !== CRASH_EDITS[1][0]).map((p) => p[0] === CRASH_EDITS[0][0] ?
     ins('Corruption:0});', 'isLocalOnlyApp(appId)||', 'buildAnalyticsService()', 1) : p);
 const EARLIER_PATCH_SETS = [
-    { version: '1.4.0', main: MAIN_PATCHES, appmanagement: APPMANAGEMENT_PATCHES_1_4_0 },
+    { version: '1.7.5', main: MAIN_PATCHES_1_7_5, appmanagement: APPMANAGEMENT_PATCHES_1_7_5 },
+    { version: '1.4.0', main: MAIN_PATCHES_1_7_5, appmanagement: APPMANAGEMENT_PATCHES_1_4_0 },
     { version: '1.2.2', main: MAIN_PATCHES_1_2_2, appmanagement: APPMANAGEMENT_PATCHES_1_4_0 },
     { version: '1.1.0', main: withHelper(MAIN_PATCHES_1_2_2, HELPER_JS_1_1_0),
         appmanagement: withHelper(APPMANAGEMENT_PATCHES_1_4_0, HELPER_JS_1_1_0) }
 ];
 
 // oap-mainapp 8.1.1 (HU software 16.20.4). It has no platform analytics, no
-// update-availability sweep and no DiagOap provider, so those edits, and the
-// predicate copies only they use, have no counterpart. Its updateAllApps, its
-// autonomous update of every app and its crash recovery read differently
-// around the same insertion points; the crash gate precedes no analytics
-// event. Its install and update share one CertificateManager call.
+// update-availability sweep and no DiagOap provider, so those edits have no
+// counterpart. Its updateAllApps, its autonomous update of every app and its
+// crash recovery read differently around the same insertion points; the crash
+// gate precedes no analytics event. Its install and update share one
+// CertificateManager call.
 const KNOWN_SHA256_8_1_1 = {
     main: '23d24905391f87bd81036aba39aec16d4dd577fef5dfc6bc310db5216d18391b',
     appmanagement: '93b3df8b7dd00e5ae7529b2409d7a7afb062e6f18c2ab3c0344bb9efa06accf0'
 };
 const MAIN_PATCHES_8_1_1 = [
-    helperInjection('AppManagementFfProviderImpl', 'class AppManagementFfProviderImpl{'),
     helperInjection('CorruptAppsHandler', 'class CorruptAppsHandler{'),
-    helperInjection('AppsAutoupdater', 'class AppsAutoupdater{'),
-    helperInjection('MainApp', 'class MainApp{'),
-    edit('backend-inventory', 'helper:AppManagementFfProviderImpl',
+    edit('backend-inventory', 'helper:CorruptAppsHandler',
         ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';', 1)),
-    edit('backend-update-all', 'helper:AppManagementFfProviderImpl',
+    edit('backend-update-all', 'helper:CorruptAppsHandler',
         ins('getAllAppIds()', KEEP_APP_ID, ';const resultArgs=', 1)),
     edit('crash-gate', 'helper:CorruptAppsHandler',
         ins(CRASH_GATE_BEFORE, crashGateJs('CorruptAppsHandler::_tryRecoverApp', '', ''), 'let recoveryAction=', 1)),
     CRASH_EDITS[1],
-    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('()=>', 'isLocalOnlyApp(appId)?Promise.resolve():',
+    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('()=>', CALL_EXPR + '(appId)?Promise.resolve():',
         'this._backendTransport.reportCorruptApp(appId,version', 1)),
-    edit('autoupdate-all', 'helper:AppsAutoupdater',
+    edit('autoupdate-all', 'helper:CorruptAppsHandler',
         ins('getAllAppIds()', KEEP_APP_ID, '.forEach(appId=>{this._appManager.update(appId,', 1)),
-    edit('user-update-all', 'helper:MainApp',
+    edit('user-update-all', 'helper:CorruptAppsHandler',
         ins('getAllAppIds()', KEEP_APP_ID, ';return logger.info(`${logPrefix} Trying', 1))
 ];
-const PATCH_SETS_8_1_1 = { main: MAIN_PATCHES_8_1_1, appmanagement: APPMANAGEMENT_PATCHES_1_4_0.concat([certEdit(1)]) };
+const PATCH_SETS_8_1_1 = { main: MAIN_PATCHES_8_1_1, appmanagement: APPMANAGEMENT_PATCHES_BASE.concat([certEdit(1)]) };
+const HELPERS_8_1_1 = ['class AppManagementFfProviderImpl{', 'class CorruptAppsHandler{', 'class AppsAutoupdater{', 'class MainApp{'];
+const EARLIER_PATCH_SETS_8_1_1 = [{
+    version: '1.7.5',
+    main: legacySet(MAIN_PATCHES_8_1_1, HELPERS_8_1_1, HELPER_JS_1_7_5),
+    appmanagement: legacySet(PATCH_SETS_8_1_1.appmanagement, HELPERS_APPMGMT, HELPER_JS_1_7_5)
+}];
 
 // oap-mainapp 6.5.5. Its main.js and AppManagement.js are bytecode-loader
 // stubs that run main.bundle.js and AppManagement.bundle.js; its bundles
@@ -378,31 +438,34 @@ const KNOWN_SHA256_6_4_8 = {
     appmanagement: '68df36d7b37ee7180c7863331f9616e5e6641e056c982374167f42fc2916c00c'
 };
 const MAIN_PATCHES_6_4_8 = [
-    helperInjection('AppManagementFfProviderImpl', 'class AppManagementFfProviderImpl{'),
-    helperInjection('AppManagementProviderImpl', 'class AppManagementProviderImpl{'),
     helperInjection('CorruptAppsHandler', 'class CorruptAppsHandler{'),
-    helperInjection('AppsAutoupdater', 'class AppsAutoupdater{'),
-    helperInjection('MainApp', 'class MainApp{'),
-    edit('backend-inventory', 'helper:AppManagementFfProviderImpl',
+    edit('backend-inventory', 'helper:CorruptAppsHandler',
         ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';logger.debug(`${logPrefix} retrieved', 1)),
-    edit('backend-update-all', 'helper:AppManagementFfProviderImpl',
+    edit('backend-update-all', 'helper:CorruptAppsHandler',
         ins('getAllAppIds()', KEEP_APP_ID, ';const resultArgs=', 1)),
-    edit('provider-inventory', 'helper:AppManagementProviderImpl',
+    edit('provider-inventory', 'helper:CorruptAppsHandler',
         ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';return logger.debug(`${logPrefix} retrieved', 1)),
-    edit('provider-update-all', 'helper:AppManagementProviderImpl',
+    edit('provider-update-all', 'helper:CorruptAppsHandler',
         ins('getAllAppIds()', KEEP_APP_ID, ';return Promise.mapSeries(installedAppIds,appId=>this.updateApp(', 1)),
     edit('crash-gate', 'helper:CorruptAppsHandler',
         ins(CRASH_GATE_BEFORE, crashGateJs('CorruptAppsHandler::_tryRecoverApp', '', ''), 'let recoveryAction=', 1)),
     edit('crash-count', 'helper:CorruptAppsHandler',
         ins('appCorruptInfo.recoveryAttemptsSinceCorruption++,', CRASH_COUNT_JS, 'app.disableStart();', 1)),
-    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('()=>', 'isLocalOnlyApp(appId)?Promise.resolve():',
+    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('()=>', CALL_EXPR + '(appId)?Promise.resolve():',
         'this._backendTransport.reportCorruptApp(appId,version', 1)),
-    edit('autoupdate-all', 'helper:AppsAutoupdater',
+    edit('autoupdate-all', 'helper:CorruptAppsHandler',
         ins('getAllAppIds()', KEEP_APP_ID, '.forEach(appId=>{this._appManager.update(appId)})', 1)),
-    edit('user-update-all', 'helper:MainApp',
+    edit('user-update-all', 'helper:CorruptAppsHandler',
         ins('getAllAppIds()', KEEP_APP_ID, ';return logger.info(`${logPrefix} Trying', 1))
 ];
 const PATCH_SETS_6_4_8 = { main: MAIN_PATCHES_6_4_8, appmanagement: PATCH_SETS_8_1_1.appmanagement };
+const HELPERS_6_4_8 = ['class AppManagementFfProviderImpl{', 'class AppManagementProviderImpl{',
+    'class CorruptAppsHandler{', 'class AppsAutoupdater{', 'class MainApp{'];
+const EARLIER_PATCH_SETS_6_4_8 = [{
+    version: '1.7.5',
+    main: legacySet(MAIN_PATCHES_6_4_8, HELPERS_6_4_8, HELPER_JS_1_7_5),
+    appmanagement: EARLIER_PATCH_SETS_8_1_1[0].appmanagement
+}];
 
 // oap-mainapp 8.2.10. Its update-availability sweep is
 // AppsAutoupdater._areUpdatesAvailable, which reads the registry as
@@ -413,10 +476,15 @@ const KNOWN_SHA256_8_2_10 = {
 };
 const PATCH_SETS_8_2_10 = {
     main: MAIN_PATCHES.map((p) => p[0] === 'this.appRegistry.getAll(),app=>{const appId' ?
-        edit('update-availability-sweep', 'helper:AppsAutoupdater',
+        edit('update-availability-sweep', 'helper:CorruptAppsHandler',
             ins('this._appRegistry.getAll()', KEEP_APP, ',app=>{const appId', 1)) : p),
     appmanagement: APPMANAGEMENT_PATCHES
 };
+const EARLIER_PATCH_SETS_8_2_10 = [{
+    version: '1.7.5',
+    main: legacySet(PATCH_SETS_8_2_10.main, HELPERS_8_3_2, HELPER_JS_1_7_5),
+    appmanagement: APPMANAGEMENT_PATCHES_1_7_5
+}];
 
 // oap-mainapp 8.2.0. It has no platform analytics and no
 // AppManagementController sweep; its update-availability sweep is
@@ -431,23 +499,30 @@ const KNOWN_SHA256_8_2_0 = {
 };
 const CRASH_GATE_AFTER_8_2_0 = 'recoveryAction={0:';
 const MAIN_EDITS_8_2_0 = {
-    'update-availability-sweep': edit('update-availability-sweep', 'helper:AppsAutoupdater',
+    'update-availability-sweep': edit('update-availability-sweep', 'helper:CorruptAppsHandler',
         ins('return this._appRegistry.getAll()', KEEP_APP, '.forEach(app=>{checkUpdateAvailablePromises', 1)),
     'crash-gate': edit('crash-gate', 'helper:CorruptAppsHandler', [
         CRASH_GATE_BEFORE.slice(0, -1) + ',' + CRASH_GATE_AFTER_8_2_0,
         CRASH_GATE_BEFORE + crashGateJs('CorruptAppsHandler::_tryRecoverApp', '', '') + 'const ' + CRASH_GATE_AFTER_8_2_0, 1])
 };
 const PATCH_SETS_8_2_0 = {
-    main: MAIN_PATCHES.filter((p) => ['helper:AppManagementController', 'analytics-install'].indexOf(EDIT_INFO.get(p).id) < 0)
+    main: MAIN_PATCHES.filter((p) => EDIT_INFO.get(p).id !== 'analytics-install')
         .map((p) => MAIN_EDITS_8_2_0[EDIT_INFO.get(p).id] || p),
     appmanagement: APPMANAGEMENT_PATCHES
 };
+const HELPERS_8_2_0 = HELPERS_8_3_2.filter((h) => h !== 'class AppManagementController{');
+const EARLIER_PATCH_SETS_8_2_0 = [{
+    version: '1.7.5',
+    main: legacySet(PATCH_SETS_8_2_0.main, HELPERS_8_2_0, HELPER_JS_1_7_5),
+    appmanagement: APPMANAGEMENT_PATCHES_1_7_5
+}];
 
 // MainApp-21 (iDrive 8). Its predicate decides an app MainApp-21 is
 // installing by MainApp-21's own preinstalled_apps; registry, app folders
 // and override list are where iDrive 7 has them.
 const PREINSTALLED_DIR_21 = '/usr/lib/oap-mainapp21/preinstalled_apps/';
 const HELPER_JS_21 = helperJs(PREINSTALLED_DIR_21);
+const HELPER_JS_21_1_7_5 = helperJs175(PREINSTALLED_DIR_21);
 
 // oap-mainapp 9.3.4-pr-1052.3, HU I-step 036.010.004.
 const KNOWN_SHA256_21 = {
@@ -458,35 +533,27 @@ const KNOWN_SHA256_21 = {
 /* A NpmPackageManager method's first statement: a local-only app's
  * request is refused before it reaches the app repository. */
 function refuseLocalOnly(method) {
-    return 'if(params&&isLocalOnlyApp(params.packageName))return PromiseExt_1.default.reject(' +
+    return 'if(params&&' + CALL_EXPR + '(params.packageName))return PromiseExt_1.default.reject(' +
         'new OAPError_1.default(`NpmPackageManager::' + method + ' ${params.packageName} is local-only; ' +
         'the app repository is not queried.`,"LOCAL_ONLY_APP"));';
 }
 
 const MAIN_PATCHES_21 = [
-    // Predicate, one copy per bundle module that uses it.
-    helperInjection('AppManagementFfProviderImpl', 'class AppManagementFfProviderImpl{', HELPER_JS_21),
-    helperInjection('AppManagementController', 'let AppManagementController=AppManagementController_1=class', HELPER_JS_21),
+    // Single shared predicate on global.__mguLocalOnly, defined in CorruptAppsHandler.
     helperInjection('CorruptAppsHandler', 'let CorruptAppsHandler=class', HELPER_JS_21),
-    helperInjection('AppsAutoupdater', 'let AppsAutoupdater=class', HELPER_JS_21),
-    helperInjection('MainApp', 'let MainApp=class', HELPER_JS_21),
-    helperInjection('DiagOapProvider', 'class DiagOapProvider21{', HELPER_JS_21),
-    helperInjection('NpmPackageManager', 'class NpmPackageManager{', HELPER_JS_21),
-    helperInjection('AnalyticsAppStartStopEvents', 'let AnalyticsAppStartStopEvents=class', HELPER_JS_21),
-    helperInjection('AppReleaseNotesControl', 'let AppReleaseNotesControl=class', HELPER_JS_21),
     // Backend inventory (AppManagement_ff.getAllInstalledApps) and the
     // backend-triggered update of every app (updateAllApps).
-    edit('backend-inventory', 'helper:AppManagementFfProviderImpl',
+    edit('backend-inventory', 'helper:CorruptAppsHandler',
         ins('installedApps=this._appRegistry.getAll()', KEEP_APP, ';', 1)),
-    edit('backend-update-all', 'helper:AppManagementFfProviderImpl', ins('getAllAppIds()', KEEP_APP_ID, ',resultArgs=', 1)),
+    edit('backend-update-all', 'helper:CorruptAppsHandler', ins('getAllAppIds()', KEEP_APP_ID, ',resultArgs=', 1)),
     // Update-availability sweep against the app repository.
-    edit('update-availability-sweep', 'helper:AppManagementController',
+    edit('update-availability-sweep', 'helper:CorruptAppsHandler',
         ins('this.appRegistry.getAll()', KEEP_APP, ',(app=>{const appId', 1)),
     // Platform analytics APP_INSTALL events, success and failure.
-    edit('analytics-install', 'helper:AppManagementController', ins('const settings=app.getSettings();',
-        'isLocalOnlyApp(entry.appId)||', '(0,AnalyticsServiceBuilders_1', 1)),
-    edit('analytics-install-failed', 'helper:AppManagementController',
-        ins('entry.appId&&', '!isLocalOnlyApp(entry.appId)&&', '(0,AnalyticsServiceBuilders_1', 1)),
+    edit('analytics-install', 'helper:CorruptAppsHandler', ins('const settings=app.getSettings();',
+        CALL_EXPR + '(entry.appId)||', '(0,AnalyticsServiceBuilders_1', 1)),
+    edit('analytics-install-failed', 'helper:CorruptAppsHandler',
+        ins('entry.appId&&', '!' + CALL_EXPR + '(entry.appId)&&', '(0,AnalyticsServiceBuilders_1', 1)),
     // Crash recovery (after MainApp-21's head-unit-shutdown check), and no
     // APP_CRASH analytics event for local-only apps. A local-only app never
     // reaches MainApp-21's later rungs (the forced update, the data wipe,
@@ -500,51 +567,63 @@ const MAIN_PATCHES_21 = [
     edit('crash-count', 'helper:CorruptAppsHandler',
         ins('appCorruptInfo.recoveryAttemptsSinceCorruption++,', CRASH_COUNT_JS, 'app.updateStartableCouncil(', 1)),
     // The corrupt-app report.
-    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('return ', 'isLocalOnlyApp(appId)?Promise.resolve():',
+    edit('corrupt-app-report', 'helper:CorruptAppsHandler', ins('return ', CALL_EXPR + '(appId)?Promise.resolve():',
         'this.backendTransport.reportCorruptApp(appId,version', 1)),
     // Platform analytics APP_START and APP_STOP events.
-    edit('analytics-stop', 'helper:AnalyticsAppStartStopEvents',
-        ins('sendStopEvent(payload){', 'if(isLocalOnlyApp(payload.appName))return;', 'const logPrefix=', 1)),
-    edit('analytics-start', 'helper:AnalyticsAppStartStopEvents',
-        ins('sendStartEvent(payload){', 'if(isLocalOnlyApp(payload.appName))return;', 'const logPrefix=', 1)),
+    edit('analytics-stop', 'helper:CorruptAppsHandler',
+        ins('sendStopEvent(payload){', 'if(' + CALL_EXPR + '(payload.appName))return;', 'const logPrefix=', 1)),
+    edit('analytics-start', 'helper:CorruptAppsHandler',
+        ins('sendStartEvent(payload){', 'if(' + CALL_EXPR + '(payload.appName))return;', 'const logPrefix=', 1)),
     // Periodic autonomous update of every app, and the user-triggered
     // update of every app.
-    edit('autoupdate-all', 'helper:AppsAutoupdater', ins('!appsUpdated.includes(entry)', '&&!isLocalOnlyApp(entry)', ')', 1)),
-    edit('user-update-all', 'helper:MainApp', ins('getAllAppIds()', KEEP_APP_ID, ',reSortedList=', 1)),
+    edit('autoupdate-all', 'helper:CorruptAppsHandler', ins('!appsUpdated.includes(entry)', '&&!' + CALL_EXPR + '(entry)', ')', 1)),
+    edit('user-update-all', 'helper:CorruptAppsHandler', ins('getAllAppIds()', KEEP_APP_ID, ',reSortedList=', 1)),
     // Release notes request for updated apps.
-    edit('release-notes', 'helper:AppReleaseNotesControl',
-        ins('apps:updatedAppsMetadata', '.filter(metadata=>!isLocalOnlyApp(metadata.appId))', '.map(', 1)),
+    edit('release-notes', 'helper:CorruptAppsHandler',
+        ins('apps:updatedAppsMetadata', '.filter(metadata=>!' + CALL_EXPR + '(metadata.appId))', '.map(', 1)),
     // App-repository package downloads (also the predownload before a
     // software update): a package missing from the preinstalled folder is
     // never replaced by one the repository serves under the app's name.
     // And the repository version queries.
-    edit('package-source', 'helper:NpmPackageManager', ins('download(params){', refuseLocalOnly('download'),
+    edit('package-source', 'helper:CorruptAppsHandler', ins('download(params){', refuseLocalOnly('download'),
         'const logPrefix="NpmPackageManager::download";', 1)),
-    edit('repository-version-query', 'helper:NpmPackageManager',
+    edit('repository-version-query', 'helper:CorruptAppsHandler',
         ins('getLatestAppVersion(params){', refuseLocalOnly('getLatestAppVersion'), 'const logPrefix=', 1)),
-    edit('repository-version-info', 'helper:NpmPackageManager',
+    edit('repository-version-info', 'helper:CorruptAppsHandler',
         ins('getLatestAppVersionInfo(params){', refuseLocalOnly('getLatestAppVersionInfo'), 'const logPrefix=', 1)),
     // Diagnostic readout (DiagOap StatusOap); provisioning lists our apps
     // as installable too.
-    edit('diag-app-list', 'helper:DiagOapProvider',
+    edit('diag-app-list', 'helper:CorruptAppsHandler',
         ins('_.union(this.installableApps,this.appRegistry.getAllAppIds())', KEEP_APP_ID, ';', 2)),
-    edit('diag-crash-status', 'helper:DiagOapProvider',
+    edit('diag-crash-status', 'helper:CorruptAppsHandler',
         ins('data){const logPrefix=`${this.CLASS_NAME}::persistCrashedStartingRunning`;',
-            'if(isLocalOnlyApp(data.name))return Promise.resolve();', '', 1)),
-    edit('diag-entries', 'helper:DiagOapProvider',
-        ins('for(const entry of entries', '.filter(_e=>!isLocalOnlyApp(_e.name))', ')', 1)),
-    edit('diag-entry-values', 'helper:DiagOapProvider',
-        ins('entryValue=entries', '.filter(_e=>!isLocalOnlyApp(_e.appId))', '.map(', 1))
+            'if(' + CALL_EXPR + '(data.name))return Promise.resolve();', '', 1)),
+    edit('diag-entries', 'helper:CorruptAppsHandler',
+        ins('for(const entry of entries', '.filter(_e=>!' + CALL_EXPR + '(_e.name))', ')', 1)),
+    edit('diag-entry-values', 'helper:CorruptAppsHandler',
+        ins('entryValue=entries', '.filter(_e=>!' + CALL_EXPR + '(_e.appId))', '.map(', 1))
 ];
 
 const APPMANAGEMENT_PATCHES_21 = [
     helperInjection('AppManager', 'class AppManager{', HELPER_JS_21),
     // Corrupt-app report on package verification failure.
     edit('corrupt-package-report', 'helper:AppManager',
-        ins('vin=>{', 'isLocalOnlyApp(appId)||', 'this.backendTransport.reportCorruptApp(', 1))
+        ins('vin=>{', CALL_EXPR + '(appId)||', 'this.backendTransport.reportCorruptApp(', 1))
 ];
 
 const PATCH_SETS_21 = { main: MAIN_PATCHES_21, appmanagement: APPMANAGEMENT_PATCHES_21 };
+const HELPERS_21 = [
+    'class AppManagementFfProviderImpl{', 'let AppManagementController=AppManagementController_1=class',
+    'let CorruptAppsHandler=class', 'let AppsAutoupdater=class', 'let MainApp=class',
+    'class DiagOapProvider21{', 'class NpmPackageManager{',
+    'let AnalyticsAppStartStopEvents=class', 'let AppReleaseNotesControl=class'
+];
+const HELPERS_APPMGMT_21 = ['class AppManager{'];
+const EARLIER_PATCH_SETS_21 = [{
+    version: '1.7.5',
+    main: legacySet(MAIN_PATCHES_21, HELPERS_21, HELPER_JS_21_1_7_5),
+    appmanagement: legacySet(APPMANAGEMENT_PATCHES_21, HELPERS_APPMGMT_21, HELPER_JS_21_1_7_5)
+}];
 
 // oap-mainapp 9.2.15-pr-867.1, an earlier iDrive 8 release. Its bundles are
 // minified without parentheses around a lone arrow parameter; its crash
@@ -567,15 +646,20 @@ const MAIN_EDITS_21_9_2_15 = {
             'app.updateStartableCouncil(StartableCouncil_1.default.NOT_IN_CORRUPT_APPS_HANDLING,!0);', '') +
         CRASH_EVENT_9_2_15 + 'appCorruptInfo.localOnlyRestarts||(0,AnalyticsServiceBuilders_1', 1],
     'return this.backendTransport.reportCorruptApp(appId,version':
-        ins('then(()=>', 'isLocalOnlyApp(appId)?Promise.resolve():', 'this.backendTransport.reportCorruptApp(appId,version', 1),
+        ins('then(()=>', CALL_EXPR + '(appId)?Promise.resolve():', 'this.backendTransport.reportCorruptApp(appId,version', 1),
     'apps:updatedAppsMetadata.map(':
-        ins('apps:metadataAboutUpdates', '.filter(metadata=>!isLocalOnlyApp(metadata.appId))', '.map(', 1)
+        ins('apps:metadataAboutUpdates', '.filter(metadata=>!' + CALL_EXPR + '(metadata.appId))', '.map(', 1)
 };
 const PATCH_SETS_21_9_2_15 = {
     main: MAIN_PATCHES_21.map((p) => (MAIN_EDITS_21_9_2_15[p[0]] ?
         edit(EDIT_INFO.get(p).id, EDIT_INFO.get(p).helper, MAIN_EDITS_21_9_2_15[p[0]]) : p)),
     appmanagement: APPMANAGEMENT_PATCHES_21
 };
+const EARLIER_PATCH_SETS_21_9_2_15 = [{
+    version: '1.7.5',
+    main: legacySet(PATCH_SETS_21_9_2_15.main, HELPERS_21, HELPER_JS_21_1_7_5),
+    appmanagement: EARLIER_PATCH_SETS_21[0].appmanagement
+}];
 
 function bundlePaths(root) {
     return { main: root + '/src/main.js', appmanagement: root + '/src/AppManagement/AppManagement.js' };
@@ -599,20 +683,19 @@ function resolveBundlePaths(paths) {
 }
 /* Each unit's MainApp releases, as { version, sets: { current, earlier },
  * known }, the first the one problems are reported for when no release's
- * edits fit. Only 8.3.2's bundles can carry an earlier app-privacy
- * release's edits. */
+ * edits fit. */
 const UNITS = {
     ID7: { paths: DEFAULT_PATHS, mainapps: [
         { version: '8.3.2', sets: { current: PATCH_SETS, earlier: EARLIER_PATCH_SETS }, known: KNOWN_SHA256 },
-        { version: '8.2.10', sets: { current: PATCH_SETS_8_2_10, earlier: [] }, known: KNOWN_SHA256_8_2_10 },
-        { version: '8.2.0', sets: { current: PATCH_SETS_8_2_0, earlier: [] }, known: KNOWN_SHA256_8_2_0 },
-        { version: '8.1.1', sets: { current: PATCH_SETS_8_1_1, earlier: [] }, known: KNOWN_SHA256_8_1_1 },
-        { version: '6.5.5', sets: { current: PATCH_SETS_8_1_1, earlier: [] }, known: KNOWN_SHA256_6_5_5 },
-        { version: '6.4.8', sets: { current: PATCH_SETS_6_4_8, earlier: [] }, known: KNOWN_SHA256_6_4_8 }
+        { version: '8.2.10', sets: { current: PATCH_SETS_8_2_10, earlier: EARLIER_PATCH_SETS_8_2_10 }, known: KNOWN_SHA256_8_2_10 },
+        { version: '8.2.0', sets: { current: PATCH_SETS_8_2_0, earlier: EARLIER_PATCH_SETS_8_2_0 }, known: KNOWN_SHA256_8_2_0 },
+        { version: '8.1.1', sets: { current: PATCH_SETS_8_1_1, earlier: EARLIER_PATCH_SETS_8_1_1 }, known: KNOWN_SHA256_8_1_1 },
+        { version: '6.5.5', sets: { current: PATCH_SETS_8_1_1, earlier: EARLIER_PATCH_SETS_8_1_1 }, known: KNOWN_SHA256_6_5_5 },
+        { version: '6.4.8', sets: { current: PATCH_SETS_6_4_8, earlier: EARLIER_PATCH_SETS_6_4_8 }, known: KNOWN_SHA256_6_4_8 }
     ] },
     ID8: { paths: bundlePaths('/usr/lib/oap-mainapp21'), mainapps: [
-        { version: '9.3.4', sets: { current: PATCH_SETS_21, earlier: [] }, known: KNOWN_SHA256_21 },
-        { version: '9.2.15', sets: { current: PATCH_SETS_21_9_2_15, earlier: [] }, known: KNOWN_SHA256_21_9_2_15 }
+        { version: '9.3.4', sets: { current: PATCH_SETS_21, earlier: EARLIER_PATCH_SETS_21 }, known: KNOWN_SHA256_21 },
+        { version: '9.2.15', sets: { current: PATCH_SETS_21_9_2_15, earlier: EARLIER_PATCH_SETS_21_9_2_15 }, known: KNOWN_SHA256_21_9_2_15 }
     ] }
 };
 
@@ -632,8 +715,13 @@ function detectUnit() {
     }
 }
 
-const PREDICATE = 'isLocalOnlyApp';
-const HELPER_NAME = 'function ' + PREDICATE + '(';
+function helperDefOf(patches) {
+    return patches.some((p) => p[1].indexOf(HELPER_DEF) === 0) ? HELPER_DEF : LEGACY_HELPER_DEF;
+}
+
+function strayPredicates(text) {
+    return PREDICATES.reduce((n, name) => n + count(text, name), 0);
+}
 
 /* The bundle code takes either a string or a Buffer (a bundle as read
  * from its file) for text; anchors and replacements are ASCII strings,
@@ -668,11 +756,15 @@ function replaceAll(text, from, to) {
 }
 
 function same(a, b) {
-    return Buffer.isBuffer(a) ? a.equals(b) : a === b;
+    return a === b || (Buffer.isBuffer(a) && Buffer.isBuffer(b) && a.equals(b));
 }
 
 function sha256(text) {
     return crypto.createHash('sha256').update(text, Buffer.isBuffer(text) ? undefined : 'utf8').digest('hex');
+}
+
+function md5(data) {
+    return crypto.createHash('md5').update(data).digest('hex');
 }
 
 function short(anchor) {
@@ -683,9 +775,10 @@ function short(anchor) {
  * the predicate: patched means every occurrence of it is one of these
  * edits, unpatched means there is none. */
 function classify(text, patches) {
-    const helpersExpected = patches.filter((p) => p[1].indexOf(HELPER_NAME) === 0)
+    const helperDef = helperDefOf(patches);
+    const helpersExpected = patches.filter((p) => p[1].indexOf(helperDef) === 0)
         .reduce((n, p) => n + p[2], 0);
-    const helpers = count(text, HELPER_NAME);
+    const helpers = count(text, helperDef);
     const problems = [];
     if (helpers === helpersExpected) {
         patches.forEach((p) => {
@@ -695,7 +788,7 @@ function classify(text, patches) {
                     ' occurrence(s), expected ' + p[2]);
             }
         });
-        const stray = problems.length ? 0 : count(removePatches(text, patches), PREDICATE);
+        const stray = problems.length ? 0 : strayPredicates(removePatches(text, patches));
         if (stray) {
             problems.push(stray + ' occurrence(s) of ' + PREDICATE + ' outside these edits');
         }
@@ -709,7 +802,7 @@ function classify(text, patches) {
                     ' occurrence(s), expected ' + p[2]);
             }
         });
-        const stray = count(text, PREDICATE);
+        const stray = strayPredicates(text);
         if (stray) {
             problems.push(stray + ' occurrence(s) of ' + PREDICATE + ' without its helper');
         }
@@ -742,10 +835,11 @@ function removePatches(text, patches) {
  * exactly. */
 function survey(text, patches) {
     const base = removePatches(text, patches);
+    const untouchedBuffer = Buffer.isBuffer(text) && base === text;
     const problems = [];
     const edits = patches.map((p) => {
         const info = EDIT_INFO.get(p) || { id: 'untagged:' + p[0].slice(0, 40), helper: null, untagged: true };
-        const carried = count(text, p[1]);
+        const carried = untouchedBuffer ? 0 : count(text, p[1]);
         if (carried !== 0 && carried !== p[2]) {
             problems.push('replacement for ' + short(p[0]) + ': ' + carried +
                 ' occurrence(s), expected ' + p[2]);
@@ -760,7 +854,7 @@ function survey(text, patches) {
                 problems.push(e.id + ' without its predicate copy ' + h.id);
             }
         });
-        const stray = count(base, PREDICATE);
+        const stray = strayPredicates(base);
         if (stray) {
             problems.push(stray + ' occurrence(s) of ' + PREDICATE + ' outside these edits');
         } else if (!same(applyPatches(base, edits.filter((e) => e.carried).map((e) => e.patch)), text)) {
@@ -820,18 +914,19 @@ function examine(text, kind, sets) {
     const current = sets.current[kind];
     let found = survey(text, current);
     let patchedBy = null;
-    for (let i = 0; !patchedBy && (found.problems.length || found.edits.some((e) => !e.carried)) &&
-            i < sets.earlier.length; i += 1) {
-        const patches = sets.earlier[i][kind];
-        if (classify(text, patches) !== 'patched') {
-            continue;
-        }
-        const base = removePatches(text, patches);
-        if (classify(base, patches) === 'unpatched' && same(applyPatches(base, patches), text)) {
-            const s = survey(base, current);
-            if (!s.problems.length) {
-                found = s;
-                patchedBy = sets.earlier[i].version;
+    if (sets.earlier.length && (found.problems.length || found.edits.some((e) => !e.carried))) {
+        for (let i = 0; !patchedBy && i < sets.earlier.length; i += 1) {
+            const patches = sets.earlier[i][kind];
+            if (text.indexOf(helperDefOf(patches)) < 0 || classify(text, patches) !== 'patched') {
+                continue;
+            }
+            const base = removePatches(text, patches);
+            if (classify(base, patches) === 'unpatched' && same(applyPatches(base, patches), text)) {
+                const s = survey(base, current);
+                if (!s.problems.length) {
+                    found = s;
+                    patchedBy = sets.earlier[i].version;
+                }
             }
         }
     }
@@ -844,6 +939,34 @@ function examine(text, kind, sets) {
  * its directory; it is written in place, the mount stays. */
 function isMountedFile(file) {
     return fs.statSync(file).dev !== fs.statSync(path.dirname(file)).dev;
+}
+
+/* True when file is a mountpoint (cross-device or same-device bind mount). */
+function isMountpoint(file) {
+    if (isMountedFile(file)) {
+        return true;
+    }
+    try {
+        const resolved = fs.realpathSync(file);
+        return fs.readFileSync('/proc/self/mountinfo', 'utf8').split('\n').some((line) => {
+            const fields = line.split(' ');
+            if (fields.length < 5) {
+                return false;
+            }
+            return fields[4].replace(/\\([0-7]{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8))) === resolved;
+        });
+    } catch (e) {
+        return false;
+    }
+}
+
+function fsyncDir(dir) {
+    const fd = fs.openSync(dir, 'r');
+    try {
+        fs.fsyncSync(fd);
+    } finally {
+        fs.closeSync(fd);
+    }
 }
 
 /* Writes all of data at position 0 and syncs; a short write continues
@@ -864,36 +987,49 @@ function writeText(file, text) {
     }
     const tmp = file + '.app-privacy.tmp';
     const st = fs.statSync(file);
+    let renamed = false;
     try {
         const fd = fs.openSync(tmp, 'w', st.mode & 0o7777);
         try {
+            fs.fchmodSync(fd, st.mode & 0o7777);
+            if (process.getuid() === 0) {
+                fs.fchownSync(fd, st.uid, st.gid);
+            }
             writeAll(fd, data);
         } finally {
             fs.closeSync(fd);
         }
-        fs.chmodSync(tmp, st.mode & 0o7777);
-        if (process.getuid() === 0) {
-            fs.chownSync(tmp, st.uid, st.gid);
-        }
         fs.renameSync(tmp, file);
+        renamed = true;
+        fsyncDir(path.dirname(file));
     } catch (e) {
-        try {
-            fs.unlinkSync(tmp);
-        } catch (ignored) {
-            // no temporary file to remove
+        if (!renamed) {
+            try {
+                fs.unlinkSync(tmp);
+            } catch (ignored) {
+                // no temporary file to remove
+            }
+            if (e.code === 'EBUSY' && isMountpoint(file)) {
+                writeInPlace(file, data);
+                return;
+            }
         }
-        if (e.code !== 'EBUSY') {
-            throw e;
-        }
-        writeInPlace(file, data);
+        throw e;
     }
 }
 
+/* Last-resort write for bind-mounted files whose mountpoint cannot be
+ * replaced by renameSync. Writes from offset 0 before truncating so an
+ * interrupted write never leaves a 0-byte file. */
 function writeInPlace(file, data) {
     const fd = fs.openSync(file, 'r+');
     try {
-        fs.ftruncateSync(fd, 0);
+        const prevSize = fs.fstatSync(fd).size;
         writeAll(fd, data);
+        if (prevSize > data.length) {
+            fs.ftruncateSync(fd, data.length);
+            fs.fsyncSync(fd);
+        }
     } finally {
         fs.closeSync(fd);
     }
@@ -997,50 +1133,57 @@ function overallState(files) {
     return files.every((f) => f.state === 'patched') ? 'patched' : 'unpatched';
 }
 
+function readFiles(paths) {
+    const out = {};
+    Object.keys(paths).forEach((kind) => {
+        const file = paths[kind];
+        try {
+            const text = fs.readFileSync(file);
+            out[kind] = { kind, path: file, text, sha256: sha256(text), error: null };
+        } catch (e) {
+            out[kind] = { kind, path: file, text: null, sha256: null, error: e.message };
+        }
+    });
+    return out;
+}
+
 /* Every file's job for one MainApp release's edits. A check or apply
  * refuses a file with a refused edit; a revert only needs the edits to
  * come off exactly. */
-function prepare(command, paths, sets, known) {
-    return Object.keys(paths).map((kind) => {
-        const file = paths[kind];
-        const job = { kind, path: file, sha256: null, stockSha256: null, reference: false,
-            state: null, patchedBy: null, problems: [], target: null, edits: [], refused: 0, wrote: null };
-        let text;
-        try {
-            text = fs.readFileSync(file);
-        } catch (e) {
-            job.problems.push('cannot read: ' + e.message);
+function prepare(command, files, sets, known) {
+    return Object.keys(files).map((kind) => {
+        const f = files[kind];
+        const job = { kind, path: f.path, sha256: f.sha256, stockSha256: null, reference: false,
+            state: null, patchedBy: null, problems: [], target: null, edits: [], refused: 0, wrote: null,
+            _base: null, _text: f.text, _patched: null };
+        if (f.error !== null) {
+            job.problems.push('cannot read: ' + f.error);
             return job;
         }
-        job.sha256 = sha256(text);
         job.reference = job.sha256 === known[kind];
-        const found = examine(text, kind, sets);
+        const found = examine(f.text, kind, sets);
         job.edits = found.edits;
         if (found.problems.length) {
             job.problems = found.problems;
             return job;
         }
-        job.stockSha256 = sha256(found.base);
+        job._base = found.base;
+        job.stockSha256 = found.base === f.text ? job.sha256 : sha256(found.base);
         job.patchedBy = found.patchedBy;
         const refused = found.edits.filter((e) => e.plan.indexOf('refused') === 0);
         job.refused = refused.length;
-        const applied = found.edits.filter((e) => e.plan === 'apply');
-        // survey found text to be base with exactly the carried edits
-        const patched = !found.patchedBy && found.edits.every((e) => e.carried === (e.plan === 'apply')) ? text :
-            applyPatches(found.base, applied.map((e) => e.patch));
-        job.state = !refused.length && same(text, patched) ? 'patched' : 'unpatched';
+        const alreadyPatched = !found.patchedBy && found.edits.every((e) => e.carried === (e.plan === 'apply'));
+        let patched = alreadyPatched ? f.text : null;
+        if (found.patchedBy && !refused.length) {
+            patched = applyPatches(found.base, found.edits.filter((e) => e.plan === 'apply').map((e) => e.patch));
+        }
+        job.state = !refused.length && (alreadyPatched || (patched !== null && same(f.text, patched))) ? 'patched' : 'unpatched';
         if (command !== 'revert' && refused.length) {
             job.problems = refused.map(refusal);
             job.state = null;
-        } else if (command === 'apply' && !same(text, patched)) {
-            const s = survey(patched, sets.current[kind]);
-            if (s.problems.length || s.edits.some((e, i) => e.carried !== (found.edits[i].plan === 'apply'))) {
-                job.problems.push('patched output does not verify');
-                job.state = null;
-            } else {
-                job.target = patched;
-            }
-        } else if (command === 'revert' && !same(text, found.base)) {
+        } else if (command === 'apply' && job.state === 'unpatched') {
+            job._patched = patched;
+        } else if (command === 'revert' && !same(f.text, found.base)) {
             job.target = found.base;
         }
         return job;
@@ -1072,6 +1215,22 @@ function skippedEdits(jobs) {
         .filter((e) => !isHelper(e) && e.plan === 'skipped-not-found');
 }
 
+function fitKey(jobs) {
+    return [jobs.reduce((n, j) => n + j.problems.length, 0), jobs.reduce((n, j) => n + j.refused, 0),
+        skippedEdits(jobs).length];
+}
+
+function digestsOf(jobs) {
+    const out = {};
+    jobs.forEach((j) => {
+        const data = j.wrote ? j.target : j._text;
+        if (data !== null && j.sha256) {
+            out[j.path] = { data, sha256: j.sha256 };
+        }
+    });
+    return out;
+}
+
 /* Prepares every file before writing any: a problem in one file leaves
  * both untouched. The files take the edits of the MainApp release whose
  * edits fit both with the fewest skipped, the first (newest) on a tie
@@ -1080,14 +1239,29 @@ function skippedEdits(jobs) {
  * edits that fit it; when none fit, the problems reported are those of
  * the release with the fewest, the first of them on a tie. */
 function runCommand(command, paths, log, mainapps) {
+    const files = readFiles(paths);
+    const kinds = Object.keys(files);
+    const triedByIndex = {};
     let chosen = null;
     let jobs = null;
     let best = null;
+    let matched = false;
     const others = [];
-    for (let i = 0; i < mainapps.length; i += 1) {
-        const tried = prepare(command, paths, mainapps[i].sets, mainapps[i].known);
-        const key = [tried.reduce((n, j) => n + j.problems.length, 0), tried.reduce((n, j) => n + j.refused, 0),
-            skippedEdits(tried).length];
+    const knownIndex = mainapps.findIndex((m) =>
+        kinds.every((k) => files[k].sha256 && files[k].sha256 === m.known[k]));
+    if (knownIndex >= 0) {
+        const tried = prepare(command, files, mainapps[knownIndex].sets, mainapps[knownIndex].known);
+        triedByIndex[knownIndex] = tried;
+        const key = fitKey(tried);
+        if (!key[0] && !key[1] && !key[2]) {
+            chosen = mainapps[knownIndex];
+            jobs = tried;
+            matched = true;
+        }
+    }
+    for (let i = 0; !matched && i < mainapps.length; i += 1) {
+        const tried = triedByIndex[i] || prepare(command, files, mainapps[i].sets, mainapps[i].known);
+        const key = fitKey(tried);
         others.push({ version: mainapps[i].version, jobs: tried });
         if (!best || (key[0] - best[0] || key[1] - best[1] || key[2] - best[2]) < 0) {
             chosen = mainapps[i];
@@ -1102,13 +1276,31 @@ function runCommand(command, paths, log, mainapps) {
                 tried.every((j) => j.stockSha256 === m.known[j.kind]))[0];
             if (twin) {
                 chosen = twin;
-                jobs = prepare(command, paths, twin.sets, twin.known);
+                jobs.forEach((j) => {
+                    j.reference = j.sha256 === twin.known[j.kind];
+                });
             }
             break;
         }
     }
     if (command !== 'revert') {
         refuseAmbiguousElsewhere(jobs, others.filter((o) => o.jobs !== jobs));
+    }
+    if (command === 'apply' && overallState(jobs) === 'unpatched') {
+        jobs.forEach((job) => {
+            if (job.state !== 'unpatched') {
+                return;
+            }
+            const patched = job._patched || applyPatches(job._base,
+                job.edits.filter((e) => e.plan === 'apply').map((e) => e.patch));
+            const s = survey(patched, chosen.sets.current[job.kind]);
+            if (s.problems.length || s.edits.some((e, idx) => e.carried !== (job.edits[idx].plan === 'apply'))) {
+                job.problems.push('patched output does not verify');
+                job.state = null;
+            } else {
+                job.target = patched;
+            }
+        });
     }
     const known = chosen.known;
 
@@ -1131,16 +1323,17 @@ function runCommand(command, paths, log, mainapps) {
         files: jobs.map((j) => ({ kind: j.kind, path: j.path, sha256: j.sha256, stockSha256: j.stockSha256,
             reference: j.reference, state: j.state, patchedBy: j.patchedBy, problems: j.problems })) };
     if (command === 'check') {
-        return { result: refresh(result, jobs, known), code: { patched: 0, unpatched: 1, mismatch: 2 }[result.state] };
+        return { result: refresh(result, jobs, known), code: { patched: 0, unpatched: 1, mismatch: 2 }[result.state],
+            digests: digestsOf(jobs) };
     }
     if (result.state === 'mismatch') {
         log('refused; nothing written');
-        return { result: refresh(result, jobs, known), code: 2 };
+        return { result: refresh(result, jobs, known), code: 2, digests: digestsOf(jobs) };
     }
     const writes = jobs.filter((j) => j.target !== null);
     if (!writes.length) {
         log('already ' + (command === 'apply' ? 'patched' : 'unpatched') + '; nothing written');
-        return { result: refresh(result, jobs, known), code: 0 };
+        return { result: refresh(result, jobs, known), code: 0, digests: digestsOf(jobs) };
     }
     let remounted = false;
     try {
@@ -1161,7 +1354,7 @@ function runCommand(command, paths, log, mainapps) {
     } catch (e) {
         log('ERROR: ' + e.message);
         result.error = e.message;
-        return { result: refresh(result, jobs, known), code: 1 };
+        return { result: refresh(result, jobs, known), code: 1, digests: digestsOf(jobs) };
     } finally {
         if (remounted) {
             try {
@@ -1174,9 +1367,9 @@ function runCommand(command, paths, log, mainapps) {
         }
     }
     if (result.error) {
-        return { result: refresh(result, jobs, known), code: 1 };
+        return { result: refresh(result, jobs, known), code: 1, digests: digestsOf(jobs) };
     }
-    return { result: refresh(result, jobs, known), code: 0 };
+    return { result: refresh(result, jobs, known), code: 0, digests: digestsOf(jobs) };
 }
 
 /* MainApp-21 is never bounced for this patch, whoever calls the tool: on
@@ -1311,7 +1504,7 @@ function asRecordedLine(entry) {
     return 'app-privacy: patched, as recorded' + (skipped.length ? '; skipped: ' + skipped.map((e) => e.id).join(', ') : '');
 }
 
-function bootStampText(recordFile, paths, entry) {
+function bootStampText(recordFile, paths, entry, digests) {
     if (!entry || entry.appPrivacy !== VERSION || entry.state !== 'patched' || !Array.isArray(entry.edits) ||
             !Array.isArray(entry.files)) {
         return null;
@@ -1320,16 +1513,18 @@ function bootStampText(recordFile, paths, entry) {
     if (fs.realpathSync(script) !== fs.realpathSync(__filename)) {
         return null;
     }
-    const md5 = (data) => crypto.createHash('md5').update(data).digest('hex');
     const lines = [asRecordedLine(entry), md5(fs.readFileSync(script)) + '  ' + script];
     const kinds = Object.keys(paths);
     for (let i = 0; i < kinds.length; i += 1) {
+        const file = paths[kinds[i]];
         const f = entry.files.filter((x) => x && x.kind === kinds[i])[0];
-        const data = fs.readFileSync(paths[kinds[i]]);
-        if (!f || f.path !== paths[kinds[i]] || f.sha256 !== sha256(data)) {
+        const cached = digests && digests[file];
+        const data = cached ? cached.data : fs.readFileSync(file);
+        const sum = cached ? cached.sha256 : sha256(data);
+        if (!f || f.path !== file || f.sha256 !== sum) {
             return null;
         }
-        lines.push(md5(data) + '  ' + paths[kinds[i]]);
+        lines.push((cached && cached.md5 ? cached.md5 : md5(data)) + '  ' + file);
     }
     lines.push(md5(fs.readFileSync(recordFile)) + '  ' + recordFile);
     return lines.join('\n') + '\n';
@@ -1337,11 +1532,11 @@ function bootStampText(recordFile, paths, entry) {
 
 /* Writes the boot stamp for entry, or removes it when there is none; one
  * that is up to date is left as it is. */
-function syncBootStamp(recordFile, paths, entry) {
+function syncBootStamp(recordFile, paths, entry, digests) {
     const file = path.join(path.dirname(recordFile), BOOT_STAMP);
     let text = null;
     try {
-        text = bootStampText(recordFile, paths, entry);
+        text = bootStampText(recordFile, paths, entry, digests);
     } catch (e) {
         text = null;
     }
@@ -1377,7 +1572,7 @@ function syncBootStamp(recordFile, paths, entry) {
  * give the same result, so a boot has nothing to do. Anything else (a
  * head-unit software update, a MainApp update or reset, a restored stock
  * bundle, another app-privacy release, no record) gets the full apply. */
-function asRecorded(record, paths, unit) {
+function asRecorded(record, paths, unit, digests) {
     const e = record.latest[record.latest.length - 1];
     const kinds = Object.keys(paths);
     if (!e || e.appPrivacy !== VERSION || e.unit !== unit || e.state !== 'patched' || !Array.isArray(e.edits) ||
@@ -1385,9 +1580,18 @@ function asRecorded(record, paths, unit) {
         return null;
     }
     return kinds.every((kind) => {
+        const file = paths[kind];
         const f = e.files.filter((x) => x && x.kind === kind)[0];
+        if (!f || f.path !== file) {
+            return false;
+        }
         try {
-            return !!f && f.path === paths[kind] && f.sha256 === sha256(fs.readFileSync(paths[kind]));
+            const data = fs.readFileSync(file);
+            const sum = sha256(data);
+            if (digests) {
+                digests[file] = { data, sha256: sum };
+            }
+            return f.sha256 === sum;
         } catch (err) {
             return false;
         }
@@ -1533,17 +1737,18 @@ function main(argv) {
         } catch (e) {
             log('record not written: ' + e.message);
         }
-        syncBootStamp(recordFile, paths, written && written.latest[written.latest.length - 1]);
+        syncBootStamp(recordFile, paths, written && written.latest[written.latest.length - 1], r.digests);
         return written;
     };
     if (command === 'boot') {
         const log = (line) => out('app-privacy: ' + line);
         let r;
         try {
-            const recorded = recordFile && asRecorded(readRecord(recordFile), paths, unit);
+            const digests = {};
+            const recorded = recordFile && asRecorded(readRecord(recordFile), paths, unit, digests);
             if (recorded) {
                 out(asRecordedLine(recorded));
-                syncBootStamp(recordFile, paths, recorded);
+                syncBootStamp(recordFile, paths, recorded, digests);
                 return 0;
             }
             r = run('apply', paths, log, null, null, unit);
@@ -1575,7 +1780,7 @@ module.exports = {
     PATCH_SETS_21_9_2_15, KNOWN_SHA256_21_9_2_15,
     UNITS, unitOf, bundlePathFor, resolveBundlePaths,
     EDIT_INFO, REQUIRED_EDITS, EDIT_TITLES, RECORD_FILE, RECORD_FINGERPRINTS, RECORD_HISTORY, BOOT_STAMP,
-    classify, applyPatches, removePatches, run, stampPackage, checkApps, main
+    classify, applyPatches, removePatches, writeText, writeInPlace, run, stampPackage, checkApps, main
 };
 
 if (require.main === module) {

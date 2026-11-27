@@ -192,6 +192,52 @@ func TestSupplicants(t *testing.T) {
 	}
 }
 
+func TestSupplicantTickReuseAndBuf(t *testing.T) {
+	scan := filepath.Join(t.TempDir(), "scan")
+	writeScan(t, scan, "40:d6:3c:68:0c:b7\t2437\t-60\t[WPA2-PSK-CCMP][ESS]\tHome\trightpass1")
+	p, _, _ := testProvider(t, scan)
+	if err := p.mgu.ensure(p.proc); err != nil {
+		t.Fatal(err)
+	}
+	defer p.mgu.stop()
+	for end := time.Now().Add(3 * time.Second); !p.mgu.ready() && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+	}
+	if err := p.mgu.join("Home", "rightpass1", false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	end := p.mgu.beginTick()
+	ws := p.mgu.status()
+	p.mgu.mu.Lock()
+	bufPtr := &p.mgu.buf[0]
+	p.mgu.mu.Unlock()
+	if ws["wpa_state"] != "COMPLETED" {
+		end()
+		t.Fatalf("state %v", ws)
+	}
+	// Clear the scan file: a fresh STATUS would drop Home and report freq 0,
+	// whereas reusing the tick's cached STATUS keeps 2437.
+	writeScan(t, scan)
+	if f := p.mgu.freq(); f != 2437 {
+		end()
+		t.Fatalf("freq %d, want 2437 from cached STATUS", f)
+	}
+	sig, ok := p.mgu.signal()
+	end()
+	if !ok || sig != -45 {
+		t.Fatalf("signal %d %v", sig, ok)
+	}
+	if f := p.mgu.freq(); f != 0 {
+		t.Fatalf("post-tick freq %d, want 0 after fresh STATUS", f)
+	}
+	p.mgu.mu.Lock()
+	sameBuf := len(p.mgu.buf) == 16384 && &p.mgu.buf[0] == bufPtr
+	p.mgu.mu.Unlock()
+	if !sameBuf {
+		t.Fatal("request buffer was reallocated")
+	}
+}
+
 // ---- a fake wpa_supplicant ----
 
 // The scan file: one access point per line, tab-separated: bssid,

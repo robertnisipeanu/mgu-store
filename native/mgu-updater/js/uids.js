@@ -203,8 +203,21 @@ function writeIfChanged(file, text) {
             return;
         }
     } catch (e) { /* not there yet */ }
-    fs.writeFileSync(`${file}.tmp`, text, { mode: 0o644 });
-    fs.renameSync(`${file}.tmp`, file);
+    const tmp = `${file}.tmp`;
+    const fd = fs.openSync(tmp, 'w', 0o644);
+    try {
+        fs.writeSync(fd, text);
+        fs.fsyncSync(fd);
+    } finally {
+        fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+    const dir = fs.openSync(path.dirname(file), 'r');
+    try {
+        fs.fsyncSync(dir);
+    } finally {
+        fs.closeSync(dir);
+    }
 }
 
 class ServiceUids {

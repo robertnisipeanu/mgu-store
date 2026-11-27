@@ -159,6 +159,7 @@ static int shm_buffers(void)
         (E.map = mmap(NULL, E.map_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)) == MAP_FAILED) {
         log_error("embed: %zu bytes of shared memory: %s", E.map_size, strerror(errno));
         E.map = NULL;
+        E.map_size = 0;
         if (fd >= 0) close(fd);
         return -1;
     }
@@ -232,8 +233,8 @@ static void synced(void *d, struct wl_callback *cb, uint32_t t)
             if (E.drm && E.zero_copy && !E.refused[0]) { E.stage = SYNC_DRM; sync_start(); return; }
             /* fall through */
         case SYNC_DRM:
-            if (shm_buffers() < 0) { E.failed = 1; return; }
             if (gpu_buffers()) { E.stage = SYNC_BUFFERS; sync_start(); return; }
+            if (shm_buffers() < 0) { E.failed = 1; return; }
             setup_done();
             return;
         case SYNC_BUFFERS:
@@ -302,7 +303,7 @@ void embed_disconnect(void)
     if (E.sync) { wl_callback_destroy(E.sync); E.sync = NULL; }
     for (int i = 0; i < NB; i++)
         if (E.buf[i]) { wl_buffer_destroy(E.buf[i]); E.buf[i] = NULL; }
-    if (E.map) { munmap(E.map, E.map_size); E.map = NULL; }
+    if (E.map) { munmap(E.map, E.map_size); E.map = NULL; E.map_size = 0; }
     if (E.drm) wl_drm_destroy(E.drm);
     if (E.iapp) ivi_application_destroy(E.iapp);
     if (E.shm) wl_shm_destroy(E.shm);
@@ -343,7 +344,7 @@ void embed_show(int on)
 
 int embed_buffer(int gpu)
 {
-    if (!E.surface || E.reclaiming || (gpu && !E.ngpu))
+    if (!E.surface || E.reclaiming || (gpu ? !E.ngpu : !E.map))
         return -1;
     int lo = gpu ? NSHM : 0, hi = gpu ? NSHM + E.ngpu : NSHM;
     E.cur = E.ready >= lo && E.ready < hi ? E.ready : -1;  /* a frame not committed yet is drawn over */

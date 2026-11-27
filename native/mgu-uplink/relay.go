@@ -319,9 +319,7 @@ func (l *relayLink) teardown() {
 
 // htons returns v held big-endian (the target is little-endian amd64).
 func htons(v uint16) uint16 {
-	b := make([]byte, 2)
-	binary.BigEndian.PutUint16(b, v)
-	return binary.LittleEndian.Uint16(b)
+	return v<<8 | v>>8
 }
 
 // packetSocket opens a promiscuous AF_PACKET socket on the interface with
@@ -361,15 +359,13 @@ func (l *relayLink) pumpFromDevice() {
 	defer l.wg.Done()
 	buf := make([]byte, l.fr.rxSize())
 	stalls := 0
+	sa := &unix.SockaddrLinklayer{Ifindex: l.peerIdx, Halen: 6}
 	emit := func(f []byte) {
 		if len(f) < 14 {
 			return
 		}
-		sa := &unix.SockaddrLinklayer{
-			Protocol: htons(binary.BigEndian.Uint16(f[12:14])),
-			Ifindex:  l.peerIdx, Halen: 6,
-		}
-		copy(sa.Addr[:], f[:6])
+		sa.Protocol = htons(binary.BigEndian.Uint16(f[12:14]))
+		copy(sa.Addr[:6], f[:6])
 		unix.Sendto(l.pktFd, f, 0, sa) // a frame the veth cannot take is dropped, as on a wire
 	}
 	for !l.stopped() {

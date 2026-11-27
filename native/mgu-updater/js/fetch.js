@@ -54,9 +54,10 @@
  * exactly one of done and notModified (without file) and error ends that
  * job. A remove empties the folder,
  * following no link, and answers { id, removed: true }: the folder itself
- * is its maker's to remove. Each job has connections of its own, closed
- * when it ends, which also stops the rest of a set whose file failed. The
- * process ends once stdin closes and no job is under way.
+ * is its maker's to remove. Jobs with matching connection settings share a
+ * keep-alive agent pool, closed on exit or when proxy/DNS settings change;
+ * a file error in a set stops the rest of that set without tearing down
+ * unrelated jobs. The process ends once stdin closes and no job is under way.
  *
  * A GET whose connection fails (cut mid-download, no data for idleMs, a
  * reset, no connection within connectMs) or that gets a 500, 502, 503 or 504 is tried again,
@@ -96,6 +97,7 @@ const dns = require('dns');
 const net = require('net');
 const tls = require('tls');
 const https = require('https');
+const crypto = require('crypto');
 const { URL } = require('url');
 const certs = require('./certs');
 const tunnel = require('./tunnel');
@@ -120,13 +122,13 @@ function tell(job, obj) {
     (job.emit || emit)(job.file === undefined ? obj : Object.assign({ file: job.file }, obj));
 }
 
-/* Connections for a job's requests, kept open for the next request to the
- * same host. Each is made by connect() with the dns the job's try set last;
+/* Connections for requests sharing a connection config, kept open for the
+ * next request to the same host. Each is made by connect() with this.dns;
  * its failure carries connectFailed. Node 8 counts a connection only once
  * it is made, so the job itself bounds how many requests run at once. */
 class Connections extends https.Agent {
     constructor(job) {
-        super({ keepAlive: true });
+        super({ keepAlive: true, maxFreeSockets: 8 });
         this.job = job;
         this.dns = job.dns;
     }
@@ -135,6 +137,75 @@ class Connections extends https.Agent {
         connect(Object.assign({}, this.job, { dns: this.dns }), { hostname: options.host, port: options.port }, (err, sock) => {
             cb(err ? Object.assign(err, { connectFailed: true }) : null, sock);
         });
+    }
+}
+
+const MAX_AGENTS = 4;
+
+/* Reuses Connections agents across serve() jobs that share connection
+ * settings (proxy, DNS, CA, connectMs), tearing down stale agents when
+ * network or proxy settings change or on worker exit. */
+class AgentPool {
+    constructor() {
+        this.entries = new Map();
+    }
+
+    acquire(job, dnsServers) {
+        const netKey = JSON.stringify([job.proxy || '', dnsServers || []]);
+        const caKey = job.ca ? crypto.createHash('sha256').update(job.ca).digest('hex') : '';
+        const key = `${netKey}\0${job.connectMs || CONNECT_MS}\0${caKey}`;
+        let entry = this.entries.get(key);
+        if (entry) {
+            this.entries.delete(key);
+            this.entries.set(key, entry);
+            entry.refs++;
+            return entry;
+        }
+        // invalidate agents tied to an older proxy or DNS set
+        Array.from(this.entries.entries()).forEach(([k, e]) => {
+            if (e.netKey !== netKey) {
+                e.stale = true;
+                if (!e.refs) {
+                    e.agent.destroy();
+                    this.entries.delete(k);
+                }
+            }
+        });
+        while (this.entries.size >= MAX_AGENTS) {
+            const idle = Array.from(this.entries.entries()).find(([, e]) => !e.refs);
+            if (!idle) {
+                break;
+            }
+            idle[1].agent.destroy();
+            this.entries.delete(idle[0]);
+        }
+        entry = {
+            key,
+            netKey,
+            agent: new Connections({ proxy: job.proxy, ca: job.ca, connectMs: job.connectMs, dns: dnsServers }),
+            refs: 1,
+            stale: false
+        };
+        this.entries.set(key, entry);
+        return entry;
+    }
+
+    release(entry) {
+        if (!entry) {
+            return;
+        }
+        entry.refs--;
+        if (!entry.refs && entry.stale) {
+            entry.agent.destroy();
+            if (this.entries.get(entry.key) === entry) {
+                this.entries.delete(entry.key);
+            }
+        }
+    }
+
+    destroyAll() {
+        this.entries.forEach((e) => e.agent.destroy());
+        this.entries.clear();
     }
 }
 
@@ -284,8 +355,13 @@ function request(job, url, target, headers, hops, from, validator, settle) {
     // the headers, then each part of the body, within idleMs
     const idleMs = job.idleMs || IDLE_MS;
     let timer = null;
+    let cancelReq = null;
     const finish = (r) => {
         clearTimeout(timer);
+        if (job.halt && cancelReq) {
+            job.halt.abort.delete(cancelReq);
+            cancelReq = null;
+        }
         settle(r);
     };
     const wait = () => {
@@ -307,6 +383,10 @@ function request(job, url, target, headers, hops, from, validator, settle) {
         if (!post && [301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location) {
             res.resume();
             clearTimeout(timer);
+            if (job.halt && cancelReq) {
+                job.halt.abort.delete(cancelReq);
+                cancelReq = null;
+            }
             stop = () => {};   // the next host's request answers from here
             if (hops >= MAX_REDIRECTS) {
                 finish({ error: 'too many redirects' });
@@ -428,6 +508,13 @@ function request(job, url, target, headers, hops, from, validator, settle) {
         finish({ error: err.proxy ? err.message : `${host}: ${err.code || err.message}`,
             retry: !err.refused && NO_SUCH_NAME.indexOf(err.code) < 0 });
     });
+    if (job.halt) {
+        cancelReq = () => {
+            clearTimeout(timer);
+            req.abort();
+        };
+        job.halt.abort.add(cancelReq);
+    }
     // the connection has connectMs of its own
     req.on('socket', wait);
     req.end(body || undefined);
@@ -442,10 +529,11 @@ function download(job, end) {
     let from = 0;
     let best = 0;      // the furthest the file has got: a try gets further only past it
     let validator = null;
+    let held = null;
     const next = () => {
         // its set has ended (another file failed): no further try
         if (job.halt && job.halt.on) {
-            end({ error: 'stopped' });
+            finishAll({ error: 'stopped' });
             return;
         }
         tries++;
@@ -496,10 +584,23 @@ function download(job, end) {
             tried({ error: 'no internet (the uplink is down)', retry: true });
             return;
         }
-        job.agent.dns = dns;
+        if (job.pool) {
+            const entry = job.pool.acquire(job, dns);
+            if (held) {
+                job.pool.release(held);
+            }
+            held = entry;
+            job.agent = entry.agent;
+        } else {
+            job.agent.dns = dns;
+        }
         get(job, job.url, headers, 0, from, from > 0 ? validator : null, tried);
     };
     const finishAll = (r) => {
+        if (held && job.pool) {
+            job.pool.release(held);
+            held = null;
+        }
         delete r.retry;
         delete r.resumeWith;
         delete r.restart;
@@ -515,7 +616,7 @@ function download(job, end) {
  * file's error, else { done: true }. */
 function downloadAll(job, end) {
     const files = job.files;
-    const halt = { on: false };
+    const halt = { on: false, abort: new Set() };
     let next = 0;
     let left = files.length;
     let over = !left;
@@ -531,6 +632,7 @@ function downloadAll(job, end) {
             if (r.error) {
                 over = true;
                 halt.on = true;
+                Array.from(halt.abort).forEach((fn) => fn());
                 end(Object.assign({ file: i }, r));
                 return;
             }
@@ -586,10 +688,12 @@ function removeTree(dir) {
 
 /* The jobs of stdin's lines, side by side (serve, above). */
 function serve() {
+    const pool = new AgentPool();
     let running = 0;
     let closed = false;
     const settle = () => {
         if (closed && !running) {
+            pool.destroyAll();
             process.exit(0);
         }
     };
@@ -612,11 +716,10 @@ function serve() {
             say({ error: 'bad job' });
             return;
         }
-        job.agent = new Connections(job);
+        job.pool = pool;
         job.emit = say;
         running++;
         (job.files ? downloadAll : download)(job, (r) => {
-            job.agent.destroy();
             say(r);
             running--;
             settle();

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Smaller app package with lower memory use and smoother scrolling: translations load only for the active language, font data is more compact, and app icons decode as they scroll into view.
+
 ## 0.9.45
 
 - While the updater is installing or has installs waiting, the list stays on screen when it restarts.

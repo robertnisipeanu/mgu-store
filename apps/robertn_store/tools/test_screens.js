@@ -798,8 +798,17 @@ eq(own(f), ['Phone access', 'Back']);
 ok(/#t=6f1c/.test(f.values.qr.text), 'the access URL as QR code');
 eq(text(screen('offline'), 'subtitle'), 'Restart the head unit to finish setup');
 
-// package pictures: components[].icon is drawn from that file
+// package pictures: components[].icon is drawn from that file, and only visible tiles' icons are requested
 f = screen('store', {}, { components: [Object.assign(fixture.state().components[1], { icon: '/run/mgu-updater/icons/doom.png' })] });
 eq([f.values.grid.items[0].icon, f.icons], ['key:/run/mgu-updater/icons/doom.png', ['/run/mgu-updater/icons/doom.png']]);
+{
+    const visSt = Object.assign(fixture.state(), {
+        components: Array.from({ length: 30 }, (_, i) => Object.assign({}, fixture.state().components[1],
+            { id: `p${i}`, title: `App ${i}`, icon: `/run/mgu-updater/icons/p${i}.png` }))
+    });
+    const f0 = frame(fixture.model({}, visSt), { textScale: ID7.scale, focus: -1, scroll: {}, layout: ID7.layout });
+    ok(f0.icons.length < 30 && f0.icons.indexOf('/run/mgu-updater/icons/p0.png') >= 0 &&
+        f0.icons.indexOf('/run/mgu-updater/icons/p29.png') < 0, 'grid icons: only visible tiles');
+}
 
 console.log(`screens: ${fixture.screens().length} screens in ${Object.keys(UNITS).length} boxes, ${checks} checks pass`);

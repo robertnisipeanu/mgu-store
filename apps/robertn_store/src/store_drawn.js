@@ -80,9 +80,21 @@ class Timing {
         this.sent = 0;                      // frames sent and touches had on this connection
         this.touchesIn = 0;
         this.on = false;
+        this.timer = null;
         this._reset();
-        this.timer = setInterval(() => this._second(), 1000);
-        if (this.timer.unref) this.timer.unref();
+    }
+    setActive(on) {
+        if (on && !this.timer) {
+            this._reset();
+            this.timer = setInterval(() => this._second(), 1000);
+            if (this.timer.unref) this.timer.unref();
+        } else if (!on && this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+            if (this.on && (this.lines.length || this.builds || this.drags || this.touches)) {
+                this._second();
+            }
+        }
     }
     _reset() {
         Object.assign(this, { builds: 0, build: 0, buildMax: 0, model: 0, layout: 0, drags: 0, dragMs: 0, frames: 0, send: 0, touches: 0,
@@ -128,7 +140,7 @@ class Timing {
             this._reset();
         });
     }
-    close() { clearInterval(this.timer); }
+    close() { clearInterval(this.timer); this.timer = null; }
 }
 
 class Drawn extends EventEmitter {
@@ -184,6 +196,9 @@ class Drawn extends EventEmitter {
         this.embedProxies = false;          // the HMI routes presses to embed proxies
         this.pics = new Map();              // picture file -> { img, used }
         this.decoding = new Set();
+        this.visibleIcons = [];
+        this.picRefresh = null;
+        this.picDecoded = false;
         this.gpu.on('ready', (screen, info) => {
             this.timing.connected();
             this._ready(info);
@@ -205,6 +220,7 @@ class Drawn extends EventEmitter {
         this.gpu.on('closed', () => {
             this.closedHide = true;
             this.on_ = false;
+            this.timing.setActive(false);
             this._dropKept();
             setTimeout(() => {
                 this.closedHide = false;
@@ -223,6 +239,8 @@ class Drawn extends EventEmitter {
         clearInterval(this.keepalive);
         clearTimeout(this.prebuild);
         clearTimeout(this.held);
+        clearImmediate(this.picRefresh);
+        this.picRefresh = null;
         this.timing.close();
         this.gpu.removeAllListeners('close');
         this.gpu.close();
@@ -434,6 +452,7 @@ class Drawn extends EventEmitter {
             return;
         }
         this.on_ = on;
+        this.timing.setActive(on);
         if (!on) {
             this._dropKept();
         }
@@ -464,15 +483,15 @@ class Drawn extends EventEmitter {
     /* Draws the frame (sent while the renderer is ready and the page is
      * shown, one at a time) and writes the top host state's proxies. same:
      * nothing but a scroll changed since the last build. */
-    render(same) {
+    render(same, pre) {
         if (!this.mode || !this.w) {
             return;
         }
         this.settleKey = null;
         const b0 = this.timing.on ? usNow() : 0;
         const t0 = this.timing.on ? msNow() : 0;
-        const m = this._model();
-        const json = JSON.stringify(m);
+        const m = pre ? pre.m : this._model();
+        const json = pre ? pre.json : JSON.stringify(m);
         if (!same || json !== this.drawn) {
             this.gen++;
             same = false;
@@ -533,7 +552,14 @@ class Drawn extends EventEmitter {
      * moves cached rows, once the drag ends (its release builds the page); decoded pictures redraw the rows. A
      * state the page was built from already draws nothing; its proxies are written again where they differ. */
     refresh(pictures) {
-        const same = !pictures && !!this.mode && JSON.stringify(this._model()) === this.drawn;
+        let pre = null;
+        let same = false;
+        if (!pictures && this.mode) {
+            const m = this._model();
+            const json = JSON.stringify(m);
+            pre = { m, json };
+            same = json === this.drawn;
+        }
         if (this.touch && this.touch.drag) {
             if (!same) {
                 this.gen++;
@@ -547,7 +573,7 @@ class Drawn extends EventEmitter {
             this._proxies();                // cells the host asked to be written again
             return;
         }
-        this.render();
+        this.render(false, pre);
     }
 
     /* A drag's layers made ahead for the page's largest scrolling grid or
@@ -722,6 +748,7 @@ class Drawn extends EventEmitter {
         this.items = l.items;
         this.regions = l.regions;
         this._proxies();
+        this._pictures(l.icons);
         this.timing.trace('settle-end', this.timing.sent);
         if (this.dirty) {
             this.settleKey = t.region.key;
@@ -792,12 +819,13 @@ class Drawn extends EventEmitter {
         }
     }
 
-    /* The package pictures the frame shows (components[].icon, files the
+    /* The package pictures visible on the frame (components[].icon, files the
      * updater leaves readable): decoded once, the ICONS_KEPT most recently
      * shown kept, drawn from the next frame on. A file that is missing, too
      * big or no PNG draws the letter tile. */
     _pictures(files) {
         const now = Date.now();
+        this.visibleIcons = files;
         files.forEach((f) => {
             const p = this.pics.get(f);
             if (p) {
@@ -806,44 +834,70 @@ class Drawn extends EventEmitter {
         });
         files.filter((f) => !this.pics.has(f) && !this.decoding.has(f)).forEach((f) => {
             this.decoding.add(f);
-            let ok = false;
-            try {
-                const s = fs.statSync(f);
-                ok = s.isFile() && s.size <= ICON_BYTES;
-            } catch (e) {
-                ok = false;
-            }
-            (ok ? fs.readFile.bind(fs, f) : (cb) => setImmediate(cb, new Error('not a picture file')))((err, buf) => {
-                if (err || buf.length > ICON_BYTES) {
-                    this.decoding.delete(f);
-                    this.pics.set(f, { img: null, used: Date.now() });
-                    if (this.held) {
-                        this.render(true);          // a page held for its pictures: none of this one to wait for
-                    }
+            fs.stat(f, (se, s) => {
+                if (se || !s.isFile() || s.size > ICON_BYTES) {
+                    this._pictureDone(f, null, false);
                     return;
                 }
-                png.decodeAsync(buf, (e, img) => {
-                    this.decoding.delete(f);
-                    let pic = null;
-                    if (!e) {
-                        const small = png.fit(img, 256);
-                        pic = kit.makeImage(small.w, small.h, small.data);
-                        setPicture(f, pic);
+                fs.readFile(f, (err, buf) => {
+                    if (err || buf.length > ICON_BYTES) {
+                        this._pictureDone(f, null, false);
+                        return;
                     }
-                    this.pics.set(f, { img: pic, used: Date.now() });
-                    Array.from(this.pics.entries()).filter(([k]) => files.indexOf(k) < 0).sort((a, b) => a[1].used - b[1].used)
-                        .slice(0, Math.max(0, this.pics.size - ICONS_KEPT)).forEach(([k, v]) => {
-                            this.pics.delete(k);
-                            setPicture(k, null);
-                            if (v.img) {
-                                this.gpu.dropImage(v.img);
-                                kit.dropImage(v.img);
-                            }
-                        });
-                    this.refresh(true);
+                    png.decodeAsync(buf, (e, img) => {
+                        let pic = null;
+                        if (!e) {
+                            const small = png.fit(img, 256);
+                            pic = kit.makeImage(small.w, small.h, small.data);
+                            setPicture(f, pic);
+                        }
+                        this._pictureDone(f, pic, true);
+                    });
                 });
             });
         });
+    }
+
+    _pictureDone(f, pic, decoded) {
+        this.decoding.delete(f);
+        this.pics.set(f, { img: pic, used: Date.now() });
+        if (decoded) {
+            const keep = this.visibleIcons;
+            Array.from(this.pics.entries()).filter(([k]) => keep.indexOf(k) < 0).sort((a, b) => a[1].used - b[1].used)
+                .slice(0, Math.max(0, this.pics.size - ICONS_KEPT)).forEach(([k, v]) => {
+                    this.pics.delete(k);
+                    setPicture(k, null);
+                    if (v.img) {
+                        this.gpu.dropImage(v.img);
+                        kit.dropImage(v.img);
+                    }
+                });
+        }
+        // while a new page waits for its visible pictures, wait until the last one finishes (or PICTURES_MS fires)
+        if (this.held && this.visibleIcons.some((k) => this.decoding.has(k))) {
+            if (decoded) {
+                this.picDecoded = true;
+            }
+            return;
+        }
+        if (decoded) {
+            this.picDecoded = true;
+        }
+        if (!decoded && !this.held) {
+            return;
+        }
+        if (!this.picRefresh) {
+            this.picRefresh = setImmediate(() => {
+                const needRefresh = this.picDecoded;
+                this.picRefresh = null;
+                this.picDecoded = false;
+                if (needRefresh) {
+                    this.refresh(true);
+                } else if (this.held) {
+                    this.render(true);
+                }
+            });
+        }
     }
 
     /* A FrontCCU.statusRotaryEncoderState sample. In embed mode without the

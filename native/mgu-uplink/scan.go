@@ -1,8 +1,9 @@
 package main
 
 // The automatic uplink. scanUplink looks at what is plugged in, and whether
-// Wi-Fi is joined, every 2 s and opens the first usable device of the
-// kinds it covers, in this order:
+// Wi-Fi is joined, on USB/net uevents, Wi-Fi/config changes and periodic
+// safety sweeps, and opens the first usable device of the kinds it covers,
+// in this order:
 //
 //	wifi    the unit's own radio, joined to a saved network (wifi.go)
 //	usb     an adapter the kernel drives (netdev.go)
@@ -28,9 +29,11 @@ package main
 // running when the switch goes off ends as an unplug would end it.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -38,14 +41,22 @@ import (
 	"time"
 
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 const (
 	kindUSB      = "usb"
-	scanEvery    = 2 * time.Second
 	retryFailed  = 15 * time.Second // a device that failed to open is tried again after this
-	preferEvery  = 5 * time.Second
 	switchRepeat = 30 * time.Second
+)
+
+// Replaced by tests.
+var (
+	scanEvery      = 2 * time.Second  // poll cadence when uevent netlink is unavailable
+	preferEvery    = 5 * time.Second  // preferred-device cadence when uevent netlink is unavailable
+	scanFallback   = 20 * time.Second // safety sweep while uevent netlink is active
+	preferFallback = 30 * time.Second // preferred-device safety sweep while uevent netlink is active
+	listenUevent   = openUevent
 )
 
 var autoKinds = []string{kindWiFi, kindUSB, kindECM, kindRNDIS, kindNCM, kindIPhone}
@@ -86,6 +97,7 @@ type scanUplink struct {
 	prefer   string               // the group tried first (preferGroups)
 	phones   bool                 // phones over USB are taken
 	phoneOff chan struct{}        // closed while phones over USB are switched off
+	changed  chan struct{}        // closed and replaced on prefer, usb_phone or Wi-Fi association changes
 	failed   map[string]time.Time // device key -> last failed open
 	switched map[string]time.Time
 	logged   map[string]string // device key -> last message logged
@@ -93,7 +105,7 @@ type scanUplink struct {
 
 func newScanUplink(c config) *scanUplink {
 	u := &scanUplink{record: c.linkFile(), pairDir: c.pairDir(), prefer: c.Preferred,
-		phones: true, phoneOff: make(chan struct{}),
+		phones: true, phoneOff: make(chan struct{}), changed: make(chan struct{}),
 		failed: map[string]time.Time{}, switched: map[string]time.Time{},
 		logged: map[string]string{}}
 	u.setUSBPhone(c.USBPhone)
@@ -102,9 +114,32 @@ func newScanUplink(c config) *scanUplink {
 
 func (u *scanUplink) String() string { return "auto" }
 
+func (u *scanUplink) pokeLocked() {
+	if u.changed != nil {
+		close(u.changed)
+		u.changed = make(chan struct{})
+	}
+}
+
+func (u *scanUplink) poke() {
+	u.mu.Lock()
+	u.pokeLocked()
+	u.mu.Unlock()
+}
+
+func (u *scanUplink) changedCh() <-chan struct{} {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.changed == nil {
+		u.changed = make(chan struct{})
+	}
+	return u.changed
+}
+
 func (u *scanUplink) setPreferred(group string) {
 	u.mu.Lock()
 	u.prefer = group
+	u.pokeLocked()
 	u.mu.Unlock()
 }
 
@@ -116,6 +151,7 @@ func (u *scanUplink) setUSBPhone(on bool) {
 	switch {
 	case on && !u.phones:
 		u.phoneOff = make(chan struct{})
+		u.pokeLocked()
 	case !on && u.phones:
 		close(u.phoneOff)
 	}
@@ -155,24 +191,32 @@ type candidate struct {
 	busy     string // why the device is left alone
 }
 
-// candidates lists what is plugged in or joined, best first.
+// candidates lists what is plugged in or joined, best first, and prunes
+// tracking state for devices that are no longer present.
 func (u *scanUplink) candidates() []candidate {
 	var out []candidate
+	presentKeys := map[string]bool{}
+	presentSys := map[string]bool{}
 	if u.wifi != nil {
 		if ssid, ok := u.wifi.associated(); ok {
-			out = append(out, candidate{kind: kindWiFi, key: "wifi:" + ssid, netdev: u.wifi.ifname(),
+			key := "wifi:" + ssid
+			presentKeys[key] = true
+			out = append(out, candidate{kind: kindWiFi, key: key, netdev: u.wifi.ifname(),
 				dev: statusDevice{Kind: kindWiFi, Name: ssid}})
 		}
 	}
 	for _, n := range usbNetdevs(sysClassNet) {
 		// The interface index is new for each attachment, the name may not be.
 		idx, _ := readSysctl(sysClassNet + "/" + n + "/ifindex")
-		out = append(out, candidate{kind: kindUSB, key: "netdev:" + n + "#" + idx, netdev: n, dev: netdevDevice(sysClassNet, n)})
+		key := "netdev:" + n + "#" + idx
+		presentKeys[key] = true
+		out = append(out, candidate{kind: kindUSB, key: key, netdev: n, dev: netdevDevice(sysClassNet, n)})
 	}
 	devs := scanUSBDevices()
 	iphoneForgetGone(devs)
 	phones, _ := u.phoneGate()
 	for _, info := range devs {
+		presentSys[info.sysName] = true
 		apple := strings.HasPrefix(info.vidpid, "05ac:")
 		for _, kind := range []string{kindECM, kindRNDIS, kindNCM, kindIPhone} {
 			// An Apple device's own CDC functions (a Mac's, an iPhone's reverse
@@ -190,6 +234,7 @@ func (u *scanUplink) candidates() []candidate {
 			c := candidate{kind: kind, key: key, info: info,
 				dev: statusDevice{Kind: kind, Name: info.name()}}
 			if kind == kindECM && switchDevices[info.vidpid] {
+				presentKeys[key] = true
 				c.toSwitch = true
 				out = append(out, c)
 				continue
@@ -198,6 +243,7 @@ func (u *scanUplink) candidates() []candidate {
 			if !ok {
 				continue
 			}
+			presentKeys[key] = true
 			c.fn = fn
 			// The uplink takes an iPhone from the media daemon itself
 			// (iphone.go), so a held iPhone is not left alone, unless its
@@ -225,8 +271,29 @@ func (u *scanUplink) candidates() []candidate {
 			break
 		}
 	}
+	u.prune(presentKeys, presentSys)
 	sort.SliceStable(out, func(i, j int) bool { return u.rank(out[i].kind) < u.rank(out[j].kind) })
 	return out
+}
+
+func (u *scanUplink) prune(keys, sys map[string]bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for k := range u.failed {
+		if !keys[k] {
+			delete(u.failed, k)
+		}
+	}
+	for k := range u.logged {
+		if !keys[k] {
+			delete(u.logged, k)
+		}
+	}
+	for k := range u.switched {
+		if !sys[k] {
+			delete(u.switched, k)
+		}
+	}
 }
 
 // say logs msg for key once until it changes.
@@ -239,18 +306,34 @@ func (u *scanUplink) say(key, msg string) {
 	}
 }
 
-func (u *scanUplink) recentlyFailed(key string) bool {
+func (u *scanUplink) recentlyFailed(key string) (time.Duration, bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	t, ok := u.failed[key]
-	return ok && time.Since(t) < retryFailed
+	if !ok {
+		return 0, false
+	}
+	if rem := retryFailed - time.Since(t); rem > 0 {
+		return rem, true
+	}
+	return 0, false
 }
 
 func (u *scanUplink) Open(ctx context.Context) (Link, error) {
+	uev, err := listenUevent()
+	var uevCh <-chan struct{}
+	every := scanEvery
+	if err == nil {
+		defer uev.Close()
+		uevCh = uev.C
+		every = scanFallback
+	}
 	waiting := false
 	for {
+		changed := u.changedCh()
 		cands := u.candidates()
 		tried := false
+		wait := every
 		for _, c := range cands {
 			dev := c.dev
 			switch {
@@ -262,8 +345,12 @@ func (u *scanUplink) Open(ctx context.Context) (Link, error) {
 				setStatus(&dev, stateBusy, c.busy)
 				tried = true
 				continue
-			case u.recentlyFailed(c.key):
+			}
+			if rem, ok := u.recentlyFailed(c.key); ok {
 				tried = true
+				if rem < wait {
+					wait = rem
+				}
 				continue
 			}
 			tried = true
@@ -289,6 +376,9 @@ func (u *scanUplink) Open(ctx context.Context) (Link, error) {
 			u.mu.Lock()
 			u.failed[c.key] = time.Now()
 			u.mu.Unlock()
+			if retryFailed < wait {
+				wait = retryFailed
+			}
 			u.say(c.key, fmt.Sprintf("open %s %s: %v", c.kind, c.dev.Name, err))
 			if isBusy(err) {
 				setStatus(&dev, stateBusy, err.Error())
@@ -303,10 +393,20 @@ func (u *scanUplink) Open(ctx context.Context) (Link, error) {
 				waiting = true
 			}
 		}
+		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return nil, ctx.Err()
-		case <-time.After(scanEvery):
+		case <-changed:
+		case <-uevCh:
+		case <-t.C:
+		}
+		if !t.Stop() {
+			select {
+			case <-t.C:
+			default:
+			}
 		}
 	}
 }
@@ -404,8 +504,17 @@ func (u *scanUplink) watchPreferred(l Link, cur candidate) Link {
 		_, phoneOff = u.phoneGate()
 	}
 	go func() {
-		t := time.NewTicker(preferEvery)
+		uev, err := listenUevent()
+		var uevCh <-chan struct{}
+		every := preferEvery
+		if err == nil {
+			defer uev.Close()
+			uevCh = uev.C
+			every = preferFallback
+		}
+		t := time.NewTicker(every)
 		defer t.Stop()
+		changed := u.changedCh()
 		for {
 			select {
 			case <-p.stop:
@@ -418,16 +527,86 @@ func (u *scanUplink) watchPreferred(l Link, cur candidate) Link {
 				p.err = l.Err()
 				close(p.done)
 				return
+			case <-changed:
+			case <-uevCh:
 			case <-t.C:
-				if c := u.preferred(cur); c != nil {
-					p.err = &preferredError{*c}
-					close(p.done)
-					return
-				}
+			}
+			changed = u.changedCh()
+			if c := u.preferred(cur); c != nil {
+				p.err = &preferredError{*c}
+				close(p.done)
+				return
 			}
 		}
 	}()
 	return p
+}
+
+// ueventMonitor delivers wakeups from the kernel's NETLINK_KOBJECT_UEVENT
+// broadcast for USB and network device changes.
+type ueventMonitor struct {
+	C    chan struct{}
+	f    *os.File
+	done chan struct{}
+}
+
+func openUevent() (*ueventMonitor, error) {
+	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_DGRAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, unix.NETLINK_KOBJECT_UEVENT)
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.Bind(fd, &unix.SockaddrNetlink{Family: unix.AF_NETLINK, Groups: 1}); err != nil {
+		unix.Close(fd)
+		return nil, err
+	}
+	m := &ueventMonitor{
+		C:    make(chan struct{}, 1),
+		f:    os.NewFile(uintptr(fd), "uevent"),
+		done: make(chan struct{}),
+	}
+	go m.readLoop()
+	return m, nil
+}
+
+func (m *ueventMonitor) readLoop() {
+	defer close(m.done)
+	buf := make([]byte, 8192)
+	for {
+		n, err := m.f.Read(buf)
+		if err != nil {
+			return
+		}
+		if isRelevantUevent(buf[:n]) {
+			select {
+			case m.C <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+func (m *ueventMonitor) Close() {
+	if m.f != nil {
+		m.f.Close()
+	}
+	if m.done != nil {
+		<-m.done
+	}
+}
+
+func isRelevantUevent(b []byte) bool {
+	for len(b) > 0 {
+		field := b
+		if i := bytes.IndexByte(b, 0); i >= 0 {
+			field, b = b[:i], b[i+1:]
+		} else {
+			b = nil
+		}
+		if string(field) == "SUBSYSTEM=usb" || string(field) == "SUBSYSTEM=net" {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *preferLink) Done() <-chan struct{} { return p.done }

@@ -7312,6 +7312,276 @@ function testKeptAnswers() {
     return chain;
 }
 
+function testQueueDurabilityAndStreaming() {
+    const { Updater, mainappProcess } = require('../js/updater');
+    const sourcesLib = require('../js/sources');
+    const { runBuild } = require('../js/build');
+    const tar = require('../js/tar');
+    const dir = path.join(T, 'queue-stream');
+    mkdirp(dir);
+
+    // 1. Transitive needsSelf in next(): appA -> toolB -> mgu-updater
+    const src = {
+        components: [
+            { id: 'mgu-updater', kind: 'tool', version: '0.9.0', requires: {} },
+            { id: 'toolB', kind: 'tool', version: '2.0.0', requires: { 'mgu-updater': '0.9.0' } },
+            { id: 'appA', kind: 'app', version: '1.0.0', requires: { toolB: '2.0.0' } },
+            { id: 'plain', kind: 'app', version: '1.0.0', requires: {} }
+        ]
+    };
+    const uNext = Object.assign(Object.create(Updater.prototype), {
+        conf: { deploy_tool: 'mgu-deploy', store_app: 'robertn_store' },
+        src: new Map([['s', src]]),
+        queue: [
+            { op: 'install', id: 'appA', source: 's' },
+            { op: 'install', id: 'toolB', source: 's' },
+            { op: 'install', id: 'mgu-updater', source: 's' },
+            { op: 'install', id: 'plain', source: 's' }
+        ],
+        ctx: { batch: { clear: () => {} } },
+        busy: null,
+        changed: () => {},
+        requirementMet: (dep, min) => dep === 'mgu-updater' ? false : false,
+        findRequirement: () => null,
+        handover: () => { order.push('handover'); }
+    });
+    const order = [];
+    uNext.install = (item) => {
+        order.push(item.id);
+        return Promise.resolve(item.id === 'mgu-updater');
+    };
+    uNext.next();
+
+    // 2. takeQueue() accepts <id>@<source> (stored and USB) and rejects invalid ids
+    const qState = path.join(dir, 'qstate');
+    mkdirp(qState);
+    fs.writeFileSync(path.join(qState, 'queue.json'), JSON.stringify([
+        { op: 'install', id: 'app@other-src', source: 'other-src', listed: 'app', unit: 'app' },
+        { op: 'install', id: 'app@usb:MY STICK/mgu-repo', source: 'usb:MY STICK/mgu-repo', listed: 'app', unit: 'app' },
+        { op: 'install', id: '../evil', source: 'other-src' },
+        { op: 'install', id: 'app@', source: 'other-src' }
+    ]));
+    const uQueue = Object.assign(Object.create(Updater.prototype), {
+        conf: { state_dir: qState },
+        queue: [],
+        busy: null,
+        errors: {},
+        putAside: () => {}
+    });
+    uQueue.takeQueue();
+    ok('takeQueue: keeps <id>@<source> (stored and USB) and rejects malformed ids',
+        JSON.stringify(uQueue.queue.map((q) => q.id)) === JSON.stringify(['app@other-src', 'app@usb:MY STICK/mgu-repo']),
+        JSON.stringify(uQueue.queue));
+
+    // 3. mainappProcess() caches discovered PID and falls back to full scan when PID disappears
+    const fakeProc = path.join(dir, 'proc');
+    mkdirp(path.join(fakeProc, '4201'));
+    fs.writeFileSync(path.join(fakeProc, '4201', 'cmdline'), '/usr/bin/node\0/usr/lib/oap-mainapp/src/main.js\0');
+    fs.writeFileSync(path.join(fakeProc, '4201', 'stat'), '4201 (node) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 111 0 0');
+    const mp1 = mainappProcess({ proc: fakeProc });
+    const mp2 = mainappProcess({ proc: fakeProc });
+    fs.unlinkSync(path.join(fakeProc, '4201', 'cmdline'));
+    fs.unlinkSync(path.join(fakeProc, '4201', 'stat'));
+    fs.rmdirSync(path.join(fakeProc, '4201'));
+    mkdirp(path.join(fakeProc, '4209'));
+    fs.writeFileSync(path.join(fakeProc, '4209', 'cmdline'), '/usr/bin/node\0/usr/lib/oap-mainapp21/src/main.js\0');
+    fs.writeFileSync(path.join(fakeProc, '4209', 'stat'), '4209 (node) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 222 0 0');
+    const mp3 = mainappProcess({ proc: fakeProc });
+    ok('mainappProcess: caches PID and rescans when cached PID exits',
+        mp1 === '4201:111' && mp2 === '4201:111' && mp3 === '4209:222', JSON.stringify([mp1, mp2, mp3]));
+
+    // 4. batchCache.blob() does not utimesSync on read
+    const blobDir = path.join(dir, 'blobs');
+    const blobData = Buffer.from('hello-blob-no-utimes');
+    const blobId = crypto.createHash('sha1').update(`blob ${blobData.length}\0`).update(blobData).digest('hex');
+    const bc = sourcesLib.batchCache(blobDir, 1024);
+    bc.keep(blobId, blobData, new Set([blobId]));
+    fs.utimesSync(path.join(blobDir, blobId), new Date(5000), new Date(5000));
+    const bc2 = sourcesLib.batchCache(blobDir, 1024);
+    const readBack = bc2.blob(blobId);
+    ok('batchCache: blob() verifies without rewriting mtime on disk',
+        readBack && readBack.equals(blobData) && fs.statSync(path.join(blobDir, blobId)).mtime.getTime() === 5000,
+        String(fs.statSync(path.join(blobDir, blobId)).mtime.getTime()));
+
+    // 5. packageInfo() parses application.json cleanly for hmi, title, and entry-point icon
+    const iconBytes = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 1)]);
+    const pi = sourcesLib.packageInfo([
+        { name: 'package/package.json', data: Buffer.from(JSON.stringify({ name: 'demo', version: '1.0.0' })) },
+        { name: 'package/rhmiData/application.json', data: Buffer.from(JSON.stringify({
+            application: {
+                uiDescriptions: [{ hmi: ['ID7'] }],
+                entryPoints: [{ textId: 'TITLE', icon: 'app.png' }],
+                variantGroups: [{ stringsPath: './variantGroups/Common/texts', resourcesPath: './variantGroups/Common/resources' }]
+            }
+        })) },
+        { name: 'package/rhmiData/variantGroups/Common/texts/en_GB.json', data: Buffer.from(JSON.stringify({ TITLE: 'Demo Title' })) },
+        { name: 'package/rhmiData/variantGroups/Common/resources/app.png', data: iconBytes }
+    ]);
+    ok('packageInfo: extracts hmi, title and entry-point icon',
+        pi.title === 'Demo Title' && JSON.stringify(pi.hmi) === '["ID7"]' && pi.icon && pi.icon.sha256 === sha256(iconBytes),
+        JSON.stringify(pi));
+
+    // 6. deployTool() line-buffers split chunks and flushes trailing remainder without newline
+    const splitDeploy = path.join(dir, 'split-deploy.sh');
+    fs.writeFileSync(splitDeploy, `#!${process.execPath}\n` +
+        `process.stderr.write('mgu-deploy: split ');\n` +
+        `setTimeout(() => { process.stderr.write('reason across chunks'); process.exit(1); }, 30);\n`, { mode: 0o755 });
+    const uDeploy = Object.assign(Object.create(Updater.prototype), { conf: { deploy: splitDeploy, deploy_timeout_s: '10' } });
+
+    // 7. copyFileHashed() streams fd-to-fd, verifies sha256, refuses links/FIFOs/oversize
+    const cfSrc = path.join(dir, 'src.bin');
+    const cfDst = path.join(dir, 'dst.bin');
+    const cfData = crypto.randomBytes(300000);
+    fs.writeFileSync(cfSrc, cfData);
+    fs.symlinkSync(cfSrc, path.join(dir, 'src.link'));
+    sh(`mkfifo ${path.join(dir, 'src.fifo')}`);
+
+    // 8. repoCatalog() batches manifest reads with bounded concurrency (<= 6) and preserves order
+    const ids = Array.from({ length: 10 }, (_, idx) => `app${idx}`);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const mockRead = (rel) => {
+        if (rel === 'mgu-repo.json') {
+            return Promise.resolve(Buffer.from(JSON.stringify({
+                schema: 1,
+                components: ids.map((id) => ({ id, kind: 'app', path: id }))
+            })));
+        }
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        const id = rel.split('/')[0];
+        return sleep(25).then(() => {
+            inFlight--;
+            return Buffer.from(JSON.stringify({ id, version: '1.0.0' }));
+        });
+    };
+
+    // 9. fetchIcons() fetches with bounded concurrency (<= 4) and coalesces changed()
+    const iconState = path.join(dir, 'iconstate');
+    mkdirp(iconState);
+    let iconInFlight = 0;
+    let iconMaxInFlight = 0;
+    let iconChanged = 0;
+    const uIcons = Object.assign(Object.create(Updater.prototype), {
+        conf: { state_dir: iconState },
+        changed: () => { iconChanged++; }
+    });
+    const rtIcons = {
+        def: { id: 'isrc' },
+        components: Array.from({ length: 6 }, (_, idx) => ({
+            id: `ic${idx}`, version: '1.0.0', icon: { ref: `ic${idx}.png`, sha256: null }
+        })),
+        reader: {
+            icon: () => {
+                iconInFlight++;
+                iconMaxInFlight = Math.max(iconMaxInFlight, iconInFlight);
+                return sleep(25).then(() => {
+                    iconInFlight--;
+                    return iconBytes;
+                });
+            }
+        }
+    };
+
+    // 10. runBuild() line-buffers output, uses async du, and streams output via opts.to
+    const buildState = path.join(dir, 'bstate');
+    const buildDst = path.join(dir, 'built.tgz');
+    const buildLogs = [];
+    const buildTgz = tar.tgz([{ name: 'package/package.json', data: Buffer.from('{"name":"bapp","version":"1.0.0"}'), mode: 0o644 }], 1);
+    const buildScript = `const fs = require('fs'), path = require('path');\n` +
+        `process.stdout.write('chunk-one');\n` +
+        `setTimeout(() => {\n` +
+        `  process.stdout.write('-chunk-two');\n` +
+        `  fs.writeFileSync(path.join(process.env.MGU_OUT, 'bapp@1.0.0.tgz'), Buffer.from(${JSON.stringify(buildTgz.toString('base64'))}, 'base64'));\n` +
+        `}, 30);\n`;
+
+    return Promise.resolve()
+        .then(() => sleep(20))
+        .then(() => {
+            ok('next: transitive needsSelf runs mgu-updater before dependent appA and toolB',
+                JSON.stringify(order) === JSON.stringify(['plain', 'mgu-updater', 'handover']) &&
+                JSON.stringify(uNext.queue.map((q) => q.id)) === JSON.stringify(['appA', 'toolB']),
+                JSON.stringify([order, uNext.queue.map((q) => q.id)]));
+            return uDeploy.deployTool([]);
+        })
+        .then((code) => {
+            ok('deployTool: line-buffers split stderr chunks and flushes trailing reason',
+                code === 1 && uDeploy.deployError === 'split reason across chunks',
+                JSON.stringify([code, uDeploy.deployError]));
+            return sourcesLib.copyFileHashed(cfSrc, cfDst, cfData.length);
+        })
+        .then((res) => {
+            ok('copyFileHashed: streams file and computes sha256',
+                res.file === cfDst && res.size === cfData.length && res.sha256 === sha256(cfData) &&
+                fs.readFileSync(cfDst).equals(cfData), JSON.stringify(res));
+            return Promise.all([
+                sourcesLib.copyFileHashed(path.join(dir, 'src.link'), path.join(dir, 'bad1'), 1 << 20).then(() => false, () => true),
+                sourcesLib.copyFileHashed(path.join(dir, 'src.fifo'), path.join(dir, 'bad2'), 1 << 20).then(() => false, () => true),
+                sourcesLib.copyFileHashed(cfSrc, path.join(dir, 'bad3'), 100).then(() => false, () => !fs.existsSync(path.join(dir, 'bad3')))
+            ]);
+        })
+        .then((checks) => {
+            ok('copyFileHashed: refuses symlinks, FIFOs and oversize files', checks.every(Boolean), JSON.stringify(checks));
+            return sourcesLib.repoCatalog(mockRead, null, null);
+        })
+        .then((cat) => {
+            ok('repoCatalog: reads manifests in bounded parallel while preserving order',
+                maxInFlight > 1 && maxInFlight <= 6 &&
+                JSON.stringify(cat.components.map((c) => c.id)) === JSON.stringify(ids),
+                `maxInFlight=${maxInFlight}`);
+            return uIcons.fetchIcons(rtIcons);
+        })
+        .then(() => {
+            ok('fetchIcons: fetches icons in bounded parallel and coalesces changed()',
+                iconMaxInFlight > 1 && iconMaxInFlight <= 4 && iconChanged === 1,
+                `maxInFlight=${iconMaxInFlight} changed=${iconChanged}`);
+            return runBuild({
+                conf: { build_uid: '12995', build_gid: '12995', fetch_uid: '12991', web_uid: '12996',
+                    state_dir: buildState, build_max_bytes: String(8 << 20), build_timeout_s: '20' },
+                entry: { id: 'bapp', version: '1.0.0', script: { node: 'build.js', args: [] } },
+                files: [{ name: 'build.js', data: Buffer.from(buildScript), mode: 0o644 }],
+                donor: '', log: (l) => buildLogs.push(l), to: () => buildDst
+            });
+        })
+        .then((res) => {
+            ok('runBuild: line-buffers split output and streams package to opts.to',
+                res.file === buildDst && res.size === buildTgz.length && res.sha256 === sha256(buildTgz) &&
+                fs.readFileSync(buildDst).equals(buildTgz) && buildLogs.indexOf('build bapp: chunk-one-chunk-two') >= 0,
+                JSON.stringify([res, buildLogs]));
+            // 11. checkSource() persists .checked without rewriting an unchanged listing
+            const chkState = path.join(dir, 'chkstate');
+            mkdirp(chkState);
+            const uChk = Object.assign(Object.create(Updater.prototype), {
+                conf: { state_dir: chkState },
+                version: '0.8.62',
+                src: new Map(),
+                origins: {},
+                aliases: {},
+                tokens: { all: () => [], get: () => null },
+                freshTokens: () => Promise.resolve(),
+                changed: () => {},
+                fetchIcons: () => Promise.resolve(),
+                recordRequires: () => {},
+                recordContents: () => Promise.resolve()
+            });
+            const catRes = { mode: 'catalog', commit: null, components: [{ id: 'x', kind: 'app', version: '1.0.0', artifact: { name: 'x@1.0.0.tgz', size: 1, sha256: null } }], skipped: [] };
+            uChk.src.set('s1', { def: { id: 's1', type: 'file' }, reader: { network: false, catalog: () => Promise.resolve(catRes) },
+                status: 'ok', error: null, checkedAt: null, channel: null, mode: null, commit: null, components: [], checking: null, answered: false, tokenId: null, public: false, memo: null });
+            return uChk.checkSource('s1').then(() => {
+                const m1 = fs.statSync(uChk.cacheFile('s1')).mtime.getTime();
+                const t1 = uChk.src.get('s1').checkedAt;
+                return sleep(30).then(() => uChk.checkSource('s1')).then(() => {
+                    const m2 = fs.statSync(uChk.cacheFile('s1')).mtime.getTime();
+                    const t2 = uChk.src.get('s1').checkedAt;
+                    const persisted = Number(fs.readFileSync(uChk.checkedFile('s1'), 'utf8'));
+                    ok('checkSource: persists .checked without rewriting an unchanged listing',
+                        persisted === t2 && m1 === m2 && t2 > t1,
+                        JSON.stringify([persisted, t2, m1 === m2, t2 > t1]));
+                });
+            });
+        });
+}
+
 function main() {
     const certs = makeCerts();
     const pubDir = path.join(T, 'pub');
@@ -7322,7 +7592,8 @@ function main() {
     testFileLog();
     testBlobCap();
     testNewInstall();
-    return testInstalledStamp()
+    return testQueueDurabilityAndStreaming()
+        .then(() => testInstalledStamp())
         .then(() => testKeptAnswers())
         .then(() => testRequiredAlone())
         .then(() => testClientHello())

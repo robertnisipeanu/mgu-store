@@ -238,22 +238,28 @@ function lstatOrNull(p) { try { return fs.lstatSync(p); } catch (e) { return nul
 function statOrNull(p) { try { return fs.statSync(p); } catch (e) { return null; } }
 function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 function readJsonOrNull(p) { try { return readJson(p); } catch (e) { return null; } }
+var IO_CHUNK = 65536;
 function sha256File(p) {
-    return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+    var h = crypto.createHash('sha256'), fd = fs.openSync(p, 'r'), buf = Buffer.allocUnsafe(IO_CHUNK), n;
+    try {
+        while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) {
+            h.update(n === buf.length ? buf : buf.slice(0, n));
+        }
+    } finally { fs.closeSync(fd); }
+    return h.digest('hex');
 }
 function sha256Buf(b) { return crypto.createHash('sha256').update(b).digest('hex'); }
 /* file replaced by rename, the new file and its folder on disk before it
- * returns; a regular file that holds data already is only synced (and its
- * mode set) */
+ * returns; a regular file that holds data already is left untouched unless
+ * its mode differs */
 function writeAtomic(file, data, mode) {
     mkdirp(path.dirname(file));
     var was = lstatOrNull(file);
     if (was && was.isFile() && bytesEqualFile(Buffer.isBuffer(data) ? data : Buffer.from(String(data)), file)) {
-        var cur = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-        try {
-            if (mode !== undefined && (fs.fstatSync(cur).mode & 0o7777) !== mode) fs.fchmodSync(cur, mode);
-            fs.fsyncSync(cur);
-        } finally { fs.closeSync(cur); }
+        if (mode !== undefined && (was.mode & 0o7777) !== mode) {
+            var cur = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+            try { fs.fchmodSync(cur, mode); } finally { fs.closeSync(cur); }
+        }
         return;
     }
     var tmp = file + '.tmp-' + process.pid, fd = fs.openSync(tmp, 'w');
@@ -269,12 +275,30 @@ function fsyncDir(dir) {
     var fd = fs.openSync(dir, 'r');
     try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
 }
+function copyFileFd(src, dest, mode) {
+    var rfd = fs.openSync(src, 'r'), wfd = null, buf = Buffer.allocUnsafe(IO_CHUNK), n, off;
+    try {
+        wfd = fs.openSync(dest, 'w', mode !== undefined ? mode : 0o666);
+        while ((n = fs.readSync(rfd, buf, 0, buf.length, null)) > 0) {
+            off = 0;
+            while (off < n) off += fs.writeSync(wfd, buf, off, n - off);
+        }
+        if (mode !== undefined) fs.fchmodSync(wfd, mode);
+    } finally {
+        if (wfd !== null) fs.closeSync(wfd);
+        fs.closeSync(rfd);
+    }
+}
 function copyFileMode(src, dest, mode) {
     mkdirp(path.dirname(dest));
     var tmp = dest + '.tmp-' + process.pid;
-    fs.writeFileSync(tmp, fs.readFileSync(src));
-    if (mode !== undefined) fs.chmodSync(tmp, mode);
-    fs.renameSync(tmp, dest);
+    try {
+        copyFileFd(src, tmp, mode);
+        fs.renameSync(tmp, dest);
+    } catch (e) {
+        try { fs.unlinkSync(tmp); } catch (e2) { /* cleanup */ }
+        throw e;
+    }
 }
 function chownMaybe(p, uid, gid) {
     if (FAKE) return;
@@ -485,6 +509,11 @@ function groupExists(name) {
     return parseColonFile(path.join(CFG.etc, 'group')).some(function (l) { return l.split(':')[0] === name; });
 }
 function systemctl(args, opts) { return run(CFG.systemctl, args, opts || { allowFail: true }); }
+var deferReload = false, reloadNeeded = false;
+function daemonReload() {
+    if (deferReload) { reloadNeeded = true; return; }
+    runOk(CFG.systemctl, ['daemon-reload']);
+}
 function unitState(unit, verb) {
     var r = systemctl(unit ? [verb, unit] : [verb]);
     return (r.stdout || '').trim() || 'unknown';
@@ -714,6 +743,13 @@ function guardBounce(pid) {
     if (!(CFG.guardWatchS > 0) || isId8()) return;
     writeGuard({ boot: bootId(), bounce: { at: Date.now(), pid: pid, watchMs: CFG.guardWatchS * 1000 } });
 }
+function procStatInfo(pid) {
+    try {
+        var text = fs.readFileSync(path.join(CFG.proc, String(pid), 'stat'), 'utf8');
+        var rest = text.slice(text.lastIndexOf(')') + 2).split(' ');
+        return rest.length > 19 ? { state: rest[0], ticks: rest[19] } : null;
+    } catch (e) { return null; }
+}
 /* The manager a bounce started, watched until it has been up guardWatchS. */
 function guardWatch(pid) {
     if (!(CFG.guardWatchS > 0)) return;
@@ -721,11 +757,17 @@ function guardWatch(pid) {
     g.watch = { pid: pid, start: Math.round((started === null ? nowS() : started) * 1000) };
     writeGuard(g);
     say('watching the app manager (pid ' + pid + ') for ' + CFG.guardWatchS + 's');
+    var fast = !FAKE && CFG.ps === 'ps' ? procStatInfo(pid) : null;
+    var stillUp = function () {
+        if (!fast) return managerPid() === pid;
+        var cur = procStatInfo(pid);
+        return !!cur && cur.state !== 'Z' && cur.ticks === fast.ticks;
+    };
     while (monoS() - from < CFG.guardWatchS) {
         sleepMs(250);
-        if (managerPid() === pid) continue;
+        if (stillUp()) continue;
         sleepMs(500);
-        if (managerPid() === pid) continue;
+        if (stillUp()) continue;
         var why = 'the app manager stopped ' + Math.round(monoS() - from) + 's after mgu-deploy restarted it';
         guardTrip(why);
         guardStop(why);
@@ -1687,7 +1729,7 @@ function syncLimits() {
         if (busy) return { state: 'pending', reason: busy };
         takeSnapshot('service-limits', plan.paths.concat(guard.paths));
         rootfsWindow(guard.ops.concat(plan.ops));
-        runOk(CFG.systemctl, ['daemon-reload']);
+        daemonReload();
         var line = (plan.changed.length ? 'drop-in ' + plan.changed.join(', ') : '') +
             (guard.changed ? (plan.changed.length ? '; ' : '') + 'safe mode guard ' + SAFE_MODE_UNIT : '');
         process.stderr.write('service limits: ' + line + '\n');
@@ -1779,32 +1821,38 @@ function snapshotEntry(p) {
     }
     return { path: p, kind: 'other', mode: st.mode & 0o7777, uid: st.uid, gid: st.gid };
 }
+/* Index of sha256 -> stored file path across existing snapshots. Stored
+ * copies are root-only and never written in place, so matching sha256 and
+ * file size avoids re-hashing stored backups on flash. */
+function storedIndex() {
+    var idx = {};
+    try {
+        fs.readdirSync(BACKUPS_DIR).forEach(function (n) {
+            var data = readJsonOrNull(path.join(BACKUPS_DIR, n, 'manifest.json'));
+            (data && data.entries || []).forEach(function (e) {
+                if (e.kind === 'file' && e.sha256 && e.stored && !(e.sha256 in idx)) {
+                    idx[e.sha256] = path.join(BACKUPS_DIR, n, e.stored);
+                }
+            });
+        });
+    } catch (e) { /* no snapshots yet */ }
+    return idx;
+}
 /* A stored file with sha256 sha that the new snapshot can link to: one of
  * an earlier snapshot, or the kept package of the same name. Stored copies
  * and kept packages are never written in place (a new one replaces one by
  * rename), so a link holds the same bytes for as long as it is kept. */
-function storedLike(sha, p) {
-    var found = null;
-    try {
-        fs.readdirSync(BACKUPS_DIR).some(function (n) {
-            var data = readJsonOrNull(path.join(BACKUPS_DIR, n, 'manifest.json'));
-            return (data && data.entries || []).some(function (e) {
-                if (e.kind !== 'file' || e.sha256 !== sha || !e.stored) return false;
-                var f = path.join(BACKUPS_DIR, n, e.stored);
-                try { if (sha256File(f) !== sha) return false; } catch (err) { return false; }
-                found = f;
-                return true;
-            });
-        });
-    } catch (e) { /* no snapshots yet */ }
-    if (found) return found;
+function storedLike(sha, size, p, idx) {
+    var f = idx && idx[sha], st = f ? lstatOrNull(f) : null;
+    if (st && st.isFile() && st.size === size) return f;
     var m = /^(.+)@(\d+\.\d+\.\d+)\.tgz$/.exec(path.basename(p)), kept = m && keptFile(m[1], m[2]);
-    try { return kept && sha256File(kept) === sha ? kept : null; } catch (e) { return null; }
+    st = kept ? lstatOrNull(kept) : null;
+    try { return st && st.isFile() && st.size === size && sha256File(kept) === sha ? kept : null; } catch (e) { return null; }
 }
 /* Stored copies and manifests are root's alone. A file an earlier snapshot
  * or kept package holds already is linked to it, not written again. */
 function writeSnapshot(dir, command, paths) {
-    var filesDir = path.join(dir, 'files'), manifest = [], n = 0;
+    var filesDir = path.join(dir, 'files'), manifest = [], n = 0, idx = storedIndex();
     mkdirp(filesDir, 0o700);
     paths.forEach(function (p) {
         /* the copy bound over main.js is not main.js: a snapshot copies
@@ -1813,12 +1861,11 @@ function writeSnapshot(dir, command, paths) {
         var e = snapshotEntry(p);
         if (e.kind === 'file') {
             e.stored = 'files/' + n;
-            var to = path.join(dir, e.stored), like = storedLike(e.sha256, p), linked = false;
+            var to = path.join(dir, e.stored), st = lstatOrNull(p);
+            var like = st ? storedLike(e.sha256, st.size, p, idx) : null, linked = false;
             if (like) { try { fs.linkSync(like, to); linked = true; } catch (err) { /* written below */ } }
-            if (!linked) {
-                fs.writeFileSync(to, fs.readFileSync(p), { mode: 0o600 });
-                fs.chmodSync(to, 0o600);
-            }
+            if (!linked) copyFileFd(p, to, 0o600);
+            if (!(e.sha256 in idx)) idx[e.sha256] = to;
             n++;
         }
         manifest.push(e);
@@ -1832,13 +1879,13 @@ function writeSnapshot(dir, command, paths) {
     return dir;
 }
 /* Every snapshot also records the files any command may leave changed:
- * this tool's state, the fallback's unit, link, copy and app list, the
+ * this tool's state, the fallback's unit, link and app list, the
  * check-at-the-next-start unit and link, the recmgr list and the crash
  * handler's list and the names this tool added to each, the cleanup unit,
  * its link and the files it removes. The updater owns its
- * sources and credentials. */
+ * sources and credentials; the fallback copy is rebuilt from stock main.js. */
 function alwaysSnapshotted() {
-    return [STATE_FILE, CFG.recmgr, CFG.crashList, CRASH_OWNED, RECMGR_OWNED, customAppsFile(), FALLBACK_COPY,
+    return [STATE_FILE, CFG.recmgr, CFG.crashList, CRASH_OWNED, RECMGR_OWNED, customAppsFile(),
         path.join(CFG.systemd, FALLBACK_UNIT),
         path.join(CFG.systemd, 'multi-user.target.wants', FALLBACK_UNIT),
         path.join(CFG.systemd, VERIFY_UNIT), path.join(CFG.systemd, APPLY_WANTS, VERIFY_UNIT),
@@ -1903,7 +1950,7 @@ function putBackEntry(dir, e) {
         return;
     }
     rmrf(e.path);
-    fs.writeFileSync(e.path, fs.readFileSync(path.join(dir, e.stored)), { mode: 0o600 });
+    copyFileFd(path.join(dir, e.stored), e.path, 0o600);
     fs.chmodSync(e.path, e.mode);
     chownMaybe(e.path, e.uid, e.gid);
 }
@@ -2139,24 +2186,48 @@ function rootfsWindow(ops) {
     try { rootfsWindowRun(ops); }
     finally { staged.forEach(function (f) { try { fs.unlinkSync(f); } catch (e) { /* staged */ } }); }
 }
+/* Splits ops into ordered batches separated at boot-list files (recmgr and
+ * crash handler) and duplicate paths, so each batch syncs once after staging
+ * its copies and once after committing them while keeping list/unit ordering. */
+function rootfsBatches(ops) {
+    var batches = [], cur = [], curList = null, seen = {};
+    ops.forEach(function (op) {
+        var isList = op.path === CFG.recmgr || op.path === CFG.crashList;
+        if (cur.length && (isList !== curList || seen[op.path])) {
+            batches.push(cur);
+            cur = [];
+            seen = {};
+        }
+        curList = isList;
+        seen[op.path] = true;
+        cur.push(op);
+    });
+    if (cur.length) batches.push(cur);
+    return batches;
+}
 function rootfsWindowRun(ops) {
     if (!ops.length) return;
+    var batches = rootfsBatches(ops);
     if (FAKE && !FAKE_SH_WINDOW) {
-        ops.forEach(function (op) {
-            if (op.type === 'delete') rmrf(op.path);
-            else if (op.type === 'mkdir') mkdirp(op.path, op.mode || 0o755);
-            else if (op.type === 'rmdir') fs.rmdirSync(op.path);
-            else if (op.type === 'symlink') { mkdirp(path.dirname(op.path)); rmrf(op.path); fs.symlinkSync(op.target, op.path); }
-            else if (op.type === 'copy') {
+        batches.forEach(function (batch) {
+            var copies = batch.filter(function (op) { return op.type === 'copy'; });
+            copies.forEach(function (op) {
                 var tmp = op.path + '.tmp-' + process.pid;
-                mkdirp(path.dirname(op.path)); fs.writeFileSync(tmp, fs.readFileSync(op.src));
-                if (op.mode !== undefined) fs.chmodSync(tmp, op.mode);
-                syncDisks(); fs.renameSync(tmp, op.path); syncDisks();
-            }
-            else if (op.type === 'tree') { rmrf(op.path); copyTree(op.src, op.path); }
-            else if (op.type === 'mode') { if (op.uid !== undefined) fs.chownSync(op.path, op.uid, op.gid); fs.chmodSync(op.path, op.mode); }
+                mkdirp(path.dirname(op.path));
+                copyFileFd(op.src, tmp, op.mode);
+            });
+            if (copies.length) syncDisks();
+            batch.forEach(function (op) {
+                if (op.type === 'delete') rmrf(op.path);
+                else if (op.type === 'mkdir') mkdirp(op.path, op.mode || 0o755);
+                else if (op.type === 'rmdir') fs.rmdirSync(op.path);
+                else if (op.type === 'symlink') { mkdirp(path.dirname(op.path)); rmrf(op.path); fs.symlinkSync(op.target, op.path); }
+                else if (op.type === 'copy') fs.renameSync(op.path + '.tmp-' + process.pid, op.path);
+                else if (op.type === 'tree') { rmrf(op.path); copyTree(op.src, op.path); }
+                else if (op.type === 'mode') { if (op.uid !== undefined) fs.chownSync(op.path, op.uid, op.gid); fs.chmodSync(op.path, op.mode); }
+            });
+            syncDisks();
         });
-        syncDisks();
         return;
     }
     var before = rootMountMode(), lines = ['set -e'];
@@ -2166,23 +2237,28 @@ function rootfsWindowRun(ops) {
         lines.push("trap '" + CFG.sync + "; " + CFG.mount + " -o remount,ro /' EXIT INT TERM HUP");
         lines.push(CFG.mount + ' -o remount,rw /');
     }
-    ops.forEach(function (op) {
-        var d = shQuote(path.dirname(op.path)), p = shQuote(op.path);
-        if (op.type === 'delete') lines.push('rm -rf ' + p);
-        else if (op.type === 'mkdir') lines.push('mkdir -p ' + p);
-        else if (op.type === 'rmdir') lines.push('rmdir ' + p);
-        else if (op.type === 'tree') lines.push('mkdir -p ' + d + '; rm -rf ' + p + '; cp -a ' + shQuote(op.src) + ' ' + p);
-        else if (op.type === 'symlink') lines.push('mkdir -p ' + d + '; rm -rf ' + p + '; ln -s ' + shQuote(op.target) + ' ' + p);
-        /* chown first: it clears setuid, which the chmod sets again */
-        else if (op.type === 'mode') lines.push((op.uid !== undefined ? 'chown ' + op.uid + ':' + op.gid + ' ' + p + '; ' : '') + 'chmod ' + op.mode.toString(8) + ' ' + p);
-        else if (op.type === 'copy') {
+    batches.forEach(function (batch) {
+        var copies = batch.filter(function (op) { return op.type === 'copy'; });
+        copies.forEach(function (op) {
+            var d = shQuote(path.dirname(op.path)), p = shQuote(op.path);
             lines.push('mkdir -p ' + d + '; cat ' + shQuote(op.src) + ' > ' + p + '.tmp-' + process.pid);
             if (op.mode !== undefined) lines.push('chmod ' + (op.mode & 0o7777).toString(8) + ' ' + p + '.tmp-' + process.pid);
             if (op.uid !== undefined) lines.push('chown ' + op.uid + ':' + op.gid + ' ' + p + '.tmp-' + process.pid);
-            lines.push(shQuote(CFG.sync) + '; mv ' + p + '.tmp-' + process.pid + ' ' + p + '; ' + shQuote(CFG.sync));
-        }
+        });
+        if (copies.length) lines.push(shQuote(CFG.sync));
+        batch.forEach(function (op) {
+            var d = shQuote(path.dirname(op.path)), p = shQuote(op.path);
+            if (op.type === 'delete') lines.push('rm -rf ' + p);
+            else if (op.type === 'mkdir') lines.push('mkdir -p ' + p);
+            else if (op.type === 'rmdir') lines.push('rmdir ' + p);
+            else if (op.type === 'tree') lines.push('mkdir -p ' + d + '; rm -rf ' + p + '; cp -a ' + shQuote(op.src) + ' ' + p);
+            else if (op.type === 'symlink') lines.push('mkdir -p ' + d + '; rm -rf ' + p + '; ln -s ' + shQuote(op.target) + ' ' + p);
+            /* chown first: it clears setuid, which the chmod sets again */
+            else if (op.type === 'mode') lines.push((op.uid !== undefined ? 'chown ' + op.uid + ':' + op.gid + ' ' + p + '; ' : '') + 'chmod ' + op.mode.toString(8) + ' ' + p);
+            else if (op.type === 'copy') lines.push('mv ' + p + '.tmp-' + process.pid + ' ' + p);
+        });
+        lines.push(shQuote(CFG.sync));
     });
-    lines.push(shQuote(CFG.sync));
     var stage = path.join(CFG.run, 'window-' + process.pid + '.sh');
     mkdirp(CFG.run);
     fs.writeFileSync(stage, lines.join('\n') + '\n');
@@ -2234,30 +2310,50 @@ function ramRoom(bytes) {
     var total = ramStaged + bytes;
     return total <= RAM_STAGE_MAX && total <= memAvailable() / 4 && bytes <= freeBytes(CFG.run) - RAM_RESERVE;
 }
-/* The bytes a tgz unpacks to (its tar stream, headers included, counted as
- * it is decompressed); null when they cannot be counted. */
-function unpackedSize(file) {
-    var r = run('/bin/sh', ['-c', 'gzip -dc "$1" | wc -c', 'sh', file], { allowFail: true });
-    var n = r.status === 0 && /^\s*\d+\s*$/.test(r.stdout || '') ? Number(r.stdout.trim()) : 0;
-    return n > 0 ? n : null;
-}
 function safeRel(p) {
     return typeof p === 'string' && p && p[0] !== '/' && p !== '.' &&
         p.split('/').indexOf('..') < 0 && p.indexOf('\\') < 0;
+}
+/* Checks archive paths and member kinds in one tar -tvzf pass and returns
+ * the unpacked tar stream byte count (null when a line format falls back to
+ * tar -tzf). */
+function inspectTgz(file) {
+    var list = run(CFG.tar, ['-tvzf', file], { allowFail: true });
+    if (list.status !== 0) throw refuse('unreadable tgz: ' + file);
+    var gnu = /^([\-dlhcbps])\S+\s+\S+\s+(\d+|\d+,\s*\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})? (.+)$/;
+    var bsd = /^([\-dlhcbps])\S+\s+\d+\s+\S+\s+\S+\s+(\d+|\d+,\s*\d+)\s+\S+\s+\d+\s+\S+ (.+)$/;
+    var lines = list.stdout.split('\n'), total = 0, i, line, m, kind, raw, name;
+    for (i = 0; i < lines.length; i++) {
+        line = lines[i];
+        if (!line) continue;
+        m = gnu.exec(line) || bsd.exec(line);
+        if (!m) {
+            var plain = run(CFG.tar, ['-tzf', file], { allowFail: true });
+            if (plain.status !== 0) throw refuse('unreadable tgz: ' + file);
+            plain.stdout.split('\n').forEach(function (n) {
+                if (n && n !== './' && !safeRel(n.replace(/\/$/, ''))) throw refuse('unsafe path in ' + file + ': ' + n);
+            });
+            return null;
+        }
+        kind = m[1];
+        raw = m[3];
+        name = kind === 'l' ? raw.replace(/ -> .*$/, '') : kind === 'h' ? raw.replace(/(?: link to | -> ).*$/, '') : raw;
+        // "./": the archive's own root, as tar -C <dir> . packs it
+        if (name && name !== './' && !safeRel(name.replace(/\/$/, ''))) throw refuse('unsafe path in ' + file + ': ' + name);
+        if (kind === 'l') throw refuse('symlink in artifact: ' + name);
+        if (kind === 'h') throw refuse('hardlink in artifact: ' + name);
+        if (kind !== '-' && kind !== 'd') throw refuse('special file in artifact: ' + name);
+        total += 512 + Math.ceil((Number(m[2]) || 0) / 512) * 512;
+    }
+    return total > 0 ? total + 1024 : null;
 }
 /* Extracts and validates one artifact without changing anything outside
  * the staging directory. Returns a tool or app descriptor. */
 function validateArtifact(file, stage) {
     if (!fs.existsSync(file)) throw refuse('artifact not found: ' + file);
-    var list = run(CFG.tar, ['-tzf', file], { allowFail: true });
-    if (list.status !== 0) throw refuse('unreadable tgz: ' + file);
-    list.stdout.split('\n').forEach(function (n) {
-        // "./": the archive's own root, as tar -C <dir> . packs it
-        if (n && n !== './' && !safeRel(n.replace(/\/$/, ''))) throw refuse('unsafe path in ' + file + ': ' + n);
-    });
+    var inRam = path.dirname(stage) === CFG.run, size = inspectTgz(file);
     /* in RAM with room for it unpacked, prepared and unpacked again; else on disk */
-    var inRam = path.dirname(stage) === CFG.run, size = inRam ? unpackedSize(file) : null;
-    var need = size === null ? 0 : 2 * (size + fs.statSync(file).size), ram = size !== null && ramRoom(need);
+    var need = !inRam || size === null ? 0 : 2 * (size + fs.statSync(file).size), ram = inRam && size !== null && ramRoom(need);
     var name = 'a' + Math.floor(Math.random() * 1e9), dir = path.join(inRam && !ram ? diskStage() : stage, name);
     mkdirp(dir);
     var x = run(CFG.tar, ['-xzf', file, '-C', dir], { allowFail: true });
@@ -2955,12 +3051,12 @@ function prepareApp(a) {
     try {
         editId7Parts(a, a.prepare === 'build' ? a.tree : a.pkgDir);
         if (a.prepare === 'build') {
-            r = link.build(a.dir, out, { donors: unitDonors(), workDir: stage, interfaces: unitInterfaces() });
+            r = link.build(a.dir, out, { donors: unitDonors(), workDir: stage, interfaces: unitInterfaces(), level: 1 });
             say('built ' + a.id + ' ' + a.version + ' from its source package (' + r.moduleCount +
                 ' modules, oap-sdk from ' + r.donor + (r.entry ? ', main from ' + r.entry : '') +
                 (r.certification ? ', the certification service added to ' + r.certification : '') + unknownSaid(r.unknown) + ')');
         } else {
-            r = link.preparePackage(a.pkgDir, out, { donors: unitDonors(), interfaces: unitInterfaces() });
+            r = link.preparePackage(a.pkgDir, out, { donors: unitDonors(), interfaces: unitInterfaces(), level: 1 });
             say('prepared ' + a.id + ' ' + a.version + ': marked local-only' +
                 (r.sdk ? ', node_modules/oap-sdk generated from ' + r.sdk.donor + ' (' + r.sdk.api.join(', ') + ')' : '') +
                 (r.shrinkwrap ? ', npm-shrinkwrap.json added' : '') +
@@ -2972,7 +3068,7 @@ function prepareApp(a) {
         throw refuse(a.file + ': cannot ' + (a.prepare === 'build' ? 'build ' : 'prepare ') + a.id + ' ' + a.version +
             ' on this unit: ' + e.message);
     }
-    var b = validateArtifact(out, stage);
+    var b = a.prepare === 'build' ? validateArtifact(out, stage) : validateApp(out, a.pkgDir, a.pkgDir);
     if (b.kind !== 'app' || b.prepare || b.id !== a.id || b.version !== a.version) {
         throw refuse(a.file + ': the prepared package is not ' + a.id + ' ' + a.version);
     }
@@ -5909,7 +6005,7 @@ function id8Package(a) {
         return { name: 'package/' + e.rel, data: fs.readFileSync(e.path), mode: e.stat.mode & 0o777 };
     });
     var pack = require(selfFile('oap_pack.js'));
-    fs.writeFileSync(out, pack.tgz(entries, pack.MTIME));
+    fs.writeFileSync(out, pack.tgz(entries, pack.MTIME, { level: 1 }));
     say('repacked ' + a.id + ' ' + a.version + (npm ? '' : ' in npm format (files under package/)') +
         (added.length ? ': ' + added.join(', ') : ''));
     return Object.assign({}, a, { file: out, from: a.from || a.file });
@@ -6063,7 +6159,7 @@ function refreshFallbackUnit() {
     takeSnapshot('listing', [path.join(CFG.systemd, FALLBACK_UNIT)]);
     syncDisks();
     rootfsWindow([{ type: 'copy', src: fallbackUnitSource(), path: path.join(CFG.systemd, FALLBACK_UNIT), mode: 0o644 }]);
-    runOk(CFG.systemctl, ['daemon-reload']);
+    daemonReload();
     pruneBackups();
 }
 /* status on iDrive 7, run as root: lists the apps id7Unlisted() names, and,
@@ -6821,7 +6917,20 @@ function fallbackUnitSource() { return path.join(HERE, isId8() ? 'mgu-app-fallba
 function fallbackTouched() {
     return [path.join(CFG.systemd, FALLBACK_UNIT),
         path.join(CFG.systemd, 'multi-user.target.wants', FALLBACK_UNIT),
-        CFG.recmgr, FALLBACK_COPY, customAppsFile()];
+        CFG.recmgr, customAppsFile()];
+}
+function checkJsSyntax(file, label) {
+    var body = fs.readFileSync(file, 'utf8');
+    if (body.charAt(0) === '#' && body.charAt(1) === '!') {
+        var nl = body.slice(2).search(/[\r\n]/);
+        body = nl < 0 ? '' : body.slice(nl + 2);
+    }
+    if (body.charCodeAt(0) === 0xFEFF) body = body.slice(1);
+    try { new (require('vm').Script)(require('module').wrap(body), { filename: file, displayErrors: true }); }
+    catch (e) {
+        throw refuse('the fallback copy of ' + label + ' does not parse (' + e.name + ': ' + e.message +
+            '); not binding it, MainApp keeps its own main.js');
+    }
 }
 /* The fallback copy of the stock main.js (or of input) with the
  * app-privacy patch on it, in a temporary file; refused when either
@@ -6835,12 +6944,7 @@ function buildPatchedCopy(input) {
         if (fs.existsSync(privacyTool())) {
             var pr = privacyApplyQuiet(['--main', tmp]);
             if (!pr || pr.status !== 0) throw refuse('app-privacy refused the fallback copy; not binding it');
-        }
-        var syntax = run(CFG.node, ['--check', tmp], { allowFail: true, timeout: 60000 });
-        if (syntax.status !== 0) {
-            var why = (syntax.stderr || '').split('\n').filter(function (l) { return /^[A-Za-z]*Error: /.test(l); })[0];
-            throw refuse('the fallback copy of ' + (input || mainJs()) + ' does not parse' +
-                (why ? ' (' + why.trim() + ')' : '') + '; not binding it, MainApp keeps its own main.js');
+            checkJsSyntax(tmp, input || mainJs());
         }
     } catch (e) { rmrf(tmp); throw e; }
     return tmp;
@@ -6963,7 +7067,7 @@ function ensureFallback(state, keepRunning) {
     if (ops.length) {
         syncDisks();
         rootfsWindow(ops);
-        runOk(CFG.systemctl, ['daemon-reload']);
+        daemonReload();
     }
     if (!fs.existsSync(customAppsFile())) writeCustomApps({});
     var kept = rebuildFallback(keepRunning);
@@ -8292,6 +8396,7 @@ function restoreAppFolders(saved) {
  * app-privacy patch stays applied: app-privacy remains installed. */
 function rollbackApp(a, tx, backup, state) {
     say('rolling back ' + a.id + ' ' + a.version + ' from ' + backup);
+    var fb = fallbackPresent();
     restoreSnapshot(backup);
     if (fs.existsSync(CFG.oap)) {
         fs.readdirSync(CFG.oap).forEach(function (n) {
@@ -8301,7 +8406,8 @@ function rollbackApp(a, tx, backup, state) {
         });
     }
     var custom = fs.existsSync(customAppsFile()) ? sha256File(customAppsFile()) : null;
-    if (fallbackPresent() !== tx.fallback || custom !== tx.custom) settleFallback();
+    if (fallbackPresent() !== fb || fallbackPresent() !== tx.fallback || custom !== tx.custom ||
+        (!fallbackPresent() && (fs.existsSync(FALLBACK_COPY) || (binds() && bindMounted(mainJs()))))) settleFallback();
     pruneCreatedDirs(state);
     /* a first install the manager stopped after it gave the app a uid
      * leaves that uid's line, as did earlier failed attempts: with no
@@ -8413,6 +8519,7 @@ function dependentsOf(id) {
         .map(function (c) { return c.id; });
 }
 function cmdUninstall(args) {
+    deactivated = null;
     var id = args.positional[0];
     if (!id) throw refuse('uninstall needs a component id');
     if (id === 'mgu-deploy') {
@@ -9098,7 +9205,7 @@ function cmdRestore(args) {
             rootfsWindow(limits.ops);
             runOk(CFG.systemctl, ['daemon-reload']);
         }
-        if (fbWas.unit_present || fallbackPresent()) settleFallback();
+        if (fbWas.unit_present || fallbackPresent() || fs.existsSync(FALLBACK_COPY)) settleFallback();
         pruneCreatedDirs(state);
         var removed = appsBefore.filter(function (id) { return !installedApp(id); });
         /* removed as an uninstall removes them, once its bounce is done or
@@ -9336,7 +9443,31 @@ function runCommand() {
         if (args.command === 'help' || args.command === '--help') { say(HELP); return 0; }
         if (args.command === 'check') return cmdCheck(args);
         if (args.command === 'install') return cmdInstall(args);
-        if (args.command === 'status') { if (args.json) trackReads(); statusReadOnly = !!args.readOnly; syncMgrHome(); syncGuard(); syncStashes(); syncHeld(); syncId7Parts(); return cmdStatus(args, syncBootLists(), syncLiveId8(), syncLimits(), isId8() ? syncListingId8() : syncListingId7()); }
+        if (args.command === 'status') {
+            if (args.json) trackReads();
+            statusReadOnly = !!args.readOnly;
+            syncMgrHome(); syncGuard(); syncStashes(); syncHeld(); syncId7Parts();
+            var crashList, live, limits, listing, reloadBy = [];
+            deferReload = true;
+            try {
+                crashList = syncBootLists();
+                reloadNeeded = false; live = syncLiveId8(); if (reloadNeeded) reloadBy.push(live);
+                reloadNeeded = false; limits = syncLimits(); if (reloadNeeded) reloadBy.push(limits);
+                reloadNeeded = false; listing = isId8() ? syncListingId8() : syncListingId7(); if (reloadNeeded) reloadBy.push(listing);
+            } finally { deferReload = false; reloadNeeded = false; }
+            if (reloadBy.length) {
+                var rr = systemctl(['daemon-reload']);
+                if (rr.error || rr.status !== 0) {
+                    var rerr = rr.error ? CFG.systemctl + ': ' + rr.error.message :
+                        CFG.systemctl + ' daemon-reload exited ' + rr.status + (rr.stderr ? ': ' + rr.stderr.trim() : '');
+                    process.stderr.write('mgu-deploy: ' + rerr + '\n');
+                    reloadBy.forEach(function (r) {
+                        if (r && r.state !== 'error') { r.state = 'error'; r.reason = rerr; }
+                    });
+                }
+            }
+            return cmdStatus(args, crashList, live, limits, listing);
+        }
         if (args.command === 'relist') {
             if (!FAKE && typeof process.getuid === 'function' && process.getuid() !== 0) throw refuse('run as root');
             return cmdRelist();

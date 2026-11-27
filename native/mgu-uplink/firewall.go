@@ -62,7 +62,10 @@ func nftRuleset(ifnames []string, uids []int) string {
 	return b.String()
 }
 
-func (c config) nft(stdin string, args ...string) (string, error) {
+// Replaced by tests.
+var runNFT = execNFT
+
+func execNFT(stdin string, args ...string) (string, error) {
 	cmd := exec.Command("nft", args...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
@@ -75,6 +78,10 @@ func (c config) nft(stdin string, args ...string) (string, error) {
 		return out.String(), fmt.Errorf("nft %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(out.String()))
 	}
 	return out.String(), nil
+}
+
+func (c config) nft(stdin string, args ...string) (string, error) {
+	return runNFT(stdin, args...)
 }
 
 // applyFirewall installs both parts for the given interfaces and uids.
@@ -90,16 +97,12 @@ func firewallPresent(c config) bool {
 	return err == nil
 }
 
-func unitChainPresent(c config) bool {
-	_, err := c.nft("", "list", "chain", "ip", "filter", "output")
-	return err == nil
-}
-
 // unitAcceptHandles returns the handles of this tool's rules in the unit's
 // ip filter output chain.
 func unitAcceptHandles(c config) []string {
+	have, _ := unitAccepts(c)
 	var hs []string
-	for h := range unitAccepts(c) {
+	for h := range have {
 		hs = append(hs, h)
 	}
 	sort.Strings(hs)
@@ -107,13 +110,14 @@ func unitAcceptHandles(c config) []string {
 }
 
 // unitAccepts maps the handles of this tool's rules in the unit's ip
-// filter output chain to the interface each accepts.
-func unitAccepts(c config) map[string]string {
+// filter output chain to the interface each accepts. ok is false when the
+// chain is absent.
+func unitAccepts(c config) (map[string]string, bool) {
 	out, err := c.nft("", "-a", "list", "chain", "ip", "filter", "output")
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	return parseUnitAccepts(out)
+	return parseUnitAccepts(out), true
 }
 
 func parseUnitAccepts(listing string) map[string]string {
@@ -135,10 +139,10 @@ func parseUnitAccepts(listing string) map[string]string {
 // ensureUnitAccept makes this tool's rules in the unit's chain accept
 // exactly ifnames.
 func ensureUnitAccept(c config, ifnames []string) error {
-	if !unitChainPresent(c) {
+	have, ok := unitAccepts(c)
+	if !ok {
 		return nil
 	}
-	have := unitAccepts(c)
 	var got []string
 	for _, n := range have {
 		got = append(got, n)

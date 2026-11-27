@@ -851,9 +851,12 @@ async function reach(o, d = NET) {
  * tool run of this boot holds its lock ("<pid> <boot id>"). nsm_control
  * exits 0 on a refusal too, printing "[Error. <why>]". No double quote or
  * backslash: Windows passes the remote command through its own quoting. */
-const RESTART = "L=/var/opt/mgu-deploy/lock; B=$(cat /proc/sys/kernel/random/boot_id); if [ -e $L ] && [ $(cut -d ' ' -f 2 $L) = $B ] && " +
-    "kill -0 $(cut -d ' ' -f 1 $L) 2>/dev/null; then exit 3; fi; R=/var/opt/mgu-deploy/restart-requested; " +
-    "[ -d /var/opt/mgu-deploy ] && echo $B > $R.tmp && mv -f $R.tmp $R; /usr/bin/nsm_control --requestRestart 7 --normal 2>&1";
+const RESTART = 'set -f; L=/var/opt/mgu-deploy/lock; B=; { read B _ < /proc/sys/kernel/random/boot_id; } 2>/dev/null || :; ' +
+    'P=; I=; { read P I _ < $L; } 2>/dev/null || :; ' +
+    'if [ x$B != x ] && [ x$I = x$B ]; then case $P in \'\'|*[!0-9]*) ;; *) kill -0 $P 2>/dev/null && exit 3;; esac; fi; ' +
+    'R=/var/opt/mgu-deploy/restart-requested; ' +
+    '[ -d /var/opt/mgu-deploy ] && [ x$B != x ] && echo $B > $R.tmp.$$ && mv -f $R.tmp.$$ $R; ' +
+    '/usr/bin/nsm_control --requestRestart 7 --normal 2>&1';
 
 /* A line typed at the terminal, which echoes it. */
 function promptLine(question, input) {
@@ -991,6 +994,19 @@ function unpackKit(q) {
     return `rm -rf ${q} && umask 022 && mkdir -m 700 -p ${q} && tar -xzf - -C ${q} && `;
 }
 
+async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    async function worker() {
+        while (next < items.length) {
+            const i = next++;
+            out[i] = await fn(items[i], i);
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return out;
+}
+
 async function firstInstall(o) {
     // --from: its catalog is read first, so a missing or bad one stops before the token prompt and the unit search
     const from = o.from ? fromFolder(o.from) : null;
@@ -1009,14 +1025,11 @@ async function firstInstall(o) {
     if (!chosen.some((c) => c.entry.id === 'mgu-deploy')) {
         throw new Error(`${label}: the catalog has no mgu-deploy`);
     }
-    const artifacts = [];
-    await waiting('still downloading', async () => {
-        for (const c of chosen) {
-            const data = await c.fetch();
-            say(`  ${sha256(data)}  ${c.entry.artifact.name}`);
-            artifacts.push({ entry: c.entry, data });
-        }
-    });
+    const artifacts = await waiting('still downloading', () => mapLimit(chosen, 4, async (c) => {
+        const data = await c.fetch();
+        say(`  ${sha256(data)}  ${c.entry.artifact.name}`);
+        return { entry: c.entry, data };
+    }));
     const deploy = artifacts.find((a) => a.entry.id === 'mgu-deploy');
     const entries = deployToolFiles(deploy.data)
         .concat(artifacts.map((a) => ({ name: `${withs.some((w) => w.id === a.entry.id) ? 'with' : 'artifacts'}/${a.entry.artifact.name}`,
@@ -1041,10 +1054,10 @@ async function firstInstall(o) {
         }
     }
     const services = [{ id: 'mgu-updater', unit: 'mgu-updater.service' }].concat(withs);
-    // the status on stderr, shown as it comes; which services run on stdout (absent: not installed), then the status as JSON
-    const st = await ssh(o, [`sh ${DEPLOY} status >&2`].concat(services.map((s) =>
-        `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`),
-    [`sh ${DEPLOY} status --json 2>/dev/null | tail -n 1`]).join('; '), { capture: true });
+    // which services run on stdout (absent: not installed), then the status as JSON
+    const st = await ssh(o, services.map((s) =>
+        `if [ -e /var/opt/${s.id}/current ]; then systemctl is-active ${s.unit} 2>/dev/null || true; else echo absent; fi`)
+        .concat([`sh ${DEPLOY} status --json 2>/dev/null | tail -n 1`]).join('; '), { capture: true });
     const lines = st.stdout.split('\n');
     const tiles = tilesShow(lines[services.length]);
     const running = services.every((s, i) => ['active', 'absent'].indexOf((lines[i] || '').trim()) >= 0);
@@ -1144,19 +1157,20 @@ const DEPLOY_HAS = `if [ ! -e ${DEPLOY} ]; then echo absent; elif sh ${DEPLOY} h
     'else echo old; fi';
 
 /* Runs the deploy tool's remove-all with args: the unit's own, or kit (the
- * published deploy tool's files) sent like first-install's and removed
- * after. The steps' lines show on stderr; stdout is returned. */
-function removeAllRun(o, kit, args) {
+ * published deploy tool's files) unpacked into q on the first call and
+ * removed after --yes (or in uninstall's cleanup). */
+function removeAllRun(o, kit, args, q) {
     const wait = args === '--yes' ? 'the head unit is still removing the setup' : undefined;
     if (!kit) {
         return ssh(o, `sh ${DEPLOY} remove-all ${args}`, { input: Buffer.alloc(0), capture: true, wait });
     }
-    // a published deploy tool without remove-all answers the listing with its whole usage
-    const quiet = args === '--json' ? ' 2>/dev/null' : '';
-    const q = shQuote(`/var/opt/mgu-deploy-kit-${process.pid}`);
-    return ssh(o, unpackKit(q) +
-        `{ sh ${q}/mgu-deploy.sh remove-all ${args}${quiet}; st=$?; rm -rf ${q}; exit $st; }`,
-    { input: tgz(kit, Math.floor(Date.now() / 1000)), capture: true, wait });
+    if (args === '--json') {
+        // a published deploy tool without remove-all answers the listing with its whole usage
+        return ssh(o, `${unpackKit(q)}sh ${q}/mgu-deploy.sh remove-all --json 2>/dev/null`,
+            { input: tgz(kit, Math.floor(Date.now() / 1000)), capture: true, wait });
+    }
+    return ssh(o, `{ sh ${q}/mgu-deploy.sh remove-all ${args}; st=$?; rm -rf ${q}; exit $st; }`,
+        { input: Buffer.alloc(0), capture: true, wait });
 }
 
 /* The last line of a remove-all's stdout as JSON, or null. */
@@ -1214,25 +1228,48 @@ async function uninstall(o) {
         }
         kit = deployToolFiles(await c.fetch());
     }
-    const plan = lastJson((await removeAllRun(o, kit, '--json')).stdout);
-    if (!plan || !Array.isArray(plan.apps) || !Array.isArray(plan.tools)) {
-        say(kit ? 'The published deploy tool has no uninstall yet; nothing was removed.' :
-            'The deploy tool on the head unit did not say what is installed; nothing was removed.');
-        return 1;
-    }
-    showPlan(plan);
-    if (!o.yes) {
-        const term = process.env.CI ? null : terminal();
-        if (!term) {
-            say('Nothing was removed: run uninstall at a terminal to answer, or add --yes.');
-            return 2;
+    const q = kit ? shQuote(`/var/opt/mgu-deploy-kit-${process.pid}`) : null;
+    let kitStaged = false;
+    let run;
+    const onSigint = () => {
+        if (!kitStaged) {
+            return;
         }
-        if (!/^y(es)?$/i.test((await promptLine('Remove all of it? [y/N] ', term)).trim())) {
-            say('Nothing was removed.');
-            return 0;
+        kitStaged = false;
+        cp.spawnSync('ssh', sshArgs(o, `rm -rf ${q}`), { windowsHide: true, stdio: 'ignore', timeout: 5000 });
+    };
+    if (q) {
+        process.prependOnceListener('SIGINT', onSigint);
+    }
+    try {
+        kitStaged = !!q;
+        const plan = lastJson((await removeAllRun(o, kit, '--json', q)).stdout);
+        if (!plan || !Array.isArray(plan.apps) || !Array.isArray(plan.tools)) {
+            say(kit ? 'The published deploy tool has no uninstall yet; nothing was removed.' :
+                'The deploy tool on the head unit did not say what is installed; nothing was removed.');
+            return 1;
+        }
+        showPlan(plan);
+        if (!o.yes) {
+            const term = process.env.CI ? null : terminal();
+            if (!term) {
+                say('Nothing was removed: run uninstall at a terminal to answer, or add --yes.');
+                return 2;
+            }
+            if (!/^y(es)?$/i.test((await promptLine('Remove all of it? [y/N] ', term)).trim())) {
+                say('Nothing was removed.');
+                return 0;
+            }
+        }
+        process.removeListener('SIGINT', onSigint);
+        run = await removeAllRun(o, kit, '--yes', q);
+        kitStaged = false;
+    } finally {
+        process.removeListener('SIGINT', onSigint);
+        if (kitStaged) {
+            await ssh(o, `rm -rf ${q}`, { input: Buffer.alloc(0), capture: true }).catch(() => {});
         }
     }
-    const run = await removeAllRun(o, kit, '--yes');
     const result = lastJson(run.stdout);
     if (!result || !Array.isArray(result.left)) {
         say(`The uninstall on the head unit ended with status ${run.status}. Run uninstall again to finish.`);
@@ -1439,29 +1476,27 @@ async function stickIcon(c) {
  * icon is copied beside catalog.json; one that is not keeps an https URL,
  * which the updater fetches when it is online, and leaves out any other. */
 async function publishedFolder(components, commit, label) {
-    const files = [];
-    const entries = [];
-    await waiting('still downloading', async () => {
-        for (const c of components) {
-            const data = await c.fetch();
-            const file = c.file || c.entry.artifact.name;
-            if (!plainName(file)) {
-                throw new Error(`${label}: unusable artifact name ${file}`);
-            }
-            files.push({ name: file, data });
-            say(`  ${c.entry.id} ${c.entry.version}  ${file}`);
-            const icon = await stickIcon(c);
-            const entry = Object.assign({}, c.entry);
-            if (icon) {
-                files.push(icon);
-                Object.assign(entry, { icon: icon.name, iconSha256: sha256(icon.data) });
-            } else if (!/^https:\/\//.test(entry.icon || '')) {
-                delete entry.icon;
-                delete entry.iconSha256;
-            }
-            entries.push(stickEntry(entry, file, data));
+    const results = await waiting('still downloading', () => mapLimit(components, 4, async (c) => {
+        const file = c.file || c.entry.artifact.name;
+        if (!plainName(file)) {
+            throw new Error(`${label}: unusable artifact name ${file}`);
         }
-    });
+        const data = await c.fetch();
+        say(`  ${c.entry.id} ${c.entry.version}  ${file}`);
+        const icon = await stickIcon(c);
+        const entry = Object.assign({}, c.entry);
+        const itemFiles = [{ name: file, data }];
+        if (icon) {
+            itemFiles.push(icon);
+            Object.assign(entry, { icon: icon.name, iconSha256: sha256(icon.data) });
+        } else if (!/^https:\/\//.test(entry.icon || '')) {
+            delete entry.icon;
+            delete entry.iconSha256;
+        }
+        return { files: itemFiles, entry: stickEntry(entry, file, data) };
+    }));
+    const files = results.reduce((all, r) => all.concat(r.files), []);
+    const entries = results.map((r) => r.entry);
     return { files, catalog: Object.assign({ schema: 2 }, commit ? { commit } : {}, { components: entries }) };
 }
 

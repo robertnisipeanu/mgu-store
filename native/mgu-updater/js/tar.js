@@ -14,35 +14,43 @@
  */
 const zlib = require('zlib');
 
-/* Gunzips at most maxBytes; rejects past that without holding more. */
-function gunzipBounded(buf, maxBytes) {
+/* Gunzips a Buffer or readable stream up to maxBytes; rejects past that without holding more. */
+function gunzipBounded(input, maxBytes) {
     return new Promise((resolve, reject) => {
         const z = zlib.createGunzip();
         const parts = [];
         let total = 0;
         let failed = false;
+        const fail = (err) => {
+            if (!failed) {
+                failed = true;
+                z.destroy();
+                if (!Buffer.isBuffer(input) && input && typeof input.destroy === 'function') {
+                    input.destroy();
+                }
+                reject(err);
+            }
+        };
         z.on('data', (d) => {
             total += d.length;
             if (total > maxBytes) {
-                failed = true;
-                z.destroy();
-                reject(new Error(`unpacks to more than ${maxBytes} bytes`));
+                fail(new Error(`unpacks to more than ${maxBytes} bytes`));
                 return;
             }
             parts.push(d);
         });
-        z.on('error', (err) => {
-            if (!failed) {
-                failed = true;
-                reject(new Error(`not a gzip archive (${err.message})`));
-            }
-        });
+        z.on('error', (err) => fail(new Error(`not a gzip archive (${err.message})`)));
         z.on('end', () => {
             if (!failed) {
                 resolve(Buffer.concat(parts, total));
             }
         });
-        z.end(buf);
+        if (Buffer.isBuffer(input)) {
+            z.end(input);
+        } else {
+            input.on('error', fail);
+            input.pipe(z);
+        }
     });
 }
 
@@ -167,7 +175,7 @@ function header(name, size, mode, mtime) {
     return h;
 }
 
-function tgz(entries, mtime) {
+function tarBuf(entries, mtime) {
     const parts = [];
     entries.forEach((e) => {
         parts.push(header(e.name, e.data.length, e.mode, mtime), e.data);
@@ -177,9 +185,32 @@ function tgz(entries, mtime) {
         }
     });
     parts.push(Buffer.alloc(1024));
-    const out = zlib.gzipSync(Buffer.concat(parts), { level: 9 });
+    return Buffer.concat(parts);
+}
+
+function tgz(entries, mtime) {
+    const out = zlib.gzipSync(tarBuf(entries, mtime), { level: 1 });
     out[9] = 3; // OS: Unix
     return out;
 }
 
-module.exports = { untgz, tgz, gunzipBounded };
+function tgzAsync(entries, mtime) {
+    let raw;
+    try {
+        raw = tarBuf(entries, mtime);
+    } catch (e) {
+        return Promise.reject(e);
+    }
+    return new Promise((resolve, reject) => {
+        zlib.gzip(raw, { level: 1 }, (err, out) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            out[9] = 3; // OS: Unix
+            resolve(out);
+        });
+    });
+}
+
+module.exports = { untgz, tgz, tgzAsync, gunzipBounded };
