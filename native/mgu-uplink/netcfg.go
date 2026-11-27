@@ -4,11 +4,10 @@ package main
 // address is added with noprefixroute, and its subnet and default routes live
 // in their own table (cfg.Table). Policy rules send only the allowed uids there:
 //
-//	pref P    uidrange U  lookup main suppress_prefixlength 0   car networks and the
-//	                                                            unit's specific routes
-//	pref P+1  uidrange U  lookup <table>                        everything else: uplink
-//	pref P+2  from <lease address> lookup <table>               replies (rp_filter) and
-//	                                                            sockets bound to the lease
+//	pref P    uidrange U to <lease DNS>/32 lookup <table>      DNS through uplink
+//	pref P    from <lease address> lookup <table>              bound uplink sockets
+//	pref P+1  uidrange U lookup main suppress_prefixlength 0    car networks
+//	pref P+2  uidrange U lookup <table>                         other internet traffic
 //
 // The table always holds a default: via the uplink's router while there is a
 // lease, unreachable otherwise, so an allowed uid never falls through to the
@@ -24,9 +23,10 @@ import (
 )
 
 const (
-	prefMain   = 0
-	prefUplink = 1
-	prefSource = 2
+	prefDNS    = 0
+	prefSource = 0
+	prefMain   = 1
+	prefUplink = 2
 	rulePrefs  = 3
 	mainTable  = 254
 )
@@ -36,6 +36,7 @@ type ruleKey struct {
 	pref  int
 	uid   uint32 // with src == ""
 	src   string
+	dst   string
 	table int
 }
 
@@ -58,12 +59,30 @@ func keyOf(r netlink.Rule) ruleKey {
 	if r.Src != nil {
 		k.src = r.Src.String()
 	}
+	if r.Dst != nil {
+		k.dst = r.Dst.String()
+	}
 	return k
 }
 
-func wantRules(c config, uids []int, leaseIP net.IP) map[ruleKey]*netlink.Rule {
+func wantRules(c config, uids []int, lease *Lease) map[ruleKey]*netlink.Rule {
 	want := map[ruleKey]*netlink.Rule{}
 	for _, uid := range uids {
+		if lease != nil {
+			for _, server := range lease.DNS {
+				ip := net.ParseIP(server).To4()
+				if ip == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.IsLoopback() {
+					continue
+				}
+				r := netlink.NewRule()
+				r.Family = netlink.FAMILY_V4
+				r.Priority = c.Pref + prefDNS
+				r.UIDRange = netlink.NewRuleUIDRange(uint32(uid), uint32(uid))
+				r.Table = c.Table
+				r.Dst = &net.IPNet{IP: ip, Mask: net.CIDRMask(32, 32)}
+				want[keyOf(*r)] = r
+			}
+		}
 		for _, p := range []int{prefMain, prefUplink} {
 			r := netlink.NewRule()
 			r.Family = netlink.FAMILY_V4
@@ -76,6 +95,10 @@ func wantRules(c config, uids []int, leaseIP net.IP) map[ruleKey]*netlink.Rule {
 			}
 			want[keyOf(*r)] = r
 		}
+	}
+	var leaseIP net.IP
+	if lease != nil {
+		leaseIP = net.ParseIP(lease.IP).To4()
 	}
 	if leaseIP != nil {
 		r := netlink.NewRule()
@@ -90,8 +113,8 @@ func wantRules(c config, uids []int, leaseIP net.IP) map[ruleKey]*netlink.Rule {
 
 // syncRules makes this tool's policy rules exactly those for uids and the lease
 // address, touching only rules that differ. It reports whether it changed any.
-func syncRules(c config, uids []int, leaseIP net.IP) (bool, error) {
-	want := wantRules(c, uids, leaseIP)
+func syncRules(c config, uids []int, lease *Lease) (bool, error) {
+	want := wantRules(c, uids, lease)
 	changed := false
 	for _, r := range ownRules(c) {
 		k := keyOf(r)
@@ -113,7 +136,13 @@ func syncRules(c config, uids []int, leaseIP net.IP) (bool, error) {
 		if keys[i].pref != keys[j].pref {
 			return keys[i].pref < keys[j].pref
 		}
-		return keys[i].uid < keys[j].uid
+		if keys[i].uid != keys[j].uid {
+			return keys[i].uid < keys[j].uid
+		}
+		if keys[i].src != keys[j].src {
+			return keys[i].src < keys[j].src
+		}
+		return keys[i].dst < keys[j].dst
 	})
 	for _, k := range keys {
 		if err := netlink.RuleAdd(want[k]); err != nil {

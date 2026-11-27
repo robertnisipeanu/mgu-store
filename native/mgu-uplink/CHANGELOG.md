@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- DHCP-provided DNS servers use the internet uplink for allowed apps even when a wired diagnostic adapter uses the same subnet. Car routes and the unit’s system resolver stay separate.
+
 ## 0.7.15
 
 - The uplink runs in the head unit's slice for standard services, so it does not take CPU time ahead of the HMI.

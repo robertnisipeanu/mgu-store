@@ -314,12 +314,12 @@ func (s *service) reconcile(force bool) {
 			errs = append(errs, err.Error())
 		}
 	}
-	var leaseIP net.IP
+	var activeLease *Lease
 	ifindex := 0
 	if s.lease != nil && s.link != nil {
 		if link, err := netlink.LinkByName(s.link.Ifname()); err == nil {
 			ifindex = link.Attrs().Index
-			leaseIP = net.ParseIP(s.lease.IP)
+			activeLease = s.lease
 			if !hasAddress(link, s.lease.IP) {
 				fail(setAddress(link, s.lease))
 			}
@@ -327,7 +327,7 @@ func (s *service) reconcile(force bool) {
 	}
 	_, err := syncRoutes(c, ifindex, s.lease)
 	fail(err)
-	_, err = syncRules(c, uids, leaseIP)
+	_, err = syncRules(c, uids, activeLease)
 	fail(err)
 	guarded := s.guarded()
 	if guards := strings.Join(guarded, " "); force || uidsChanged || guards != s.guards || !firewallPresent(c) {

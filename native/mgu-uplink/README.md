@@ -11,7 +11,7 @@ the configured uids through it:
 |---|---|
 | Address | on `vethuplink`, without a prefix route in the main table |
 | Routes | table 110: the lease's subnet and a default via its router; `unreachable default` while offline |
-| Rules | pref 1100 `uidrange U lookup main suppress_prefixlength 0` (car networks), 1101 `uidrange U lookup 110`, 1102 `from <lease address> lookup 110` |
+| Rules | pref 1100 `uidrange U to <lease DNS>/32 lookup 110` and `from <lease address> lookup 110`; 1101 `uidrange U lookup main suppress_prefixlength 0` (car networks); 1102 `uidrange U lookup 110` |
 | Firewall | `table inet mgu_uplink`: only the allowed uids leave through `vethuplink` (and the Wi-Fi interface while Wi-Fi is on), nothing connects in, nothing is forwarded; plus one `oifname "<interface>" accept comment "mgu-uplink"` per interface at the top of the unit's `ip filter output` chain |
 | Lease for apps | `/var/opt/public/oap/oap_<uid>/data/uplink.json` per allowed app, `/run/mgu-uplink/lease.json` for everyone: `{interface, ip, prefix, router, dns[], leaseSeconds, updated}`, present only while online; an app's file is rewritten when the lease changes, so its `updated` is when it last changed |
 | Device state | `/run/mgu-uplink/status.json`, below |
@@ -318,3 +318,11 @@ cat /run/mgu-uplink/status.json
 nft list table inet mgu_uplink; nft -a list chain ip filter output | grep mgu-uplink
 ip route | grep -E 'vethuplink|wlan1'    # main table: nothing
 ```
+
+DHCP-provided IPv4 DNS destinations use the uplink table before the main
+car-network lookup for allowed uids. This keeps router DNS reachable when a
+wired diagnostic interface shares the uplink subnet. Sockets bound to the
+uplink address also use its table before car routes. Other destinations keep
+the car-network priority; root and unregistered uids get no internet rule.
+Lease changes and disconnects remove DNS and source exceptions. All rules
+remain within the configured three-priority range for upgrade and cleanup.
