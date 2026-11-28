@@ -25,9 +25,12 @@ echo stock > "$T/widget/stock.pbw"
 cat > "$T/bin/node" <<EOF
 #!/bin/sh
 echo run >> "$T/gen.log"
+echo "\$*" > "$T/gen.args"
 while [ \$# -gt 1 ]; do [ "\$1" = --out ] && out=\$2; shift; done
 case \$(cat "$T/mode") in
-ok) echo template > "\$out/LT_State_A4A_WelcomeApp.pbw" ;;
+ok) echo template > "\$out/LT_State_A4A_WelcomeApp.pbw"; echo full > "\$out/LT_State_Full.pbw"
+	printf 'content 0x500 104 88 1796 632\nfull 0x501 0 0 1920 720\n' > "\$out/boxes" ;;
+page) echo template > "\$out/LT_State_A4A_WelcomeApp.pbw"; printf 'content 0x500 104 88 1796 632\n' > "\$out/boxes" ;;
 fail) echo 'no eGfxIdParameter_titlebarH_ID7 in HmiMain3D' >&2; exit 1 ;;
 sleep) sleep 30 ;;
 kill) kill -9 \$\$ ;;
@@ -60,7 +63,11 @@ ok 'build: nothing left beside the template' '[ ! -e "$ROOT/hmi.new" ] && [ ! -e
 boot
 ok 'boot: the template for this stamp is mounted with the stock widgets, marker set' \
 	'[ "$(runs)" = 1 ] && grep -q "mount --bind $T/run/hmi-widget $T/widget" "$T/mount.log" && [ -e "$T/run/hmi-template" ] &&
-	 [ -e "$T/run/hmi-widget/stock.pbw" ] && [ -e "$T/run/hmi-widget/LT_State_A4A_WelcomeApp.pbw" ]'
+	 [ -e "$T/run/hmi-widget/stock.pbw" ] && [ -e "$T/run/hmi-widget/LT_State_A4A_WelcomeApp.pbw" ] &&
+	 [ -e "$T/run/hmi-widget/LT_State_Full.pbw" ]'
+ok 'build: the generator gets both surface ids' 'grep -q -- "--surface-id 0x500 --full-surface-id 0x501 " "$T/gen.args"'
+ok 'boot: the marker names each template with its surface and box' \
+	'[ "$(cat "$T/run/hmi-template")" = "$(printf "content 0x500 104 88 1796 632\nfull 0x501 0 0 1920 720")" ]'
 build
 ok 'build: a template in place for this stamp is not made again' '[ "$(runs)" = 1 ]'
 
@@ -72,7 +79,7 @@ ok 'build: a generator error is recorded with its reason, no retry' \
 	'[ "$(runs)" = 2 ] && [ "$(field template)" = failed ] && [ "$(field retry)" = false ] &&
 	 [ "$(field reason)" = "no eGfxIdParameter_titlebarH_ID7 in HmiMain3D" ] &&
 	 [ "$(field problem)" = "In-page drawing unavailable: no eGfxIdParameter_titlebarH_ID7 in HmiMain3D" ] &&
-	 [ "$(field stamp)" = "4096 $(stat -c %Y "$T/HmiMain3D") $(md5sum < "$CUR/hmi_template.js" | cut -d" " -f1) 0x500" ]'
+	 [ "$(field stamp)" = "4096 $(stat -c %Y "$T/HmiMain3D") $(md5sum < "$CUR/hmi_template.js" | cut -d" " -f1) 0x500 0x501" ]'
 ok 'build: a failed build leaves the earlier template in place' '[ -s "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw" ] && [ ! -e "$ROOT/hmi.new" ]'
 rm -f "$T/mount.log" "$T/run/hmi-template"
 boot
@@ -80,9 +87,10 @@ ok 'boot: the earlier template is for another stamp: not mounted, nothing genera
 	'[ "$(runs)" = 2 ] && [ ! -e "$T/mount.log" ] && [ ! -e "$T/run/hmi-template" ]'
 build
 ok 'build: the same stamp after a real failure is not tried again' '[ "$(runs)" = 2 ] && [ "$(field template)" = failed ]'
-echo 'embed_surface_id = 0x501' > "$CUR/mgu-render.conf"
+printf 'embed_surface_id = 0x500\nembed_full_surface_id = 0x502\n' > "$CUR/mgu-render.conf"
 build
-ok 'build: another id is tried' '[ "$(runs)" = 3 ]'
+ok 'build: another whole-screen id is tried, and passed to the generator' \
+	'[ "$(runs)" = 3 ] && grep -q -- "--full-surface-id 0x502 " "$T/gen.args" && case "$(field stamp)" in *" 0x500 0x502") true ;; *) false ;; esac'
 
 # a timeout, a signal (out of memory) and a memory or disk error are tried again
 echo 'generator 2b' > "$CUR/hmi_template.js"
@@ -107,14 +115,24 @@ printf '{\n"template": "building",\n"stamp": "x",\n"reason": "",\n"retry": true,
 echo 'generator 3' > "$CUR/hmi_template.js"
 build
 ok 'build: a build left at building is made again' '[ "$(runs)" = 8 ] && [ "$(field template)" = ok ]'
+# a HmiMain3D without the whole-screen template's names: the page box's template alone, the marker names it alone
+echo 'generator 3b' > "$CUR/hmi_template.js"
+echo page > "$T/mode"
+build
+rm -f "$T/run/hmi-template"
+boot
+ok 'build and boot: the page template alone, and the marker names only it' \
+	'[ "$(runs)" = 9 ] && [ "$(field template)" = ok ] && [ ! -e "$ROOT/hmi/LT_State_Full.pbw" ] &&
+	 [ ! -e "$T/run/hmi-widget/LT_State_Full.pbw" ] && [ "$(cat "$T/run/hmi-template")" = "content 0x500 104 88 1796 632" ]'
+echo ok > "$T/mode"
 
 # an install and a boot under umask 077: the template, its folder and the copy readable by the HMI's user
 mode() { stat -c %a "$1"; }
 echo 'generator 4' > "$CUR/hmi_template.js"
 (umask 077 && build)
 ok 'build under umask 077: the template readable, its folder searchable' \
-	'[ "$(runs)" = 9 ] && [ "$(mode "$ROOT/hmi")" = 755 ] && [ "$(mode "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw")" = 644 ] &&
-	 [ "$(mode "$ROOT/hmi/stamp")" = 644 ]'
+	'[ "$(runs)" = 10 ] && [ "$(mode "$ROOT/hmi")" = 755 ] && [ "$(mode "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw")" = 644 ] &&
+	 [ "$(mode "$ROOT/hmi/stamp")" = 644 ] && [ "$(mode "$ROOT/hmi/boxes")" = 644 ]'
 # a stock folder the copy would take 0700 from, and a stock widget with a mode of its own
 chmod 0700 "$T/widget"; chmod 0640 "$T/widget/stock.pbw"
 (umask 077 && boot)
@@ -126,7 +144,7 @@ chmod 0755 "$T/widget"; chmod 0644 "$T/widget/stock.pbw"
 chmod 0700 "$ROOT/hmi"; chmod 0600 "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw" "$ROOT/hmi/stamp"
 (umask 077 && build)
 ok 'build: an unreadable template in place for this stamp is made readable, not made again' \
-	'[ "$(runs)" = 9 ] && [ "$(mode "$ROOT/hmi")" = 755 ] && [ "$(mode "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw")" = 644 ]'
+	'[ "$(runs)" = 10 ] && [ "$(mode "$ROOT/hmi")" = 755 ] && [ "$(mode "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw")" = 644 ]'
 chmod 0600 "$ROOT/hmi/LT_State_A4A_WelcomeApp.pbw"
 (umask 077 && boot)
 ok 'boot: an unreadable template is copied readable' '[ "$(mode "$T/run/hmi-widget/LT_State_A4A_WelcomeApp.pbw")" = 644 ]'
@@ -134,9 +152,9 @@ ok 'boot: an unreadable template is copied readable' '[ "$(mode "$T/run/hmi-widg
 # iDrive 8: no HmiMain3D
 rm "$T/HmiMain3D"
 build
-ok 'build: no HmiMain3D, no template and no status' '[ "$(runs)" = 9 ] && [ ! -e "$ROOT/status.json" ]'
+ok 'build: no HmiMain3D, no template and no status' '[ "$(runs)" = 10 ] && [ ! -e "$ROOT/status.json" ]'
 boot
-ok 'boot: no HmiMain3D, nothing mounted' '[ "$(runs)" = 9 ]'
+ok 'boot: no HmiMain3D, nothing mounted' '[ "$(runs)" = 10 ]'
 
 # the generator's error is one line: exit status 1 for HmiMain3D lacking identifiers, 3 for anything else
 if PATH=${PATH#$T/bin:} command -v node >/dev/null 2>&1; then

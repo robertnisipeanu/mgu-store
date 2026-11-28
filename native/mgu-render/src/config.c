@@ -26,6 +26,7 @@ void cfg_defaults(struct cfg *c)
     c->embed_finish = 0;
     snprintf(c->hmi_display, sizeof c->hmi_display, "wayland-1");
     c->embed_surface_id = 0x500;
+    c->embed_full_surface_id = 0x501;
     c->embed_area[0] = 104; c->embed_area[1] = 88; c->embed_area[2] = 1796; c->embed_area[3] = 632;
     snprintf(c->embed_marker, sizeof c->embed_marker, "/run/mgu-render/hmi-template");
     snprintf(c->hmi_process, sizeof c->hmi_process, "HmiMain3D");
@@ -163,6 +164,7 @@ int cfg_set(struct cfg *c, const char *key, const char *value)
     if (!strcmp(key, "screen_id")) c->screen_id = (uint32_t)n;
     else if (!strcmp(key, "embed")) c->embed = n != 0;
     else if (!strcmp(key, "embed_surface_id")) c->embed_surface_id = (uint32_t)n;
+    else if (!strcmp(key, "embed_full_surface_id")) c->embed_full_surface_id = (uint32_t)n;
     else if (!strcmp(key, "embed_zero_copy")) c->embed_zero_copy = n != 0;
     else if (!strcmp(key, "tick_early")) c->tick_early = n != 0;
     else if (!strcmp(key, "readback_pbo")) c->readback_pbo = n != 0;

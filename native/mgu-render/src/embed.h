@@ -23,6 +23,8 @@ void embed_readback(const char *why);
    zero_copy: make GPU buffers when the compositor takes them */
 int embed_connect(const char *display, uint32_t id, int w, int h, int zero_copy);
 int embed_connected(void);           /* set up and usable */
+/* the connection's surface id and buffer size: 1 while connected or connecting, else 0 */
+int embed_target(uint32_t *id, int *w, int *h);
 int embed_connecting(void);          /* waiting for the compositor's first answer */
 int embed_zero_copy(void);           /* connected with GPU buffers */
 const char *embed_path(void);        /* "zero-copy", or "readback (<why>)" once connected */

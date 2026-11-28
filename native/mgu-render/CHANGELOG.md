@@ -5,6 +5,7 @@
 ## 0.6.27
 
 - Uses less memory and idle CPU while keeping text, images and embedded screens responsive, allocating fallback buffers and font pages only as needed. Reclaims gradient and font resources cleanly when apps close.
+- An in-page app can ask for the whole screen (`full` in the JS client), with the HMI's title bar strip and pop-ups drawn over it, as over BMW's map. Every other app, the Store included, keeps the page box as before.
 
 ## 0.6.26
 

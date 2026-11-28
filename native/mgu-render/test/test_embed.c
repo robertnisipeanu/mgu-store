@@ -123,7 +123,9 @@ static void pump(int ms)
     embed_dispatch(&p);
 }
 
-struct scenario { const char *name, *mock_flags; int zero_copy, pbo; const char *path; int check; };
+/* relayout: after the frames, a connection again for the whole-screen template's surface and size (the shown app's
+   layout changed), one frame there */
+struct scenario { const char *name, *mock_flags; int zero_copy, pbo; const char *path; int check, relayout; };
 
 static int run(const struct scenario *sc, const char *mock)
 {
@@ -210,16 +212,45 @@ static int run(const struct scenario *sc, const char *mock)
     }
     for (int t = 0; t < 100 && frames_done < drawn; t++) pump(20);
     CHECK(frames_done == drawn, "%s: %d frame callbacks for %d commits", sc->name, frames_done, drawn);
+    int full_drawn = 0;
+    if (sc->relayout) {
+        enum { FW = 1920, FH = 720 };
+        uint32_t id = 0; int w = 0, h = 0;
+        embed_disconnect();
+        CHECK(!embed_target(&id, &w, &h), "%s: no target once disconnected", sc->name);
+        ready_seen = 0;
+        embed_connect("hmi", 0x501, FW, FH, sc->zero_copy);
+        for (int t = 0; t < 100 && !ready_seen; t++) pump(50);
+        CHECK(ready_seen && embed_target(&id, &w, &h) && id == 0x501 && w == FW && h == FH,
+              "%s: connected again for surface %#x %dx%d", sc->name, id, w, h);
+        embed_show(1);
+        int b = -1;
+        for (int t = 0; t < 100 && (b = embed_buffer(embed_zero_copy())) < 0; t++) pump(20);
+        if (b >= 0) {
+            uint32_t clear[2] = { OP_CLEAR, 0x336699ffu };
+            int gpu = embed_gpu_index(b), fl = embed_gl_begin(gpu, FW, FH);
+            gfx_draw(&g, &xf, FW, FH, clear, 2, fl);
+            embed_gl_end(gpu, embed_pixels(b), FW, FH);
+            embed_filled();
+            for (int t = 0; t < 100 && !embed_can_commit(); t++) pump(20);
+            embed_gl_resolve();
+            embed_commit();
+            full_drawn = 1;
+            for (int t = 0; t < 100 && frames_done < drawn + 1; t++) pump(20);
+        }
+        CHECK(full_drawn && frames_done == drawn + 1, "%s: a frame on the whole-screen surface", sc->name);
+    }
     embed_disconnect();
     kill(pid, SIGTERM);
     waitpid(pid, NULL, 0);
 
-    int k = 0, bad = 0, viol = 0;
+    int k = 0, bad = 0, viol = 0, full_seen = 0;
     const char *kind = !strcmp(sc->path, "zero-copy") ? "drm" : "shm";
     while (fgets(line, sizeof line, mo)) {
         char what[8]; int w, h; unsigned crc;
         if (!strncmp(line, "VIOLATION", 9)) { printf("     %s", line); viol++; continue; }
         if (sscanf(line, "commit %7s %d %d %x", what, &w, &h, &crc) != 4) continue;
+        if (sc->relayout && w == 1920 && h == 720) { full_seen += !strcmp(what, kind); continue; }
         uint32_t want = k < FRAMES ? ref[k] : pix_crc;
         if (k > FRAMES || (k == FRAMES && !pix_crc) || strcmp(what, kind) || w != W || h != H || crc != want) {
             printf("     frame %d: %s %dx%d %08x, expected %s %08x\n", k, what, w, h, crc, kind, want);
@@ -229,6 +260,7 @@ static int run(const struct scenario *sc, const char *mock)
     }
     CHECK(k == FRAMES + (pix_crc != 0) && !bad, "%s: %d %s frames, each as drawn", sc->name, k, kind);
     CHECK(!viol, "%s: buffers attached only when free, dmabufs fit", sc->name);
+    if (sc->relayout) CHECK(full_seen == full_drawn && full_seen == 1, "%s: one %s frame 1920x720 after the change", sc->name, kind);
     fclose(mo);
     rmdir(dir);
     return fails ? 1 : 0;
@@ -243,11 +275,13 @@ int main(int argc, char **argv)
         crc_table[i] = c;
     }
     static const struct scenario S[] = {
-        { "zero-copy", "--drm", 1, 1, "zero-copy", 1 },
-        { "readback, off", "--drm", 0, 0, "readback (embed_zero_copy = 0)", 0 },
-        { "readback, pixel buffer", "", 1, 1, "readback (the compositor offers no wl_drm)", 0 },
-        { "readback, no PRIME", "--drm --no-prime", 1, 0, "readback (the compositor's wl_drm takes no dmabufs", 0 },
-        { "readback, refused", "--drm --refuse", 1, 1, "readback (the compositor refused the GPU buffers", 0 },
+        { "zero-copy", "--drm", 1, 1, "zero-copy", 1, 0 },
+        { "zero-copy, layout change", "--drm", 1, 1, "zero-copy", 0, 1 },
+        { "readback, layout change", "", 1, 1, "readback (the compositor offers no wl_drm)", 0, 1 },
+        { "readback, off", "--drm", 0, 0, "readback (embed_zero_copy = 0)", 0, 0 },
+        { "readback, pixel buffer", "", 1, 1, "readback (the compositor offers no wl_drm)", 0, 0 },
+        { "readback, no PRIME", "--drm --no-prime", 1, 0, "readback (the compositor's wl_drm takes no dmabufs", 0, 0 },
+        { "readback, refused", "--drm --refuse", 1, 1, "readback (the compositor refused the GPU buffers", 0, 0 },
     };
     int rc = 0;
     for (size_t i = 0; i < sizeof S / sizeof S[0]; i++) {
