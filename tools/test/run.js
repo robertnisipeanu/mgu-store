@@ -351,6 +351,47 @@ function testUntar() {
         { name: long, data: Buffer.from('x'), mode: 0o644 }], 1700000000));
     const m = members(file);
     check('untar: ustar prefix names and package/ members', Object.keys(m).join(' ') === `package/package.json ${long}` && m[long].toString() === 'x');
+
+    // UTF-8 byte-length split (>100 bytes even with <100 chars) and un-splittable path error
+    const utf8Long = `dir/${'é'.repeat(40)}/${'ä'.repeat(30)}.js`;
+    const utf8File = path.join(tmp('tar'), 'u.tgz');
+    fs.writeFileSync(utf8File, tgz([{ name: utf8Long, data: Buffer.from('u'), mode: 0o644 }], 1700000000));
+    const um = members(utf8File);
+    check('pack: UTF-8 >100-byte path splits on byte length cleanly', um[utf8Long] && um[utf8Long].toString() === 'u');
+    const tooLong = throws(() => tgz([{ name: 'a'.repeat(101), data: Buffer.from('x'), mode: 0o644 }], 1700000000));
+    check('pack: un-splittable >100-byte path throws cleanly', tooLong && /too long a path to pack/.test(tooLong.message), tooLong && tooLong.message);
+
+    // optional gzip level (default 9 vs fast level 1)
+    const big = Buffer.from('hello world '.repeat(5000));
+    const def = tgz([{ name: 'a.txt', data: big, mode: 0o644 }], 1700000000);
+    const fast = tgz([{ name: 'a.txt', data: big, mode: 0o644 }], 1700000000, { level: 1 });
+    const fastShort = tgz([{ name: 'a.txt', data: big, mode: 0o644 }], { level: 1 });
+    check('pack: tgz accepts optional compression level and produces valid archives',
+        link.untar(fast)[0].data.equals(big) && link.untar(fastShort)[0].data.equals(big) && fast.length >= def.length);
+}
+
+function testDonorCache() {
+    const zlib = require('zlib');
+    const root = tmp('cache');
+    const main = path.join(root, 'main');
+    const oap = path.join(root, 'oap');
+    const pre = path.join(main, 'preinstalled_apps', 'donor_app@1.0.0.tgz');
+    write(pre, '');
+    donor.tgz(pre, { main: 'javascript/entry.js' });
+    const origGunzip = zlib.gunzipSync;
+    let gunzips = 0;
+    zlib.gunzipSync = function () {
+        gunzips += 1;
+        return origGunzip.apply(this, arguments);
+    };
+    try {
+        const donors = link.unitDonors(main, oap);
+        link.build(entrylessApp(), path.join(tmp('out'), 'cached.tgz'), { donors, epoch: 1700000000 });
+    } finally {
+        zlib.gunzipSync = origGunzip;
+    }
+    check('donors: preinstalled .tgz is gunzipped once across unitDonors, findDonor and supplyEntry',
+        gunzips === 1, `gunzipSync called ${gunzips} times`);
 }
 
 /* ---- stock donor eligibility and the split boundary -------------------------- */
@@ -431,7 +472,7 @@ function testHostileDonor() {
         write(js, donor.bundle() + 'while (true) {}');
         let e = throws(() => link.sdkModule([js]));
         check('split: a hostile infinite loop is killed at the worker deadline', e && /ETIMEDOUT|Script execution timed out/.test(e.message), e && e.message);
-        write(js, donor.bundle() + "mods[1][1].huge = 'x'.repeat(64 << 20);");
+        write(js, donor.bundle() + "mods[2][1].huge = 'x'.repeat(64 << 20);");
         e = throws(() => link.sdkModule([js]));
         check('split: oversized worker JSON is refused at the output cap', e && /ENOBUFS/.test(e.message), e && e.message);
     } else {
@@ -444,6 +485,14 @@ function testHostileDonor() {
         split.tight === true && typeof split.prelude === 'string' && typeof split.mods['2'][0] === 'string' &&
         /^function\(require,module,exports\)/.test(split.mods['2'][0]) && split.mods['2'][1]['../logging/logging'] === 3,
     r.stderr);
+    const rf = cp.spawnSync(process.execPath, [path.join(REPO, 'tools', 'oap_link.js'), 'split',
+        JSON.stringify({ names: ['oap-sdk/src/core/OnlineApp.js'] })], workerOpts);
+    let filtered;
+    try { filtered = JSON.parse(rf.stdout); } catch (e) { /* check below */ }
+    check('split: worker with requested sdk names returns only their closure modules', rf.status === 0 && filtered &&
+        Object.keys(filtered.mods).sort((a, b) => Number(a) - Number(b)).join(' ') === '2 3 5' &&
+        filtered.closure.join(' ') === '2 3 5' && filtered.ids['oap-sdk/src/core/OnlineApp.js'] === 2,
+    rf.stderr || rf.stdout);
 }
 
 /* ---- real donors (never part of the repository) -------------------------------- */
@@ -756,6 +805,14 @@ function testReleaseVersions() {
     const raised = r.change('native/b/component.json', oneLine('b', '2.0.1', '1.0.2').replace('"c": "1.0.0"', '"c": "1.1.0"'),
         null, 'release: b@2.0.1');
     check('versions: a release commit raising another requirement is the source', sourceCommit(b, r.root) === raised);
+
+    // changing only an app's release.json requires triggers plan()
+    r = versionRepo();
+    r.change('apps/robertn_x/release.json', JSON.stringify({ build: 'true', requires: { 'mgu-updater': '0.8.1' } }, null, 2) + '\n');
+    const relSteps = plan(components(r.root), [], r.root);
+    check('versions: changing only an app\'s release.json triggers plan()',
+        relSteps.map((p) => `${p.c.id}@${p.version}`).join(',') === 'robertn_x@0.4.1',
+        relSteps.map((p) => `${p.c.id}@${p.version}`).join(','));
 }
 
 try {
@@ -765,6 +822,7 @@ try {
     testReleaseGate();
     testReleaseVersions();
     testUntar();
+    testDonorCache();
     testUnitDonors();
     testHostileDonor();
     testBundleMode();

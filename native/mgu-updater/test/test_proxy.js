@@ -422,14 +422,113 @@ function testBuildProxy() {
                 }));
         })
         .then(() => {
+            // CONNECT tunnel backpressure: fast upstream -> slow paused client
+            const big = crypto.randomBytes(2 << 20);
+            const sum = crypto.createHash('sha256').update(big).digest('hex');
+            const fast = net.createServer((c) => {
+                c.on('error', () => {});
+                for (let off = 0; off < big.length; off += 65536) {
+                    c.write(big.slice(off, off + 65536));
+                }
+                c.end();
+            });
+            return listen(fast).then((fp) => start(`socks5://u:pw@127.0.0.1:${socks.address().port}`, { maxBytes: 4 << 20, lease: undefined, dns: ['127.0.0.1:9'] })
+                .then((bp) => new Promise((resolve) => {
+                    const req = http.request({ host: '127.0.0.1', port: bp.port, method: 'CONNECT', path: `fast.test:${fp}`, headers: auth });
+                    req.on('connect', (res, socket, head) => {
+                        if (res.statusCode !== 200) {
+                            socket.destroy();
+                            resolve({ code: res.statusCode, text: res.statusMessage, buf: Buffer.alloc(0) });
+                            return;
+                        }
+                        const chunks = head && head.length ? [head] : [];
+                        socket.pause();
+                        socket.on('error', () => resolve({ code: 0, buf: Buffer.alloc(0) }));
+                        setTimeout(() => {
+                            socket.on('data', (d) => chunks.push(d));
+                            socket.on('end', () => resolve({ code: res.statusCode, buf: Buffer.concat(chunks) }));
+                            socket.resume();
+                        }, 150);
+                    });
+                    req.on('error', () => resolve({ code: 0, buf: Buffer.alloc(0) }));
+                    req.end();
+                }).then((r) => {
+                    const gotSum = crypto.createHash('sha256').update(r.buf).digest('hex');
+                    ok('build proxy: CONNECT tunnel backpressure delivers full payload intact to a slow client',
+                        r.code === 200 && r.buf.length === big.length && gotSum === sum, `${r.code} ${r.text || ''} ${r.buf.length}/${big.length}`);
+                    bp.kill('SIGKILL');
+                    fast.close();
+                })));
+        })
+        .then(() => {
             [a, b].forEach((k) => k.kill('SIGKILL'));
             [web, echo, socks].forEach((s) => s.close());
         });
 }
 
+/* fetch.js serve reuses a pooled keep-alive https.Agent across sequential jobs
+ * with matching connection settings and exits cleanly when stdin closes. */
+function testServeAgentPool(pki) {
+    let connections = 0;
+    const srv = https.createServer({ key: pki.key, cert: pki.cert }, (req, res) => {
+        const body = Buffer.from(`ok:${req.url}`);
+        res.writeHead(200, { 'Content-Length': body.length });
+        res.end(body);
+    });
+    srv.on('secureConnection', () => { connections++; });
+    return listen(srv).then((port) => new Promise((resolve) => {
+        const child = cp.spawn(process.execPath, [path.join(ROOT, 'js', 'fetch.js'), 'serve'], { stdio: ['pipe', 'pipe', 'inherit'], env: {} });
+        let buf = '';
+        const done = new Map();
+        const waitJob = (id, job) => new Promise((res) => {
+            done.set(id, res);
+            child.stdin.write(`${JSON.stringify({ id, job })}\n`);
+        });
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (d) => {
+            buf += d;
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                const ev = JSON.parse(buf.slice(0, nl));
+                buf = buf.slice(nl + 1);
+                if (ev.done || ev.error) {
+                    const fn = done.get(ev.id);
+                    if (fn) {
+                        done.delete(ev.id);
+                        fn(ev);
+                    }
+                }
+            }
+        });
+        const base = (n) => ({ url: `https://localhost:${port}/f${n}`, headers: { 'User-Agent': 't' },
+            dest: path.join(T, `pool-${n}`), ca: pki.ca, dns: [], maxBytes: 1024, connectMs: 1000, idleMs: 1000 });
+        let r1;
+        let r2;
+        waitJob(1, base(1))
+            .then((ev) => {
+                r1 = ev;
+                return waitJob(2, base(2));
+            })
+            .then((ev) => {
+                r2 = ev;
+                child.stdin.end();
+                return new Promise((res) => child.on('close', (code) => res(code)));
+            })
+            .then((code) => {
+                ok('serve pool: sequential jobs reuse one keep-alive TLS connection and exit cleanly',
+                    r1.done && r2.done && connections === 1 && code === 0 &&
+                    fs.readFileSync(path.join(T, 'pool-1'), 'utf8') === 'ok:/f1' &&
+                    fs.readFileSync(path.join(T, 'pool-2'), 'utf8') === 'ok:/f2',
+                    `connections=${connections} code=${code}`);
+                srv.close();
+                resolve();
+            });
+    }));
+}
+
 testParse();
 Promise.resolve(certs())
-    .then((pki) => testFetch(pki))
+    .then((pki) => testFetch(pki).then(() => testServeAgentPool(pki)))
     .then(testBuildProxy)
     .catch((e) => {
         failed++;

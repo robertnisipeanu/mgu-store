@@ -36,17 +36,21 @@ type supplicant struct {
 	ctrl  string // its control socket folder (ctrl_interface)
 	local string // our end of the control socket
 
-	mu        sync.Mutex
-	cmd       *exec.Cmd
-	run       *supplicantRun
-	startedAt time.Time
-	conn      *net.UnixConn
-	setAside  bool      // wpa.conf was moved to wpa.conf.bad (takeSetAside)
-	held      bool      // DISCONNECT sent by hold
-	heldRun   time.Time // to the supplicant started then
-	inSession bool      // hold's last call had a session
-	joinID    int       // the network a join set up
-	noLimit   bool      // it refused a freq_list: networks on every band
+	mu         sync.Mutex
+	cmd        *exec.Cmd
+	run        *supplicantRun
+	startedAt  time.Time
+	conn       *net.UnixConn
+	buf        []byte // reusable reply buffer for request()
+	confCache  wpaConfCache
+	inTick     bool
+	tickStatus map[string]string
+	setAside   bool      // wpa.conf was moved to wpa.conf.bad (takeSetAside)
+	held       bool      // DISCONNECT sent by hold
+	heldRun    time.Time // to the supplicant started then
+	inSession  bool      // hold's last call had a session
+	joinID     int       // the network a join set up
+	noLimit    bool      // it refused a freq_list: networks on every band
 }
 
 // What wpa_supplicant 2.10 prints when it can't read wpa.conf at the start.
@@ -57,6 +61,7 @@ func (s *supplicant) setAsideConf() bool {
 	if err := os.Rename(s.conf, s.conf+".bad"); err != nil {
 		return false
 	}
+	s.confCache.invalidate()
 	logf("wifi: wpa_supplicant could not read %s; moved to %s.bad", s.conf, s.conf)
 	s.setAside = true
 	return true
@@ -102,6 +107,19 @@ func (t *tail) String() string {
 }
 
 func (s *supplicant) name() string { return backendMGU }
+
+func (s *supplicant) beginTick() func() {
+	s.mu.Lock()
+	s.inTick = true
+	s.tickStatus = nil
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		s.inTick = false
+		s.tickStatus = nil
+		s.mu.Unlock()
+	}
+}
 
 // ready: running, with its control socket there.
 func (s *supplicant) ready() bool {
@@ -207,6 +225,7 @@ func (s *supplicant) stop() {
 		}
 	}
 	s.cmd = nil
+	s.tickStatus = nil
 }
 
 func (s *supplicant) closeConn() {
@@ -239,17 +258,22 @@ func (s *supplicant) request(cmd string) (string, error) {
 		s.closeConn()
 		return "", err
 	}
-	buf := make([]byte, 16384)
+	if cmd == "SAVE_CONFIG" {
+		s.confCache.invalidate()
+	}
+	if len(s.buf) == 0 {
+		s.buf = make([]byte, 16384)
+	}
 	for {
-		n, err := s.conn.Read(buf)
+		n, err := s.conn.Read(s.buf)
 		if err != nil {
 			s.closeConn()
 			return "", err
 		}
-		if n > 0 && buf[0] == '<' { // an event; we never ATTACH
+		if n > 0 && s.buf[0] == '<' { // an event; we never ATTACH
 			continue
 		}
-		return string(buf[:n]), nil
+		return string(s.buf[:n]), nil
 	}
 }
 
@@ -267,11 +291,24 @@ func (s *supplicant) ok(cmd string) error {
 }
 
 func (s *supplicant) status() map[string]string {
+	s.mu.Lock()
+	if s.inTick && s.tickStatus != nil {
+		st := s.tickStatus
+		s.mu.Unlock()
+		return st
+	}
+	s.mu.Unlock()
 	r, err := s.request("STATUS")
 	if err != nil {
 		return map[string]string{}
 	}
-	return parseKV(r)
+	st := parseKV(r)
+	s.mu.Lock()
+	if s.inTick {
+		s.tickStatus = st
+	}
+	s.mu.Unlock()
+	return st
 }
 
 // freq is the frequency (MHz) of the access point it is on (STATUS freq=),
@@ -282,6 +319,12 @@ func (s *supplicant) freq() int {
 }
 
 func (s *supplicant) signal() (int, bool) {
+	s.mu.Lock()
+	st := s.tickStatus
+	s.mu.Unlock()
+	if st != nil && st["wpa_state"] != "COMPLETED" {
+		return 0, false
+	}
 	r, err := s.request("SIGNAL_POLL")
 	if err != nil {
 		return 0, false
@@ -332,11 +375,12 @@ func (s *supplicant) networks() ([]wifiNetwork, []string, map[string]int) {
 // SAVE_CONFIG wrote it).
 func (s *supplicant) limited() map[string]bool {
 	out := map[string]bool{}
-	b, err := os.ReadFile(s.conf)
+	s.mu.Lock()
+	nets, err := s.confCache.read(s.conf)
+	s.mu.Unlock()
 	if err != nil {
 		return out
 	}
-	nets, _ := parseWPAConf(b)
 	for _, n := range nets {
 		out[n.ssid] = n.band24
 	}
@@ -407,6 +451,7 @@ func (s *supplicant) selectNetwork(id int) error {
 	}
 	s.mu.Lock()
 	s.held = false
+	s.tickStatus = nil
 	s.mu.Unlock()
 	return nil
 }
@@ -482,6 +527,9 @@ func (s *supplicant) joined() error {
 // it really can't read is set aside there.
 func (s *supplicant) reload() error {
 	err := s.ok("RECONFIGURE")
+	s.mu.Lock()
+	s.tickStatus = nil
+	s.mu.Unlock()
 	if err != nil && s.isRunning() {
 		s.stop()
 	}

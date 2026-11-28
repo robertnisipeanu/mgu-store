@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Uses less CPU while idle by reacting to USB, network and Wi-Fi changes instead of polling as often. Keeps an existing Wi-Fi interface record intact if bring-up fails and cleans up state for removed devices.
+
 ## 0.7.15
 
 - The uplink runs in the head unit's slice for standard services, so it does not take CPU time ahead of the HMI.

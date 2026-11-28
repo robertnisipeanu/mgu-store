@@ -43,6 +43,8 @@ const FOCUS = '#ffffff';
 const EPS = 1e-6;                         // rows: a scrolled row this close to the edge counts as shown
 const SIZES = ['rowH', 'tileH', 'size'];  // a layout's own sizes: kept over the values' (made for the design)
 const measure = new Recorder(1, 1);       // text widths, as drawn
+const frameRec = new Recorder(1, 1);      // reused by frame() and dragFrame()
+const rowsRec = new Recorder(1, 1);       // reused by dragOf().draw()
 const WORDS = ['text', 'title', 'label', 'empty', 'items'];   // a layout's own words, in the display language
 const AFTER_GAP = 24;                     // a text placed after another (opts.after): the room between them
 
@@ -208,7 +210,7 @@ function dragOf(m, opts, key) {
         ? Object.assign({}, c, { opts: Object.assign({}, c.opts, { hidden: true }) }) : x)) });
     const draw = (from, n) => record({ kind: 'gpu', name: st.name, theme: st.theme, bg: 'none',
         components: [Object.assign({}, c, { x: 0, y: 0, h: n * step, opts: Object.assign({}, c.opts, { top: from, bar: false }) })] },
-    Object.assign({}, ro, { design: { w: b.w, h: n * step }, area: { x: 0, y: 0, w: b.w, h: n * step } }));
+    Object.assign({}, ro, { design: { w: b.w, h: n * step }, area: { x: 0, y: 0, w: b.w, h: n * step }, rec: rowsRec }));
     return { rec: record(without, ro), box: b, step, rows: grid ? g.rows : g.all.length, shown: grid ? g.shown : g.n, max: g.max,
         bar: grid ? withAlpha(kitTheme(st.theme).text, 0.25) : null, draw };
 }
@@ -218,7 +220,10 @@ function dragOf(m, opts, key) {
  * top (rows) in the box, and the grid's scroll bar. */
 function dragFrame(d, baseLayer, rowsLayer, from, top, textScale) {
     const b = d.box;
-    const r = new Recorder(d.rec.w, d.rec.h, { textScale: textScale || 1 });
+    const r = frameRec.reset();
+    r.w = d.rec.w | 0;
+    r.h = d.rec.h | 0;
+    r.textScale = textScale || 1;
     r.clear([0, 0, 0, 0]);
     r.blit(baseLayer, 0, 0);
     r.clip(b.x, b.y, b.w, b.h);
@@ -247,13 +252,15 @@ function layoutOf(m, opts) {
         st = screenOf(v, scroll, layout);
         laid = itemsOf(st, page);
     }
-    return { st, screen: v.screen, items: laid.items, regions: laid.regions, icons: icons(v), values: v.values };
+    return { st, screen: v.screen, items: laid.items, regions: laid.regions, icons: icons(v, st), values: v.values };
 }
 
 function frame(m, opts) {
     const o = opts || {};
     const l = layoutOf(m, o);
-    const rec = record(l.st, recordOpts(o.layout || null, o.textScale));
+    const ro = recordOpts(o.layout || null, o.textScale);
+    ro.rec = frameRec;
+    const rec = record(l.st, ro);
     const f = l.items[o.focus];
     if (f && !f.reveal) {
         rec.strokeRoundRect(f.x - 8, f.y - 8, f.w + 16, f.h + 16, f.r + 8, 5, FOCUS);

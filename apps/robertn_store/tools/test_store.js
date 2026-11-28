@@ -34,6 +34,10 @@ fs.mkdirSync(DATA);
 fs.readdirSync(path.join(__dirname, '..', 'src')).forEach((n) =>
     fs.copyFileSync(path.join(__dirname, '..', 'src', n), path.join(SRC, n)));
 fs.copyFileSync(path.join(__dirname, '..', 'lib', 'mgu_render_client.js'), path.join(SRC, 'mgu_render_client.js'));
+const LOCALE_SRC = path.join(__dirname, '..', require('../mgu-app.json').tree, 'locales');
+const LOCALE_DST = path.join(ROOT, 'app', 'locales');
+fs.mkdirSync(LOCALE_DST);
+fs.readdirSync(LOCALE_SRC).forEach((n) => fs.copyFileSync(path.join(LOCALE_SRC, n), path.join(LOCALE_DST, n)));
 
 const writes = [];                     // cell writes, under iDrive 7's cell names
 const rawWrites = [];                  // as written
@@ -1096,6 +1100,12 @@ function runDrawn() {
         return tick();
     }).then(() => {
         eq(gpu.visible, true, 'shown with its host state');
+        eq(!!drawn.timing.timer, true, 'timing interval runs while shown');
+        // while drawn UI is active, RHMI widget updates are skipped
+        const wBefore = writes.length;
+        app._client.emit('state', Object.assign({}, st, { catalog: { checking: true, checkedAt: 2 } }));
+        eq(writes.slice(wBefore).filter((w) => !/^store(Layer|Embed)/.test(w)), [], 'drawn UI skips RHMI widget updates');
+        app._client.emit('state', st);
         eq(gpu.claims, [mode === 'embed' ? { x: 0, y: 0, w: 1796, h: 632 } : { x: 0, y: 0, w: 1790, h: 638 }], 'touch claimed: the box');
         eq(frames.length > 0 && drawn.items.some((i) => i.label === 'DOOM'), true, 'the Store tab drawn');
         eq(drawn.filter, 'app', 'the Store tab opens on Apps');
@@ -1195,11 +1205,12 @@ function runDrawn() {
         gpu.emit('touch', 'up', x0, y0 - 40);
         eq([frames.length - n8, [...(frames[frames.length - 1].layersUsed || [])].sort(), dropped.length - d3], [1, ahead, 0],
             'an unchanged state during a drag: one drag frame, the layers kept');
-        // hidden: the kept layers dropped at once
+        // hidden: the kept layers dropped at once and timing interval paused
         const d2 = dropped.length;
         drawn.suspend(true);
-        eq(dropped.slice(d2).sort(), ahead, 'hidden: the drag\'s layers dropped');
+        eq([dropped.slice(d2).sort(), drawn.timing.timer], [ahead, null], 'hidden: the drag\'s layers dropped and timing paused');
         drawn.suspend(false);
+        eq(!!drawn.timing.timer, true, 'shown again: timing restarted');
         // BACK (the HMI's focus back on the page below) ends a touch on the page left
         drawn.push({ name: 'app', id: 'doom' });
         gpu.emit('touch', 'down', 300, 300);
@@ -1870,12 +1881,14 @@ function runDrawn() {
             app._states[host(1)].emit('focus', { focus: true });
             eq(gpu.visible, true);
         }
-        // the renderer goes away (the Store updates it): the widget screens
+        // the renderer goes away (the Store updates it): the widget screens take over and render immediately
         reset();
         gpu.emit('close');
         return tick();
     }).then(() => {
         eq(app._ui, 'widgets');
+        eq(writes.some((w) => /^storeStatus\.\d+\.Text=/.test(w)) && writes.some((w) => /^storeAppList\.rows=/.test(w)), true,
+            'fallback to widget screens immediately renders RHMI widgets');
         eq(states.slice(0, 2), ['map ST_OnlineApps_Store', 'open ST_OnlineApps_Store'], 'the tile and the screen back on the widget screens');
         eq(states.slice(2).every((x) => /^close ST_OnlineApps_StoreLayer|^close ST_OnlineApps_StoreEmbed|^close ST_OnlineApps_Store[A-Z]/.test(x)), true,
             'the drawn screens\' states closed');

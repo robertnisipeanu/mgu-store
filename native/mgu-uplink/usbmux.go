@@ -357,14 +357,14 @@ func (c *muxConn) Read(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		var t *time.Timer
 		var timeout <-chan time.Time
 		if !deadline.IsZero() {
 			d := time.Until(deadline)
 			if d <= 0 {
 				return 0, errMuxTimeout
 			}
-			t := time.NewTimer(d)
-			defer t.Stop()
+			t = time.NewTimer(d)
 			timeout = t.C
 		}
 		select {
@@ -372,6 +372,12 @@ func (c *muxConn) Read(b []byte) (int, error) {
 		case <-c.closed:
 		case <-timeout:
 			return 0, errMuxTimeout
+		}
+		if t != nil && !t.Stop() {
+			select {
+			case <-t.C:
+			default:
+			}
 		}
 	}
 }

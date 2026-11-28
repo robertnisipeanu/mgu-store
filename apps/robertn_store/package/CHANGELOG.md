@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Smaller app package with lower memory use and smoother scrolling: translations load only for the active language, font data is more compact, and app icons decode as they scroll into view.
+
 ## 0.9.46
 
 - Add source takes a catalog address without `https://`.

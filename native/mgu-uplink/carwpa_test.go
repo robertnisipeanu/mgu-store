@@ -882,3 +882,68 @@ func TestDBusCodec(t *testing.T) {
 		t.Error("read a cut message")
 	}
 }
+
+func TestWPAConfCache(t *testing.T) {
+	s := newCarSupplicant("wlan0", filepath.Join(t.TempDir(), "wifi", "wpa.conf"), "/run/mgu-uplink/wpa")
+	in := []savedNet{{ssid: "Home", psk: "homepass1", priority: 5, band24: true}}
+	if err := s.writeSaved(in); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.readSaved()
+	if err != nil || !reflect.DeepEqual(got, in) || !s.confCache.have {
+		t.Fatalf("first read: %+v %v have=%v", got, err, s.confCache.have)
+	}
+	// Mutating the returned slice must not corrupt the cache.
+	got[0].band24 = false
+	got2, err := s.readSaved()
+	if err != nil || !got2[0].band24 {
+		t.Fatalf("cache mutated through caller slice: %+v %v", got2, err)
+	}
+	// Updating file size/mtime refreshes cache.
+	in2 := []savedNet{{ssid: "Office", psk: "officepass1", priority: 9}}
+	if err := s.writeSaved(in2); err != nil {
+		t.Fatal(err)
+	}
+	got3, err := s.readSaved()
+	if err != nil || !reflect.DeepEqual(got3, in2) {
+		t.Fatalf("after writeSaved: %+v %v", got3, err)
+	}
+	// Removing file invalidates cache.
+	os.Remove(s.conf)
+	got4, err := s.readSaved()
+	if err != nil || got4 != nil || s.confCache.have {
+		t.Fatalf("after remove: %+v %v have=%v", got4, err, s.confCache.have)
+	}
+}
+
+func TestCarSupplicantTickReuse(t *testing.T) {
+	p, _, f := carProvider(t)
+	f.do(func() { f.bss[0].freq = 5745 })
+	if err := p.car.writeSaved([]savedNet{{ssid: "Robert’s iPhone", psk: "rightpass1", priority: 5}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.car.ensure(p.proc); err != nil {
+		t.Fatal(err)
+	}
+	defer p.car.stop()
+
+	f.do(func() { f.calls = nil })
+	end := p.car.beginTick()
+	ws := p.car.status()
+	nets, saved, _ := p.car.networks()
+	sig, ok := p.car.signal()
+	freq := p.car.freq()
+	end()
+
+	if ws["wpa_state"] != "COMPLETED" || ws["ssid"] != "Robert’s iPhone" || len(nets) != 3 || len(saved) != 1 || !ok || sig != -44 || freq != 5745 {
+		t.Fatalf("tick results: ws=%v nets=%d saved=%d sig=%d/%v freq=%d", ws, len(nets), len(saved), sig, ok, freq)
+	}
+	// 1 GetAll for interface + 3 GetAll for the 3 BSSs = 4 total (not 3x interface + duplicate CurrentBSS).
+	if n := f.called("GetAll"); n != 4 {
+		t.Fatalf("GetAll called %d times, want 4 (1 iface + 3 BSSs): %v", n, f.calls)
+	}
+	// 1 Get for Frequency only (CurrentBSS reused from tick's GetAll).
+	if n := f.called("Get"); n != 1 {
+		t.Fatalf("Get called %d times, want 1 (Frequency only): %v", n, f.calls)
+	}
+}

@@ -37,7 +37,7 @@ int main(void) {
     EGLSurface pb = eglCreatePbufferSurface(d, cfg, pa);
     if (!eglMakeCurrent(d, pb, pb, ctx) || gfx_init() < 0) return 1;
 
-    uint8_t *opaque = malloc(1024 * 4096), *holed = malloc(1024 * 4096), clear[256] = {0};
+    uint8_t *opaque = malloc(1024 * 4096), *holed = malloc(1024 * 4096), clear[512] = {0};
     memset(opaque, 255, 1024 * 4096);
     memcpy(holed, opaque, 1024 * 4096);
     memset(holed, 0, 1024 * 16);                            /* rows 0..15 empty */
@@ -84,6 +84,31 @@ int main(void) {
     draw(&o, order, sizeof order / sizeof *order);
     CHECK(red(2) && green(6) && green(9) && red(11) && red(14), "glyphs on two pages draw in order");
     gfx_client_free(&o);
+
+    /* ramp rows belong to their client until it closes: 300 transient clients never overwrite a live client's ramp */
+    gfx_client rlive = {0};
+    uint32_t rcol = RED, bcol = 0x0000ffffu;
+    good = !gfx_ramp(&rlive, 1, 1, &rcol);
+    for (int i = 0; i < 300; i++) {
+        gfx_client tmp = {0};
+        good &= !gfx_ramp(&tmp, 1, 1, &bcol);
+        gfx_client_free(&tmp);
+    }
+    uint32_t rcmd[] = { OP_RAMPRECT, fp(0), fp(0), fp(16), fp(16), fp(0), 1, fp(0), fp(16) };
+    draw(&rlive, rcmd, sizeof rcmd / sizeof *rcmd);
+    CHECK(good && red(8), "ramp rows are reclaimed without overwriting live clients");
+    gfx_client_free(&rlive);
+
+    /* a freed slot's replacement keeps its 1-texel separator row clear of an atlas below it */
+    gfx_client ga = {0}, gb = {0}, gc = {0};
+    good = !gfx_atlas(&ga, 40, 16, 16, opaque) && !gfx_atlas(&gb, 42, 16, 16, opaque) && !gfx_atlas(&gb, 41, 16, 16, opaque);
+    gfx_client_free(&ga);
+    good &= !gfx_atlas(&gc, 43, 16, 17, clear);
+    uint32_t top_row[] = { OP_GLYPHS, 41, RED, 1, fp(0), fp(0), fp(16), fp(16), fp(0), fp(0), fp(16), fp(1) };
+    draw(&gb, top_row, sizeof top_row / sizeof *top_row);
+    CHECK(good && red(8), "a freed slot's separator row never overwrites row 0 of an atlas below it");
+    gfx_client_free(&gc);
+    gfx_client_free(&gb);
 
     free(opaque);
     free(holed);

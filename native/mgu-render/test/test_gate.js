@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { findInterface, readApps, startGate, COVER_SETTLE_MS } = require('../js/foreground_gate.js');
+const { findInterface, readApps, appsReader, startGate, COVER_SETTLE_MS } = require('../js/foreground_gate.js');
 
 const ID7 = 'de_bmw_infotainment_hmi_remote_RemoteHmiApplication.json';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
@@ -72,6 +72,18 @@ check('two folders, both registered: left out', mapped(), [['other', 12211]]);
 fs.rmSync(`${apps}/oap_12201/data/apps/robertn_store_copy.json`);
 put(`${apps}/oap_12201/data/apps/broken.json`, '{ not json');
 check('a broken registry entry is passed over', mapped(), [['other', 12211], ['store', 12246]]);
+
+// cached app lookup reuses its map when unchanged and refreshes on new or edited apps
+const getApps = appsReader(apps, () => {});
+const firstMap = getApps();
+check('cached readApps reuses map when unchanged', getApps() === firstMap, true);
+claim(12250, 'added-app');
+const afterAdd = getApps();
+check('cached readApps refreshes when an app folder is added', afterAdd.get('added-app'), 12250);
+claim(12250, 'renamed-app-uuid');
+const afterEdit = getApps();
+check('cached readApps refreshes when application.json changes', afterEdit.get('renamed-app-uuid'), 12250);
+fs.rmSync(`${apps}/oap_12250`, { recursive: true, force: true });
 
 // in front and covered, for the HMI's events as an iDrive 7 sends them (instance 10: the Store, uuid 'store')
 const subs = {};

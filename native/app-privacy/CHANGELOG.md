@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reduces repeated disk reads in the running app manager and speeds up startup verification and patching. Writes patched files more safely so an interrupted write cannot leave an empty file.
+
 ## 1.7.5
 
 - A start with MainApp's bundles and app-privacy as they were at the last start runs no Node: the boot unit compares checksums only.

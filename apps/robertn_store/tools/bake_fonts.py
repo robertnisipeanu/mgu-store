@@ -27,7 +27,7 @@ FACES = {'regular': ('Inter-Regular.ttf', [17, 23, 31, 41, 50]),
 PAD = 1
 
 
-def bake(path, size, weight=None, width=None):
+def bake(path, size, weight=None, width=None, raw=False):
     f = ImageFont.truetype(path, size)
     if weight is not None:
         f.set_variation_by_axes([weight])
@@ -53,8 +53,12 @@ def bake(path, size, weight=None, width=None):
         if w and h:
             d.text((gx - l, gy - t), ch, font=f, fill=255, anchor='ls')
         glyphs[str(ord(ch))] = [gx, gy, w, h, l, t, round(adv, 3)]
-    return {'size': size, 'ascent': ascent, 'descent': descent, 'atlasW': width, 'atlasH': height,
-            'alpha': base64.b64encode(zlib.compress(img.tobytes(), 9)).decode('ascii'), 'glyphs': glyphs}
+    pixels = img.tobytes()
+    meta = {'size': size, 'ascent': ascent, 'descent': descent, 'atlasW': width, 'atlasH': height, 'glyphs': glyphs}
+    if raw:
+        return meta, pixels
+    meta['alpha'] = base64.b64encode(zlib.compress(pixels, 9)).decode('ascii')
+    return meta
 
 
 def main():

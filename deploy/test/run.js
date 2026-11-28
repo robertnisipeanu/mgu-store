@@ -7738,6 +7738,9 @@ function testMguInstall() {
         check('mgu-install first-install: no remote command carries a double quote or a backslash (Windows passes them through its own quoting)',
             r.calls.every((a) => !/["\\]/.test(a[a.length - 1])), r.calls.map((a) => a[a.length - 1]).join('\n'));
         check('mgu-install first-install: leaves no staging folder', !fs.readdirSync(root.p('var/opt')).some((n) => /^mgu-deploy-kit-/.test(n)));
+        check('mgu-install first-install: queries mgu-deploy status once',
+            r.calls.every((a) => (a[a.length - 1].match(/mgu-deploy\.sh status\b/g) || []).length <= 1),
+            r.calls.map((a) => a[a.length - 1]).join('\n'));
         check('mgu-install first-install: the kit runs under umask 022, in a folder made root\'s alone by its mode',
             r.calls.some((a) => /^rm -rf '\/var\/opt\/mgu-deploy-kit-\d+' && umask 022 && mkdir -m 700 -p '\/var\/opt\/mgu-deploy-kit-\d+' && tar /.test(a[a.length - 1])),
             r.calls.map((a) => a[a.length - 1]).join('\n'));
@@ -8410,6 +8413,15 @@ function testMguInstallUninstall() {
         check('mgu-install uninstall: the published deploy tool runs under umask 022, in a folder made root\'s alone by its mode',
             r.calls.some((a) => /^rm -rf '\/var\/opt\/mgu-deploy-kit-\d+' && umask 022 && mkdir -m 700 -p '\/var\/opt\/mgu-deploy-kit-\d+' && tar .* remove-all /.test(a[a.length - 1])),
             r.calls.map((a) => a[a.length - 1]).join('\n'));
+        check('mgu-install uninstall: uploads and unpacks the fallback deploy tool kit once',
+            r.calls.filter((a) => a[a.length - 1].includes('tar -xzf -')).length === 1,
+            r.calls.map((a) => a[a.length - 1]).join('\n'));
+        // aborted fallback uninstall cleans up the staged kit folder
+        ({ root, bin, opts } = setup());
+        fs.writeFileSync(root.p('var/opt/mgu-deploy/mgu-deploy.sh'), `[ "$1" = help ] && { echo 'mgu-deploy 0.7.15'; exit 0; }\n${real}`);
+        r = mguInstall(['uninstall', '--host', '10.0.0.9'], opts);
+        check('mgu-install uninstall: an aborted fallback uninstall removes the staged kit folder',
+            r.status === 2 && !fs.readdirSync(root.p('var/opt')).some((n) => /^mgu-deploy-kit-/.test(n)), r.out);
     } finally {
         gh.stop();
     }
@@ -10927,6 +10939,76 @@ function testReadOnlyOnlyStatus() {
 }
 
 // MGU_TEST_ONLY=<name>,...: only those test functions
+/* remove-all resets the per-uninstall deactivated tracker between tools, so a
+ * later tool's failed removal never reactivates an earlier tool's folder. */
+function testDeactivatedReset() {
+    const root = fakeRoot();
+    const hookLog = `${root.R}.hooks.log`;
+    const env = { FAKE_HOOK_LOG: hookLog };
+    const first = hookArtifact('0.2.0', (c) => { delete c.requires; });
+    const second = namedTool('zzz-tool', '0.1.0', (c) => {
+        c.units = [{ name: 'zzz-tool.service', from: 'systemd/fixture-tool.service' }];
+        c.recmgr = ['zzz-tool'];
+    });
+    const i1 = root.run(['install', '--artifact', first, '--yes'], env);
+    const i2 = root.run(['install', '--artifact', second, '--yes'], env);
+    // zzz-tool is active and loaded by recmgr so stopUnits attempts systemctl stop zzz-tool.service
+    write(root.unitFile('zzz-tool.service.active'), 'active\n');
+    root.reboot(Math.floor(Date.now() / 1000) + 10);
+    fs.writeFileSync(hookLog, '');
+    const r = root.run(['remove-all', '--yes'], Object.assign({ FAKE_FAIL: 'stop zzz-tool.service' }, env));
+    const hooks = fs.readFileSync(hookLog, 'utf8').trim().split('\n').filter(Boolean);
+    const res = JSON.parse(r.stdout.trim().split('\n').pop());
+    check('remove-all: a failed removal after a deactivated tool does not leak its deactivated path',
+        i1.status === 0 && i2.status === 0 && r.status === 1 &&
+        !fs.existsSync(root.tool('fixture-tool')) && fs.existsSync(root.tool('zzz-tool')) &&
+        res.left.includes('zzz-tool') && hooks.length === 1 && hooks[0].startsWith('deactivate 0.2.0') &&
+        !r.out.includes('activating it again failed'), `${r.out}\nhooks: ${JSON.stringify(hooks)}`);
+}
+
+/* Streaming sha256/copy across multi-chunk (>64 KiB) payloads and single-pass
+ * tar -tvzf validation (paths with spaces, symlinks, unsafe paths, hardlinks). */
+function testStreamingAndValidate() {
+    const root = fakeRoot();
+    const big = crypto.randomBytes(150 * 1024 + 137);
+    const dir = fixtureCopy('0.2.0', (c) => {
+        c.files.push({ path: 'data file.bin', from: 'data file.bin', mode: '0644' });
+    });
+    fs.writeFileSync(path.join(dir, 'data file.bin'), big);
+    const out = fs.mkdtempSync(path.join(T, 'big-'));
+    const built = hu(['artifact', dir, '--out', out]);
+    if (built.status !== 0) throw new Error(built.stderr);
+    const art = path.join(out, 'fixture-tool@0.2.0.tgz');
+    const r = root.run(['install', '--artifact', art, '--yes']);
+    const dest = path.join(root.tool('fixture-tool'), 'versions/0.2.0/data file.bin');
+    check('streaming & tar -tvzf: multi-chunk (>64 KiB) file with space in name installs with exact bytes and mode',
+        r.status === 0 && fs.existsSync(dest) && fs.readFileSync(dest).equals(big) && mode(dest) === 0o644, r.out);
+    // update and restore: exercises snapshot copy + restore streaming on a multi-chunk file
+    const big2 = crypto.randomBytes(150 * 1024 + 55);
+    const dir2 = fixtureCopy('0.3.0', (c) => {
+        c.files.push({ path: 'data file.bin', from: 'data file.bin', mode: '0644' });
+    });
+    fs.writeFileSync(path.join(dir2, 'data file.bin'), big2);
+    const built2 = hu(['artifact', dir2, '--out', out]);
+    if (built2.status !== 0) throw new Error(built2.stderr);
+    const u = root.run(['install', '--artifact', path.join(out, 'fixture-tool@0.3.0.tgz'), '--yes']);
+    const dest2 = path.join(root.tool('fixture-tool'), 'versions/0.3.0/data file.bin');
+    check('streaming: update installs second multi-chunk file with exact bytes',
+        u.status === 0 && fs.readFileSync(dest2).equals(big2), u.out);
+    // unsafe symlink path reports unsafe path before symlink check
+    const badLink = rebuild(art, (entries) => rawTgz(entries.concat([{ name: '../escape', link: '/etc/passwd' }])));
+    const bl = root.run(['check', '--artifact', badLink]);
+    check('tar -tvzf: symlink with .. reports unsafe path', bl.status === 2 && bl.out.includes('unsafe path'), bl.out);
+    // hardlink entry is refused
+    const hdir = fs.mkdtempSync(path.join(T, 'hl-'));
+    fs.writeFileSync(path.join(hdir, 'a'), 'hello');
+    fs.linkSync(path.join(hdir, 'a'), path.join(hdir, 'b'));
+    const htgz = path.join(out, 'hardlink.tgz');
+    cp.execFileSync('tar', ['-czf', htgz, '-C', hdir, 'a', 'b']);
+    const hr = root.run(['check', '--artifact', htgz]);
+    check('tar -tvzf: hardlink entry is refused', hr.status === 2 && hr.out.includes('hardlink in artifact'), hr.out);
+}
+
 const SUITES = [
     testArtifact,
     testSelf,
@@ -11060,7 +11142,9 @@ const SUITES = [
     testMguInstallStop,
     testMguInstallClosed,
     testMguInstallUsbIcons,
-    testKeepApps
+    testKeepApps,
+    testDeactivatedReset,
+    testStreamingAndValidate
 ];
 const ONLY = (process.env.MGU_TEST_ONLY || '').split(',').filter(Boolean);
 let crashed = null;

@@ -160,11 +160,20 @@ static void fill(uint8_t *row, int n)
 void dbr_blit(uint8_t *dst, int dw, int dh, const int img[4], const uint8_t *src, int sw, int sh, unsigned format,
               const uint32_t lut[256])
 {
+    static int *xs, last_iw, last_sw;
+    static size_t xs_cap;
     size_t stride = (size_t)dw * 4;
     int x0 = img[0], y0 = img[1], iw = img[2], ih = img[3];
-    int *xs = malloc((size_t)iw * sizeof *xs);
-    if (!xs) return;
-    for (int x = 0; x < iw; x++) xs[x] = (int)((long)x * sw / iw);
+    if (iw <= 0 || ih <= 0) return;
+    if ((size_t)iw > xs_cap) {
+        int *n = realloc(xs, (size_t)iw * sizeof *n);
+        if (!n) return;
+        xs = n; xs_cap = (size_t)iw; last_iw = 0;
+    }
+    if (iw != last_iw || sw != last_sw) {
+        for (int x = 0; x < iw; x++) xs[x] = (int)((long)x * sw / iw);
+        last_iw = iw; last_sw = sw;
+    }
     size_t bpp = dbr_bpp(format);
     int last = -1;
     for (int y = 0; y < dh; y++) {
@@ -191,5 +200,4 @@ void dbr_blit(uint8_t *dst, int dw, int dh, const int img[4], const uint8_t *src
             }
         }
     }
-    free(xs);
 }

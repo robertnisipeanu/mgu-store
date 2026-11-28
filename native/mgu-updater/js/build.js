@@ -34,6 +34,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const cp = require('child_process');
+const { copyFileHashed } = require('./sources');
 
 const MAX_LOG_LINES = 2000;
 const MAX_LOG_BYTES = 256 << 10;
@@ -86,12 +87,10 @@ function mkdirp(dir, mode) {
 }
 
 /* Bytes under dir (du -sk), or 0 when du cannot tell. */
-function usage(dir) {
-    try {
-        return Number(cp.execFileSync('du', ['-sk', dir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\s/)[0]) * 1024;
-    } catch (e) {
-        return 0;
-    }
+function usage(dir, cb) {
+    cp.execFile('du', ['-sk', dir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }, (err, stdout) => {
+        cb(err ? 0 : (Number(String(stdout).split(/\s/)[0]) * 1024) || 0);
+    });
 }
 
 /* Bytes free on the file system holding dir (df), or Infinity when df cannot tell. */
@@ -326,9 +325,35 @@ function runBuild(opts) {
                     env
                 }, asRoot ? { uid, gid } : {}));
                 let stopped = null;
-                const onLine = (d) => d.toString().split('\n').filter(Boolean).forEach((l) => say(`build ${entry.id}: ${l}`));
-                child.stdout.on('data', onLine);
-                child.stderr.on('data', onLine);
+                let exited = false;
+                let checking = false;
+                const feed = (stream) => {
+                    let buf = '';
+                    const emitLine = (l) => {
+                        if (l) {
+                            say(`build ${entry.id}: ${l}`);
+                        }
+                    };
+                    stream.setEncoding('utf8');
+                    stream.on('data', (d) => {
+                        buf += d;
+                        let nl;
+                        while ((nl = buf.indexOf('\n')) >= 0) {
+                            emitLine(buf.slice(0, nl).replace(/\r$/, ''));
+                            buf = buf.slice(nl + 1);
+                        }
+                    });
+                    const flush = () => {
+                        if (buf) {
+                            emitLine(buf.replace(/\r$/, ''));
+                            buf = '';
+                        }
+                    };
+                    stream.on('end', flush);
+                    return flush;
+                };
+                const flushOut = feed(child.stdout);
+                const flushErr = feed(child.stderr);
                 const stop = (why) => {
                     if (!stopped) {
                         stopped = why;
@@ -340,19 +365,30 @@ function runBuild(opts) {
                 };
                 const timer = setTimeout(() => stop(`took longer than ${conf.build_timeout_s} s`), timeoutMs);
                 const watch = setInterval(() => {
-                    if (usage(dir) > maxBytes) {
-                        over = !!room;
-                        stop(`wrote more than ${maxBytes} bytes`);
+                    if (checking || stopped || exited) {
+                        return;
                     }
+                    checking = true;
+                    usage(dir, (used) => {
+                        checking = false;
+                        if (!stopped && !exited && used > maxBytes) {
+                            over = !!room;
+                            stop(`wrote more than ${maxBytes} bytes`);
+                        }
+                    });
                 }, room ? 500 : 2000);
                 child.on('error', (err) => {
+                    exited = true;
                     clearTimeout(timer);
                     clearInterval(watch);
+                    flushOut();
+                    flushErr();
                     reject(python ? new Error(`Python (${interpreter}) cannot start (${err.code || err.message})` +
                         (err.code === 'ENOENT' ? ': update mgu-python' : '')) : err);
                 });
                 // exit, not close: a process the script started may hold its output open
                 child.on('exit', (code, signal) => {
+                    exited = true;
                     clearTimeout(timer);
                     clearInterval(watch);
                     // whatever the script left running, before root reads MGU_OUT
@@ -360,6 +396,8 @@ function runBuild(opts) {
                         process.kill(-child.pid, 'SIGKILL');
                     } catch (e) { /* gone */ }
                     killAll(uid, gid).then(() => {
+                        flushOut();
+                        flushErr();
                         if (room && (stopped || code !== 0) && freeBytes(dir) < 1 << 20) {
                             over = true;
                         }
@@ -402,7 +440,15 @@ function runBuild(opts) {
             if (left.length !== 1 || left[0] !== name) {
                 throw new Error(`the build left ${left.length ? left.join(', ') : 'nothing'} in MGU_OUT, not ${name} alone`);
             }
-            const fd = fs.openSync(path.join(out, name), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+            const src = path.join(out, name);
+            if (opts.to) {
+                return copyFileHashed(src, opts.to, maxBytes, { nonEmpty: true, sizeError: `${name} is not a file of at most ${maxBytes} bytes` })
+                    .then((res) => {
+                        log(`build ${entry.id}@${entry.version}: ${name}, ${res.size} bytes`);
+                        return res;
+                    });
+            }
+            const fd = fs.openSync(src, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
             try {
                 const st = fs.fstatSync(fd);
                 if (!st.isFile() || st.size > maxBytes || st.size === 0) {

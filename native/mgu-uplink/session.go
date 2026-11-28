@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"os/signal"
@@ -26,6 +27,12 @@ import (
 
 const reconcileEvery = 5 * time.Second
 
+// Replaced by tests.
+var (
+	fwCheckEvery = 30 * time.Second
+	appSyncEvery = 30 * time.Second
+)
+
 type service struct {
 	cfg     config
 	up      Uplink
@@ -34,15 +41,18 @@ type service struct {
 	byApp   map[string]int
 	missing []string
 	// badDropIns are the drop-in entries last logged as ignored.
-	badDropIns string
-	link       Link
-	lease      *Lease
-	dhcp       *dhcpClient
-	lastErr    string
-	wifi       *wifiProvider // nil unless uplink = auto
-	guards     string        // the interfaces the firewall was last applied for
-	kick       chan struct{} // reconcile now
-	ctlMu      sync.Mutex    // one request writes settings_conf at a time
+	badDropIns  string
+	link        Link
+	lease       *Lease
+	dhcp        *dhcpClient
+	lastErr     string
+	wifi        *wifiProvider // nil unless uplink = auto
+	guards      string        // the interfaces the firewall was last applied for
+	fwCheckedAt time.Time     // last healthy firewall apply or check
+	appSyncedAt time.Time     // last successful syncAppState
+	appLease    *Lease        // lease last written by syncAppState
+	kick        chan struct{} // reconcile now
+	ctlMu       sync.Mutex    // one request writes settings_conf at a time
 }
 
 type openResult struct {
@@ -94,6 +104,7 @@ func runService(c config, up Uplink) error {
 		setStatusUSBPhone(&phones)
 		s.wifi = newWiFiProvider(c, filepath.Join(filepath.Dir(self), wpaBin))
 		s.wifi.notify = s.kickReconcile
+		s.wifi.onAssoc = su.poke
 		s.wifi.outranks = func(kind string) bool { return su.rank(kind) < su.rank(kindWiFi) }
 		su.wifi = s.wifi
 		s.wifi.start()
@@ -294,13 +305,15 @@ func (s *service) shutdown() {
 // distinct error is logged once.
 func (s *service) reconcile(force bool) {
 	c := s.cfg
-	uids, byApp, missing := resolveUIDs(c)
+	dUIDs, dApps, bad := dropIns(c)
+	uids, byApp, missing := resolveUIDsWith(c, dUIDs, dApps)
 	uidsChanged := fmt.Sprint(uids) != fmt.Sprint(s.uids) || fmt.Sprint(missing) != fmt.Sprint(s.missing)
+	byAppChanged := !maps.Equal(byApp, s.byApp)
 	if uidsChanged {
 		logf("allowed uids %v (apps %v; not installed: %v)", uids, byApp, missing)
 	}
-	if _, _, bad := dropIns(c); strings.Join(bad, ", ") != s.badDropIns {
-		s.badDropIns = strings.Join(bad, ", ")
+	if badStr := strings.Join(bad, ", "); badStr != s.badDropIns {
+		s.badDropIns = badStr
 		if s.badDropIns != "" {
 			logf("ignored drop-in entries: %s", s.badDropIns)
 		}
@@ -329,22 +342,52 @@ func (s *service) reconcile(force bool) {
 	fail(err)
 	_, err = syncRules(c, uids, leaseIP)
 	fail(err)
-	guarded := s.guarded()
-	if guards := strings.Join(guarded, " "); force || uidsChanged || guards != s.guards || !firewallPresent(c) {
-		err := applyFirewall(c, guarded, uids)
-		fail(err)
-		if err == nil {
-			s.guards = guards
-		}
-	} else {
-		fail(ensureUnitAccept(c, guarded))
-	}
-	fail(syncAppState(c, byApp, s.lease))
+	fail(s.reconcileFirewall(force, uidsChanged, uids))
+	fail(s.reconcileAppState(force, byAppChanged, byApp))
 	msg := strings.Join(errs, "; ")
 	if msg != "" && msg != s.lastErr {
 		logf("%s", msg)
 	}
 	s.lastErr = msg
+}
+
+func (s *service) reconcileFirewall(force, uidsChanged bool, uids []int) error {
+	guarded := s.guarded()
+	guards := strings.Join(guarded, " ")
+	now := time.Now()
+	var err error
+	switch {
+	case force || uidsChanged || guards != s.guards || s.fwCheckedAt.IsZero():
+		err = applyFirewall(s.cfg, guarded, uids)
+	case now.Sub(s.fwCheckedAt) < fwCheckEvery:
+		return nil
+	case !firewallPresent(s.cfg):
+		err = applyFirewall(s.cfg, guarded, uids)
+	default:
+		err = ensureUnitAccept(s.cfg, guarded)
+	}
+	if err != nil {
+		s.fwCheckedAt = time.Time{}
+		return err
+	}
+	s.guards = guards
+	s.fwCheckedAt = now
+	return nil
+}
+
+func (s *service) reconcileAppState(force, byAppChanged bool, byApp map[string]int) error {
+	now := time.Now()
+	if !force && !byAppChanged && sameLeaseValue(s.lease, s.appLease) &&
+		!s.appSyncedAt.IsZero() && now.Sub(s.appSyncedAt) < appSyncEvery {
+		return nil
+	}
+	if err := syncAppState(s.cfg, byApp, s.lease); err != nil {
+		s.appSyncedAt = time.Time{}
+		return err
+	}
+	s.appSyncedAt = now
+	s.appLease = cloneLease(s.lease)
+	return nil
 }
 
 // guarded lists the interfaces the firewall guards: the one the uplink

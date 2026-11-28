@@ -54,7 +54,8 @@ const DRAW = {
  */
 function record(st, opts = {}) {
     const tg = opts.design || E.DESIGN, t = kitTheme(st.theme), area = opts.area || E.appArea(opts.view);
-    const rec = new Recorder(tg.w, tg.h, { textScale: opts.textScale || 1 });
+    const rec = opts.rec ? opts.rec.reset() : new Recorder(tg.w, tg.h, { textScale: opts.textScale || 1 });
+    rec.w = tg.w | 0; rec.h = tg.h | 0; rec.textScale = opts.textScale || 1; rec.errors = null;
     rec.clear([0, 0, 0, 0]);
     if (st.bg !== 'none') {
         const a = st.bgArea === 'app' ? area : { x: 0, y: 0, w: tg.w, h: tg.h };

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Installs, updates, backups and status checks use less memory and storage writes, and finish faster on the head unit. `mgu-install.js` downloads packages in parallel, uploads the fallback tool once during uninstall, and keeps failed removals isolated from earlier tools.
+
 ## 0.8.31
 
 - `status --json` names the files its answer rests on, so a caller can keep the answer until one of them changes.

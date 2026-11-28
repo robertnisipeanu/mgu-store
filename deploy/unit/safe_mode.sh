@@ -105,7 +105,7 @@ is_number() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "${#1}" -le 9 ]; }
 is_count() { is_number "$1" && [ "$1" -lt "$THRESHOLD" ]; }
 
 # put <file> <text>: the text whole into the file
-put() { printf '%s\n' "$2" > "$1.tmp" && mv -f "$1.tmp" "$1"; }
+put() { printf '%s\n' "$2" > "$1.tmp.$$" && mv -f "$1.tmp.$$" "$1"; }
 
 # The count line as this guard writes it, in b, id and c: b failed starts
 # before start id (below the threshold), c with it (b, b + 1 or 0); b and c

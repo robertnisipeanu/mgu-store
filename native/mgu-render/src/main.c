@@ -311,7 +311,12 @@ static void send_bytes(client *c, const void *h, size_t hl, const void *p, uint3
     if (c->fd < 0) return;                                /* replay: replies go nowhere */
     size_t need = c->outlen + hl + len;
     if (need > (4u << 20)) return;                       /* app not reading: drop */
-    if (need > c->outcap) { c->outcap = need * 2; c->out = realloc(c->out, c->outcap); }
+    if (need > c->outcap) {
+        size_t ncap = need * 2;
+        uint8_t *n = realloc(c->out, ncap);
+        if (!n) return;
+        c->out = n; c->outcap = ncap;
+    }
     memcpy(c->out + c->outlen, h, hl);
     if (len) memcpy(c->out + c->outlen + hl, p, len);
     c->outlen += hl + len;
@@ -696,6 +701,16 @@ static void render_layer(client *c) {
    waits for the compositor's frame callback; with tick_early it is drawn while the compositor still has the one
    before, when no drawn frame waits, and the app is asked for its next frame (TICK) once its last one is drawn and
    nothing drawn waits: it builds frame N+1 while the compositor shows frame N. */
+static uint8_t *dbr_scratch(size_t need) {
+    static uint8_t *buf;
+    static size_t cap;
+    if (need <= cap) return buf;
+    uint8_t *n = realloc(buf, need);
+    if (!n) return NULL;
+    buf = n; cap = need;
+    return buf;
+}
+
 static void render_embed(void) {
     client *c = embed_owner;
     if (!c) return;
@@ -715,10 +730,7 @@ static void render_embed(void) {
             int gpu = embed_gpu_index(b), pw = (int)c->dbr.w, ph = (int)c->dbr.h;
             embed_gl_cancel();
             if (gpu >= 0) {
-                static uint8_t *rgba;
-                static size_t cap;
-                size_t need = (size_t)pw * ph * 4;
-                if (need > cap) { free(rgba); cap = (rgba = malloc(need)) ? need : 0; }
+                uint8_t *rgba = dbr_scratch((size_t)pw * ph * 4);
                 if (!rgba) return;
                 dbr_rgba(rgba, c->dbr.px, pw, ph, c->dbr.format, c->dbr.lut);
                 if (embed_gl_picture(gpu, rgba, pw, ph, img, w, h) < 0) { embed_readback("pixels could not be drawn into a GPU buffer"); return; }
@@ -758,31 +770,41 @@ void embed_frame_done(void) {
 
 void embed_changed(void) { update_all(); }
 
-/* the HMI's process id, or -1 */
+static int proc_is_hmi(int pid) {
+    char p[64], name[64] = "";
+    snprintf(p, sizeof p, "/proc/%d/comm", pid);
+    FILE *f = fopen(p, "r");
+    if (!f) return 0;
+    if (fgets(name, sizeof name, f)) name[strcspn(name, "\n")] = 0;
+    fclose(f);
+    return !strcmp(name, cfg.hmi_process);
+}
+
+/* the HMI's process id, or -1 (cached while /proc/<pid>/comm still matches) */
 static int hmi_pid(void) {
+    static int cached = -1;
+    if (cached > 0 && proc_is_hmi(cached)) return cached;
+    cached = -1;
     DIR *d = opendir("/proc");
     if (!d) return -1;
     struct dirent *e;
-    int pid = -1;
-    while (pid < 0 && (e = readdir(d))) {
-        char p[64], name[64] = "";
+    while (cached < 0 && (e = readdir(d))) {
         if (e->d_name[0] < '0' || e->d_name[0] > '9' || strlen(e->d_name) > 12) continue;
-        snprintf(p, sizeof p, "/proc/%d/comm", atoi(e->d_name));
-        FILE *f = fopen(p, "r");
-        if (!f) continue;
-        if (fgets(name, sizeof name, f)) name[strcspn(name, "\n")] = 0;
-        fclose(f);
-        if (!strcmp(name, cfg.hmi_process)) pid = atoi(e->d_name);
+        int pid = atoi(e->d_name);
+        if (pid > 0 && proc_is_hmi(pid)) cached = pid;
     }
     closedir(d);
-    return pid;
+    return cached;
 }
 
 /* the HMI started after mgu-render-hmi.sh mounted the template (its marker) */
 static int template_loaded(void) {
+    static int cached_pid = -1, cached_val;
+    static time_t cached_mtime;
     struct stat ms;
     int pid;
-    if (stat(cfg.embed_marker, &ms) < 0 || (pid = hmi_pid()) < 0) return 0;
+    if (stat(cfg.embed_marker, &ms) < 0 || (pid = hmi_pid()) < 0) { cached_pid = -1; return 0; }
+    if (pid == cached_pid && ms.st_mtime == cached_mtime) return cached_val;
     char p[64], buf[1024];
     snprintf(p, sizeof p, "/proc/%d/stat", pid);
     FILE *f = fopen(p, "r");
@@ -799,7 +821,9 @@ static int template_loaded(void) {
     while (f && fgets(line, sizeof line, f)) if (!strncmp(line, "btime ", 6)) btime = atoll(line + 6);
     if (f) fclose(f);
     long hz = sysconf(_SC_CLK_TCK);
-    return btime && hz > 0 && btime + start / hz + 1 >= (long long)ms.st_mtime;
+    int val = btime && hz > 0 && btime + start / hz + 1 >= (long long)ms.st_mtime;
+    cached_pid = pid; cached_mtime = ms.st_mtime; cached_val = val;
+    return val;
 }
 
 static uint64_t t_listen;
@@ -895,23 +919,38 @@ static int grabbing(const client *c, uint64_t t) { return c->grab_t && t - c->gr
  * marker "mgu-inputgate-hold:"; a gate without it holds all three whatever the file says) */
 static int ctl_gate_loaded(void) {
     static const char marker[] = "mgu-inputgate-hold:";
+    static int cached_pid = -1, cached_val;
     int pid = cfg.controller_lib[0] ? hmi_pid() : -1;
-    if (pid < 0) return 0;
+    if (pid < 0) { cached_pid = -1; return 0; }
+    if (pid == cached_pid) return cached_val;
     char p[64], line[512];
     snprintf(p, sizeof p, "/proc/%d/maps", pid);
     FILE *f = fopen(p, "r");
+    if (!f) return 0;
     int found = 0;
-    while (f && !found && fgets(line, sizeof line, f)) found = strstr(line, cfg.controller_lib) != NULL;
-    if (f) fclose(f);
+    while (!found && fgets(line, sizeof line, f)) found = strstr(line, cfg.controller_lib) != NULL;
+    fclose(f);
+    int val = found;
     char *lib = found ? strchr(line, '/') : NULL;
-    if (!lib) return found;
-    lib[strcspn(lib, "\n")] = 0;
-    FILE *so = fopen(lib, "rb");
-    if (!so) return 1;
-    static char buf[256 * 1024];
-    size_t n = fread(buf, 1, sizeof buf, so);
-    fclose(so);
-    return memmem(buf, n, marker, sizeof marker - 1) ? 2 : 1;
+    if (lib) {
+        lib[strcspn(lib, "\n")] = 0;
+        FILE *so = fopen(lib, "rb");
+        if (so) {
+            enum { MLEN = sizeof marker - 1 };
+            char buf[4096];
+            size_t carry = 0, n;
+            while ((n = fread(buf + carry, 1, sizeof buf - carry, so)) > 0) {
+                size_t total = carry + n;
+                if (memmem(buf, total, marker, MLEN)) { val = 2; break; }
+                carry = total >= MLEN - 1 ? MLEN - 1 : total;
+                memmove(buf, buf + total - carry, carry);
+            }
+            fclose(so);
+        }
+    }
+    if (val > 0) { cached_pid = pid; cached_val = val; }
+    else { cached_pid = -1; }
+    return val;
 }
 
 /* the parts held as the gate reads them: the file's words (HOLD_ALL: empty, or no file) */
@@ -1212,7 +1251,7 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
     case M_RAMP: {
         if (nw < 2 || w[1] > 64 || nw < 2 + (size_t)w[1]) return -1;
         make_current_any(c);
-        gfx_ramp(&c->g, w[0], (int)w[1], w + 2);
+        if (gfx_ramp(&c->g, w[0], (int)w[1], w + 2) < 0) send_error(c, gfx_error());
         return 0;
     }
     case M_LAYER: {
@@ -1237,8 +1276,13 @@ static int handle(client *c, uint32_t type, const uint8_t *p, uint32_t len) {
             if (!c->tick_at) c->tick_at = now_us() + tick_us(c);
             return 0;
         }
-        if (nw > c->frame_cap) { c->frame_cap = nw + 1024; c->frame = realloc(c->frame, c->frame_cap * 4); }
-        memcpy(c->frame, p, nw * 4);
+        if (nw > c->frame_cap) {
+            size_t ncap = nw + 1024;
+            uint32_t *n = realloc(c->frame, ncap * 4);
+            if (!n) { send_error(c, "out of memory"); return 0; }
+            c->frame = n; c->frame_cap = ncap;
+        }
+        if (nw) memcpy(c->frame, p, nw * 4);
         c->frame_words = nw;
         answered(c);
         c->dirty = 1;
@@ -1361,11 +1405,10 @@ static int dbr_frame(client *c, uint32_t seq, int n, int rects[][4], const uint8
         }
         int r;
         if (c->dbr.format == DBR_FMT_XRGB8888 || c->dbr.format == DBR_FMT_ARGB8888) {
-            uint8_t *rgba = malloc(sz);
+            uint8_t *rgba = dbr_scratch(sz);
             if (!rgba) return dbr_fail(c, DBR_ERR_DISPLAY, "out of memory");
             dbr_to_rgba(rgba, px, (size_t)w * h, c->dbr.format);
             r = gfx_pixmap_write(&c->g, DBR_PIXMAP, x, y, w, h, rgba);
-            free(rgba);
         } else {
             r = gfx_pixmap_write(&c->g, DBR_PIXMAP, x, y, w, h, px);
         }
@@ -1448,7 +1491,13 @@ static void record(client *c, uint32_t type, const uint8_t *msg, uint32_t len) {
 
 static int client_read(client *c) {
     for (;;) {
-        if (c->incap - c->inlen < 65536) { c->incap = c->incap ? c->incap * 2 : 262144; c->in = realloc(c->in, c->incap); }
+        if (c->inlen >= MAX_MSG + DBR_HEADER) break;
+        if (c->incap - c->inlen < 65536) {
+            size_t ncap = c->incap ? c->incap * 2 : 262144;
+            uint8_t *n = realloc(c->in, ncap);
+            if (!n) return -1;
+            c->in = n; c->incap = ncap;
+        }
         ssize_t r = recv(c->fd, c->in + c->inlen, c->incap - c->inlen, MSG_DONTWAIT);
         if (r == 0) return -1;
         if (r < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK) break; if (errno == EINTR) continue; return -1; }
@@ -1467,7 +1516,12 @@ static int client_read(client *c) {
             if (dbr_header(c->in + off, &type, &len, &seq) < 0) { log_warn("%s: bad message", c->app); return -1; }
             if (len > MAX_MSG) return -1;
             if (c->inlen - off - DBR_HEADER < len) {
-                if (c->incap < len + DBR_HEADER) { c->incap = len + DBR_HEADER + 65536; uint8_t *n = realloc(c->in, c->incap); if (!n) return -1; c->in = n; }
+                if (c->incap < len + DBR_HEADER) {
+                    size_t ncap = len + DBR_HEADER + 65536;
+                    uint8_t *n = realloc(c->in, ncap);
+                    if (!n) return -1;
+                    c->in = n; c->incap = ncap;
+                }
                 break;
             }
             c->started = 1;
@@ -1482,7 +1536,12 @@ static int client_read(client *c) {
         memcpy(&type, c->in + off, 4); memcpy(&len, c->in + off + 4, 4);
         if (len > MAX_MSG) return -1;
         if (c->inlen - off - 8 < len) {
-            if (c->incap < len + 8) { c->incap = len + 8 + 65536; uint8_t *n = realloc(c->in, c->incap); if (!n) return -1; c->in = n; }
+            if (c->incap < len + 8) {
+                size_t ncap = len + 8 + 65536;
+                uint8_t *n = realloc(c->in, ncap);
+                if (!n) return -1;
+                c->in = n; c->incap = ncap;
+            }
             break;
         }
         c->started = 1;
@@ -1490,7 +1549,12 @@ static int client_read(client *c) {
         /* payload must be 4-byte aligned for the word views: copy if it is not */
         const uint8_t *pl = c->in + off + 8;
         uint8_t *tmp = NULL;
-        if (((uintptr_t)pl & 3) != 0) { tmp = malloc(len + 4); memcpy(tmp, pl, len); pl = tmp; }
+        if (((uintptr_t)pl & 3) != 0) {
+            tmp = malloc(len + 4);
+            if (!tmp) return -1;
+            memcpy(tmp, pl, len);
+            pl = tmp;
+        }
         int rc = handle(c, type, pl, len);
         free(tmp);
         if (rc < 0) { log_warn("%s: bad message %u (len %u)", c->app, type, len); return -1; }
@@ -1508,6 +1572,7 @@ static void accept_client(void) {
     if (slot < 0) { log_warn("%d apps connected already: refused", MAX_CLIENTS); close(fd); return; }
     int sz = 4 << 20; setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &sz, sizeof sz);
     client *c = calloc(1, sizeof *c);
+    if (!c) { close(fd); return; }
     c->fd = fd; c->slot = slot; c->xf.s = 1; c->es = EGL_NO_SURFACE; c->mode = MODE_LAYER; c->uid = UINT32_MAX; c->g.name = c->app;
     struct ucred cr; socklen_t cl = sizeof cr;
     if (!getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cr, &cl)) c->uid = cr.uid;
@@ -1531,18 +1596,23 @@ static int replay(const char *in, const char *out, const char *raw, uint32_t uid
     FILE *f = fopen(in, "rb");
     if (!f) { perror(in); return 1; }
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-    uint8_t *buf = malloc(n + 4); if (fread(buf, 1, n, f) != (size_t)n) return 1; fclose(f);
+    if (n < 0) { fclose(f); return 1; }
+    uint8_t *buf = malloc((size_t)n + 4);
+    if (!buf || fread(buf, 1, (size_t)n, f) != (size_t)n) { free(buf); fclose(f); return 1; }
+    fclose(f);
     client c; memset(&c, 0, sizeof c); c.fd = -1; c.xf.s = 1; c.mode = MODE_LAYER; strcpy(c.app, "replay");
     c.uid = uid; c.g.name = c.app;
     GLuint tex = 0, fbo = 0;
     FILE *rf = raw ? fopen(raw, "wb") : NULL;
     uint8_t *rpx = NULL;
-    if (raw && !rf) { perror(raw); return 1; }
+    if (raw && !rf) { perror(raw); free(buf); return 1; }
     int frames = 0; uint64_t tsum = 0;
     for (long off = 0; off + 8 <= n;) {
         uint32_t type, len; memcpy(&type, buf + off, 4); memcpy(&len, buf + off + 4, 4);
         if (off + 8 + (long)len > n) break;
-        uint8_t *pl = malloc(len + 4); memcpy(pl, buf + off + 8, len);
+        uint8_t *pl = malloc((size_t)len + 4);
+        if (!pl) { free(buf); return 1; }
+        memcpy(pl, buf + off + 8, len);
         if (type == M_FRAME) {
             if (!fbo) {
                 glGenTextures(1, &tex); glBindTexture(GL_TEXTURE_2D, tex);
@@ -1556,17 +1626,18 @@ static int replay(const char *in, const char *out, const char *raw, uint32_t uid
             glFinish();
             tsum += now_us() - t0; frames++;
             if (rf) {
-                if (!rpx) rpx = malloc((size_t)c.w * c.h * 4);
+                if (!rpx && !(rpx = malloc((size_t)c.w * c.h * 4))) { free(pl); free(buf); return 1; }
                 glReadPixels(0, 0, c.w, c.h, GL_RGBA, GL_UNSIGNED_BYTE, rpx);
                 for (int y = c.h - 1; y >= 0; y--) fwrite(rpx + (size_t)y * c.w * 4, 1, (size_t)c.w * 4, rf);
             }
-        } else if (handle(&c, type, pl, len) < 0) { log_error("bad message %u", type); return 1; }
+        } else if (handle(&c, type, pl, len) < 0) { log_error("bad message %u", type); free(pl); free(buf); return 1; }
         free(pl);
         off += 8 + len;
     }
     if (rf) { fclose(rf); free(rpx); }
-    if (!fbo) { log_error("no frame in %s", in); return 1; }
+    if (!fbo) { log_error("no frame in %s", in); free(buf); return 1; }
     uint8_t *px = malloc((size_t)c.w * c.h * 4);
+    if (!px) { free(buf); return 1; }
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glReadPixels(0, 0, c.w, c.h, GL_RGBA, GL_UNSIGNED_BYTE, px);
     FILE *o = fopen(out, "wb");
@@ -1786,11 +1857,11 @@ int main(int argc, char **argv) {
         if (touch_on) touch_tick(any_claim());
         trace_check(now_us());
         if (tnow >= share_next) { share_next = tnow + SHARE_US; share_tick(); kit_tick(tnow); }
-        if (cfg.foreground_gate[0] && !gate_unavailable() && gate_fd() < 0 && tnow > gate_retry) {
+        if (cfg.foreground_gate[0] && !gate_unavailable() && gate_fd() < 0 && tnow >= gate_retry) {
             gate_retry = tnow + 5000000;
             gate_start(cfg.foreground_gate);
         }
-        if (cfg.embed && tnow > embed_retry) {               /* (no-op while connected or connecting) */
+        if (cfg.embed && tnow >= embed_retry) {               /* (no-op while connected or connecting) */
             embed_retry = tnow + 5000000;
             embed_connect(cfg.hmi_display, cfg.embed_surface_id, cfg.embed_area[2], cfg.embed_area[3], cfg.embed_zero_copy);
         }
@@ -1805,15 +1876,34 @@ int main(int argc, char **argv) {
         pf[np].fd = gate_fd(); pf[np].events = POLLIN; map[np++] = -4;
         pf[np].fd = ccu_fd; pf[np].events = POLLIN; map[np++] = -5;
         embed_prepare(&pf[np]); map[np++] = -6;
+        int has_clients = 0;
         for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) {
+            has_clients = 1;
             pf[np].fd = clients[i]->fd;
             pf[np].events = POLLIN | (clients[i]->outlen ? POLLOUT : 0);
             map[np++] = i;
         }
-        /* controller held: keep its file fresh; a video's next frame: look every 5 ms.
-           ponytail: polling the frame file's header, an eventfd from the player if it ever costs */
-        int wait_ms = video_on ? 5 : ctl_gate_on ? 100 : 250;
-        if (touch_on && touch_busy() && wait_ms > 20) wait_ms = 20;   /* nft's answer, seen within 20 ms */
+        /* controller held: keep its file fresh; a video's next frame: look every 5 ms;
+           idle with no clients: sleep until the next active timer. */
+        int wait_ms;
+        if (video_on) wait_ms = 5;
+        else if (ctl_gate_on) wait_ms = 100;
+        else if (has_clients) wait_ms = 250;
+        else {
+            wait_ms = -1;
+            uint64_t now = now_us();
+            #define SOONER(at) do { \
+                int d = (at) > now ? (int)(((at) - now + 999) / 1000) : 1; \
+                if (wait_ms < 0 || d < wait_ms) wait_ms = d; \
+            } while (0)
+            if (shares[0].shared[0] || shares[1].shared[0]) SOONER(share_next);
+            if (cfg.foreground_gate[0] && !gate_unavailable() && gate_fd() < 0) SOONER(gate_retry);
+            if (cfg.embed && !embed_connected() && !embed_connecting()) SOONER(embed_retry);
+            if (embed_settling(now)) SOONER(t_listen + 3000000ull);
+            else if (cfg.embed && embed_connecting()) SOONER(now + 1000000ull);
+            #undef SOONER
+        }
+        if (touch_on && touch_busy() && (wait_ms < 0 || wait_ms > 20)) wait_ms = 20;   /* nft's answer, seen within 20 ms */
         for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i]) {   /* in time for a capped app's waiting frame */
             uint64_t us = cap_wait(clients[i], tnow), t = clients[i]->tick_at;
             if (t) { uint64_t d = t > tnow ? t - tnow : 1; if (!us || d < us) us = d; }

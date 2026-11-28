@@ -165,6 +165,7 @@ static int run(const struct scenario *sc, const char *mock)
     for (int t = 0; t < 100 && !ready_seen; t++) pump(50);
     CHECK(ready_seen, "%s: connected", sc->name);
     CHECK(strncmp(embed_path(), sc->path, strlen(sc->path)) == 0, "%s: path \"%s\"", sc->name, embed_path());
+    CHECK((embed_pixels(0) == NULL) == embed_zero_copy(), "%s: shared memory allocated only for readback", sc->name);
     embed_show(1);
     uint32_t ops[256];
     int drawn = 0;

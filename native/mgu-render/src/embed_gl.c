@@ -54,7 +54,16 @@ static void *(*map_range)(GLenum, GLintptr, GLsizeiptr, GLbitfield);
 static GLboolean (*unmap)(GLenum);
 
 /* zero-copy */
-static struct { int fd; uint32_t stride; GLuint tex, fbo; EGLImageKHR img; uint8_t *map; } B[MAXBUF];
+#ifndef MGU_FAKE_DMABUF
+struct gbm_device;
+struct gbm_bo;
+#endif
+static struct {
+    int fd; uint32_t stride; GLuint tex, fbo; EGLImageKHR img; uint8_t *map;
+#ifndef MGU_FAKE_DMABUF
+    struct gbm_bo *bo;
+#endif
+} B[MAXBUF];
 static int nbuf, bw, bh;
 static char failed[160];                        /* making the buffers failed: why (not tried again) */
 
@@ -84,14 +93,14 @@ const char *embed_gl_readback_mode(void) { return map_range && unmap ? "pixel bu
 
 /* ---------------- zero-copy buffers ---------------- */
 #ifndef MGU_FAKE_DMABUF
-struct gbm_device;
-struct gbm_bo;
 static struct {
     struct gbm_device *(*create_device)(int);
     struct gbm_bo *(*bo_create)(struct gbm_device *, uint32_t, uint32_t, uint32_t, uint32_t);
+    void (*bo_destroy)(struct gbm_bo *);
     int (*bo_get_fd)(struct gbm_bo *);
     uint32_t (*bo_get_stride)(struct gbm_bo *);
 } gbm;
+static PFNEGLDESTROYIMAGEKHRPROC destroy_image;
 #define GBM_BO_USE_RENDERING (1 << 2)
 #define GBM_BO_USE_LINEAR (1 << 4)
 
@@ -103,9 +112,11 @@ static int alloc_bo(int i, int w, int h, char *why, size_t len)
         if (!lib) { snprintf(why, len, "no libgbm: %s", dlerror()); return -1; }
         gbm.create_device = (struct gbm_device *(*)(int))dlsym(lib, "gbm_create_device");
         gbm.bo_create = (struct gbm_bo *(*)(struct gbm_device *, uint32_t, uint32_t, uint32_t, uint32_t))dlsym(lib, "gbm_bo_create");
+        gbm.bo_destroy = (void (*)(struct gbm_bo *))dlsym(lib, "gbm_bo_destroy");
         gbm.bo_get_fd = (int (*)(struct gbm_bo *))dlsym(lib, "gbm_bo_get_fd");
         gbm.bo_get_stride = (uint32_t (*)(struct gbm_bo *))dlsym(lib, "gbm_bo_get_stride");
         if (!gbm.create_device || !gbm.bo_create || !gbm.bo_get_fd || !gbm.bo_get_stride) {
+            dlclose(lib);
             snprintf(why, len, "libgbm lacks gbm_bo_get_fd / gbm_bo_get_stride");
             return -1;
         }
@@ -119,6 +130,7 @@ static int alloc_bo(int i, int w, int h, char *why, size_t len)
     }
     struct gbm_bo *bo = gbm.bo_create(dev, (uint32_t)w, (uint32_t)h, FOURCC_XRGB8888, GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
     if (!bo) { snprintf(why, len, "gbm_bo_create %dx%d XRGB8888 linear failed", w, h); return -1; }
+    B[i].bo = bo;
     B[i].fd = gbm.bo_get_fd(bo);               /* kept, with the bo and the image, for later connections */
     B[i].stride = gbm.bo_get_stride(bo);
     if (B[i].fd < 0) { snprintf(why, len, "gbm_bo_get_fd failed"); return -1; }
@@ -128,6 +140,7 @@ static int alloc_bo(int i, int w, int h, char *why, size_t len)
         const char *ext = eglQueryString(dpy, EGL_EXTENSIONS);
         if (!ext || !strstr(ext, "EGL_EXT_image_dma_buf_import")) { snprintf(why, len, "EGL lacks EGL_EXT_image_dma_buf_import"); return -1; }
         create_image = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+        destroy_image = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
         target_tex = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
         if (!create_image || !target_tex) { create_image = NULL; snprintf(why, len, "no eglCreateImageKHR / glEGLImageTargetTexture2DOES"); return -1; }
     }
@@ -148,6 +161,7 @@ static int alloc_bo(int i, int w, int h, char *why, size_t len)
     B[i].fd = (int)syscall(SYS_memfd_create, "fake-dmabuf", 1u);
     if (B[i].fd < 0 || ftruncate(B[i].fd, (off_t)B[i].stride * h) < 0 ||
         (B[i].map = mmap(NULL, (size_t)B[i].stride * h, PROT_READ | PROT_WRITE, MAP_SHARED, B[i].fd, 0)) == MAP_FAILED) {
+        B[i].map = NULL;
         snprintf(why, len, "memfd: %s", strerror(errno));
         return -1;
     }
@@ -158,6 +172,22 @@ static int alloc_bo(int i, int w, int h, char *why, size_t len)
 }
 #endif
 
+static void free_bo(int i, int h)
+{
+    if (B[i].fbo) { glDeleteFramebuffers(1, &B[i].fbo); B[i].fbo = 0; }
+    if (B[i].tex) { glDeleteTextures(1, &B[i].tex); B[i].tex = 0; }
+#ifndef MGU_FAKE_DMABUF
+    if (B[i].img != EGL_NO_IMAGE_KHR && destroy_image) destroy_image(dpy, B[i].img);
+    B[i].img = EGL_NO_IMAGE_KHR;
+    if (B[i].bo && gbm.bo_destroy) gbm.bo_destroy(B[i].bo);
+    B[i].bo = NULL;
+#else
+    if (B[i].map) { munmap(B[i].map, (size_t)B[i].stride * h); B[i].map = NULL; }
+#endif
+    if (B[i].fd >= 0) { close(B[i].fd); B[i].fd = -1; }
+    B[i].stride = 0;
+}
+
 int embed_gl_buffers(int n, int w, int h, int fd[], uint32_t stride[], char *why, size_t len)
 {
     if (n > MAXBUF) n = MAXBUF;
@@ -166,6 +196,8 @@ int embed_gl_buffers(int n, int w, int h, int fd[], uint32_t stride[], char *why
     current();
     setup();
     for (int i = nbuf; i < n; i++) {
+        B[i].fd = -1;
+        B[i].img = EGL_NO_IMAGE_KHR;
         if (alloc_bo(i, w, h, why, len) < 0) goto fail;
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -179,11 +211,9 @@ int embed_gl_buffers(int n, int w, int h, int fd[], uint32_t stride[], char *why
     }
     for (int i = 0; i < n; i++) { fd[i] = B[i].fd; stride[i] = B[i].stride; }
     return 0;
-fail:                                           /* the buffer being made goes (its GBM object stays), the reason stays */
-    if (B[nbuf].fbo) glDeleteFramebuffers(1, &B[nbuf].fbo);
-    if (B[nbuf].tex) glDeleteTextures(1, &B[nbuf].tex);
-    if (B[nbuf].fd > 0) close(B[nbuf].fd);
-    B[nbuf].fbo = 0; B[nbuf].tex = 0; B[nbuf].fd = 0;
+fail:
+    for (int j = 0; j <= nbuf; j++) free_bo(j, h);
+    nbuf = 0; bw = 0; bh = 0;
     snprintf(failed, sizeof failed, "%s", why);
     return -1;
 }
@@ -197,7 +227,14 @@ static int readback_target(int w, int h)
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glGenFramebuffers(1, &rb_fbo); glBindFramebuffer(GL_FRAMEBUFFER, rb_fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rb_tex, 0);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) { log_error("embed: framebuffer incomplete"); return -1; }
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        log_error("embed: framebuffer incomplete");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteFramebuffers(1, &rb_fbo); rb_fbo = 0;
+        glDeleteTextures(1, &rb_tex); rb_tex = 0;
+        free(rb_px); rb_px = NULL;
+        return -1;
+    }
     if (map_range && unmap) {
         glGenBuffers(1, &pbo);
         glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);

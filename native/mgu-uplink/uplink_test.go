@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, path, body string) {
@@ -271,5 +273,153 @@ func TestSameLeaseIgnoresOnlyRenewTime(t *testing.T) {
 	}
 	if sameLease(nil, marshalJSON(l)) {
 		t.Error("an app without the file does not get it")
+	}
+}
+
+func TestEnsureUnitAcceptSingleCall(t *testing.T) {
+	defer func(f func(string, ...string) (string, error)) { runNFT = f }(runNFT)
+	c := defaults()
+
+	// Chain absent: single nft invocation, no error.
+	var calls [][]string
+	runNFT = func(stdin string, args ...string) (string, error) {
+		calls = append(calls, args)
+		return "", errors.New("No such file or directory")
+	}
+	if err := ensureUnitAccept(c, []string{Ifname}); err != nil {
+		t.Fatalf("chain absent: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("chain absent made %d nft calls, want 1: %v", len(calls), calls)
+	}
+
+	// Chain present and already matching: single nft invocation.
+	calls = nil
+	runNFT = func(stdin string, args ...string) (string, error) {
+		calls = append(calls, args)
+		return "table ip filter {\n\tchain output {\n\t\toifname \"" + Ifname + "\" accept comment \"" + nftComment + "\" # handle 12\n\t}\n}\n", nil
+	}
+	if err := ensureUnitAccept(c, []string{Ifname}); err != nil {
+		t.Fatalf("matching: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("matching rules made %d nft calls, want 1: %v", len(calls), calls)
+	}
+}
+
+func TestReconcileFirewallCadence(t *testing.T) {
+	defer func(f func(string, ...string) (string, error), d time.Duration) { runNFT, fwCheckEvery = f, d }(runNFT, fwCheckEvery)
+	fwCheckEvery = 60 * time.Millisecond
+	c := defaults()
+	s := &service{cfg: c, up: newScanUplink(c)}
+
+	tablePresent := true
+	var calls []string
+	runNFT = func(stdin string, args ...string) (string, error) {
+		cmd := strings.Join(args, " ")
+		calls = append(calls, cmd)
+		switch cmd {
+		case "list table inet " + nftTable:
+			if !tablePresent {
+				return "", errors.New("absent")
+			}
+			return "", nil
+		case "-a list chain ip filter output":
+			return "oifname \"" + Ifname + "\" accept comment \"" + nftComment + "\" # handle 5\n", nil
+		}
+		return "", nil
+	}
+
+	// Initial forced apply installs firewall.
+	if err := s.reconcileFirewall(true, false, []int{12205}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) == 0 || calls[0] != "-f -" {
+		t.Fatalf("initial apply: %v", calls)
+	}
+
+	// Idle ticks within fwCheckEvery invoke no nft subprocesses.
+	calls = nil
+	if err := s.reconcileFirewall(false, false, []int{12205}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("idle tick ran nft: %v", calls)
+	}
+
+	// UID change applies immediately without waiting for fwCheckEvery.
+	if err := s.reconcileFirewall(false, true, []int{12205, 12990}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) == 0 || calls[0] != "-f -" {
+		t.Fatalf("uid change did not apply immediately: %v", calls)
+	}
+
+	// After fwCheckEvery, periodic check verifies table and chain without re-applying.
+	calls = nil
+	time.Sleep(fwCheckEvery + 15*time.Millisecond)
+	if err := s.reconcileFirewall(false, false, []int{12205, 12990}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"list table inet " + nftTable, "-a list chain ip filter output"}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("periodic check calls %v, want %v", calls, want)
+	}
+
+	// If table disappeared on next periodic check, applyFirewall restores it.
+	calls = nil
+	tablePresent = false
+	time.Sleep(fwCheckEvery + 15*time.Millisecond)
+	if err := s.reconcileFirewall(false, false, []int{12205, 12990}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) < 2 || calls[1] != "-f -" {
+		t.Fatalf("missing table not restored: %v", calls)
+	}
+}
+
+func TestReconcileAppStateSkipAndResync(t *testing.T) {
+	defer func(d time.Duration) { appSyncEvery = d }(appSyncEvery)
+	appSyncEvery = 60 * time.Millisecond
+	c := defaults()
+	c.OAPDir, c.RunDir = t.TempDir(), t.TempDir()
+	l := &Lease{Interface: Ifname, IP: "192.168.8.100", Prefix: 24, Router: "192.168.8.1", DNS: []string{"1.1.1.1"}, Updated: "t1"}
+	s := &service{cfg: c, lease: l}
+	byApp := map[string]int{}
+
+	if err := s.reconcileAppState(true, false, byApp); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(c.leaseFile()) {
+		t.Fatal("lease.json not written")
+	}
+
+	// Unchanged state within appSyncEvery skips syncAppState.
+	os.Remove(c.leaseFile())
+	if err := s.reconcileAppState(false, false, byApp); err != nil {
+		t.Fatal(err)
+	}
+	if exists(c.leaseFile()) {
+		t.Fatal("syncAppState ran on unchanged idle tick")
+	}
+
+	// Lease change triggers immediate sync.
+	l2 := *l
+	l2.Updated = "t2"
+	s.lease = &l2
+	if err := s.reconcileAppState(false, false, byApp); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(c.leaseFile()) {
+		t.Fatal("lease change did not sync")
+	}
+
+	// Periodic resync picks up external changes after appSyncEvery.
+	os.Remove(c.leaseFile())
+	time.Sleep(appSyncEvery + 15*time.Millisecond)
+	if err := s.reconcileAppState(false, false, byApp); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(c.leaseFile()) {
+		t.Fatal("periodic resync did not restore lease.json")
 	}
 }

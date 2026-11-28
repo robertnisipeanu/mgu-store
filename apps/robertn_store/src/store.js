@@ -85,8 +85,7 @@ const SOCKET = '/dev/shm/mgu-updater/updater.sock';
 // the id the updater knows the Store by (updater.conf store_app)
 const APP_ID = 'robertn_store';
 /* The updater writes the privileged secret, and while the phone page is on
- * its access URL, into this app's data folder (owner this app's uid, 0400);
- * both are read again on every use. */
+ * its access URL, into this app's data folder (owner this app's uid, 0400). */
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const SECRET_FILE = path.join(DATA_DIR, 'updater-secret');
 const WEB_URL_FILE = path.join(DATA_DIR, 'web-url');
@@ -180,8 +179,27 @@ function readFile(file) {
     }
 }
 
+let secretCache = null;
+
+function dropSecret() {
+    secretCache = null;
+}
+
 function readSecret() {
-    return readFile(SECRET_FILE).trim() || null;
+    let st;
+    try {
+        st = fs.statSync(SECRET_FILE);
+    } catch (e) {
+        secretCache = null;
+        return null;
+    }
+    const mtime = st.mtimeMs !== undefined ? st.mtimeMs : st.mtime.getTime();
+    if (secretCache && secretCache.mtime === mtime && secretCache.size === st.size && secretCache.ino === st.ino) {
+        return secretCache.value;
+    }
+    const value = readFile(SECRET_FILE).trim() || null;
+    secretCache = { value, mtime, size: st.size, ino: st.ino };
+    return value;
 }
 
 /* The HMI reads pictures as another user: QR codes live in a world-readable
@@ -327,6 +345,7 @@ class Store extends OnlineApp {
             if (op === 'hello') {
                 return;
             }
+            dropSecret();
             // replies come in request order, so one without its op answers the last request
             const forOp = op || this._lastOp;
             this._lastOp = null;
@@ -736,9 +755,11 @@ class Store extends OnlineApp {
     /* What the drawn screens show besides their own navigation. */
     _drawnModel() {
         const web = this._connected && this._st && this._st.web;
+        const top = this._drawn.top();
+        const onPhone = !!(top && top.name === 'phone');
         return { st: this._connected ? this._st : null, connected: this._connected && !!this._st, secret: !!readSecret(),
             version: this._version(), note: this._sourcesNote, login: this._login,
-            webText: web && web.enabled ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
+            webText: web && web.enabled && onPhone ? readFile(WEB_URL_FILE) : '', accountsNote: this._accountsNote,
             pick: this._pick && { repo: this._pick.repo, probe: this._pick.probe, tokenNote: !!this._pick.tokenNote },
             uplinkNote: this._uplinkNote, proxyNote: this._proxyNote, removeNote: this._removeNote, language: i18n.language() };
     }
@@ -1602,6 +1623,18 @@ class Store extends OnlineApp {
         }
         const st = this._st;
         const connected = this._connected && !!st;
+        const web = connected && st.web && typeof st.web === 'object' ? st.web : null;
+        if (this._drawnUi()) {
+            if ((!this._source(this._sourceId) && this._connected) || this._removalRefused) {
+                this._leaveRemovedSource();
+            }
+            this._leavePick();
+            this._showPick();
+            this._closeDoneLogin(this._loginState(connected ? st.login : null));
+            this._pollWebUrl(!!(web && web.enabled && this._pageShown('phone', isPage('phone'))));
+            this._drawn.refresh();
+            return;
+        }
         this._set(C.status, 'Text', connected ? statusLine(st, true) : statusLine(null, false, !!readSecret()), 'Text');
         this._set(C.check, 'Text', connected && st.catalog.checking ? tr("Checking") : tr("Check for updates"), 'Text');
         // the first item that takes the focus: the start screen opens on it
@@ -1638,7 +1671,6 @@ class Store extends OnlineApp {
 
         // an updater that reports no sources or web hides Sources and Phone access
         const sources = connected && Array.isArray(st.sources) ? st.sources : null;
-        const web = connected && st.web && typeof st.web === 'object' ? st.web : null;
         if (sources) {
             this._set(C.navSources, 'Text2ndCol', sourcesState(sources), 'Text');
         }
@@ -1671,9 +1703,6 @@ class Store extends OnlineApp {
         this._renderPick();
         this._renderLogin(connected ? st.login : null);
         this._renderPhone(web);
-        if (this._drawnUi()) {
-            this._drawn.refresh();
-        }
     }
 
     _renderSource(src) {
@@ -1720,23 +1749,31 @@ class Store extends OnlineApp {
         this._showPick();
     }
 
+    _loginState(reported) {
+        if (this._login.waiting && reported && reported.status === 'pending') {
+            this._login.waiting = false;
+        }
+        return this._login.waiting ? null : reported;
+    }
+
+    _closeDoneLogin(login) {
+        if (login && login.status === 'done' && this._pageShown('login', isPage('login'))) {
+            this._visibleStates.delete(S.login);
+            this._closePage('login', isPage('login'));
+        }
+    }
+
     /* The sign-in page; it closes itself once the sign-in it started is
      * done. A login the updater reports before it has taken the new one up
      * is an earlier one. */
     _renderLogin(reported) {
-        if (this._login.waiting && reported && reported.status === 'pending') {
-            this._login.waiting = false;
-        }
-        const login = this._login.waiting ? null : reported;
+        const login = this._loginState(reported);
         const code = loginCode(login);
         this._set(C.loginStatus, 'Text', loginStatus(login, this._login.refusal), 'Text');
         this._text(C.loginCode, code);
         this._text(C.loginUrl, code ? login.url : '');
         this._showQr('login', C.loginQr, code ? login.url : '', code);
-        if (login && login.status === 'done' && this._pageShown('login', isPage('login'))) {
-            this._visibleStates.delete(S.login);
-            this._closePage('login', isPage('login'));
-        }
+        this._closeDoneLogin(login);
     }
 
     _renderPhone(web) {

@@ -172,6 +172,57 @@ function readApps(dir, log) {
     return apps;
 }
 
+function statKey(file) {
+    try {
+        const st = fs.statSync(file);
+        return `${st.ino}:${st.size}:${st.nlink}:${st.mtime.getTime()}:${st.ctime.getTime()}`;
+    } catch (e) {
+        return '';
+    }
+}
+
+/* Caches readApps() across foreground switches while the apps directory, app registry
+ * directory, and each app's application.json keep their stat metadata. */
+function appsReader(dir, log) {
+    const regDir = path.join(dir, 'oap_12201', 'data', 'apps');
+    let dirKey = null;
+    let regKey = null;
+    let names = [];
+    let fileKeys = new Map();
+    let apps = new Map();
+    return () => {
+        const dk = statKey(dir);
+        const rk = statKey(regDir);
+        let dirty = dk === '' || dk !== dirKey || rk !== regKey;
+        if (!dirty) {
+            for (let i = 0; i < names.length; i++) {
+                const f = path.join(dir, names[i], 'rhmiData', 'application.json');
+                if (statKey(f) !== fileKeys.get(names[i])) {
+                    dirty = true;
+                    break;
+                }
+            }
+        }
+        if (!dirty) {
+            return apps;
+        }
+        dirKey = dk;
+        regKey = rk;
+        names = [];
+        fileKeys = new Map();
+        try {
+            names = fs.readdirSync(dir).filter((n) => /^oap_\d+$/.test(n));
+        } catch (e) {
+            // readApps logs the error
+        }
+        names.forEach((n) => {
+            fileKeys.set(n, statKey(path.join(dir, n, 'rhmiData', 'application.json')));
+        });
+        apps = readApps(dir, log);
+        return apps;
+    };
+}
+
 function hasRootApp(stack) {
     return stack instanceof Map ? stack.has('ROOT_APP')
         : !!stack && Object.prototype.hasOwnProperty.call(stack, 'ROOT_APP');
@@ -195,7 +246,8 @@ function startGate(opts) {
     const front = new Map();   // instance name -> its stack has ROOT_APP
     const shown = new Map();   // instance name in front -> its uuid
     const focus = new Map();   // instance name -> { states, focused (state ids with the HMI focus), lost }
-    let apps = readApps(appsDir, log);
+    const getApps = appsReader(appsDir, log);
+    let apps = getApps();
     let last = null;
     let lastCovered = 'covered';
     let settle = null;
@@ -296,7 +348,7 @@ function startGate(opts) {
                 front.set(name, true);
                 proxy.getValue('uuid').then((uuid) => {
                     if (front.get(name)) {
-                        apps = readApps(appsDir, log);
+                        apps = getApps();
                         shown.set(name, uuid);
                         report();
                     }
@@ -339,4 +391,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { startGate, readApps, hasRootApp, findInterface, INTERFACES, COVER_SETTLE_MS };
+module.exports = { startGate, readApps, appsReader, hasRootApp, findInterface, INTERFACES, COVER_SETTLE_MS };

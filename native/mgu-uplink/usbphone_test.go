@@ -241,3 +241,121 @@ func TestUSBPhoneRequest(t *testing.T) {
 		t.Fatalf("status.json names it without the scan: %s", b)
 	}
 }
+
+func TestScanPruneGoneDevices(t *testing.T) {
+	defer func(s string) { sysBusUSB = s }(sysBusUSB)
+	sysBusUSB = t.TempDir()
+	fakeUSBSysfs(t)
+	u := newScanUplink(defaults())
+	now := time.Now()
+	u.failed["rndis:1-4#5"] = now
+	u.failed["rndis:1-9#2"] = now
+	u.failed["iphone:1-3.1"] = now
+	u.failed["iphone:1-8"] = now
+	u.logged["rndis:1-4#5"] = "busy"
+	u.logged["rndis:1-9#2"] = "gone"
+	u.switched["1-5"] = now
+	u.switched["1-9"] = now
+
+	u.candidates()
+	if _, ok := u.failed["rndis:1-4#5"]; !ok {
+		t.Error("pruned present RNDIS device from failed")
+	}
+	if _, ok := u.failed["iphone:1-3.1"]; !ok {
+		t.Error("pruned present iPhone from failed")
+	}
+	if _, ok := u.failed["rndis:1-9#2"]; ok {
+		t.Error("kept gone RNDIS device in failed")
+	}
+	if _, ok := u.failed["iphone:1-8"]; ok {
+		t.Error("kept gone iPhone in failed")
+	}
+	if _, ok := u.logged["rndis:1-4#5"]; !ok {
+		t.Error("pruned present device from logged")
+	}
+	if _, ok := u.logged["rndis:1-9#2"]; ok {
+		t.Error("kept gone device in logged")
+	}
+	if _, ok := u.switched["1-5"]; !ok {
+		t.Error("pruned present device from switched")
+	}
+	if _, ok := u.switched["1-9"]; ok {
+		t.Error("kept gone device in switched")
+	}
+
+	// Removing all USB devices clears all three maps.
+	sysBusUSB = t.TempDir()
+	u.candidates()
+	if len(u.failed) != 0 || len(u.logged) != 0 || len(u.switched) != 0 {
+		t.Fatalf("stale entries remain: failed=%v logged=%v switched=%v", u.failed, u.logged, u.switched)
+	}
+}
+
+func TestScanUeventAndFallback(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"add@/devices/usb1/1-2\x00ACTION=add\x00SUBSYSTEM=usb\x00DEVTYPE=usb_device\x00": true,
+		"add@/devices/net/eth1\x00ACTION=add\x00SUBSYSTEM=net":                           true,
+		"change@/devices/block/sda\x00SUBSYSTEM=block\x00":                               false,
+		"add@/devices/x\x00SUBSYSTEM=usb_device\x00":                                     false,
+		"": false,
+	} {
+		if got := isRelevantUevent([]byte(msg)); got != want {
+			t.Errorf("isRelevantUevent(%q) = %v, want %v", msg, got, want)
+		}
+	}
+
+	// Real Linux NETLINK_KOBJECT_UEVENT socket opens and closes cleanly without blocking.
+	if m, err := openUevent(); err == nil {
+		done := make(chan struct{})
+		go func() {
+			m.Close()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("openUevent().Close() blocked")
+		}
+	}
+
+	// Uevent wakes watchPreferred well before preferFallback.
+	defer func(s string, l func() (*ueventMonitor, error), fb, pe time.Duration) {
+		sysBusUSB, listenUevent, preferFallback, preferEvery = s, l, fb, pe
+	}(sysBusUSB, listenUevent, preferFallback, preferEvery)
+	sysBusUSB = t.TempDir()
+	preferFallback = 30 * time.Second
+	preferEvery = 40 * time.Millisecond
+	uevCh := make(chan struct{}, 1)
+	listenUevent = func() (*ueventMonitor, error) { return &ueventMonitor{C: uevCh}, nil }
+
+	u := newScanUplink(defaults())
+	l := u.watchPreferred(newFakeLink(), candidate{kind: kindIPhone})
+	defer l.Close()
+	fakeUSBSysfs(t) // adds kindECM which outranks kindIPhone
+	uevCh <- struct{}{}
+	select {
+	case <-l.Done():
+		var pe *preferredError
+		if !errors.As(l.Err(), &pe) || pe.c.kind != kindECM {
+			t.Fatalf("ended with %v, want preferred usbecm", l.Err())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("uevent did not wake watchPreferred")
+	}
+
+	// When uevent creation fails, watchPreferred falls back to preferEvery.
+	sysBusUSB = t.TempDir()
+	listenUevent = func() (*ueventMonitor, error) { return nil, errors.New("denied") }
+	l2 := u.watchPreferred(newFakeLink(), candidate{kind: kindIPhone})
+	defer l2.Close()
+	fakeUSBSysfs(t)
+	select {
+	case <-l2.Done():
+		var pe *preferredError
+		if !errors.As(l2.Err(), &pe) || pe.c.kind != kindECM {
+			t.Fatalf("fallback ended with %v", l2.Err())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fallback poll did not wake watchPreferred")
+	}
+}

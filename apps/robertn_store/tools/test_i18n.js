@@ -94,6 +94,14 @@ const all = locales.read();
 ok(all.length > 0, 'a locale');
 eq(fs.readFileSync(locales.OUT, 'utf8'), locales.source(), 'src/locales.js as tools/gen_locales.js writes it');
 eq(i18n.codes(), all.map((l) => l.code), 'every locale in the Store');
+const LOCALES = require(path.join(SRC, 'locales.js'));
+ok(LOCALES.every((l) => l.words === undefined && l.rhmiTexts === undefined), 'src/locales.js holds index metadata only');
+eq(fs.readdirSync(locales.PKG_DIR).filter((n) => /\.json$/.test(n)).sort(),
+    all.map((l) => `${l.code}.json`).sort(), 'package/locales/ has one file per locale');
+all.forEach((l) => {
+    eq(fs.readFileSync(path.join(locales.PKG_DIR, `${l.code}.json`), 'utf8'), JSON.stringify(l.words),
+        `package/locales/${l.code}.json matches locales/${l.code}.json words`);
+});
 all.forEach((l) => {
     const n = `${l.code}.json`;
     ok(Array.isArray(l.hmiLanguages) && l.hmiLanguages.length && l.hmiLanguages.every((h) => /^[A-Z_]+$/.test(h)), `${n}: hmiLanguages`);
@@ -145,17 +153,27 @@ ok(!i18n.setHmiLanguage('CHINESISCH_SIMPLE'), 'the same language: no change');
 });
 
 /* ---- a word a language lacks: its English ---- */
-const de = all.find((l) => l.code === 'de');
-const kept = de.words['Check now'];
-delete de.words['Check now'];
-const LOCALES = require(path.join(SRC, 'locales.js'));
-const live = LOCALES.find((l) => l.code === 'de');
-const liveKept = live.words['Check now'];
-delete live.words['Check now'];
-i18n.setHmiLanguage('DEUTSCH');
-eq([i18n.t('Check now'), i18n.t('Cancel')], ['Check now', 'Abbrechen'], 'a missing word: English, the others translated');
-live.words['Check now'] = liveKept;
-de.words['Check now'] = kept;
+{
+    const dePath = path.join(locales.PKG_DIR, 'de.json');
+    const origRead = fs.readFileSync;
+    fs.readFileSync = function (file, enc) {
+        const out = origRead.apply(fs, arguments);
+        if (path.resolve(String(file)) === path.resolve(dePath)) {
+            const w = JSON.parse(out);
+            delete w['Check now'];
+            return JSON.stringify(w);
+        }
+        return out;
+    };
+    try {
+        i18n.setHmiLanguage('ENGLISCH__UK');
+        i18n.setHmiLanguage('DEUTSCH');
+        eq([i18n.t('Check now'), i18n.t('Cancel')], ['Check now', 'Abbrechen'], 'a missing word: English, the others translated');
+    } finally {
+        fs.readFileSync = origRead;
+        i18n.setHmiLanguage('ENGLISCH__UK');
+    }
+}
 
 /* ---- variants and the languages the drawn screens cannot show ---- */
 [['FLAEMISCH', 'nl'], ['KANTONESISCH_SIMPLE', 'zh-CN'], ['KANTONESISCH_TRADITIONELL', 'zh-TW'], ['PORTUGIESISCH__BR', 'pt-BR'],
@@ -240,14 +258,40 @@ all.filter((l) => l.drawn !== false).forEach((l) => {
 // mgu-render's glyph texture (src/gfx.c gfx_atlas): two 1024-px columns of 4096 rows, shared by every app
 // and never emptied while it runs: Inter's atlases and any language's fit, and, uploaded in this order, those
 // of a change between two of the largest (Chinese, Japanese, Korean)
-const rows = (m) => (m.sizes || [].concat(...Object.keys(m.faces).map((k) => m.faces[k].sizes))).map((a) => a.atlasH);
+const interByFace = {
+    regular: require(path.join(SRC, 'font_regular.js')).sizes,
+    semibold: require(path.join(SRC, 'font_semibold.js')).sizes
+};
+const rows = (m) => {
+    if (m.sizes) {
+        return m.sizes.map((a) => a.atlasH);
+    }
+    return [].concat(...Object.keys(m.faces).map((k) => m.faces[k].sizes.map((a) => {
+        const base = a.base ? interByFace[k].find((b) => b.size === a.size) : null;
+        return a.atlasH + (base ? base.atlasH : 0);
+    })));
+};
 const shelves = (heights) => heights.reduce((col, h) => {
     const c = col[0] <= col[1] ? 0 : 1;
     col[c] += h + 1;
     return col;
 }, [0, 0]);
-const interRows = rows(require(path.join(SRC, 'font_regular.js'))).concat(rows(require(path.join(SRC, 'font_semibold.js'))));
-const ownRows = (name) => rows(JSON.parse(fs.readFileSync(path.join(TREE, 'fonts', `${name}.json`), 'utf8')));
+const interRows = interByFace.regular.map((a) => a.atlasH).concat(interByFace.semibold.map((a) => a.atlasH));
+const zlib = require('zlib');
+const ownRows = (name) => {
+    const m = JSON.parse(fs.readFileSync(path.join(TREE, 'fonts', `${name}.json`), 'utf8'));
+    const bin = fs.readFileSync(path.join(TREE, 'fonts', `${name}.bin`));
+    const atlases = m.sizes || [].concat(...Object.keys(m.faces).map((k) => m.faces[k].sizes));
+    let end = 0;
+    atlases.forEach((a) => {
+        eq(a.offset, end, `${name}.bin slice offset`);
+        ok(a.length > 0 && a.offset + a.length <= bin.length, `${name}.bin slice bounds`);
+        eq(zlib.inflateSync(bin.slice(a.offset, a.offset + a.length)).length, a.atlasW * a.atlasH, `${name}.bin slice inflates to atlas size`);
+        end += a.length;
+    });
+    eq(bin.length, end, `${name}.bin holds compressed alpha slices for every atlas`);
+    return rows(m);
+};
 const langFonts = Array.from(new Set(all.map((l) => l.font).filter(Boolean)));
 const CJK = ['chinese', 'chinese-tc', 'japanese', 'korean'];
 langFonts.forEach((a) => langFonts.filter((b) => b === a || (CJK.indexOf(a) >= 0 && CJK.indexOf(b) >= 0)).forEach((b) => {

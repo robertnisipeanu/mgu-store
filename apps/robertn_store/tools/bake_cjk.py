@@ -12,7 +12,8 @@ Noto Sans CJK faces of google/fonts, SIL Open Font License 1.1
     japanese      NotoSansJP[wght].ttf   JIS X 0208: kana and level 1 kanji (2,965), 20 px
     korean        NotoSansKR[wght].ttf   KS X 1001's 2,350 Hangul syllables, 20 px
 
-into the staged tree's fonts/<font>.json, which the Store reads when the
+into the staged tree's fonts/<font>.json (glyph metadata) and
+fonts/<font>.bin (zlib-compressed alpha slices), which the Store reads when the
 language is in use.
 
 Each font is google/fonts ofl/<dir>/<ttf> at commit
@@ -25,7 +26,7 @@ for names and descriptions from sources. Each atlas is 1024 px wide (mgu-render'
 limit) and has a key from its contents, so the renderer, which shares
 atlases between apps by id, never mixes them up with another font's.
 """
-import glob, hashlib, json, os, sys
+import glob, hashlib, json, os, sys, zlib
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bake_fonts
@@ -97,10 +98,11 @@ def locale_text(font):
 
 def atlas(family, path, name, size, chars):
     bake_fonts.TEXT = ''.join(sorted(set(bake_fonts.TEXT + PUNCTUATION + chars)))
-    a = bake_fonts.bake(path, size, WEIGHT, 1024)
-    a['key'] = '%s %s@%d@%s' % (family, name, size, hashlib.sha256(
-        json.dumps(a, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:16])
-    return a
+    a, pixels = bake_fonts.bake(path, size, WEIGHT, 1024, raw=True)
+    h = hashlib.sha256(json.dumps(a, sort_keys=True, separators=(',', ':')).encode())
+    h.update(pixels)
+    a['key'] = '%s %s@%d@%s' % (family, name, size, h.hexdigest()[:16])
+    return a, pixels
 
 
 def main():
@@ -112,18 +114,28 @@ def main():
             sys.exit('not the pinned %s (SHA-256 %s)' % (ttf, sha256))
     ui = locale_text(sys.argv[1])
     base = bake_fonts.TEXT
-    sizes = [atlas(family, sys.argv[2], 'ui', 40, ui)]
-    bake_fonts.TEXT = base
-    sizes.append(atlas(family, sys.argv[2], 'common', common_size, common() + ui))
+    blobs = bytearray()
+    sizes = []
+    for name, sz, chars in [('ui', 40, ui), ('common', common_size, common() + ui)]:
+        a, pixels = atlas(family, sys.argv[2], name, sz, chars)
+        packed = zlib.compress(pixels, 9)
+        a['offset'] = len(blobs)
+        a['length'] = len(packed)
+        blobs.extend(packed)
+        sizes.append(a)
+        bake_fonts.TEXT = base
     face = {'family': family, 'sizes': sizes}
-    out = os.path.join(FONT_DIR, '%s.json' % sys.argv[1])
-    with open(out, 'w', encoding='utf-8', newline='\n') as o:
+    out_json = os.path.join(FONT_DIR, '%s.json' % sys.argv[1])
+    out_bin = os.path.join(FONT_DIR, '%s.bin' % sys.argv[1])
+    with open(out_json, 'w', encoding='utf-8', newline='\n') as o:
         json.dump({'family': family, 'source': '%s, tools/bake_cjk.py' % ttf,
                    'copyright': "Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'",
                    'license': 'SIL Open Font License 1.1 (LICENSES.txt)', 'sizes': sizes}, o, separators=(',', ':'))
+    with open(out_bin, 'wb') as o:
+        o.write(blobs)
     for a in face['sizes']:
         print('%s: %d glyphs, %d x %d' % (a['key'], len(a['glyphs']), a['atlasW'], a['atlasH']))
-    print('%s: %d bytes' % (os.path.relpath(out), os.path.getsize(out)))
+    print('%s: %d + %d bytes' % (os.path.relpath(out_json), os.path.getsize(out_json), os.path.getsize(out_bin)))
 
 
 if __name__ == '__main__':

@@ -58,7 +58,17 @@ function header(name, size, mode, mtime) {
     let prefix = '';
     let base = name;
     if (Buffer.byteLength(name) > 100) {
-        const cut = name.lastIndexOf('/', 155);
+        // the split at a '/' with at most 155 bytes before it and 100 after
+        let cut = -1;
+        for (let i = name.indexOf('/'); i >= 0; i = name.indexOf('/', i + 1)) {
+            if (Buffer.byteLength(name.slice(0, i)) <= 155 && Buffer.byteLength(name.slice(i + 1)) <= 100) {
+                cut = i;
+                break;
+            }
+        }
+        if (cut < 0) {
+            throw new Error(`${name}: too long a path to pack`);
+        }
         prefix = name.slice(0, cut);
         base = name.slice(cut + 1);
     }
@@ -82,8 +92,14 @@ function header(name, size, mode, mtime) {
 }
 
 /* A gzipped ustar archive of entries ({ name, data, mode }) in the given
- * order, every one owned 0:0 with the same mtime. */
-function tgz(entries, mtime) {
+ * order, every one owned 0:0 with the same mtime. opts.level sets the gzip
+ * compression level (default 9). */
+function tgz(entries, mtime, opts) {
+    if (mtime && typeof mtime === 'object') {
+        opts = mtime;
+        mtime = opts.mtime !== undefined ? opts.mtime : MTIME;
+    }
+    const level = opts && typeof opts.level === 'number' ? opts.level : 9;
     const parts = [];
     entries.forEach((e) => {
         parts.push(header(e.name, e.data.length, e.mode, mtime), e.data);
@@ -93,7 +109,7 @@ function tgz(entries, mtime) {
         }
     });
     parts.push(Buffer.alloc(1024));
-    const out = zlib.gzipSync(Buffer.concat(parts), { level: 9 });
+    const out = zlib.gzipSync(Buffer.concat(parts), { level });
     out[GZIP_OS_BYTE] = GZIP_OS_UNIX;
     return out;
 }
@@ -111,11 +127,11 @@ function stampPackage(pkgDir) {
     return pkg;
 }
 
-function pack(pkgDir, outFile) {
+function pack(pkgDir, outFile, opts) {
     const pkg = stampPackage(pkgDir);
     const files = members(pkgDir, pkg);
     const entries = files.map((rel) => ({ name: rel, data: fs.readFileSync(path.join(pkgDir, rel)), mode: 0o644 }));
-    fs.writeFileSync(outFile, tgz(entries, MTIME));
+    fs.writeFileSync(outFile, tgz(entries, MTIME, opts));
     return files;
 }
 
