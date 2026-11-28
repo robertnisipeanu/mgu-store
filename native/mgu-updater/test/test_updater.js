@@ -6007,8 +6007,37 @@ function testFirstStart() {
     ok('default sources: none added while sources.json cannot be read', u.stored.length === 1 &&
         fs.readFileSync(path.join(D, 'sources.json'), 'utf8') === newer && !fs.existsSync(path.join(D, 'state', 'default-sources.json')));
     testDefaultSources();
+    testSourceNames();
     testConversion();
     return Promise.resolve();
+}
+
+function testSourceNames() {
+    const { Updater } = require('../js/updater');
+    const sourcesLib = require('../js/sources');
+    const dir = path.join(T, 'source-names');
+    mkdirp(dir);
+    const file = path.join(dir, 'sources.json');
+    const source = { id: 's-a', type: 'https', url: 'https://example.org/runtime/catalog.json' };
+    const conf = { sources: file, state_dir: path.join(dir, 'state'), credentials_dir: path.join(dir, 'cred') };
+    sourcesLib.save(file, [source]);
+    let u = new Updater(conf);
+    const rename = (alias, id, secret) => u.handle({ op: 'source-rename', id: id || source.id, alias, secret });
+    const row = () => u.sourceState(u.stored.find((item) => item.id === source.id));
+    const original = fs.readFileSync(file, 'utf8');
+    const runtime = u.src.get(source.id);
+    ok('source name: privileged and accepted only for a saved network source', rename('Name') === 'forbidden' &&
+        !!rename('Name', 'mgu-store', u.secret) && !!rename('Name', 'usb:no', u.secret));
+    ok('source name: invalid names leave the configuration alone', !!rename(123, null, u.secret) &&
+        !!rename('x'.repeat(65), null, u.secret) && !!rename('two\nlines', null, u.secret) &&
+        fs.readFileSync(file, 'utf8') === original);
+    ok('source name: setting an alias keeps source identity and runtime state', rename('  运行组件  ', null, u.secret) === null &&
+        row().label === '运行组件' && row().address === source.url && u.src.get(source.id) === runtime &&
+        sourcesLib.load(file).some((item) => item.id === source.id && item.url === source.url && item.alias === '运行组件'));
+    u = new Updater(conf);
+    ok('source name: retained on restart and cleared with an empty name', row().alias === '运行组件' &&
+        rename('', null, u.secret) === null && row().label === source.url && row().alias === null &&
+        sourcesLib.load(file).some((item) => item.id === source.id && item.alias === undefined));
 }
 
 /* Default sources: added once to a unit's sources, never again once removed,

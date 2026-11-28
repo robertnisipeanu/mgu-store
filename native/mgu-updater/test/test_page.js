@@ -14,8 +14,9 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'web.js'), 'utf8');
 const m = /const PAGE_SCRIPT = `([\s\S]*?)`;\n/.exec(src);
 const js = eval('`' + m[1] + '`');
 const els = {};
-const el = (id) => els[id] || (els[id] = { id, value: '', hidden: false, textContent: '', disabled: false, children: [], style: {},
-    appendChild(c) { this.children.push(c); }, removeAttribute() {}, scrollTop: 0 });
+const node = () => ({ value: '', hidden: false, textContent: '', disabled: false, children: [], style: {},
+    appendChild(c) { this.children.push(c); }, focus() {}, removeAttribute() {}, scrollTop: 0 });
+const el = (id) => els[id] || (els[id] = Object.assign(node(), { id }));
 ['addType', 'addValue', 'addChannel', 'addNote', 'addForm', 'addSubmit', 'app', 'locked', 'status', 'stateErr', 'err', 'down', 'busy',
     'busyText', 'busyBar', 'loginStart', 'sources', 'tokens', 'components', 'login', 'loginCode', 'loginUrl', 'loginStatus', 'loginCancel',
     'tokenForm', 'tokenValue', 'logForm', 'logSrc', 'log'].forEach(el);
@@ -23,21 +24,29 @@ els.addType.value = 'github';
 // a select's textContent = '' drops its options
 Object.defineProperty(els.addChannel, 'textContent', { set() { this.children = []; }, get() { return ''; } });
 Object.defineProperty(els.addChannel, 'value', { get() { return this.children[0] ? this.children[0].value : ''; }, set() {} });
+Object.defineProperty(els.sources, 'textContent', { set() { this.children = []; } });
 const sent = [];
 let answer = null;
 const pending = [];
-global.document = { getElementById: el, createElement: () => ({ value: '', textContent: '', appendChild() {} }) };
+let sources = [];
+let pollPage;
+global.document = { getElementById: el, createElement: node };
 global.location = { hash: '#t=abc', pathname: '/', reload() {} };
 global.history = { replaceState() {} };
 global.sessionStorage = { setItem() {}, getItem: () => 'abc', removeItem() {} };
 global.window = { addEventListener() {} };
 global.confirm = () => true;
-global.setInterval = () => 0;
+global.setInterval = (fn) => { pollPage = fn; return 0; };
 global.fetch = (path, o) => {
     const body = o && o.body ? JSON.parse(o.body) : null;
     if (body) { sent.push(body); }
+    if (body && body.op === 'source-rename') {
+        const source = sources.find((s) => s.id === body.id);
+        const address = source.address || source.label;
+        Object.assign(source, { alias: body.alias || null, label: body.alias || address, address: body.alias ? address : null });
+    }
     const reply = body && body.op === 'source-probe' ? new Promise((r) => pending.push(r)) :
-        Promise.resolve({ updater: { version: 'x' }, online: true, sources: [], tokens: [], components: [] });
+        Promise.resolve({ updater: { version: 'x' }, online: true, sources, tokens: [], components: [] });
     return reply.then((j) => ({ status: 200, ok: true, json: () => Promise.resolve(j || { ok: true }) }));
 };
 new Function(js)();
@@ -117,5 +126,28 @@ const assert = require('assert');
         await tick();
         assert.deepStrictEqual(sent, [{ op: 'source-add', type: 'https', url: 'https://example.org/k7q2m9' }], type);
     }
+    sent.length = 0;
+    const address = 'https://example.org/runtime/catalog.json';
+    sources = [{ id: 's-a', type: 'https', label: address, status: 'ok' }];
+    pollPage();
+    await tick();
+    const edit = () => els.sources.children[0].children.find((child) => child.textContent === 'Rename').onclick();
+    edit();
+    assert.strictEqual(els.sourceNameForm.hidden, false);
+    assert.strictEqual(els.sourceNameAddress.textContent, address);
+    els.sourceName.value = '运行组件';
+    els.sourceNameForm.onsubmit({ preventDefault() {} });
+    await tick();
+    assert.deepStrictEqual(sent, [{ op: 'source-rename', id: 's-a', alias: '运行组件' }]);
+    assert.strictEqual(els.sourceNameForm.hidden, true);
+    assert.deepStrictEqual(els.sources.children[0].children[0].children.slice(0, 2).map((child) => child.textContent),
+        ['运行组件', address]);
+    edit();
+    assert.strictEqual(els.sourceName.value, '运行组件');
+    els.sourceName.value = '';
+    els.sourceNameForm.onsubmit({ preventDefault() {} });
+    await tick();
+    assert.deepStrictEqual(sent[1], { op: 'source-rename', id: 's-a', alias: '' });
+    assert.strictEqual(els.sources.children[0].children[0].children[0].textContent, address);
     console.log("page: all pass");
 })().catch((e) => { console.error(e); process.exit(1); });

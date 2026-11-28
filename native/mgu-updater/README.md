@@ -47,6 +47,9 @@ Store and the phone page add and remove them:
   its source lists, or, where the source names none (release assets, repo
   trees), its sha256 is taken on download.
 - A source that cannot be read keeps the components it listed last.
+- A saved GitHub or HTTPS source can have an `alias` of up to 64 characters
+  (set with **Rename** on the phone page). The Store uses it as the display
+  label. A blank name restores the address as the label.
 
 **GitHub without a token.** A public GitHub source read without a token
 uses GitHub's web hosts (`github.com`, `raw.githubusercontent.com`,
@@ -437,6 +440,7 @@ sends it the state again.
 | `{"op":"source-add","type":"github","repo":"o/r","channel"?}`, `{"op":"source-add","type":"https","url"}` | adds a source (id: a removed source's of the same repo or URL, else `<owner>_<repo>` lowercased, else `s-<hex>`) and reads it |
 | `{"op":"source-probe","repo":"o/r"}` | `{"type":"probe","repo",status}`: what a GitHub repo can be added on. `ok` with `name` (the repo as GitHub spells it), `releases` (it has a release), `tags` (an x.y.z tag), `defaultBranch`, `branches` (at most 300) and `more` (there are more); `auth-needed`, `offline`, `rate-limited`, or `error` with `error`. A repo that is already a source is refused |
 | `{"op":"source-remove","id"}` | removes a source (not the built-in one); what it installed keeps it as its origin |
+| `{"op":"source-rename","id","alias"}` | sets the display name of a saved GitHub or HTTPS source; an empty name clears it |
 | `{"op":"token-add","token","label"?}` | stores a token GitHub accepts, labelled (else with its account), and reads the sources that need one |
 | `{"op":"token-remove","id"}` | removes a token; its sources are read with another one, else need one |
 | `{"op":"login-start"}`, `{"op":"login-cancel"}` | GitHub sign-in, which adds a token |

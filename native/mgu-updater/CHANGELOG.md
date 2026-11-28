@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rename a saved GitHub or HTTPS source from the phone page. The name appears in the Store and can be cleared to show the address again.
+
 ## 0.8.64
 
 - Catalog checks, icon downloads, builds and installs run faster with lower memory use and fewer network requests on the head unit. Self-updates run ahead of dependent queued updates, and queued updates and state files survive restarts cleanly.
