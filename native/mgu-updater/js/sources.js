@@ -230,6 +230,15 @@ function checkStored(s) {
             out[k] = s[k];
         }
     });
+    if (s.alias !== undefined) {
+        if (typeof s.alias !== 'string' || s.alias.length > 64 || /[\x00-\x1f\x7f-\x9f]/.test(s.alias)) {
+            throw new Error('source name must be at most 64 characters on one line');
+        }
+        const alias = s.alias.trim();
+        if (alias) {
+            out.alias = alias;
+        }
+    }
     if (s.builtin) {
         out.builtin = true;
     }

@@ -1211,7 +1211,7 @@ function under(entry, id) {
 }
 // Requests only the Store and the phone page may make (they hold the secret);
 // the phone page offers no restart (web.js).
-const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
+const PRIVILEGED = ['reboot', 'safe-mode-off', 'uninstall', 'rollback', 'setup', 'source-add', 'source-probe', 'source-rename', 'source-remove', 'login-start', 'login-cancel', 'token-add', 'token-remove', 'web', 'logs',
     'uplink-prefer', 'usb-phone', 'wifi-enable', 'wifi-5ghz', 'wifi-scan', 'wifi-connect', 'wifi-forget', 'proxy-set', 'stats'];
 // requests that change what is installed
 const CHANGES = ['install', 'uninstall', 'rollback', 'setup'];
@@ -2109,10 +2109,13 @@ class Updater {
     sourceState(def) {
         const rt = this.src.get(def.id);
         const token = rt.tokenId && rt.status !== 'auth-needed' ? this.tokens.get(rt.tokenId) : null;
+        const address = sourcesLib.label(def);
         return {
             id: def.id,
             type: def.type,
-            label: sourcesLib.label(def),
+            label: def.alias || address,
+            alias: def.alias || null,
+            address: def.alias ? address : null,
             builtin: !!def.builtin,
             usb: def.type === 'usb',
             channel: def.type === 'github' ? rt.channel || def.channel || null : null,
@@ -4646,6 +4649,28 @@ class Updater {
         return undefined;
     }
 
+    sourceRename(id, alias) {
+        const def = this.stored.find((s) => s.id === id);
+        if (!def || def.builtin || (def.type !== 'github' && def.type !== 'https')) {
+            return 'only a saved GitHub or HTTPS source can be renamed';
+        }
+        if (typeof alias !== 'string') {
+            return 'source name must be a string';
+        }
+        let next;
+        try {
+            next = sourcesLib.checkStored(Object.assign({}, def, { alias }));
+        } catch (err) {
+            return err.message;
+        }
+        if (next.alias !== def.alias) {
+            this.saveSources(this.stored.map((s) => (s.id === id ? next : s)));
+            this.src.get(id).def = next;
+            this.changed();
+        }
+        return null;
+    }
+
     sourceRemove(id) {
         const def = this.stored.find((s) => s.id === id);
         if (!def) {
@@ -5033,6 +5058,7 @@ class Updater {
         case 'hello': this.hello(req, client); return undefined;
         case 'source-add': return this.sourceAdd(req);
         case 'source-probe': return this.sourceProbe(req, reply);
+        case 'source-rename': return this.sourceRename(req.id, req.alias);
         case 'source-remove': return this.sourceRemove(req.id);
         case 'login-start': return this.login.start();
         case 'login-cancel': this.login.cancel(); return null;

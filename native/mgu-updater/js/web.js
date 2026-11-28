@@ -331,6 +331,8 @@ const OPS = {
         return null;
     },
     'source-probe': (b) => (str(b.repo, 256) ? { repo: b.repo } : null),
+    'source-rename': (b) => (str(b.id, 256) && typeof b.alias === 'string' && b.alias.length <= 64 ?
+        { id: b.id, alias: b.alias } : null),
     'source-remove': (b) => (str(b.id, 256) ? { id: b.id } : null),
     'login-start': () => ({}),
     'login-cancel': () => ({}),
@@ -731,6 +733,30 @@ function channelLabel(c) {
 function confirmRemove(s) {
   if (confirm('Remove ' + s.label + '?')) { op({ op: 'source-remove', id: s.id }); }
 }
+var namingSource = null;
+function editSourceName(s) {
+  namingSource = s;
+  var field = $('sourceName');
+  field.value = s.alias || '';
+  $('sourceNameAddress').textContent = s.address || s.label || s.id;
+  $('sourceNameForm').hidden = false;
+  field.focus();
+}
+function closeSourceName() {
+  namingSource = null;
+  $('sourceNameForm').hidden = true;
+}
+$('sourceNameCancel').onclick = closeSourceName;
+$('sourceNameForm').onsubmit = function (ev) {
+  ev.preventDefault();
+  var source = namingSource;
+  if (!source) { return; }
+  $('err').hidden = true;
+  api('POST', '/api/op', { op: 'source-rename', id: source.id, alias: $('sourceName').value }).then(function () {
+    if (namingSource === source) { closeSourceName(); }
+    return poll();
+  }, showError);
+};
 function tokenName(t) { return t.label || t.login || t.id; }
 function confirmRemoveToken(t) {
   if (confirm('Remove token ' + tokenName(t) + '?')) { op({ op: 'token-remove', id: t.id }); }
@@ -744,12 +770,16 @@ function changed(key, value) {
   return true;
 }
 function renderSources(sources) {
+  if (namingSource && !sources.some(function (s) { return s.id === namingSource.id; })) {
+    closeSourceName();
+  }
   var box = $('sources');
   box.textContent = '';
   sources.forEach(function (s) {
     var row = el('div', 'row');
     var main = el('div', 'grow');
     main.appendChild(el('div', null, s.label || s.id));
+    if (s.address) { main.appendChild(el('div', 'mut', s.address)); }
     var meta = [s.type];
     if (s.channel) { meta.push(channelLabel(s.channel)); }
     meta.push(STATUS[s.status] || s.status);
@@ -759,6 +789,9 @@ function renderSources(sources) {
     if (s.error) { main.appendChild(el('div', 'bad', s.error)); }
     row.appendChild(main);
     if (!s.builtin && !s.usb) {
+      if (s.type === 'github' || s.type === 'https') {
+        row.appendChild(button('Rename', function () { editSourceName(s); }));
+      }
       row.appendChild(button('Remove', function () { confirmRemove(s); }));
     }
     box.appendChild(row);
@@ -1029,6 +1062,7 @@ button{cursor:pointer}
 button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
 input{flex:1 1 160px;min-width:0}
 form{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+#sourceNameAddress{width:100%;overflow-wrap:anywhere}
 .code{font:600 30px/1.2 ui-monospace,Menlo,monospace;letter-spacing:3px;margin:6px 0}
 .card{background:var(--card);border-radius:12px;padding:12px;margin:12px 0}
 .card button{background:var(--bg)}
@@ -1054,6 +1088,7 @@ a{color:var(--acc)}
 </div>
 <h2>Sources</h2>
 <div id="sources"></div>
+<form id="sourceNameForm" hidden><div id="sourceNameAddress" class="mut"></div><input id="sourceName" aria-label="Source name" placeholder="Source name (optional)" maxlength="64"><button class="pri">Save name</button><button id="sourceNameCancel" type="button">Cancel</button></form>
 <form id="addForm"><select id="addType" aria-label="Type"><option value="github">GitHub</option><option value="https">URL</option></select><input id="addValue" aria-label="Source" placeholder="owner/repo" autocapitalize="off" autocorrect="off" spellcheck="false"><select id="addChannel" aria-label="Channel" hidden></select><button id="addSubmit" class="pri">Add</button></form>
 <p id="addNote" class="mut" hidden></p>
 <h2>Tokens</h2>
