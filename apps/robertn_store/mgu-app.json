@@ -30,6 +30,7 @@
     "src/kit_themes.js",
     "src/font_regular.js",
     "src/font_semibold.js",
+    "src/font_icons.js",
     "lib/mgu_render_client.js"
   ],
   "sdk": [

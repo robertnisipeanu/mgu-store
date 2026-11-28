@@ -65,6 +65,18 @@ function wrap(cv, s, x, y, w, size, c, max, font) {
     return n;
 }
 
+// A card's edge is lit from above: white, faint, from EDGE_TOP at its top to EDGE_BOTTOM at its bottom. A line
+// between two things on one surface is HAIR.
+const EDGE_TOP = 0.18, EDGE_BOTTOM = 0.06, HAIR = 0.09;
+/** A card with a lit edge: face (a colour, or gradient stops) inside an edge 1.5 px wide, bright at the top and faint
+ * at the bottom, its corners concentric with the face's. lift: added to both ends (a card over the others). */
+function lit(cv, x, y, w, h, r, face, lift) {
+    const e = 1.5, up = lift || 0;
+    cv.card(x, y, w, h, r, [[0, withAlpha('#ffffff', EDGE_TOP + up)], [1, withAlpha('#ffffff', EDGE_BOTTOM + up)]]);
+    if (Array.isArray(face) && Array.isArray(face[0])) cv.card(x + e, y + e, w - 2 * e, h - 2 * e, Math.max(0, r - e), face);
+    else cv.roundRect(x + e, y + e, w - 2 * e, h - 2 * e, Math.max(0, r - e), face);
+}
+
 /** Card background in the app style; sel = highlighted (accent edge, tint and glow). */
 function surface(cv, t, x, y, w, h, r, sel, acc) {
     if (sel) for (let k = 3; k >= 1; k--) cv.strokeRoundRect(x - k * 3, y - k * 3, w + k * 6, h + k * 6, r + k * 3, 3, withAlpha(acc, 0.06 * (4 - k)));
@@ -150,15 +162,17 @@ function tabCells(b, o) {
 
 function tabs(cv, t, b, o) {
     const items = list(o.items), acc = C(t, o.color, t.accent), sz = o.size || Math.round(b.h * 0.34);
-    const style = o.style || 'joined', { gap, cw } = tabCells(b, o), r = Math.min(12, b.h / 2);
-    if (style === 'joined') { cv.roundRect(b.x, b.y, b.w, b.h, r, withAlpha(t.panelBottom, 0.92)); cv.strokeRoundRect(b.x, b.y, b.w, b.h, r, 1.5, t.panelEdge); }
+    const style = o.style || 'joined', { gap, cw } = tabCells(b, o), r = Math.min(o.radius || 12, b.h / 2);
+    // joined: one flat face with a weak edge, the tab chosen a lighter face set a little into it
+    if (style === 'joined') lit(cv, b.x, b.y, b.w, b.h, r, mix(t.panelTop, t.bg, 0.35));
     if (style === 'underline') cv.fillRect(b.x, b.y + b.h - 2, b.w, 2, t.panelEdge);
     items.forEach((s, i) => {
         const x = b.x + i * (cw + gap), on = i === (o.sel | 0);
         if (style === 'chips' && !on) { cv.roundRect(x, b.y, cw, b.h, r, withAlpha(t.panelTop, 0.9)); cv.strokeRoundRect(x, b.y, cw, b.h, r, 1.5, t.panelEdge); }
         if (on && style === 'underline') cv.roundRect(x + cw * 0.15, b.y + b.h - 5, cw * 0.7, 5, 2.5, acc);
+        else if (on && style === 'joined') cv.roundRect(x + 5, b.y + 5, cw - 10, b.h - 10, Math.max(2, r - 5), withAlpha(t.text, 0.16));
         else if (on) { cv.card(x, b.y, cw, b.h, r, [[0, withAlpha(acc, 0.32)], [1, withAlpha(acc, 0.12)]]); cv.strokeRoundRect(x, b.y, cw, b.h, r, 2, acc); }
-        else if (style === 'joined' && i) cv.fillRect(x, b.y + b.h * 0.22, 1.5, b.h * 0.56, t.panelEdge);
+        else if (style === 'joined' && i && i - 1 !== (o.sel | 0)) cv.fillRect(x, b.y + b.h * 0.28, 1.5, b.h * 0.44, withAlpha('#ffffff', HAIR));
         const font = on ? 'bold' : 'label';
         const ts = shrink(cv, s, cw - 16, sz, font);
         mid(cv, fit(cv, s, cw - 16, ts, font), x + cw / 2, b.y + b.h / 2, ts, on ? t.text : t.dim, { align: 'center', font });
@@ -518,4 +532,4 @@ const TRY = {
     }, { drag: true }),
 };
 
-module.exports = { DRAW, TRY, ICONS, icon, chevron, legend, surface, wrap, fit, shrink, picture, setPicture, tabCells };
+module.exports = { DRAW, TRY, ICONS, icon, chevron, legend, surface, wrap, fit, shrink, picture, setPicture, tabCells, lit, HAIR };

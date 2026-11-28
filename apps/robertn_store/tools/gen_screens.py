@@ -33,14 +33,18 @@ screens = []
 def restart_now(st, before, x, y, h, shift):
     i = next(k for k, c in enumerate(st['components']) if c['name'] == before)
     st['components'].insert(i, comp('restartNow', 'vbutton', x, y, 540, h, {'text': 'Restart now', 'vicon': 'refresh', 'style': 'primary',
-        'size': 34, 'color': '#3d9bff', 'hidden': True, 'shift': shift}, 'event:restartNow'))
+        'size': 34, 'color': '#2a7fff', 'hidden': True, 'shift': shift}, 'event:restartNow'))
 # store: his, filter Apps / Tools
 st = copy.deepcopy(S['store']); get(st, 'filter')['opts']['items'] = 'All,Apps,Tools'
-restart_now(st, 'filter', 936, 134, 84, {})
+# the header's controls one height and corner radius, 24 apart, against the right edge: the online state a box, the
+# filters, Restart now
+get(st, 'online').update({'x': 2510, 'y': 140, 'w': 330, 'h': 88}); get(st, 'online')['opts'].pop('align'); get(st, 'online')['opts'].update({'radius': 26, 'size': 34})
+get(st, 'filter').update({'x': 1726, 'y': 140, 'h': 88}); get(st, 'filter')['opts']['radius'] = 26
+restart_now(st, 'filter', 1162, 140, 88, {})
 # Leave safe mode in Restart now's place (store_ui.js safeModeOff)
 i = next(k for k, c in enumerate(st['components']) if c['name'] == 'filter')
-st['components'].insert(i, comp('safeModeOff', 'vbutton', 936, 134, 540, 84, {'text': 'Leave safe mode', 'vicon': 'unlock', 'style': 'primary',
-    'size': 34, 'color': '#3d9bff', 'hidden': True}, 'event:safeModeOff'))
+st['components'].insert(i, comp('safeModeOff', 'vbutton', 1162, 140, 540, 88, {'text': 'Leave safe mode', 'vicon': 'unlock', 'style': 'primary',
+    'size': 34, 'color': '#2a7fff', 'hidden': True}, 'event:safeModeOff'))
 screens.append(st)
 # app: his, and under the description what an installed tool says is wrong
 st = copy.deepcopy(S['app']); get(st, 'desc')['h'] = 250
@@ -55,7 +59,8 @@ st['components'].insert(i + 1, comp('also', 'vbutton', 1150, 466, 1190, 80, {'te
 screens.append(st)
 # installed: his, tools for system services
 st = copy.deepcopy(S['installed']); get(st, 'svcLabel')['opts']['text'] = 'HEAD-UNIT TOOLS'
-restart_now(st, 'appsLabel', 2300, 140, 100, {'updateAll': [-564, 0], 'subtitle': [0, -70]}); screens.append(st)
+get(st, 'updateAll')['h'] = 88
+restart_now(st, 'appsLabel', 2300, 140, 88, {'updateAll': [-564, 0], 'subtitle': [0, -70]}); screens.append(st)
 st = copy.deepcopy(S['usb']); get(st, 'title')['opts']['text'] = 'USB'; screens.append(st)
 # settings: sources on the left, access and the head unit on the right
 st = copy.deepcopy(S['settings'])
@@ -95,7 +100,7 @@ st['components'] += [copy.deepcopy(BACK),
     text('title', 610, 138, 1200, 90, 'Accounts', 72, 'bold'),
     text('status', 610, 227, 1600, 43, '', 34, 'label', 'dim'),
     comp('list', 'appList', 610, 292, 1500, 400, {'items': [], 'rowH': 120, 'empty': 'None'}),
-    comp('signIn', 'vbutton', 610, 724, 760, 106, {'text': 'Sign in with GitHub', 'vicon': 'plus', 'style': 'primary', 'color': '#3d9bff'}, 'event:signIn'),
+    comp('signIn', 'vbutton', 610, 724, 760, 106, {'text': 'Sign in with GitHub', 'vicon': 'plus', 'style': 'primary', 'color': '#2a7fff'}, 'event:signIn'),
     comp('addToken', 'vbutton', 1400, 724, 560, 106, {'text': 'Add token', 'vicon': 'plus', 'style': 'outline'}, 'event:addToken'),
 ]
 screens.append(st)
@@ -105,7 +110,7 @@ st['components'] += [copy.deepcopy(BACK),
     text('title', 610, 138, 1600, 90, '', 72, 'bold'),
     text('status', 610, 227, 1600, 43, '', 34, 'label', 'dim'),
     comp('list', 'appList', 610, 292, 1500, 400, {'items': [], 'rowH': 120, 'empty': ''}),
-    comp('signIn', 'vbutton', 610, 724, 760, 106, {'text': 'Sign in with GitHub', 'vicon': 'plus', 'style': 'primary', 'color': '#3d9bff'}, 'event:signIn'),
+    comp('signIn', 'vbutton', 610, 724, 760, 106, {'text': 'Sign in with GitHub', 'vicon': 'plus', 'style': 'primary', 'color': '#2a7fff'}, 'event:signIn'),
     comp('addToken', 'vbutton', 1400, 724, 560, 106, {'text': 'Add token', 'vicon': 'plus', 'style': 'outline'}, 'event:addToken'),
     comp('retry', 'vbutton', 610, 724, 560, 106, {'text': 'Try again', 'vicon': 'refresh', 'style': 'outline'}, 'event:retry'),
 ]

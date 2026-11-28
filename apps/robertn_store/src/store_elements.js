@@ -17,6 +17,8 @@ function qr(cv, t, b, o) {
     // whole device pixels per module: no seams between neighbouring rectangles
     const ts = cv.textScale || 1;
     const m = Math.max(1, Math.floor((s * ts) / n)) / ts;
+    // the code in the card's middle, on a whole device pixel: what the whole modules leave is shared by all four sides
+    const off = Math.round(((s - q.size * m) / 2) * ts) / ts;
     cv.roundRect(b.x, b.y, s, s, Math.round(s * 0.04), '#ffffff');
     for (let r = 0; r < q.size; r++) {
         let run = -1;
@@ -25,7 +27,7 @@ function qr(cv, t, b, o) {
             if (dark && run < 0) {
                 run = c;
             } else if (!dark && run >= 0) {
-                cv.fillRect(b.x + (4 + run) * m, b.y + (4 + r) * m, (c - run) * m, m, '#000000');
+                cv.fillRect(b.x + off + run * m, b.y + off + r * m, (c - run) * m, m, '#000000');
                 run = -1;
             }
         }
