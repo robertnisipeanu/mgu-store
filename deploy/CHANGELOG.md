@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.32
+
 - Installs, updates, backups and status checks use less memory and storage writes, and finish faster on the head unit. `mgu-install.js` downloads packages in parallel, uploads the fallback tool once during uninstall, and keeps failed removals isolated from earlier tools.
 
 ## 0.8.31

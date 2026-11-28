@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.27
+
 - Uses less memory and idle CPU while keeping text, images and embedded screens responsive, allocating fallback buffers and font pages only as needed. Reclaims gradient and font resources cleanly when apps close.
 
 ## 0.6.26

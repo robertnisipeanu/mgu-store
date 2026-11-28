@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.64
+
 - Catalog checks, icon downloads, builds and installs run faster with lower memory use and fewer network requests on the head unit. Self-updates run ahead of dependent queued updates, and queued updates and state files survive restarts cleanly.
 
 ## 0.8.63

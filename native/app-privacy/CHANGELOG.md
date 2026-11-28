@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.7.6
+
 - Reduces repeated disk reads in the running app manager and speeds up startup verification and patching. Writes patched files more safely so an interrupted write cannot leave an empty file.
 
 ## 1.7.5
